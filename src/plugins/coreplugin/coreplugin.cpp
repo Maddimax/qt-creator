@@ -30,6 +30,7 @@
 #include "idocument.h"
 #include "iwizardfactory.h"
 #include "locator/locator.h"
+#include "locator/directoryfilter.h"
 #include "locator/filesystemfilter.h"
 #include "locator/spotlightlocatorfilter.h"
 #include "locator/urllocatorfilter.h"
@@ -546,6 +547,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(Internal::createSpotlightFilterTest);
     addTestCreator(Internal::createFileSystemFilterTest);
     addTestCreator(Internal::createUrlFilterTest);
+    addTestCreator(Internal::createDirectoryFilterTest);
     addTestCreator(createVcsManagerTest);
     addTestCreator(createEditorManagerTest);
     addTestCreator(createTabbedEditorTest);

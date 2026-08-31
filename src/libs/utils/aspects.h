@@ -1294,6 +1294,10 @@ public:
     void setUiAllowReordering(bool allowReordering);
     // What Add puts in a new entry. Empty means an empty one.
     void setUiNewEntryText(const QString &text);
+    // What the entries are, where they are paths: Add and Edit then open a
+    // picker rather than leaving a path to be typed. Any - the default - means
+    // they are plain strings and there is no Edit button.
+    void setUiPathKind(AspectControls::PathKind pathKind);
 
     bool uiAllowAdding() const;
     bool uiAllowRemoving() const;

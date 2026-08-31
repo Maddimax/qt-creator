@@ -6,6 +6,7 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtCreator.Ui
 
@@ -34,6 +35,16 @@ RowLayout {
     }
     readonly property bool editable: (aspect?.enabled ?? false) && !(aspect?.readOnly ?? false)
 
+    // Entries that are paths are picked rather than typed: Add opens the same
+    // dialog the widget list's Add... did, and Edit reopens it on the row the
+    // reader is on. "Any" - the default - means plain strings and no Edit.
+    readonly property string pathKind: root.pres.pathKind ?? ""
+    readonly property bool browsable: root.pathKind !== "" && root.pathKind !== "Any"
+    readonly property bool wantsDirectory:
+        root.pathKind === "ExistingDirectory" || root.pathKind === "Directory"
+    // Which row the open dialog is answering for. -1 appends.
+    property int browsingFor: -1
+
     // A copy, deliberately: a QStringList property reaches QML as a sequence
     // that writes through, so mutating it in place would set the aspect once
     // per element. Every edit below changes the copy and assigns it once.
@@ -47,6 +58,50 @@ RowLayout {
             return
         next[index] = text
         root.aspect.value = next
+    }
+
+    function browse(index: int): void {
+        root.browsingFor = index
+        const current = index >= 0 ? String(root.entries()[index] ?? "") : ""
+        const url = current !== "" ? Qt.resolvedUrl("file://" + current) : ""
+        const dialog = root.wantsDirectory ? folderDialog : fileDialog
+        if (url !== "")
+            dialog.currentFolder = url
+        dialog.open()
+    }
+
+    // What the dialog answered goes where the browse started: a new entry at
+    // the end, or over the one being edited. Cancelling changes nothing, which
+    // is what the widget list did with an empty path.
+    function chose(path: string): void {
+        const next = root.entries()
+        if (root.browsingFor < 0)
+            next.push(path)
+        else if (root.browsingFor < next.length)
+            next[root.browsingFor] = path
+        else
+            return
+        root.aspect.value = next
+    }
+
+    FileDialog {
+        id: fileDialog
+
+        title: (root.pres.promptDialogTitle ?? "") !== ""
+               ? root.pres.promptDialogTitle : qsTr("Choose File")
+        nameFilters: (root.pres.promptDialogFilter ?? "") !== ""
+                     ? root.pres.promptDialogFilter.split(";;") : []
+
+        onAccepted: root.chose(AspectModels.localPath(selectedFile))
+    }
+
+    FolderDialog {
+        id: folderDialog
+
+        title: (root.pres.promptDialogTitle ?? "") !== ""
+               ? root.pres.promptDialogTitle : qsTr("Choose Directory")
+
+        onAccepted: root.chose(AspectModels.localPath(selectedFolder))
     }
 
     // Order is the user's on a list where it means something - the URLs a web
@@ -116,16 +171,29 @@ RowLayout {
             spacing: Spacing.GapHXs
 
             Button {
-                text: qsTr("Add")
+                objectName: "stringListAddButton"
+                text: root.browsable ? qsTr("Add...") : qsTr("Add")
                 visible: root.pres.allowAdding
                 enabled: root.editable
                 onClicked: {
+                    if (root.browsable) {
+                        root.browse(-1)
+                        return
+                    }
                     const next = root.entries()
                     next.push(root.pres.newEntryText ?? "")
                     root.aspect.value = next
                     view.currentIndex = next.length - 1
                     view.itemAtIndex(view.currentIndex)?.forceActiveFocus()
                 }
+            }
+
+            Button {
+                objectName: "stringListEditButton"
+                text: qsTr("Edit...")
+                visible: root.browsable && root.pres.allowEditing
+                enabled: root.editable && view.currentIndex >= 0
+                onClicked: root.browse(view.currentIndex)
             }
 
             Button {

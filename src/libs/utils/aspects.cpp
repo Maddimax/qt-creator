@@ -1096,6 +1096,7 @@ public:
     bool m_allowEditing{true};
     bool m_allowReordering{false};
     QString m_newEntryText;
+    AspectControls::PathKind m_pathKind{AspectControls::PathKind::Any};
     StringListAspect::DisplayStyle m_displayStyle{StringListAspect::DisplayStyle::ListView};
 };
 
@@ -3276,6 +3277,7 @@ AspectPresentation StringListAspect::presentation() const
     p.allowEditing = d->m_allowEditing;
     p.allowReordering = d->m_allowReordering;
     p.newEntryText = d->m_newEntryText;
+    p.pathKind = d->m_pathKind;
     return p;
 }
 
@@ -3331,6 +3333,10 @@ void StringListAspect::setUiAllowReordering(bool allowReordering)
 void StringListAspect::setUiNewEntryText(const QString &text)
 {
     d->m_newEntryText = text;
+}
+void StringListAspect::setUiPathKind(AspectControls::PathKind pathKind)
+{
+    d->m_pathKind = pathKind;
 }
 
 bool StringListAspect::uiAllowAdding() const

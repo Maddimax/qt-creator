@@ -8,6 +8,8 @@
 
 namespace Core {
 
+namespace Internal { class DirectoryFilterTest; }
+
 class CORE_EXPORT DirectoryFilter : public ILocatorFilter
 {
 public:
@@ -27,19 +29,44 @@ protected:
 private:
     LocatorMatcherTasks matchers() final { return {m_cache.matcher()}; }
     void setDirectories(const Utils::FilePaths &directories);
-    void handleAddDirectory();
-    void handleEditDirectory();
-    void handleRemoveDirectory();
-    void updateOptionButtons();
 
     Utils::FilePaths m_directories;
     QStringList m_filters;
     QStringList m_exclusionFilters;
-    // Our config dialog, uses in addDirectory and editDirectory
-    // to give their dialogs the right parent
-    class DirectoryFilterOptions *m_dialog = nullptr;
     bool m_isCustomFilter = true;
     LocatorFileCache m_cache;
+
+#ifdef WITH_TESTS
+    friend class Internal::DirectoryFilterTest;
+#endif
 };
+
+namespace Internal {
+
+#ifdef WITH_TESTS
+QObject *createDirectoryFilterTest();
+#endif
+
+class DirectoryFilterOptions final : public LocatorFilterOptions
+{
+public:
+    DirectoryFilterOptions(DirectoryFilter *filter,
+                           bool isCustomFilter,
+                           const Utils::FilePaths &directories,
+                           const QStringList &filters,
+                           const QStringList &exclusionFilters);
+
+    // What the fields come to, in the shapes the filter keeps them in.
+    Utils::FilePaths chosenDirectories() const;
+    QStringList chosenFilters() const;
+    QStringList chosenExclusionFilters() const;
+
+    Utils::StringAspect name{this};
+    Utils::StringListAspect directories{this};
+    Utils::StringAspect filePattern{this};
+    Utils::StringAspect exclusionPattern{this};
+};
+
+} // namespace Internal
 
 } // namespace Core

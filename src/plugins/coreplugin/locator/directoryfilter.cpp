@@ -6,22 +6,20 @@
 #include "locator.h"
 #include "../coreplugintr.h"
 
-#include <utils/filedialogs.h>
+#include "../dialogs/ioptionspage.h"
+
 #include <utils/algorithm.h>
 #include <utils/async.h>
-#include <utils/fileutils.h>
 #include <utils/filesearch.h>
-#include <utils/layoutbuilder.h>
+#include <utils/fileutils.h>
 
-#include <QCheckBox>
-#include <QDialog>
-#include <QDialogButtonBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
+#include <QDir>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QLabel>
-#include <QLineEdit>
-#include <QListWidget>
-#include <QPushButton>
 
 using namespace Utils;
 
@@ -148,204 +146,98 @@ void DirectoryFilter::restoreState(const QJsonObject &object)
             .toArray(QJsonArray::fromStringList(kExclusionFiltersDefault)));
 }
 
-class DirectoryFilterOptions : public QDialog
+// Whether what the filter finds has to be worked out again. Only where it
+// looks and what it looks for decide that: renaming the filter, or changing
+// the prefix it answers to, leaves the same files found.
+bool needsRefreshFor(const FilePaths &oldDirectories,
+                     const QStringList &oldFilters,
+                     const QStringList &oldExclusionFilters,
+                     const FilePaths &directories,
+                     const QStringList &filters,
+                     const QStringList &exclusionFilters)
 {
-public:
-    DirectoryFilterOptions(QWidget *parent)
-        : QDialog(parent)
-    {
-        nameLabel = new QLabel(Tr::tr("Name:"));
-        nameEdit = new QLineEdit(this);
+    return oldDirectories != directories || oldFilters != filters
+           || oldExclusionFilters != exclusionFilters;
+}
 
-        filePatternLabel = new QLabel(this);
-        filePattern = new QLineEdit(this);
+namespace Internal {
 
-        exclusionPatternLabel = new QLabel(this);
-        exclusionPattern = new QLineEdit(this);
+DirectoryFilterOptions::DirectoryFilterOptions(DirectoryFilter *filter,
+                                               bool isCustomFilter,
+                                               const FilePaths &directoriesValue,
+                                               const QStringList &filtersValue,
+                                               const QStringList &exclusionFiltersValue)
+    : LocatorFilterOptions(filter)
+{
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/locator/DirectoryFilterDialog.qml"));
 
-        prefixLabel = new QLabel(this);
+    name.setQmlName("Name");
+    name.setLabelText(Tr::tr("Name:"));
+    name.setDisplayStyle(StringAspect::LineEditDisplay);
+    name.setValue(filter->displayName());
 
-        shortcutEdit = new QLineEdit(this);
-        shortcutEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-        shortcutEdit->setMaximumSize(QSize(16777215, 16777215));
-        shortcutEdit->setToolTip(Tr::tr("Specify a short word/abbreviation that can be used to "
-                                    "restrict completions to files from this directory tree.\n"
-                                    "To do this, you type this shortcut and a space in the "
-                                    "Locator entry field, and then the word to search for."));
+    directories.setQmlName("Directories");
+    directories.setLabelText(Tr::tr("Directories:"));
+    directories.setDisplayStyle(StringListAspect::DisplayStyle::ListView);
+    directories.setUiPathKind(AspectControls::PathKind::ExistingDirectory);
+    directories.setUiNewEntryText({});
+    directories.setValue(Utils::transform(directoriesValue, &FilePath::toUserOutput));
 
-        defaultFlag = new QCheckBox(this);
-        defaultFlag->setChecked(false);
+    // Only a filter the user made themselves has a name and directories of
+    // their own; the built-in ones are given theirs by whoever registered
+    // them and offer nothing but the patterns and the prefix.
+    name.setVisible(isCustomFilter);
+    directories.setVisible(isCustomFilter);
 
-        directoryLabel = new QLabel(Tr::tr("Directories:"));
+    filePattern.setQmlName("FilePattern");
+    filePattern.setLabelText(Utils::msgFilePatternLabel());
+    filePattern.setToolTip(Utils::msgFilePatternToolTip());
+    filePattern.setDisplayStyle(StringAspect::LineEditDisplay);
+    filePattern.setValue(Utils::transform(filtersValue, &QDir::toNativeSeparators).join(','));
 
-        addButton = new QPushButton(Tr::tr("Add..."));
-        editButton = new QPushButton(Tr::tr("Edit..."));
-        removeButton = new QPushButton(Tr::tr("Remove"));
+    exclusionPattern.setQmlName("ExclusionPattern");
+    exclusionPattern.setLabelText(Utils::msgExclusionPatternLabel());
+    exclusionPattern.setToolTip(Utils::msgFilePatternToolTip(InclusionType::Excluded));
+    exclusionPattern.setDisplayStyle(StringAspect::LineEditDisplay);
+    exclusionPattern.setValue(
+        Utils::transform(exclusionFiltersValue, &QDir::toNativeSeparators).join(','));
+}
 
-        directoryList = new QListWidget(this);
-        QSizePolicy sizePolicy1(QSizePolicy::Expanding, QSizePolicy::Expanding);
-        sizePolicy1.setHorizontalStretch(1);
-        sizePolicy1.setVerticalStretch(0);
-        directoryList->setSizePolicy(sizePolicy1);
+FilePaths DirectoryFilterOptions::chosenDirectories() const
+{
+    return Utils::transform(directories(), &FilePath::fromUserInput);
+}
 
-        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
+QStringList DirectoryFilterOptions::chosenFilters() const
+{
+    return Utils::splitFilterUiText(filePattern());
+}
 
-        using namespace Layouting;
+QStringList DirectoryFilterOptions::chosenExclusionFilters() const
+{
+    return Utils::splitFilterUiText(exclusionPattern());
+}
 
-        Column buttons {
-            addButton,
-            editButton,
-            removeButton,
-            st
-        };
-
-        Column {
-            Grid {
-                nameLabel, Span(3, nameEdit), br,
-                Column { directoryLabel, st }, Span(2, directoryList), buttons, br,
-                filePatternLabel, Span(3, filePattern), br,
-                exclusionPatternLabel, Span(3, exclusionPattern), br,
-                prefixLabel, shortcutEdit, Span(2, defaultFlag)
-            },
-            st,
-            buttonBox
-        }.attachTo(this);
-
-        connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
-        connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    }
-
-    QLabel *nameLabel;
-    QLineEdit *nameEdit;
-    QLabel *filePatternLabel;
-    QLineEdit *filePattern;
-    QLabel *exclusionPatternLabel;
-    QLineEdit *exclusionPattern;
-    QLabel *prefixLabel;
-    QLineEdit *shortcutEdit;
-    QCheckBox *defaultFlag;
-    QPushButton *addButton;
-    QPushButton *editButton;
-    QPushButton *removeButton;
-    QLabel *directoryLabel;
-    QListWidget *directoryList;
-};
+} // namespace Internal
 
 bool DirectoryFilter::openConfigDialog(QWidget *parent, bool &needsRefresh)
 {
-    bool success = false;
+    Internal::DirectoryFilterOptions options(this, m_isCustomFilter, m_directories, m_filters,
+                                   m_exclusionFilters);
+    if (!ILocatorFilter::openConfigDialog(parent, &options))
+        return false;
 
-    DirectoryFilterOptions dialog(parent);
-    m_dialog = &dialog;
+    const FilePaths directories = options.chosenDirectories();
+    const QStringList filters = options.chosenFilters();
+    const QStringList exclusionFilters = options.chosenExclusionFilters();
+    needsRefresh = needsRefreshFor(m_directories, m_filters, m_exclusionFilters,
+                                   directories, filters, exclusionFilters);
 
-    dialog.setWindowTitle(ILocatorFilter::msgConfigureDialogTitle());
-    m_dialog->prefixLabel->setText(ILocatorFilter::msgPrefixLabel());
-    m_dialog->prefixLabel->setToolTip(ILocatorFilter::msgPrefixToolTip());
-    m_dialog->defaultFlag->setText(ILocatorFilter::msgIncludeByDefault());
-    m_dialog->defaultFlag->setToolTip(ILocatorFilter::msgIncludeByDefaultToolTip());
-    m_dialog->nameEdit->setText(displayName());
-    m_dialog->nameEdit->selectAll();
-
-    connect(m_dialog->addButton,
-            &QPushButton::clicked,
-            this,
-            &DirectoryFilter::handleAddDirectory,
-            Qt::DirectConnection);
-    connect(m_dialog->editButton,
-            &QPushButton::clicked,
-            this,
-            &DirectoryFilter::handleEditDirectory,
-            Qt::DirectConnection);
-    connect(m_dialog->removeButton,
-            &QPushButton::clicked,
-            this,
-            &DirectoryFilter::handleRemoveDirectory,
-            Qt::DirectConnection);
-    connect(m_dialog->directoryList,
-            &QListWidget::itemSelectionChanged,
-            this,
-            &DirectoryFilter::updateOptionButtons,
-            Qt::DirectConnection);
-    m_dialog->directoryList->clear();
-    m_dialog->directoryList->addItems(Utils::transform(m_directories, &FilePath::toUrlishString));
-    m_dialog->nameLabel->setVisible(m_isCustomFilter);
-    m_dialog->nameEdit->setVisible(m_isCustomFilter);
-    m_dialog->directoryLabel->setVisible(m_isCustomFilter);
-    m_dialog->directoryList->setVisible(m_isCustomFilter);
-    m_dialog->addButton->setVisible(m_isCustomFilter);
-    m_dialog->editButton->setVisible(m_isCustomFilter);
-    m_dialog->removeButton->setVisible(m_isCustomFilter);
-    m_dialog->filePatternLabel->setText(Utils::msgFilePatternLabel());
-    m_dialog->filePatternLabel->setBuddy(m_dialog->filePattern);
-    m_dialog->filePattern->setToolTip(Utils::msgFilePatternToolTip());
-    m_dialog->filePattern->setText(Utils::transform(m_filters, &QDir::toNativeSeparators).join(','));
-    m_dialog->exclusionPatternLabel->setText(Utils::msgExclusionPatternLabel());
-    m_dialog->exclusionPatternLabel->setBuddy(m_dialog->exclusionPattern);
-    m_dialog->exclusionPattern->setToolTip(Utils::msgFilePatternToolTip(InclusionType::Excluded));
-    m_dialog->exclusionPattern->setText(
-        Utils::transform(m_exclusionFilters, &QDir::toNativeSeparators).join(','));
-    m_dialog->shortcutEdit->setText(shortcutString());
-    m_dialog->defaultFlag->setChecked(isIncludedByDefault());
-    updateOptionButtons();
-    dialog.adjustSize();
-    if (dialog.exec() == QDialog::Accepted) {
-        bool directoriesChanged = false;
-        const FilePaths oldDirectories = m_directories;
-        const QStringList oldFilters = m_filters;
-        const QStringList oldExclusionFilters = m_exclusionFilters;
-        setDisplayName(m_dialog->nameEdit->text().trimmed());
-        m_directories.clear();
-        const int oldCount = oldDirectories.count();
-        const int newCount = m_dialog->directoryList->count();
-        if (oldCount != newCount)
-            directoriesChanged = true;
-        for (int i = 0; i < newCount; ++i) {
-            m_directories.append(FilePath::fromString(m_dialog->directoryList->item(i)->text()));
-            if (!directoriesChanged && m_directories.at(i) != oldDirectories.at(i))
-                directoriesChanged = true;
-        }
-        m_filters = Utils::splitFilterUiText(m_dialog->filePattern->text());
-        m_exclusionFilters = Utils::splitFilterUiText(m_dialog->exclusionPattern->text());
-        setShortcutString(m_dialog->shortcutEdit->text().trimmed());
-        setIncludedByDefault(m_dialog->defaultFlag->isChecked());
-        needsRefresh = directoriesChanged || oldFilters != m_filters
-                || oldExclusionFilters != m_exclusionFilters;
-        success = true;
-    }
-    return success;
-}
-
-void DirectoryFilter::handleAddDirectory()
-{
-    FilePath dir = FileUtils::getExistingDirectory(Tr::tr("Select Directory"));
-    if (!dir.isEmpty())
-        m_dialog->directoryList->addItem(dir.toUserOutput());
-}
-
-void DirectoryFilter::handleEditDirectory()
-{
-    if (m_dialog->directoryList->selectedItems().count() < 1)
-        return;
-    QListWidgetItem *currentItem = m_dialog->directoryList->selectedItems().at(0);
-    FilePath dir = FileUtils::getExistingDirectory(Tr::tr("Select Directory"),
-                                                   FilePath::fromUserInput(currentItem->text()));
-    if (!dir.isEmpty())
-        currentItem->setText(dir.toUserOutput());
-}
-
-void DirectoryFilter::handleRemoveDirectory()
-{
-    if (m_dialog->directoryList->selectedItems().count() < 1)
-        return;
-    QListWidgetItem *currentItem = m_dialog->directoryList->selectedItems().at(0);
-    delete m_dialog->directoryList->takeItem(m_dialog->directoryList->row(currentItem));
-}
-
-void DirectoryFilter::updateOptionButtons()
-{
-    bool haveSelectedItem = !m_dialog->directoryList->selectedItems().isEmpty();
-    m_dialog->editButton->setEnabled(haveSelectedItem);
-    m_dialog->removeButton->setEnabled(haveSelectedItem);
+    setDisplayName(options.name().trimmed());
+    m_directories = directories;
+    m_filters = filters;
+    m_exclusionFilters = exclusionFilters;
+    return true;
 }
 
 void DirectoryFilter::setIsCustomFilter(bool value)
@@ -383,4 +275,121 @@ void DirectoryFilter::setExclusionFilters(const QStringList &exclusionFilters)
     m_exclusionFilters = exclusionFilters;
 }
 
+#ifdef WITH_TESTS
+
+namespace Internal {
+
+class DirectoryFilterTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        DirectoryFilter filter("Test.DirectoryFilter");
+        DirectoryFilterOptions options(&filter, true, {}, kFiltersDefault,
+                                       kExclusionFiltersDefault);
+        const Result<> rendered
+            = aspectFormRenders(&options, "locator/DirectoryFilterDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testTheDirectoriesArePickedNotTyped()
+    {
+        // The widget list's Add... and Edit... opened a folder chooser. A list
+        // of strings that says nothing draws Add and no Edit at all, so the
+        // aspect has to say what its entries are.
+        DirectoryFilter filter("Test.DirectoryFilter");
+        DirectoryFilterOptions options(&filter, true, {}, {}, {});
+        QCOMPARE(options.directories.presentation().pathKind,
+                 AspectControls::PathKind::ExistingDirectory);
+
+        // And nothing is seeded into a new row: a path comes from the picker,
+        // where a search URL comes from a template.
+        QVERIFY2(options.directories.presentation().newEntryText.isEmpty(),
+                 "Add puts something in the row that is not a directory");
+    }
+
+    void testThePatternsAreOneFieldOfMany()
+    {
+        DirectoryFilter filter("Test.DirectoryFilter");
+        const DirectoryFilterOptions options(&filter, true, {},
+                                             {"*.h", "*.cpp"}, {"*/build/*"});
+        QCOMPARE(options.filePattern(), QString("*.h,*.cpp"));
+        QCOMPARE(options.exclusionPattern(), QString("*/build/*"));
+
+        QCOMPARE(options.chosenFilters(), (QStringList{"*.h", "*.cpp"}));
+        QCOMPARE(options.chosenExclusionFilters(), (QStringList{"*/build/*"}));
+    }
+
+    void testWhitespaceAroundAPatternIsNotPartOfIt()
+    {
+        DirectoryFilter filter("Test.DirectoryFilter");
+        DirectoryFilterOptions options(&filter, true, {}, {}, {});
+        options.filePattern.setValue("*.h, *.cpp ");
+        QCOMPARE(options.chosenFilters(), (QStringList{"*.h", "*.cpp"}));
+    }
+
+    void testOnlyAFilterOfTheReadersOwnHasDirectories()
+    {
+        // A filter someone else registered is given its directories by them;
+        // the dialog shows the patterns and the prefix and nothing else.
+        DirectoryFilter filter("Test.DirectoryFilter");
+        const DirectoryFilterOptions builtIn(&filter, false, {}, {}, {});
+        QVERIFY2(!builtIn.name.isVisible(), "a registered filter offers to be renamed");
+        QVERIFY2(!builtIn.directories.isVisible(),
+                 "a registered filter offers to be pointed somewhere else");
+
+        const DirectoryFilterOptions custom(&filter, true, {}, {}, {});
+        QVERIFY(custom.name.isVisible());
+        QVERIFY(custom.directories.isVisible());
+    }
+
+    void testWhatMakesTheFilterLookAgain()
+    {
+        const FilePaths dirs = {FilePath::fromString("/one")};
+        const QStringList filters = {"*.h"};
+        const QStringList exclusions = {"*/build/*"};
+
+        // Nothing that decides what is found has changed.
+        QVERIFY(!needsRefreshFor(dirs, filters, exclusions, dirs, filters, exclusions));
+
+        // Each of the three on its own does.
+        QVERIFY(needsRefreshFor(dirs, filters, exclusions,
+                                {FilePath::fromString("/two")}, filters, exclusions));
+        QVERIFY(needsRefreshFor(dirs, filters, exclusions, dirs, {"*.cpp"}, exclusions));
+        QVERIFY(needsRefreshFor(dirs, filters, exclusions, dirs, filters, {}));
+
+        // Including one more directory, which is the usual edit.
+        QVERIFY(needsRefreshFor(dirs, filters, exclusions,
+                                dirs + FilePaths{FilePath::fromString("/two")},
+                                filters, exclusions));
+    }
+
+    void testADirectoryKeepsItsPlaceThroughTheDialog()
+    {
+        // Round trip: the paths are shown as the reader wrote them and read
+        // back as paths, in order.
+        DirectoryFilter filter("Test.DirectoryFilter");
+        const FilePaths given = {FilePath::fromString("/one"), FilePath::fromString("/two")};
+        DirectoryFilterOptions options(&filter, true, given, {}, {});
+        QCOMPARE(options.chosenDirectories(), given);
+
+        options.directories.setValue(QStringList{"/two", "/one"});
+        QCOMPARE(options.chosenDirectories(),
+                 (FilePaths{FilePath::fromString("/two"), FilePath::fromString("/one")}));
+    }
+};
+
+QObject *createDirectoryFilterTest()
+{
+    return new DirectoryFilterTest;
+}
+
+} // namespace Internal
+
+#endif // WITH_TESTS
+
 } // namespace Core
+
+#include "directoryfilter.moc"

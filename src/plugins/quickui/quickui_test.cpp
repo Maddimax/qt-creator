@@ -281,6 +281,7 @@ private slots:
     void testARefilledListKeepsWhatWasPicked();
     void testStringListEditorAddsRemovesAndEdits();
     void testStringListEditorReordersAndSeedsNewEntries();
+    void testStringListEditorPicksPathsInsteadOfTypingThem();
     void testStringSelectionOffersItsChoices();
     void testAspectListAddsRemovesAndShowsDetails();
     void testTextWithActionShowsSummaryAndActs();
@@ -4529,6 +4530,75 @@ void QuickUiTest::testStringListEditorReordersAndSeedsNewEntries()
     QMetaObject::invokeMethod(add, "clicked");
     QCOMPARE(list.volatileValue(),
              QStringList({"alpha", "beta", "https://example.com/?q=%1"}));
+}
+
+void QuickUiTest::testStringListEditorPicksPathsInsteadOfTypingThem()
+{
+    // A list whose entries are paths is picked from a dialog, the way the
+    // widget lists these replace were: Add... appends what was chosen and
+    // Edit... replaces the row the reader is on. A list of plain strings must
+    // grow neither.
+    Utils::AspectContainer plain;
+    Utils::StringListAspect strings(&plain);
+    strings.setLabelText("Entries");
+    strings.setValue({"alpha"});
+
+    const std::unique_ptr<QWidget> plainForm(QtcQuick::createGenericAspectForm(&plain));
+    auto plainQuick = plainForm->findChild<QQuickWidget *>();
+    QVERIFY(plainQuick);
+    QQuickItem *plainEditor = nullptr;
+    QTRY_VERIFY(plainEditor
+                = findQmlComponent(plainQuick->rootObject(), "StringListEditorDelegate"));
+    QQuickItem *const plainAdd = findQmlNamed(plainEditor, "stringListAddButton").value(0);
+    QVERIFY(plainAdd);
+    QCOMPARE(plainAdd->property("text").toString(), QString("Add"));
+    QQuickItem *const plainEdit = findQmlNamed(plainEditor, "stringListEditButton").value(0);
+    QVERIFY(plainEdit);
+    QVERIFY2(!plainEdit->property("visible").toBool(),
+             "every list of strings grew an Edit... button");
+
+    Utils::AspectContainer page;
+    Utils::StringListAspect paths(&page);
+    paths.setLabelText("Directories");
+    paths.setUiPathKind(Utils::AspectControls::PathKind::ExistingDirectory);
+    paths.setValue({"/one", "/two"});
+
+    const std::unique_ptr<QWidget> form(QtcQuick::createGenericAspectForm(&page));
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QQuickItem *editor = nullptr;
+    QTRY_VERIFY(editor = findQmlComponent(quickWidget->rootObject(), "StringListEditorDelegate"));
+
+    QQuickItem *const add = findQmlNamed(editor, "stringListAddButton").value(0);
+    QQuickItem *const edit = findQmlNamed(editor, "stringListEditButton").value(0);
+    QVERIFY(add);
+    QVERIFY(edit);
+    QCOMPARE(add->property("text").toString(), QString("Add..."));
+    QVERIFY(edit->property("visible").toBool());
+
+    // There is nothing to edit until a row is chosen, which is what the
+    // widget dialog's updateOptionButtons() said.
+    QQuickItem *const view = findQmlComponent(editor, "QQuickListView");
+    QVERIFY(view);
+    QVERIFY(!edit->property("enabled").toBool());
+    view->setProperty("currentIndex", 1);
+    QVERIFY(edit->property("enabled").toBool());
+
+    // What the dialog answers goes where the browse started. The dialog
+    // itself is the platform's, so the row it is answering for is set and the
+    // answer handed over.
+    editor->setProperty("browsingFor", -1);
+    QVERIFY(QMetaObject::invokeMethod(editor, "chose", Q_ARG(QString, QString("/three"))));
+    QCOMPARE(paths.volatileValue(), QStringList({"/one", "/two", "/three"}));
+
+    editor->setProperty("browsingFor", 0);
+    QVERIFY(QMetaObject::invokeMethod(editor, "chose", Q_ARG(QString, QString("/zero"))));
+    QCOMPARE(paths.volatileValue(), QStringList({"/zero", "/two", "/three"}));
+
+    // A row that is no longer there is not written over the wrong one.
+    editor->setProperty("browsingFor", 9);
+    QVERIFY(QMetaObject::invokeMethod(editor, "chose", Q_ARG(QString, QString("/nine"))));
+    QCOMPARE(paths.volatileValue(), QStringList({"/zero", "/two", "/three"}));
 }
 
 void QuickUiTest::testStringSelectionOffersItsChoices()

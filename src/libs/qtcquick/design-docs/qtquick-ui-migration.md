@@ -22383,3 +22383,68 @@ semicolon-separated field with one "Add...". Neither is the widget's
 affordance, so that is the decision to make before porting it - and giving
 `StringListEditorDelegate` a browse mode is the option that leaves one list
 editor rather than two.
+
+## 2026-08-31 — The last locator filter, and a list editor that browses
+
+`directoryfilter.cpp` was the decision the last batch deferred: a list of
+directories with Add.../Edit.../Remove where Add and Edit open a folder
+picker. `StringListEditorDelegate` had the buttons but typed the paths;
+`FilePathListDelegate` browses but is a semicolon-separated field with one
+"Add...". Neither was the widget's affordance.
+
+**Browse mode went into the string list editor**, driven by
+`StringListAspect::setUiPathKind()` and the `AspectPresentation::pathKind` that
+already existed for the path field. Add becomes "Add..." and an "Edit..."
+appears beside it; both open the dialog, and where the answer goes is the one
+piece of logic worth a name: `chose(path)` appends when `browsingFor` is -1 and
+replaces that row otherwise. `Any` - the default - leaves every other list of
+strings exactly as it was, which is what two of the six controls check.
+
+**Only the local dialogs, deliberately.** The widget used
+`FileUtils::getExistingDirectory()`, which does not reach devices, so the
+browse mode has a `FileDialog` and a `FolderDialog` and no `DeviceBrowse`. That
+also means the browse plumbing is now written out three times (`StringDelegate`,
+`FilePathListDelegate`, here) with three different subsets. **Worth extracting
+into one component** - the pieces are `startFolder`, the local-or-device rule,
+and the two dialogs - but not while it is also the thing under test.
+
+**The rows stay typable.** The widget's directory items had no
+`Qt::ItemIsEditable`, so Edit... was the only way to change one; here the field
+is still a field. That is more than the widget offered, not less, and it is how
+a path gets pasted in.
+
+`needsRefreshFor()` is the rule the dialog used to compute inline: only the
+directories and the two patterns decide whether the files have to be found
+again - renaming the filter, or changing the prefix it answers to, does not.
+Six cases, and the control that drops the exclusion patterns from it bites.
+
+**Three Qt Creator test processes had been hung for 6h45m** in this build tree
+(2.4 seconds of CPU between them), and a `-test QuickUi` run started while they
+were up hung at startup with no output at all - not one line past the MCP
+banner. Killing them fixed it, and running with `-settingspath <own dir>` keeps
+it from happening again. **A suite that hangs before printing anything is
+contention, not a regression**; `ps -o time=,%cpu=` on the older process says
+which, and 0% CPU over hours is the answer.
+
+Negative controls: the directories typed rather than picked; the name and the
+directories shown on a filter the reader did not make; a changed exclusion
+pattern not making the filter look again; "Edit..." offered to every list of
+strings; what was chosen always appended instead of replacing; and "Edit..."
+enabled with no row chosen. All six bit.
+
+QuickUi 195 passed / 0 failed / 1 skipped, exit 0. `Core` exit 0 with no
+failures - `DirectoryFilterTest` 9 passed, and the other four locator classes
+still 6, 6, 5 and 7. Swept the seven other plugins whose pages use
+`StringListAspect` again: all exit 0, no failures. `Core_qmllint` zero
+warnings; `QtcQuick` the same 15 pre-existing. No `.qbs` edit.
+
+**With this, every locator filter that had a configuration dialog draws it with
+Qt Quick**, and `ILocatorFilter::openConfigDialog()` has one implementation.
+
+**Next**, in the order I would do them:
+
+1. **Extract the browse plumbing.** Three copies now, and the differences
+   between them are accidents rather than decisions.
+2. `avdcreatordialog.cpp` (Android), the next text-field dialog the census
+   named.
+3. The 15 `QtcQuick_qmllint` warnings, which no batch has read until now.
