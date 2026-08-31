@@ -24408,3 +24408,63 @@ added, taken by QmakeProjectManager's wildcard.
 holds `ClassList` and `ClassDefinition`, so it is a list beside a tabbed editor
 rather than a form. Then `CropScene` with the image question answered first,
 and `LoggingViewManagerWidget`, still blocked on driving a tree's selection.
+
+## 2026-08-31 — The custom widgets page, which is what AspectList is for
+
+`CustomWidgetWidgetsWizardPage`, with `ClassList` and `ClassDefinition` -
+648 lines across four files - replaced by one container and one `.qml` with an
+`AspectListDelegate` in it.
+
+**It is exactly the shape `AspectList` describes**: "a list of sub-aspects with
+a details pane, add and remove". The widget had a `QListView` of class names
+beside a `QStackedLayout` of `ClassDefinition`s, keeping the two in step by
+hand through `slotClassAdded`/`slotClassDeleted`/`slotClassRenamed` and an
+index into `m_uiClassDefs`. `AspectList` with `ListViewWithDetails` is that,
+and `listViewDataCallback` is what puts the class name in the row - the same
+call GitLab's servers page makes.
+
+**Three things the widget did that the list does for free**, and are gone with
+it: the `<New class>` placeholder row that you typed into to add a class, the
+Delete/Insert key handling in `ClassList::keyPressEvent()`, and the disabled
+dummy `ClassDefinition` kept at the end of the stack so that the placeholder
+row had something to show. The list has Add and Remove.
+
+**Three tabs became three groups.** `ClassDefinition` was a `QTabWidget` -
+Sources, Description, Property defaults. The details pane loads
+`AspectItems.qml` with the item's model, which is the *generic* form, so an
+item's own QML is not consulted and there are no tabs to be had. Nested
+`AspectContainer`s are what the vocabulary has, and they draw as groups. A
+deliberate change, and the only visible one.
+
+**What the layout did alongside listing** is five derivations and one rule,
+all in the item's constructor now: the library, header, plugin class and dom
+XML follow the class name; the project file follows the library; each source
+file follows its header; and `enableButtons()` - which reached for eleven
+widgets - is `setEnabled()` on four aspects.
+
+**The XML follows the name until someone writes their own.** The widget kept an
+`m_domXmlChanged` flag set by `QTextEdit::textChanged` - which its own
+`setText()` also fires, so the flag was set by the very assignment it was
+meant to guard, and then cleared again on the next line. The aspect compares
+instead: the XML is the reader's once it is no longer what the class name
+would have produced.
+
+Two free functions came out of it, so the rules can be stated without a form:
+`widgetProjectFileName(library, linkLibrary)` and `xmlFromClassName(name)`.
+
+Negative controls: the names not following the class; a rename overwriting XML
+that was written by hand; everything about the sources always asked for; any
+name doing for a class; and the page naming an aspect that is not there. All
+five bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `QmakeProjectManager` 8
+passed for `CustomWidgetWidgetsPageTest` and the plugin clean; `GitLab` - the
+other `AspectList` user - and `Core` clean. `ninja all_qmllint` zero warnings.
+
+**`.qbs` edited** - `classdefinition` and `classlist` removed from the file
+list - and **not re-resolved**: there is no `qbs` binary here, so it is
+committed unverified, as every `.qbs` edit in this series has been.
+
+**Next:** `CropScene`, which needs a bounded-lifetime image provider decided
+first, and `LoggingViewManagerWidget`, still blocked on driving a tree's
+selection. With this the custom widget wizard is done.

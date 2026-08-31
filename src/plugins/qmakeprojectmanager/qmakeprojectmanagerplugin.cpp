@@ -4,6 +4,7 @@
 #include "addlibrarywizard.h"
 #include "customwidgetwizard/customwidgetwizard.h"
 #include "customwidgetwizard/customwidgetpluginwizardpage.h"
+#include "customwidgetwizard/customwidgetwidgetswizardpage.h"
 #include "makefileparse.h"
 #include "profileeditor.h"
 #include "qmakebuildconfiguration.h"
@@ -109,6 +110,7 @@ void QmakeProjectManagerPlugin::initialize()
     addTestCreator(createQmakeParserNodesTest);
     addTestCreator(createQMakeStepPageTest);
     addTestCreator(Internal::createCustomWidgetPluginPageTest);
+    addTestCreator(Internal::createCustomWidgetWidgetsPageTest);
 #endif
 
     const Context projectContext(QmakeProjectManager::Constants::QMAKEPROJECT_ID);

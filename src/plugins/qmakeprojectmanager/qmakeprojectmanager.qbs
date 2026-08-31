@@ -51,8 +51,6 @@ QtcPlugin {
         name: "Custom Widget Wizard"
         prefix: "customwidgetwizard/"
         files: [
-            "classdefinition.cpp", "classdefinition.h",
-            "classlist.cpp", "classlist.h",
             "customwidgetpluginwizardpage.cpp", "customwidgetpluginwizardpage.h",
             "customwidgetwidgetswizardpage.cpp", "customwidgetwidgetswizardpage.h",
             "customwidgetwizard.cpp", "customwidgetwizard.h",

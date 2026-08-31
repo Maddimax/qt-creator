@@ -2,8 +2,6 @@ add_qtc_plugin(QmakeProjectManager
   PLUGIN_DEPENDS Core CppEditor QtSupport ResourceEditor TextEditor
   SOURCES
     addlibrarywizard.cpp addlibrarywizard.h
-    customwidgetwizard/classdefinition.cpp customwidgetwizard/classdefinition.h
-    customwidgetwizard/classlist.cpp customwidgetwizard/classlist.h
     customwidgetwizard/customwidgetpluginwizardpage.cpp customwidgetwizard/customwidgetpluginwizardpage.h
     customwidgetwizard/customwidgetwidgetswizardpage.cpp customwidgetwizard/customwidgetwidgetswizardpage.h
     customwidgetwizard/customwidgetwizard.cpp customwidgetwizard/customwidgetwizard.h
@@ -51,6 +49,7 @@ if(TARGET QmakeProjectManager)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CustomWidgetClassesPage.qml
       CustomWidgetPluginPage.qml
       QMakeStep.qml
       QmakeSettingsPage.qml

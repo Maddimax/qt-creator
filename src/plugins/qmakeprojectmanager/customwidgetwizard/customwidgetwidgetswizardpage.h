@@ -9,16 +9,11 @@
 #include <QList>
 #include <QWizardPage>
 
-QT_BEGIN_NAMESPACE
-class QToolButton;
-class QStackedLayout;
-QT_END_NAMESPACE
+#include <memory>
 
-namespace QmakeProjectManager {
-namespace Internal {
+namespace QmakeProjectManager::Internal {
 
-class ClassDefinition;
-class ClassList;
+class CustomWidgetClassesAspects;
 struct PluginOptions;
 
 class CustomWidgetWidgetsWizardPage : public QWizardPage
@@ -27,6 +22,7 @@ class CustomWidgetWidgetsWizardPage : public QWizardPage
 
 public:
     explicit CustomWidgetWidgetsWizardPage(QWidget *parent = nullptr);
+    ~CustomWidgetWidgetsWizardPage() override;
 
     QList<PluginOptions::WidgetOptions> widgetOptions() const;
 
@@ -35,28 +31,29 @@ public:
     FileNamingParameters fileNamingParameters() const { return m_fileNamingParameters; }
     void setFileNamingParameters(const FileNamingParameters &fnp) {m_fileNamingParameters = fnp; }
 
-    int classCount() const { return m_uiClassDefs.size(); }
+    int classCount() const;
     QString classNameAt(int i) const;
 
     void initializePage() override;
 
-private Q_SLOTS:
-    void slotClassAdded(const QString &name);
-    void slotClassDeleted(int index);
-    void slotClassRenamed(int index, const QString &newName);
-    void slotCheckCompleteness();
-    void slotCurrentRowChanged(int);
+#ifdef WITH_TESTS
+    CustomWidgetClassesAspects *aspectsForTest() const { return d.get(); }
+#endif
 
 private:
-    void updatePluginTab();
-
-    QList<ClassDefinition *> m_uiClassDefs;
-    QStackedLayout *m_tabStackLayout;
     FileNamingParameters m_fileNamingParameters;
-    bool m_complete;
-    QToolButton *m_deleteButton;
-    ClassList *m_classList;
+    const std::unique_ptr<CustomWidgetClassesAspects> d;
 };
 
-}
-}
+// The .pro or .pri a widget's project file is, from the library name and
+// whether the widget is linked or included.
+QString widgetProjectFileName(const QString &library, bool linkLibrary);
+
+// What a widget's dom XML says before anyone edits it.
+QString xmlFromClassName(const QString &name);
+
+#ifdef WITH_TESTS
+QObject *createCustomWidgetWidgetsPageTest();
+#endif
+
+} // namespace QmakeProjectManager::Internal
