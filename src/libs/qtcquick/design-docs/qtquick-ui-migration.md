@@ -24161,3 +24161,75 @@ all_qmllint` zero warnings. No `.qbs` edit - no file added or removed.
 **Next:** `LoggingViewManagerWidget`, with three of its four blockers settled
 (icon toggles, column hiding is plugin-local, a column-aware row menu) and the
 fourth - reporting a tree's selection - needing a way to drive one first.
+
+## 2026-08-31 — Why a tree cannot say what is picked, and what is really left
+
+Two results, one negative and one that corrects the census.
+
+### A tree's selection cannot be driven from a test, and the tree is not why
+
+The last section left `LoggingViewManagerWidget` waiting on a way to drive a
+`TreeView`'s selection, so that the seam that reports it -
+`selectedIndexes` on the delegate, `BaseAspect::setSelectedIndexes()` answering
+it - could be landed with a test that bites. Four ways were tried against a
+tree with two rows and two columns, all with the rows drawn and the view
+focused:
+
+| driven by | current index | selection |
+|---|---|---|
+| `selectionModel->select(index, Select \| Rows)` | - | none |
+| `setCurrentIndex(index, ClearAndSelect \| Rows)` | moves | none |
+| left click on a cell | moves | none |
+| press, move to the next row, release | **cleared** | none |
+| `Shift+Down` with the view focused | - | none |
+
+**The control is the table.** The same press-move-release on a `TableDelegate`
+gives exactly the same answer - no selection, current index cleared - so this
+is the harness and not something `TreeDelegate` does. The one real asymmetry is
+the first row: an external `select()` *sticks* on a `TableView` and is
+discarded by a `TreeView`, which is why `TableDelegate`'s existing
+multi-selection tests can drive it and a tree's cannot.
+
+A click setting the current index but selecting nothing is not a bug either:
+`TableView` selects by *dragging*, not by clicking, and synthetic drags do not
+reach it here.
+
+So the seam is **not** landed - written, tested, found untestable, and taken
+out again. An untested seam with no user is worse than none. What it means for
+the port: **"Copy Selected Logs" cannot be built on a reported selection**
+until a Quick tree's selection can be driven at all. The port can carry "Copy
+All" and a copy of the row the menu was asked of - `triggerRowAction()` already
+gets that index - which keeps copying without pretending the multi-selection
+works.
+
+### The census's "genuinely custom" list is wrong in three of five entries
+
+Checked one by one, because the census has already been wrong twice - about
+`TopicChooser` and about which model `GenerateGettersSettersDialog` uses:
+
+- **`DockManager` is not ours.** It is the Advanced Docking System, vendored
+  under `src/libs/advanceddockingsystem`, "Copyright (C) 2020 Uwe Kindler",
+  1726 lines in `dockmanager.cpp` alone. It is a third-party library, not a Qt
+  Creator form, and does not belong in this migration at all.
+- **`PluginView` is not custom.** It is a `TreeModel<TreeItem, CollectionItem,
+  PluginItem>` behind a `CategorySortFilterModel` in a `Utils::TreeView` - the
+  *tree* group, and by now a routine one: the three overrides go on a
+  three-line subclass, as they did for `GetterSetterCandidateModel`.
+- **`CustomWidgetWizardPage` does not exist.** The real things are
+  `CustomWidgetWidgetsWizardPage` and `CustomWidgetPluginWizardPage` under
+  `qmakeprojectmanager/customwidgetwizard/`, plus `ClassDefinition` and
+  `ClassList` beside them. Two wizard pages, not one widget.
+
+What is actually left, then:
+
+1. **The tree group**: `LoggingViewManagerWidget` (Core, blocked as above) and
+   `PluginView` (ExtensionSystem, not blocked).
+2. **Painted widgets**: `CropScene` (screenrecorder) and `ColorThemeView` (the
+   strip of colour swatches inside `ScxmlEditor`'s `ColorSettings`). Each is a
+   `paintEvent` and a click, which is a QML component rather than an aspect.
+3. **The custom widget wizard**: two `QWizardPage`s and the two editors they
+   hold.
+
+**Next:** `PluginView`, which is the only unblocked one of the trees and needs
+nothing new. Then `ColorSettings`, whose combo and two buttons are aspects and
+whose swatch strip is the first of the painted components.
