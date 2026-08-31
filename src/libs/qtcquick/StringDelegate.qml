@@ -6,7 +6,6 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtCreator.Ui
 
@@ -26,17 +25,14 @@ RowLayout {
     // never said it wanted a path.
     readonly property string pathKind: delegate.pres.pathKind ?? ""
     readonly property bool isPath: pathKind !== "" && pathKind !== "Any"
-    readonly property bool wantsDirectory:
-        pathKind === "ExistingDirectory" || pathKind === "Directory"
-    // Whether this field will take a path that is not on this machine.
+    // Whether this field will take a path that is not on this machine, which
+    // is what the choice on the browse button is for.
     readonly property bool allowsDevicePaths: delegate.pres.allowPathFromDevice ?? false
 
-    // Qt Creator's own file dialog, which reaches devices.
-    DeviceBrowse {
-        id: deviceBrowse
+    PathBrowser {
+        id: browser
 
-        allowed: delegate.allowsDevicePaths
-        pathKind: delegate.pathKind
+        pres: delegate.pres
 
         onChosen: (paths) => {
             if (delegate.aspect && paths.length > 0)
@@ -294,32 +290,12 @@ RowLayout {
         }
     }
 
-    // Browsing, and which dialog does it. A path already on a device can only
-    // be browsed by ours; otherwise the platform's, so its usual picker is not
-    // taken away. \a remote asks for ours whatever the path is, which is the
-    // menu below - the widget path chooser puts the same choice on the same
-    // button.
     function browse(remote: bool): void {
         // Where to open is worked out now rather than bound: it depends on
         // what is in the field, and on what the filesystem says about it.
         const start = delegate.aspect
                     ? delegate.aspect.browseStartDirectory(field.text) : ""
-
-        if (remote || deviceBrowse.wanted(field.text)) {
-            deviceBrowse.open(start, delegate.pres.promptDialogFilter ?? "", false)
-            return
-        }
-
-        const url = start !== "" ? Qt.resolvedUrl("file://" + start) : ""
-        if (delegate.wantsDirectory) {
-            if (url !== "")
-                folderDialog.currentFolder = url
-            folderDialog.open()
-        } else {
-            if (url !== "")
-                fileDialog.currentFolder = url
-            fileDialog.open()
-        }
+        browser.browse(field.text, start, remote)
     }
 
     RowLayout {
@@ -339,7 +315,7 @@ RowLayout {
             id: browseOptions
 
             objectName: "browseOptionsButton"
-            visible: delegate.pres.allowPathFromDevice ?? false
+            visible: delegate.allowsDevicePaths
             enabled: (delegate.aspect?.enabled ?? false) && !(delegate.aspect?.readOnly ?? true)
             Layout.preferredWidth: implicitHeight
             onClicked: browseMenu.popup(browseOptions, 0, browseOptions.height)
@@ -372,33 +348,4 @@ RowLayout {
         }
     }
 
-    FileDialog {
-        id: fileDialog
-
-        title: (delegate.pres.promptDialogTitle ?? "") !== ""
-               ? delegate.pres.promptDialogTitle : qsTr("Choose File")
-        // Qt's filters are one ";;"-separated string; QML wants them one by one.
-        nameFilters: (delegate.pres.promptDialogFilter ?? "") !== ""
-                     ? delegate.pres.promptDialogFilter.split(";;") : []
-        // A path that does not have to exist yet is being saved to, not opened.
-        fileMode: delegate.pathKind === "SaveFile"
-                  ? FileDialog.SaveFile : FileDialog.OpenFile
-
-        onAccepted: {
-            if (delegate.aspect)
-                delegate.aspect.value = AspectModels.localPath(selectedFile)
-        }
-    }
-
-    FolderDialog {
-        id: folderDialog
-
-        title: (delegate.pres.promptDialogTitle ?? "") !== ""
-               ? delegate.pres.promptDialogTitle : qsTr("Choose Directory")
-
-        onAccepted: {
-            if (delegate.aspect)
-                delegate.aspect.value = AspectModels.localPath(selectedFolder)
-        }
-    }
 }

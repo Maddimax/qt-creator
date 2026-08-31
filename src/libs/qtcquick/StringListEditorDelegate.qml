@@ -6,7 +6,6 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtCreator.Ui
 
@@ -40,8 +39,6 @@ RowLayout {
     // reader is on. "Any" - the default - means plain strings and no Edit.
     readonly property string pathKind: root.pres.pathKind ?? ""
     readonly property bool browsable: root.pathKind !== "" && root.pathKind !== "Any"
-    readonly property bool wantsDirectory:
-        root.pathKind === "ExistingDirectory" || root.pathKind === "Directory"
     // Which row the open dialog is answering for. -1 appends.
     property int browsingFor: -1
 
@@ -62,12 +59,10 @@ RowLayout {
 
     function browse(index: int): void {
         root.browsingFor = index
+        // Where the entry already points is where to open, which is what the
+        // widget list passed to its folder chooser.
         const current = index >= 0 ? String(root.entries()[index] ?? "") : ""
-        const url = current !== "" ? Qt.resolvedUrl("file://" + current) : ""
-        const dialog = root.wantsDirectory ? folderDialog : fileDialog
-        if (url !== "")
-            dialog.currentFolder = url
-        dialog.open()
+        browser.browse(current, current, false)
     }
 
     // What the dialog answered goes where the browse started: a new entry at
@@ -84,24 +79,12 @@ RowLayout {
         root.aspect.value = next
     }
 
-    FileDialog {
-        id: fileDialog
+    PathBrowser {
+        id: browser
 
-        title: (root.pres.promptDialogTitle ?? "") !== ""
-               ? root.pres.promptDialogTitle : qsTr("Choose File")
-        nameFilters: (root.pres.promptDialogFilter ?? "") !== ""
-                     ? root.pres.promptDialogFilter.split(";;") : []
+        pres: root.pres
 
-        onAccepted: root.chose(AspectModels.localPath(selectedFile))
-    }
-
-    FolderDialog {
-        id: folderDialog
-
-        title: (root.pres.promptDialogTitle ?? "") !== ""
-               ? root.pres.promptDialogTitle : qsTr("Choose Directory")
-
-        onAccepted: root.chose(AspectModels.localPath(selectedFolder))
+        onChosen: (paths) => { if (paths.length > 0) root.chose(paths[0]) }
     }
 
     // Order is the user's on a list where it means something - the URLs a web

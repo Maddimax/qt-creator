@@ -53,6 +53,7 @@ if(TARGET QtcQuick)
       CompletionPopup.qml
       QtcVariableChooser.qml
       DeviceBrowse.qml
+      PathBrowser.qml
       DoubleDelegate.qml
       EnvironmentEditor.qml
       EnvironmentEditorDelegate.qml

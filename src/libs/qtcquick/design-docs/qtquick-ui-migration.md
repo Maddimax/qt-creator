@@ -22448,3 +22448,72 @@ Qt Quick**, and `ILocatorFilter::openConfigDialog()` has one implementation.
 2. `avdcreatordialog.cpp` (Android), the next text-field dialog the census
    named.
 3. The 15 `QtcQuick_qmllint` warnings, which no batch has read until now.
+
+## 2026-08-31 — One path browser, and what the three copies disagreed about
+
+The plan's own next step: asking the reader for a path was written out three
+times - `StringDelegate`, `FilePathListDelegate`, and the browse mode
+`StringListEditorDelegate` grew last batch. `PathBrowser.qml` is the one copy:
+the device dialog, the platform file and folder dialogs, and the rule that
+picks between them. Each caller keeps one line, `browser.browse(current, start,
+remote)`, because those are two different questions - what the field holds says
+which dialog can answer, and where to open is what the aspect makes of it.
+
+**Extracting them showed what they had already come to disagree about.**
+
+- A **list of paths that says nothing wants a directory** on the platform's
+  dialog and a **file** on ours. `FilePathListDelegate` read `""`/`"Any"` as a
+  directory; `DeviceBrowse` read `"Any"` as a file. Which chooser appeared -
+  which depends on whether the entry is already on a device - decided what
+  could be picked.
+- And the reason it could only ever be silence: **`FilePathListAspect` had no
+  way to say what it holds.** Its `presentation()` never set `pathKind`, so the
+  comment on the delegate ("a list of mount points wants directories; a list of
+  valgrind suppressions wants the files valgrind reads") described an intent
+  with no API behind it, and the "files" half of its own branch was dead.
+  `setExpectedKind()` now exists and defaults to `ExistingDirectory`, which is
+  what the drawn list has always done, so the delegate stops deciding and both
+  dialogs read one answer.
+
+**A test that was passing for the wrong reason.**
+`testFileChooserSplitsTheDialogFilter` looked for a child whose class name
+*contains* "FileDialog" - which matches `QFileDialogOptions`, the options
+object each chooser carries, and a delegate builds two of them. It took
+whichever was constructed first. Reordering the children was enough to make it
+read the folder chooser's, which answers no filters at all. It now finds the
+one that answers about filters and says so.
+
+**Two properties were load-bearing in ways the refactor did not see.**
+`allowsDevicePaths` on `StringDelegate` looked like a leftover once the browser
+owned the decision - it is also what the browse-options button's visibility and
+a test both read. Deleting an unused-looking `readonly property` from a
+delegate is worth a grep of the test file, not just of the .qml.
+
+Negative controls: a list of paths no longer saying what it holds; the list
+taking one answer instead of several; the file chooser handed the filter whole;
+the path field forgetting it may reach a device; and the browser never asking
+our own dialog (which opens the real device window - that control takes 16
+seconds and is the only end-to-end one here). All five bit.
+
+QuickUi 196 passed / 0 failed / 1 skipped, exit 0. Swept the plugins whose
+pages draw path fields or lists of them - `Docker`, `Remote`, `Core`,
+`Valgrind`, `Android`, `CMakeProjectManager`, `QbsProjectManager`, `Git` - all
+exit 0 with no failures; `ProjectExplorer` and `Debugger` are their two
+standing ones (`RunWorkerConflictTest::testConflict`,
+`DebuggerUnitTests::testStateMachine`). `QtcQuick_qmllint` still the same 15
+pre-existing warnings. No `.qbs` edit: `qtcquick.qbs` takes `*.qml` by
+wildcard.
+
+**Next:**
+
+1. `avdcreatordialog.cpp` (Android), the next text-field dialog the census
+   named.
+2. The 15 `QtcQuick_qmllint` warnings. Four kinds: `columnWidthProvider` typed
+   as a function in three delegates, `Member "recording"/"setRecording" not
+   found on type "Utils::BaseAspect"` in `KeySequenceDelegate`,
+   `clickRightSideIcon` likewise in `StringDelegate`, `Member "aspect"/
+   "itemModel"/"removed" not found on type "QQuickItem"`, and three
+   `== vs ===`. The `Member ... not found on Utils::BaseAspect` ones are the
+   interesting kind: they are calls that only work because the object really is
+   the derived aspect, which is exactly what `qtc-pane-qml-sees-only-properties`
+   warns about from the other direction.

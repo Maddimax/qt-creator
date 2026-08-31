@@ -404,6 +404,7 @@ private slots:
     void testABigDirectoryIsListedWithoutTheDialogHanging();
     void testTheFileDialogChoosesAFileWithoutAskingThePlatform();
     void testAPathOnADeviceIsBrowsedWithOurOwnDialog();
+    void testAListOfPathsAsksForADirectoryEitherWay();
     void testAPathFieldSaysWhetherWhatItHoldsIsThere();
     void testWhichDialogAFieldOpensIsOneDecision();
     void testTheFileBrowserRemembersWhereItHasBeen();
@@ -3511,19 +3512,27 @@ void QuickUiTest::testFileChooserSplitsTheDialogFilter()
     QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "StringDelegate"));
 
     // A dialog is not an item, so it is not in the visual tree the other
-    // lookups walk - it is a plain child of the delegate.
-    QObject *dialog = nullptr;
-    const QList<QObject *> children = delegate->findChildren<QObject *>();
-    for (QObject *child : children) {
-        if (QString::fromLatin1(child->metaObject()->className()).contains("FileDialog")) {
-            dialog = child;
-            break;
+    // lookups walk. What is reachable is the QFileDialogOptions each chooser
+    // carries, and the delegate builds two - a file chooser and a folder
+    // chooser. Only the file one answers about filters, which is how they are
+    // told apart; matching the class name alone found whichever happened to
+    // be built first.
+    QObject *options = nullptr;
+    QObject *filtered = nullptr;
+    for (QObject *child : delegate->findChildren<QObject *>()) {
+        if (!QString::fromLatin1(child->metaObject()->className())
+                 .startsWith("QFileDialogOptions")) {
+            continue;
         }
+        options = child;
+        if (child->property("nameFilters").isValid())
+            filtered = child;
     }
-    QVERIFY2(dialog, "the delegate has no FileDialog to configure");
+    QVERIFY2(options, "the delegate has no chooser to configure");
+    QVERIFY2(filtered, "no chooser was told which files to offer");
 
-    QCOMPARE(dialog->property("title").toString(), QString("Choose Script"));
-    QCOMPARE(dialog->property("nameFilters").toStringList(),
+    QCOMPARE(filtered->property("title").toString(), QString("Choose Script"));
+    QCOMPARE(filtered->property("nameFilters").toStringList(),
              QStringList({"Scripts (*.script)", "All files (*)"}));
 }
 
@@ -8363,6 +8372,81 @@ static QQuickWindow *deviceBrowseWindow()
 // Which dialog a path field opens. The platform's cannot see a device, so a
 // field holding a path on one has to be browsed with Qt Creator's own - the
 // rule the widget path chooser follows, which no Quick page did.
+// The one PathBrowser a delegate builds, which is not an item and so is not in
+// the visual tree the other lookups walk.
+static QObject *pathBrowserOf(QQuickItem *delegate)
+{
+    for (QObject *child : delegate->findChildren<QObject *>()) {
+        if (QString::fromLatin1(child->metaObject()->className()).startsWith("PathBrowser"))
+            return child;
+    }
+    return nullptr;
+}
+
+void QuickUiTest::testAListOfPathsAsksForADirectoryEitherWay()
+{
+    // A list of paths that never said what it holds wants directories - that
+    // is what its Add... has always opened. Its *other* dialog, the one that
+    // reaches a device, read the same "Any" as "a file", so which chooser
+    // appeared decided what could be picked. One browser now, told once.
+    Utils::AspectContainer page;
+    page.setAutoApply(false);
+    Utils::FilePathListAspect unsaid(&page);
+    unsaid.setLabelText("Paths");
+
+    Utils::FilePathListAspect files(&page);
+    files.setLabelText("Files");
+    files.setExpectedKind(Utils::PathChooserKind::File);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    QList<QQuickItem *> delegates;
+    QTRY_COMPARE((delegates = findQmlComponents(quickWidget->rootObject(),
+                                                "FilePathListDelegate")).size(), 2);
+    const auto delegateFor = [&delegates](Utils::BaseAspect *aspect) -> QQuickItem * {
+        for (QQuickItem *item : delegates) {
+            if (item->property("aspect").value<Utils::BaseAspect *>() == aspect)
+                return item;
+        }
+        return nullptr;
+    };
+
+    QObject * const unsaidBrowser = pathBrowserOf(delegateFor(&unsaid));
+    QVERIFY2(unsaidBrowser, "the list of paths has nothing to browse with");
+    QCOMPARE(unsaidBrowser->property("pathKind").toString(), QString("ExistingDirectory"));
+    QVERIFY2(unsaidBrowser->property("wantsDirectory").toBool(),
+             "a list of paths that says nothing offers files on one of its two dialogs");
+    // And it takes more than one at a time, which is the other thing a list
+    // wants and a single field does not.
+    QVERIFY(unsaidBrowser->property("several").toBool());
+
+    // A list that did say keeps what it said.
+    QObject * const filesBrowser = pathBrowserOf(delegateFor(&files));
+    QVERIFY(filesBrowser);
+    QCOMPARE(filesBrowser->property("pathKind").toString(), QString("File"));
+    QVERIFY(!filesBrowser->property("wantsDirectory").toBool());
+
+    // A single path field builds the same browser and asks for one answer.
+    Utils::AspectContainer single;
+    single.setAutoApply(false);
+    Utils::FilePathAspect one(&single);
+    one.setLabelText("Path");
+    one.setExpectedKind(Utils::PathChooserKind::ExistingDirectory);
+    const std::unique_ptr<QWidget> singleForm(showForm(&single));
+    QVERIFY(singleForm);
+    auto singleQuick = singleForm->findChild<QQuickWidget *>();
+    QVERIFY(singleQuick);
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY(field = findQmlComponent(singleQuick->rootObject(), "StringDelegate"));
+    QObject * const fieldBrowser = pathBrowserOf(field);
+    QVERIFY2(fieldBrowser, "the path field has nothing to browse with");
+    QCOMPARE(fieldBrowser->property("pathKind").toString(), QString("ExistingDirectory"));
+    QVERIFY2(!fieldBrowser->property("several").toBool(),
+             "a single path field would take several answers");
+}
+
 void QuickUiTest::testAPathOnADeviceIsBrowsedWithOurOwnDialog()
 {
     Utils::AspectContainer page;

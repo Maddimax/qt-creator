@@ -1105,6 +1105,7 @@ class FilePathListAspectPrivate
 public:
     UndoableValue<QStringList> undoable;
     QString placeHolderText;
+    PathChooserKind expectedKind{PathChooserKind::ExistingDirectory};
 };
 
 class TextDisplayPrivate
@@ -3417,7 +3418,13 @@ AspectPresentation FilePathListAspect::presentation() const
     AspectPresentation p = TypedAspect::presentation();
     p.control = AspectControls::FilePathList;
     p.placeholderText = d->placeHolderText;
+    p.pathKind = static_cast<AspectControls::PathKind>(d->expectedKind);
     return p;
+}
+
+void FilePathListAspect::setExpectedKind(const PathChooserKind &expectedKind)
+{
+    d->expectedKind = expectedKind;
 }
 
 void FilePathListAspect::setPlaceHolderText(const QString &placeHolderText)

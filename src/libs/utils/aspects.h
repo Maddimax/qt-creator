@@ -1331,6 +1331,11 @@ public:
     void setPlaceHolderText(const QString &placeHolderText);
     QString placeHolderText() const;
 
+    // What the entries are. The drawn list has always browsed for a directory
+    // and had no way to be told otherwise, so a list of files - valgrind's
+    // suppression files, say - could only be typed.
+    void setExpectedKind(const PathChooserKind &expectedKind);
+
     void appendValue(const FilePath &path, bool allowDuplicates = true);
     void removeValue(const FilePath &path);
     void appendValues(const FilePaths &values, bool allowDuplicates = true);

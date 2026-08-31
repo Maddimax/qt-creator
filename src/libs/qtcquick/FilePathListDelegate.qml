@@ -6,7 +6,6 @@ pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtCreator.Ui
 
@@ -20,21 +19,16 @@ RowLayout {
     readonly property bool aspectVisible: aspect?.visible ?? true
     readonly property bool editable:
         (aspect?.enabled ?? false) && !(aspect?.readOnly ?? true)
-    // What the list holds, so that Add... asks for the right thing. A list of
-    // mount points wants directories; a list of valgrind suppressions wants
-    // the files that valgrind reads.
-    readonly property string pathKind: pres.pathKind ?? ""
-    readonly property bool wantsDirectory:
-        pathKind === "" || pathKind === "Any"
-        || pathKind === "ExistingDirectory" || pathKind === "Directory"
-    // Whether an entry may name somewhere that is not this machine.
-    readonly property bool allowsDevicePaths: pres.allowPathFromDevice ?? false
+    // What the list holds - a list of mount points wants directories, a list
+    // of valgrind suppressions the files valgrind reads - comes from the
+    // aspect, which defaults to directories. It used to be decided here, and
+    // the two dialogs read the same silence differently: the platform's asked
+    // for a directory and ours for a file.
+    PathBrowser {
+        id: browser
 
-    DeviceBrowse {
-        id: deviceBrowse
-
-        allowed: root.allowsDevicePaths
-        pathKind: root.pathKind
+        pres: root.pres
+        several: true
 
         onChosen: (paths) => root.append(paths)
     }
@@ -88,28 +82,10 @@ RowLayout {
         }
     }
 
-    // The same rule the path field follows: our own dialog for a path already
-    // on a device, the platform's otherwise so that its usual picker is not
-    // taken away, and \a remote to ask for ours whatever the path is.
     function browse(remote: bool): void {
         const values = root.aspect?.value ?? []
         const last = values.length > 0 ? String(values[values.length - 1]) : ""
-        if (remote || deviceBrowse.wanted(last)) {
-            deviceBrowse.open(root.startFolder, root.pres.promptDialogFilter ?? "", true)
-            return
-        }
-
-        const url = root.startFolder !== ""
-                  ? Qt.resolvedUrl("file://" + root.startFolder) : ""
-        if (root.wantsDirectory) {
-            if (url !== "")
-                folderDialog.currentFolder = url
-            folderDialog.open()
-        } else {
-            if (url !== "")
-                fileDialog.currentFolder = url
-            fileDialog.open()
-        }
+        browser.browse(last, root.startFolder, remote)
     }
 
     Button {
@@ -120,30 +96,4 @@ RowLayout {
         onClicked: root.browse(false)
     }
 
-    FileDialog {
-        id: fileDialog
-
-        title: (root.pres.promptDialogTitle ?? "") !== ""
-               ? root.pres.promptDialogTitle : qsTr("Choose Files")
-        // Qt's filters are one ";;"-separated string; QML wants them one by one.
-        nameFilters: (root.pres.promptDialogFilter ?? "") !== ""
-                     ? root.pres.promptDialogFilter.split(";;") : []
-        fileMode: FileDialog.OpenFiles
-
-        onAccepted: {
-            const paths = []
-            for (let i = 0; i < selectedFiles.length; ++i)
-                paths.push(AspectModels.localPath(selectedFiles[i]))
-            root.append(paths)
-        }
-    }
-
-    FolderDialog {
-        id: folderDialog
-
-        title: (root.pres.promptDialogTitle ?? "") !== ""
-               ? root.pres.promptDialogTitle : qsTr("Choose Directory")
-
-        onAccepted: root.append([AspectModels.localPath(selectedFolder)])
-    }
 }
