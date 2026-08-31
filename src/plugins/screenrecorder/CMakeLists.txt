@@ -1,8 +1,9 @@
 add_qtc_plugin(ScreenRecorder
   PLUGIN_DEPENDS Core
-  DEPENDS Utils
+  DEPENDS Utils QtcQuick
   SOURCES
     cropandtrim.cpp cropandtrim.h
+    cropscene.cpp cropscene.h
     export.cpp export.h
     ffmpegutils.cpp ffmpegutils.h
     record.cpp record.h
@@ -29,6 +30,9 @@ if(TARGET ScreenRecorder)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      CropPage.qml
+      CropScene.qml
+      RecordOptionsPage.qml
       ScreenRecorderSettingsPage.qml
   )
 endif()

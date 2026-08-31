@@ -5,10 +5,13 @@ QtcPlugin {
 
     Depends { name: "Core" }
     Depends { name: "Spinner" }
+    Depends { name: "QtcQuick" }
 
     files: [
         "cropandtrim.cpp",
         "cropandtrim.h",
+        "cropscene.cpp",
+        "cropscene.h",
         "export.cpp",
         "export.h",
         "ffmpegutils.cpp",

@@ -24522,3 +24522,68 @@ Both are large and both have a part that cannot be asserted here. That is worth
 saying plainly rather than discovering again: **the migration is at the point
 where what is left is not routine**, and each remaining piece needs a decision
 about what ships untested before it is worth starting.
+
+## 2026-08-31 — CropScene, and both dialogs that show one
+
+The last section scoped this as "`CropScene` + both its callers with the
+provider - the two dialogs cannot be split", and that is what this is.
+
+**One component, two pages.** `CropScene.qml` is the frame with a rectangle
+over it: an `Image`, four `Rectangle`s dimming what is outside it at 0.85 -
+the widget's own colour and opacity - and one `ShapePath` with
+`strokeStyle: DashLine` for the four edges, where the widget drew each line
+twice with a black pen and a dotted white one. `CropPage.qml` (crop and trim)
+and `RecordOptionsPage.qml` (recording options) each put it on their own page,
+over one `CropSceneAspect` shared between them.
+
+**The frame reaches QML through a provider the plugin owns.** Fifty lines:
+`QtcQuick::engine()->addImageProvider()`, one frame held, the last dropped when
+the next arrives, and a counter in the URL because an `Image` will not reload a
+URL it is already showing. The plugin now links `QtcQuick`, which seven others
+already did.
+
+**The rectangle is the aspect's, and it keeps two invariants** the widget kept
+by construction: it never leaves the frame, and it is never empty - dragging an
+edge past the far one leaves one pixel rather than deselecting everything. A
+new frame of the same size keeps it, which is what scrubbing a clip does; a
+frame of another size starts it again.
+
+**`Q_INVOKABLE` needs `Q_OBJECT`, and a typed `Aspect` property cannot see it.**
+`CropSceneAspect::setCropRect()` is called from the QML, so the component takes
+`required property var aspect` rather than `Aspect`: qmllint checks a typed
+one against `BaseAspect` and says `Member "setCropRect" not found`. The same
+seam question as `BookmarkDialog`'s, answered the other way - there the seam
+went onto `BaseAspect` because a shared delegate needed it, here the component
+is the plugin's own and only it calls this.
+
+**What ships untested, deliberately.** The dragging - four edge grips and a
+move area, `DragHandler`s that write the rectangle back - is not asserted:
+synthetic drags do not reach a Quick item in this harness, proved against both
+`TableView` and `TreeView` two batches ago. What *is* asserted is everything
+the drag ends up calling: the rectangle arithmetic, both invariants, what the
+scene hands to QML, that the provider serves and replaces a frame, what comes
+out of a crop, and that both pages render.
+
+**Still a widget, and stated rather than hidden:** `CropSizeWarningIcon`, which
+`CropWidget` showed beside the four fields, is not on the new page. It is
+painted, and its other two users - `CropAndTrimWidget` and `ExportWidget` - are
+toolbars that are not being ported, so it stays where it is until they are.
+That is a lost affordance on the crop page, not a moved one.
+
+Negative controls: the rectangle allowed to leave the frame; an edge dragged
+past the far one deselecting everything; a new frame always starting the
+rectangle again; every frame served from the same URL; and each of the two
+pages naming an aspect that is not there. All six bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `ScreenRecorder` 8 passed
+for `CropSceneTest` and the plugin clean; `Core` clean. `ninja all_qmllint`
+zero warnings.
+
+**`.qbs` edited** - `cropscene.{cpp,h}` added and a `QtcQuick` dependency - and
+**not re-resolved**: no `qbs` binary here, so it is committed unverified, as
+every `.qbs` edit in this series has been.
+
+**Next:** `SelectionSlider` and `TrimWidget`, the other half of the crop-and-
+trim dialog - a two-handle range slider, which `QtQuick.Controls` has as
+`RangeSlider`. Then `LoggingViewManagerWidget`, still blocked on driving a
+tree's selection, and `CropSizeWarningIcon` with the two toolbars that hold it.

@@ -4,10 +4,13 @@
 #include "record.h"
 
 #include "cropandtrim.h"
+#include "cropscene.h"
 #include "ffmpegutils.h"
 #include "screenrecordersettings.h"
 #include "screenrecordertr.h"
 
+#include <utils/aspects.h>
+#include <utils/aspectwidgets.h>
 #include <utils/filedialogs.h>
 #include <utils/environment.h>
 #include <utils/fileutils.h>
@@ -15,6 +18,8 @@
 #include <utils/qtcprocess.h>
 #include <utils/utilsicons.h>
 #include <utils/widgets.h>
+
+#include <QVBoxLayout>
 
 #include <coreplugin/icore.h>
 
@@ -56,25 +61,6 @@ static const RecordPreset &recordPreset()
     return preset;
 }
 
-class RecordOptionsDialog : public QDialog
-{
-public:
-    explicit RecordOptionsDialog(QWidget *parent = nullptr);
-
-private:
-    QRect screenCropRect() const;
-    void updateCropScene();
-    void updateWidgets();
-
-    static const int m_factor = 4;
-    CropScene *m_cropScene;
-    QImage m_thumbnail;
-    SelectionAspect m_screenId;
-    IntegerAspect m_recordFrameRate;
-    QLabel *m_cropRectLabel;
-    QToolButton *m_resetButton;
-};
-
 static QString optionNameForScreen(const QScreen *screen)
 {
     const QSize pixelSize = screen->size() * screen->devicePixelRatio();
@@ -85,106 +71,145 @@ static QString optionNameForScreen(const QScreen *screen)
     return displayName;
 }
 
+// What the recording options ask: which display, how much of it, and how
+// fast. The area is picked on a thumbnail of the display, scaled down by
+// kThumbnailFactor, so every rectangle crosses between thumbnail pixels and
+// screen pixels.
+const int kThumbnailFactor = 4;
+
+class RecordOptionsAspects final : public AspectContainer
+{
+public:
+    RecordOptionsAspects();
+
+    // The rectangle in the screen's own pixels, empty for the whole screen.
+    QRect screenCropRect() const;
+    int screenId() const { return int(screen()); }
+    int frameRate() const { return int(frameRateAspect()); }
+
+    void showTheScreen();
+    void takeSavedSettings();
+
+    SelectionAspect screen{this};
+    Internal::CropSceneAspect scene{this};
+    TextDisplay cropRect{this};
+    ActionAspect reset{this};
+    IntegerAspect frameRateAspect{this};
+
+private:
+    void showTheRectangle();
+
+    QImage m_thumbnail;
+};
+
+RecordOptionsAspects::RecordOptionsAspects()
+{
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ScreenRecorder/RecordOptionsPage.qml"));
+
+    screen.setQmlName("Screen");
+    screen.setLabelText(Tr::tr("Display:"));
+    screen.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+    for (const QScreen *s : QGuiApplication::screens())
+        screen.addOption(optionNameForScreen(s));
+
+    scene.setQmlName("Scene");
+
+    cropRect.setQmlName("CropRect");
+
+    reset.setQmlName("Reset");
+    reset.setActionIcon(Icons::RESET.icon());
+    reset.setToolTip(Tr::tr("Record the whole display."));
+    reset.setAction([this] { scene.selectEverything(); });
+
+    frameRateAspect.setQmlName("FrameRate");
+    frameRateAspect.setLabelText(Tr::tr("FPS:"));
+
+    connect(&screen, &BaseAspect::changed, this, [this] {
+        showTheScreen();
+        scene.selectEverything();
+    });
+    connect(&scene, &BaseAspect::changed, this, &RecordOptionsAspects::showTheRectangle);
+}
+
+QRect RecordOptionsAspects::screenCropRect() const
+{
+    const QRect r = scene.cropRect();
+    return {r.x() * kThumbnailFactor, r.y() * kThumbnailFactor,
+            r.width() * kThumbnailFactor, r.height() * kThumbnailFactor};
+}
+
+void RecordOptionsAspects::showTheScreen()
+{
+    const ScreenRecorderSettings::RecordSettings rs = ScreenRecorderSettings
+        ::sanitizedRecordSettings({screenId(), screenCropRect(), frameRate()});
+    m_thumbnail = QGuiApplication::screens().at(rs.screenId)->grabWindow().toImage();
+    const qreal dpr = m_thumbnail.devicePixelRatio();
+    m_thumbnail = m_thumbnail.scaled(
+        (m_thumbnail.deviceIndependentSize() / kThumbnailFactor * dpr).toSize(),
+        Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    m_thumbnail.setDevicePixelRatio(dpr);
+    scene.setFrame(m_thumbnail);
+    showTheRectangle();
+}
+
+void RecordOptionsAspects::showTheRectangle()
+{
+    const QRect r = screenCropRect();
+    cropRect.setText(QString("x:%1 y:%2 w:%3 h:%4")
+                         .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height()));
+    reset.setEnabled(!scene.fullySelected());
+}
+
+void RecordOptionsAspects::takeSavedSettings()
+{
+    const ScreenRecorderSettings::RecordSettings rs = settings().recordSettings();
+    screen.setValue(rs.screenId);
+    showTheScreen();
+    if (rs.cropRect.isNull()) {
+        scene.selectEverything();
+    } else {
+        scene.setCropRect({rs.cropRect.x() / kThumbnailFactor,
+                           rs.cropRect.y() / kThumbnailFactor,
+                           rs.cropRect.width() / kThumbnailFactor,
+                           rs.cropRect.height() / kThumbnailFactor});
+    }
+    frameRateAspect.setValue(rs.frameRate);
+}
+
+class RecordOptionsDialog : public QDialog
+{
+public:
+    explicit RecordOptionsDialog(QWidget *parent = nullptr);
+
+private:
+    const std::unique_ptr<RecordOptionsAspects> d;
+};
+
 RecordOptionsDialog::RecordOptionsDialog(QWidget *parent)
     : QDialog(parent)
+    , d(new RecordOptionsAspects)
 {
     setWindowTitle(Tr::tr("Screen Recording Options"));
 
-    m_screenId.setLabelText(Tr::tr("Display:"));
-    m_screenId.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
-    for (const QScreen *screen : QGuiApplication::screens())
-        m_screenId.addOption(optionNameForScreen(screen));
-
-    m_cropScene = new CropScene;
-
-    m_recordFrameRate.setLabelText(Tr::tr("FPS:"));
-
-    m_resetButton = new QToolButton;
-    m_resetButton->setIcon(Icons::RESET.icon());
-
-    m_cropRectLabel = new QLabel;
-    m_cropRectLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
-
     auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
 
-    using namespace Layouting;
-    Column {
-        Row { m_screenId, st },
-        Group {
-            title(Tr::tr("Recorded screen area:")),
-            Column {
-                m_cropScene,
-                Row { st, m_cropRectLabel, m_resetButton },
-            }
-        },
-        Row { m_recordFrameRate, st },
-        st,
-        buttonBox,
-    }.attachTo(this);
-    layout()->setSizeConstraint(QLayout::SetFixedSize);
+    auto layout = new QVBoxLayout(this);
+    if (QWidget *form = AspectWidgets::createAspectForm(d.get()))
+        layout->addWidget(form);
+    layout->addWidget(buttonBox);
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, [this] {
-        const QRect cropRect = m_cropScene->fullySelected() ? QRect() : screenCropRect();
-        settings().applyRecordSettings({int(m_screenId()), cropRect, int(m_recordFrameRate())});
+        // An untouched rectangle is no rectangle: the whole display is
+        // recorded, whatever size it happens to be at the time.
+        const QRect cropRect = d->scene.fullySelected() ? QRect() : d->screenCropRect();
+        settings().applyRecordSettings({d->screenId(), cropRect, d->frameRate()});
         QDialog::accept();
     });
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(&m_screenId, &IntegerAspect::changed, this, [this] {
-        updateCropScene();
-        m_cropScene->setFullySelected();
-    });
-    connect(m_resetButton, &QToolButton::pressed, this, [this](){
-        m_cropScene->setFullySelected();
-    });
-    connect(m_cropScene, &CropScene::cropRectChanged, this, &RecordOptionsDialog::updateWidgets);
 
-    updateCropScene();
-
-    const ScreenRecorderSettings::RecordSettings rs = settings().recordSettings();
-    m_screenId.setValue(rs.screenId);
-    if (!rs.cropRect.isNull()) {
-        m_cropScene->setCropRect({rs.cropRect.x() / m_factor,
-                                  rs.cropRect.y() / m_factor,
-                                  rs.cropRect.width() / m_factor,
-                                  rs.cropRect.height() / m_factor});
-    } else {
-        m_cropScene->setFullySelected();
-    }
-    m_recordFrameRate.setValue(rs.frameRate);
-}
-
-QRect RecordOptionsDialog::screenCropRect() const
-{
-    const QRect r = m_cropScene->cropRect();
-    return {r.x() * m_factor, r.y() * m_factor, r.width() * m_factor, r.height() * m_factor};
-}
-
-void RecordOptionsDialog::updateCropScene()
-{
-    const ScreenRecorderSettings::RecordSettings rs = ScreenRecorderSettings
-        ::sanitizedRecordSettings({int(m_screenId()), screenCropRect(), int(m_recordFrameRate())});
-    m_thumbnail = QGuiApplication::screens().at(rs.screenId)->grabWindow().toImage();
-    const qreal dpr = m_thumbnail.devicePixelRatio();
-    m_thumbnail = m_thumbnail.scaled((m_thumbnail.deviceIndependentSize() / m_factor * dpr)
-                                         .toSize(),
-                                     Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-    m_thumbnail.setDevicePixelRatio(dpr);
-    m_cropScene->setImage(m_thumbnail);
-    const static int lw = CropScene::lineWidth;
-    m_cropScene->setFixedSize(m_thumbnail.deviceIndependentSize().toSize()
-                                  .grownBy({lw, lw, lw, lw}));
-    QTimer::singleShot(250, this, [this] {
-        updateCropScene();
-    });
-    updateWidgets();
-}
-
-void RecordOptionsDialog::updateWidgets()
-{
-    const QRect r = screenCropRect();
-    m_cropRectLabel->setText(QString("x:%1 y:%2 w:%3 h:%4")
-                                 .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height()));
-    m_resetButton->setEnabled(!m_cropScene->fullySelected());
+    d->takeSavedSettings();
+    resize(sizeHint());
 }
 
 RecordWidget::RecordWidget(const FilePath &recordFile, QWidget *parent)
@@ -420,5 +445,15 @@ QStringList RecordWidget::ffmpegParameters(const ClipInfo &clipInfo) const
 
     return args;
 }
+
+
+#ifdef WITH_TESTS
+namespace Internal {
+Utils::AspectContainer *recordOptionsAspectsForTest()
+{
+    return new RecordOptionsAspects;
+}
+} // namespace Internal
+#endif
 
 } // namespace ScreenRecorder

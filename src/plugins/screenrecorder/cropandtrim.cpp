@@ -2,6 +2,13 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "cropandtrim.h"
+#include "cropscene.h"
+
+#include <utils/aspects.h>
+#include <utils/aspectwidgets.h>
+#include <utils/guard.h>
+
+#include <QVBoxLayout>
 
 #include "ffmpegutils.h"
 #include "screenrecordersettings.h"
@@ -36,385 +43,147 @@ using namespace Utils;
 
 namespace ScreenRecorder {
 
-CropScene::CropScene(QWidget *parent)
-    : QWidget(parent)
+// What the cropping half of the dialog asks: the rectangle, in the scene and
+// in four fields, and what can be done with what is inside it.
+class CropAspects final : public AspectContainer
 {
-    setMouseTracking(true);
-    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-}
+public:
+    CropAspects();
 
-void CropScene::paintEvent(QPaintEvent *event)
-{
-    Q_UNUSED(event)
-    QPainter p(this);
-    p.drawImage(QPointF(), m_buffer);
-}
+    QRect cropRect() const { return scene.cropRect(); }
+    void setCropRect(const QRect &rect) { scene.setCropRect(rect); }
+    void setImage(const QImage &image);
 
-void CropScene::initMouseInteraction(const QPoint &imagePos)
+    Internal::CropSceneAspect scene{this};
+    IntegerAspect x{this};
+    IntegerAspect y{this};
+    IntegerAspect width{this};
+    IntegerAspect height{this};
+    ActionAspect reset{this};
+    ActionAspect saveImage{this};
+    ActionAspect copyImage{this};
+
+private:
+    void showTheRectangle();
+
+    Guard m_updating;
+};
+
+CropAspects::CropAspects()
 {
-    static const auto inGripRange = [](int grip, int pos, int &clickOffset) -> bool {
-        const bool inRange = pos - m_gripWidth <= grip && pos + m_gripWidth >= grip;
-        if (inRange)
-            clickOffset = grip - pos;
-        return inRange;
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ScreenRecorder/CropPage.qml"));
+
+    scene.setQmlName("Scene");
+
+    const auto field = [](IntegerAspect &aspect, const char *qmlName, const QString &label) {
+        aspect.setQmlName(QString::fromLatin1(qmlName));
+        aspect.setLabelText(label);
+        aspect.setSuffix(" px");
+        aspect.setRange(0, 99999);
     };
+    field(x, "X", Tr::tr("X:"));
+    field(y, "Y", Tr::tr("Y:"));
+    field(width, "Width", Tr::tr("Width:"));
+    field(height, "Height", Tr::tr("Height:"));
+    width.setRange(1, 99999);
+    height.setRange(1, 99999);
 
-    m_mouse.clickOffset = {};
-    if (inGripRange(imagePos.x(), m_cropRect.left(), m_mouse.clickOffset.rx())) {
-        m_mouse.margin = EdgeLeft;
-        m_mouse.cursorShape = Qt::SizeHorCursor;
-    } else if (inGripRange(imagePos.x(), m_cropRect.right(), m_mouse.clickOffset.rx())) {
-        m_mouse.margin = EdgeRight;
-        m_mouse.cursorShape = Qt::SizeHorCursor;
-    } else if (inGripRange(imagePos.y(), m_cropRect.top(), m_mouse.clickOffset.ry())) {
-        m_mouse.margin = EdgeTop;
-        m_mouse.cursorShape = Qt::SizeVerCursor;
-    } else if (inGripRange(imagePos.y(), m_cropRect.bottom(), m_mouse.clickOffset.ry())) {
-        m_mouse.margin = EdgeBottom;
-        m_mouse.cursorShape = Qt::SizeVerCursor;
-    } else if (!fullySelected() && activeMoveArea().contains(imagePos)) {
-        m_mouse.margin = Move;
-        m_mouse.cursorShape = Qt::SizeAllCursor;
-        m_mouse.clickOffset = imagePos - m_cropRect.topLeft();
-    } else {
-        m_mouse.margin = Free;
-        m_mouse.cursorShape = Qt::ArrowCursor;
+    reset.setQmlName("Reset");
+    reset.setActionIcon(Icons::RESET.icon());
+    reset.setToolTip(Tr::tr("Select the whole frame."));
+    reset.setAction([this] { scene.selectEverything(); });
+
+    saveImage.setQmlName("SaveImage");
+    saveImage.setActionIcon(Icons::SAVEFILE.icon());
+    saveImage.setToolTip(Tr::tr("Save current, cropped frame as image file."));
+    saveImage.setAction([this] {
+        FilePathAspect &lastDir = Internal::settings().lastSaveImageDirectory;
+        const QString ext(".png");
+        FilePath file = FileUtils::getSaveFilePath(Tr::tr("Save Current Frame As"),
+                                                   lastDir(), "*" + ext);
+        if (file.isEmpty())
+            return;
+        if (!file.endsWith(ext))
+            file = file.stringAppended(ext);
+        lastDir.setValue(file.parentDir());
+        lastDir.writeToSettingsImmediatly();
+        scene.croppedFrame().save(file.toUrlishString());
+    });
+
+    copyImage.setQmlName("CopyImage");
+    copyImage.setActionIcon(Icons::SNAPSHOT.icon());
+    copyImage.setToolTip(Tr::tr("Copy current, cropped frame as image to the clipboard."));
+    copyImage.setAction([this] {
+        QGuiApplication::clipboard()->setImage(scene.croppedFrame());
+    });
+
+    // The scene and the four fields are two ways of saying the same rectangle.
+    connect(&scene, &BaseAspect::changed, this, [this] {
+        if (!m_updating.isLocked())
+            showTheRectangle();
+    });
+    for (IntegerAspect *aspect : {&x, &y, &width, &height}) {
+        connect(aspect, &BaseAspect::changed, this, [this] {
+            if (m_updating.isLocked())
+                return;
+            const GuardLocker locker(m_updating);
+            scene.setCropRect({int(x()), int(y()), int(width()), int(height())});
+            showTheRectangle();
+        });
     }
+    showTheRectangle();
 }
 
-void CropScene::updateBuffer()
+void CropAspects::showTheRectangle()
 {
-    if (m_buffer.isNull())
-        return;
+    const GuardLocker locker(m_updating);
+    const QRect r = scene.cropRect();
+    x.setValue(r.x());
+    y.setValue(r.y());
+    width.setValue(r.width());
+    height.setValue(r.height());
+    // Nothing to reset when the whole frame is already picked.
+    reset.setEnabled(!scene.fullySelected());
+}
 
-    m_buffer.fill(palette().window().color());
-    const qreal dpr = m_image->devicePixelRatioF();
-    QPainter p(&m_buffer);
-    p.drawImage(lineWidth, lineWidth, *m_image);
-
-    const qreal lineOffset = lineWidth / 2.0;
-    const QRectF r = {
-        m_cropRect.x() / dpr + lineOffset,
-        m_cropRect.y() / dpr + lineOffset,
-        m_cropRect.width() / dpr + lineWidth,
-        m_cropRect.height() / dpr + lineWidth
-    };
-
-    p.save();
-    p.setClipRegion(QRegion(m_buffer.rect()).subtracted(QRegion(r.toRect())));
-    p.setOpacity(0.85);
-    p.fillRect(m_buffer.rect(), qRgb(0x30, 0x30, 0x30));
-    p.restore();
-
-    const auto paintLine = [&p](const QLineF &line)
+void CropAspects::setImage(const QImage &image)
+{
     {
-        const QPen blackPen(Qt::black, lineWidth);
-        p.setPen(blackPen);
-        p.drawLine(line);
-        const QPen whiteDotPen(Qt::white, lineWidth, Qt::DotLine);
-        p.setPen(whiteDotPen);
-        p.drawLine(line);
-    };
-    paintLine(QLineF(r.left(), 0, r.left(), m_buffer.height()));
-    paintLine(QLineF(0, r.top(), m_buffer.width(), r.top()));
-    paintLine(QLineF(r.right(), 0, r.right(), m_buffer.height()));
-    paintLine(QLineF(0, r.bottom(), m_buffer.width(), r.bottom()));
-
-    update();
-}
-
-QPoint CropScene::toImagePos(const QPoint &widgetPos) const
-{
-    const int dpr = int(m_image->devicePixelRatio());
-    return {(widgetPos.x() - lineWidth) * dpr, (widgetPos.y() - lineWidth) * dpr};
-}
-
-QRect CropScene::activeMoveArea() const
-{
-    const qreal minRatio = 0.22;  // At least 22% width and height of current selection
-    const int minAbsoluteSize = 40;
-    QRect result(0, 0, qMax(int(m_cropRect.width() * minRatio), minAbsoluteSize),
-                 qMax(int(m_cropRect.height() * minRatio), minAbsoluteSize));
-    result.moveCenter(m_cropRect.center());
-    return result;
-}
-
-QRect CropScene::cropRect() const
-{
-    return m_cropRect;
-}
-
-void CropScene::setCropRect(const QRect &rect)
-{
-    m_cropRect = rect;
-    updateBuffer();
-    emit cropRectChanged(m_cropRect);
-}
-
-bool CropScene::fullySelected() const
-{
-    return m_image && m_image->rect() == m_cropRect;
-}
-
-void CropScene::setFullySelected()
-{
-    if (!m_image)
-        return;
-    setCropRect(m_image->rect());
-}
-
-QRect CropScene::fullRect() const
-{
-    return m_image ? m_image->rect() : QRect();
-}
-
-void CropScene::setImage(const QImage &image)
-{
-    m_image = &image;
-    const QSize sceneSize = m_image->deviceIndependentSize().toSize()
-                                .grownBy({lineWidth, lineWidth, lineWidth, lineWidth});
-    const QSize sceneSizeDpr = sceneSize * m_image->devicePixelRatio();
-    m_buffer = QImage(sceneSizeDpr, QImage::Format_RGB32);
-    m_buffer.setDevicePixelRatio(m_image->devicePixelRatio());
-    updateBuffer();
-    resize(sceneSize);
-}
-
-QImage CropScene::croppedImage() const
-{
-    if (!m_image)
-        return {};
-
-    return m_image->copy(m_cropRect);
-}
-
-void CropScene::mouseMoveEvent(QMouseEvent *event)
-{
-    const QPoint imagePos = toImagePos(event->pos());
-
-    if (m_mouse.dragging) {
-        switch (m_mouse.margin) {
-        case EdgeLeft:
-            m_cropRect.setLeft(qBound(0, imagePos.x() - m_mouse.clickOffset.x(),
-                                      m_cropRect.right()));
-            break;
-        case EdgeTop:
-            m_cropRect.setTop(qBound(0, imagePos.y() - m_mouse.clickOffset.y(),
-                                     m_cropRect.bottom()));
-            break;
-        case EdgeRight:
-            m_cropRect.setRight(qBound(m_cropRect.left(), imagePos.x() - m_mouse.clickOffset.x(),
-                                       m_image->width() - 1));
-            break;
-        case EdgeBottom:
-            m_cropRect.setBottom(qBound(m_cropRect.top(), imagePos.y() - m_mouse.clickOffset.y(),
-                                        m_image->height() - 1));
-            break;
-        case Free:
-            m_cropRect = QRect(m_mouse.startImagePos, imagePos).normalized()
-                             .intersected(m_image->rect());
-            break;
-        case Move: {
-            const QPoint topLeft(qBound(0, imagePos.x() - m_mouse.clickOffset.x(),
-                                        m_image->width() - m_cropRect.width()),
-                                 qBound(0, imagePos.y() - m_mouse.clickOffset.y(),
-                                        m_image->height() - m_cropRect.height()));
-            m_cropRect = QRect(topLeft, m_cropRect.size());
-            break;
-        }
-        }
-        emit cropRectChanged(m_cropRect);
-        updateBuffer();
-    } else {
-        initMouseInteraction(imagePos);
-        setCursor(m_mouse.cursorShape);
+        const GuardLocker locker(m_updating);
+        scene.setFrame(image);
+        const QRect full = scene.fullRect();
+        x.setRange(0, qMax(0, full.width() - 1));
+        y.setRange(0, qMax(0, full.height() - 1));
+        width.setRange(1, qMax(1, full.width()));
+        height.setRange(1, qMax(1, full.height()));
     }
-
-    QWidget::mouseMoveEvent(event);
+    showTheRectangle();
 }
 
-void CropScene::mousePressEvent(QMouseEvent *event)
-{
-    const QPoint imagePos = toImagePos(event->pos());
-
-    m_mouse.dragging = true;
-    m_mouse.startImagePos = imagePos;
-
-    QWidget::mousePressEvent(event);
-}
-
-void CropScene::mouseReleaseEvent(QMouseEvent *event)
-{
-    m_mouse.dragging = false;
-    setCursor(Qt::ArrowCursor);
-
-    QWidget::mouseReleaseEvent(event);
-}
-
+// The cropping half of the dialog: an aspect form, held in a widget so that
+// the dialog's layout can take it.
 class CropWidget : public QWidget
 {
 public:
     explicit CropWidget(QWidget *parent = nullptr);
 
-    QRect cropRect() const;
-    void setCropRect(const QRect &rect);
-
-    void setImage(const QImage &image);
+    QRect cropRect() const { return d->cropRect(); }
+    void setCropRect(const QRect &rect) { d->setCropRect(rect); }
+    void setImage(const QImage &image) { d->setImage(image); }
 
 private:
-    void updateWidgets();
-    void onSpinBoxChanged();
-    void onCropRectChanged();
-
-    CropScene *m_cropScene;
-
-    QSpinBox *m_xSpinBox;
-    QSpinBox *m_ySpinBox;
-    QSpinBox *m_widthSpinBox;
-    QSpinBox *m_heightSpinBox;
-
-    CropSizeWarningIcon *m_warningIcon;
-    QToolButton *m_resetButton;
+    const std::unique_ptr<CropAspects> d;
 };
 
 CropWidget::CropWidget(QWidget *parent)
     : QWidget(parent)
+    , d(new CropAspects)
 {
-    m_cropScene = new CropScene;
-
-    auto scrollArea = new QScrollArea;
-    scrollArea->setWidget(m_cropScene);
-
-    for (auto s : {&m_xSpinBox, &m_ySpinBox, &m_widthSpinBox, &m_heightSpinBox}) {
-        *s = new QSpinBox;
-        (*s)->setMaximum(99999); // Will be adjusted in CropWidget::setImage
-        (*s)->setSuffix(" px");
-    }
-    m_widthSpinBox->setMinimum(1);
-    m_heightSpinBox->setMinimum(1);
-
-    m_resetButton = new QToolButton;
-    m_resetButton->setIcon(Icons::RESET.icon());
-
-    m_warningIcon = new CropSizeWarningIcon(CropSizeWarningIcon::StandardVariant);
-
-    auto saveImageButton = new QToolButton;
-    saveImageButton->setToolTip(Tr::tr("Save current, cropped frame as image file."));
-    saveImageButton->setIcon(Icons::SAVEFILE.icon());
-
-    auto copyImageToClipboardAction = new QAction(Tr::tr("Copy current, cropped frame as image "
-                                                         "to the clipboard."), this);
-    copyImageToClipboardAction->setIcon(Icons::SNAPSHOT.icon());
-    copyImageToClipboardAction->setShortcut(QKeySequence::Copy);
-
-    auto copyImageToClipboardButton = new QToolButton;
-    copyImageToClipboardButton->setDefaultAction(copyImageToClipboardAction);
-
-    using namespace Layouting;
-    Column {
-        scrollArea,
-        Row {
-            Tr::tr("X:"), m_xSpinBox,
-            Space(4), Tr::tr("Y:"), m_ySpinBox,
-            Space(16), Tr::tr("Width:"), m_widthSpinBox,
-            Space(4), Tr::tr("Height:"), m_heightSpinBox,
-            m_resetButton,
-            m_warningIcon,
-            st,
-            saveImageButton,
-            copyImageToClipboardButton,
-        },
-        noMargin,
-    }.attachTo(this);
-
-    connect(m_xSpinBox, &QSpinBox::valueChanged, this, &CropWidget::onSpinBoxChanged);
-    connect(m_ySpinBox, &QSpinBox::valueChanged, this, &CropWidget::onSpinBoxChanged);
-    connect(m_widthSpinBox, &QSpinBox::valueChanged, this, &CropWidget::onSpinBoxChanged);
-    connect(m_heightSpinBox, &QSpinBox::valueChanged, this, &CropWidget::onSpinBoxChanged);
-    connect(m_cropScene, &CropScene::cropRectChanged, this, &CropWidget::onCropRectChanged);
-    connect(m_resetButton, &QToolButton::pressed, this, [this] {
-        m_cropScene->setFullySelected();
-    });
-    connect(saveImageButton, &QToolButton::clicked, this, [this] {
-        FilePathAspect &lastDir = Internal::settings().lastSaveImageDirectory;
-        const QString ext(".png");
-        FilePath file = FileUtils::getSaveFilePath(Tr::tr("Save Current Frame As"),
-                                                   lastDir(), "*" + ext);
-        if (!file.isEmpty()) {
-            if (!file.endsWith(ext))
-                file = file.stringAppended(ext);
-            lastDir.setValue(file.parentDir());
-            lastDir.writeToSettingsImmediatly();
-            const QImage image = m_cropScene->croppedImage();
-            image.save(file.toUrlishString());
-        }
-    });
-    connect(copyImageToClipboardAction, &QAction::triggered, this, [this] {
-        const QImage image = m_cropScene->croppedImage();
-        QClipboard *clipboard = QGuiApplication::clipboard();
-        clipboard->setImage(image);
-    });
-
-    updateWidgets();
-}
-
-QRect CropWidget::cropRect() const
-{
-    return m_cropScene->cropRect();
-}
-
-void CropWidget::setCropRect(const QRect &rect)
-{
-    m_cropScene->setCropRect(rect);
-}
-
-void CropWidget::setImage(const QImage &image)
-{
-    const QRect rBefore = m_cropScene->fullRect();
-    m_cropScene->setImage(image);
-    const QRect rAfter = m_cropScene->fullRect();
-    if (rBefore != rAfter) {
-        m_xSpinBox->setMaximum(rAfter.width() - 1);
-        m_ySpinBox->setMaximum(rAfter.height() - 1);
-        m_widthSpinBox->setMaximum(rAfter.width());
-        m_heightSpinBox->setMaximum(rAfter.height());
-    }
-    updateWidgets();
-}
-
-void CropWidget::updateWidgets()
-{
-    m_resetButton->setEnabled(!m_cropScene->fullySelected());
-    const QRect r = m_cropScene->cropRect();
-    m_warningIcon->setCropSize(r.size());
-}
-
-void CropWidget::onSpinBoxChanged()
-{
-    const QRect spinBoxRect = {
-        m_xSpinBox->value(),
-        m_ySpinBox->value(),
-        m_widthSpinBox->value(),
-        m_heightSpinBox->value()
-    };
-    m_cropScene->setCropRect(spinBoxRect.intersected(m_cropScene->fullRect()));
-}
-
-void CropWidget::onCropRectChanged()
-{
-    const QRect rect = m_cropScene->cropRect();
-    const struct { QSpinBox *spinBox; int value; } updates[] = {
-                   {m_xSpinBox, rect.x()},
-                   {m_ySpinBox, rect.y()},
-                   {m_widthSpinBox, rect.width()},
-                   {m_heightSpinBox, rect.height()},
-                   };
-    for (const auto &update : updates) {
-        update.spinBox->blockSignals(true);
-        update.spinBox->setValue(update.value);
-        update.spinBox->blockSignals(false);
-    }
-    updateWidgets();
+    auto layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    if (QWidget *form = AspectWidgets::createAspectForm(d.get()))
+        layout->addWidget(form);
 }
 
 class SelectionSlider : public QSlider
@@ -809,6 +578,16 @@ void CropAndTrimWidget::updateWidgets()
 
     m_cropSizeWarningIcon->setCropSize(m_cropRect.size());
 }
+
+
+#ifdef WITH_TESTS
+namespace Internal {
+Utils::AspectContainer *cropAspectsForTest()
+{
+    return new CropAspects;
+}
+} // namespace Internal
+#endif
 
 } // namespace ScreenRecorder
 
