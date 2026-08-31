@@ -23664,3 +23664,95 @@ three overrides from [[qtc-model-ready-for-quick-view]] go on that rather than
 on a `Utils::TreeModel`. Then `GenerateGettersSettersDialog`, then
 `BookmarkDialog`, and `LoggingViewManagerWidget` last - it is still the big
 one.
+
+## 2026-08-31 — The first tree with a model of its own
+
+`InsertVirtualMethodsDialog` (CppEditor), which the census left off at. Its
+tree is a hand-written `QAbstractItemModel` rather than a `Utils::TreeModel`,
+so the three overrides from [[qtc-model-ready-for-quick-view]] go straight on
+it: `headerData()` answering nothing for its one nameless column, `roleNames()`
+through `AspectTable::withRoleNames()`, and `CheckableRole`/`EditableRole` -
+the latter from the item's own `flags()`, which is what already said that a
+function the class reimplements cannot be picked.
+
+**Three things the shared components were missing, all found by this dialog:**
+
+**A branch is checked by what is under it.** `AspectTableCell` drew a plain
+two-state box, so a class with some of its functions ticked read as unticked.
+It is `tristate` with `nextCheckState` now - partly checked is *shown*, and a
+click is still a decision about everything under the branch, the way an item
+view behaves. **The `tristate: true` line is redundant** and its control did
+not bite: `QQuickCheckBox::setCheckState(PartiallyChecked)` turns tristate on
+by itself. It stays, because depending on that side effect is worse than one
+line that says what is meant - but do not read the control as covering it.
+
+**Open branches can be kept across a refilter.** `TreeDelegate` answers
+`branchState()` and takes `setBranchState()`, over the top-level rows in the
+order they are shown; a branch the state says nothing about is opened, because
+it was not there before the change and so the reader has not closed it. The
+page reads the state, writes the aspect, and puts it back - which is why the
+hide-reimplemented box is a plain `CheckBox` and not a `BoolDelegate`: the
+state has to be read *before* the aspect refilters, and an `onToggled` on a
+`BoolDelegate` instance replaces the one that does the writing.
+
+**A tree can be asked to open.** `BaseAspect::expandControl()` and
+`controlExpandRequested`, the same shape as `setFocusToInputField()`, honoured
+by `TreeDelegate`. The dialog is reused: its model is cleared and refilled with
+a different set of classes each time it opens, so nothing the reader closed
+last time is about this tree. `Component.onCompleted` only fires once and was
+wrong for exactly that reason. `TreeDelegate` also honours
+`controlFocusRequested` now, putting the cursor in the filter field, which is
+what `m_filter->setFocus()` did.
+
+**Two things the port fixes rather than reproduces**, both stated here because
+they are behaviour changes:
+
+- The filter is a **substring** filter, not a wildcard one. The widget used
+  `setFilterWildcard`, which in Qt 6 is anchored - typing `add` matched nothing
+  unless you typed `*add*`. `TreeFilterModel` also hides a class with no
+  matching function left, where the widget kept every class that had children
+  at all.
+- **The saved row is an index into the list the dialog will read it back
+  from.** The widget stored the row of the list as it was *before* what was
+  typed was added to it, then clamped a stale row to 0 on the way back in. The
+  clamp turned out to be dead: `StringSelectionAspect::volatileValueToGui()`
+  moves to the first entry for an id its list does not hold and calls
+  `handleGuiChanged()`, so the aspect already does it. That control did not
+  bite, which is how it was found.
+
+**The mapping is two free functions**, `showSettings()` and `readSettings()`,
+between `VirtualMethodsSettings` and the aspects. That is what makes the round
+trip testable without a settings file, and it keeps `initData()`/
+`saveSettings()` down to a read, a call and a write.
+
+**What is not covered:** the dialog's own page drawing check boxes. Reaching a
+view's delegates means walking `QQuickItem::childItems()` - `QObject::children()`
+misses them entirely, because a delegate's *item* parent is the content item
+while its *object* owner is the delegate model - and that needs `QQuickItem`,
+which CppEditor does not link. The equivalent assertion lives in QuickUi
+instead, on a fixture whose model closes one leaf.
+
+Negative controls: `setBranchState` doing nothing; the cell cycling through
+partly checked; the cell ignoring a closed row; nothing acting on an expand
+request; the mode list not cleared before it is rebuilt; nothing following the
+override check box; hiding reimplemented functions reaching no filter; the
+saved row found in the list before what was typed was added; a replacement
+written even when it is not inserted; and the page naming an aspect that is not
+there. All ten bit. Two did not: `tristate: true` and the stale-row clamp, both
+explained above.
+
+QuickUi 203 passed / 0 failed / 0 skipped, exit 0.
+`-test CppEditor,InsertVirtualMethodsTest` 31 passed, exit 0. `Core`,
+`LanguageClient`, `Git` clean, `ClangTools` skipped; `ProjectExplorer` its two
+standing failures. **The whole `CppEditor` suite is not a usable signal** - 38
+failures and exit 134, and every failing class passes on its own except
+`ModelManagerTest::testExtraeditorsupportUiFiles`, which fails opening a qmake
+project. See [[qtc-cppeditor-suite-is-flaky]]. `ninja all_qmllint` zero
+warnings. No `.qbs` edit: the only file added is a `.qml`, and CppEditor's
+`.qbs` takes those by wildcard.
+
+**Next:** `GenerateGettersSettersDialog` (CppEditor) is the closest neighbour -
+same plugin, same shape. Then `BookmarkDialog` (shared/help, the module
+question this series has already answered once for `TopicChooser`), and
+`LoggingViewManagerWidget` (Core) last: two tree views, eight tool buttons,
+two context menus and a save-to-file.

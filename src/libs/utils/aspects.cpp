@@ -926,6 +926,11 @@ void BaseAspect::setFocusToInputField()
     emit controlFocusRequested();
 }
 
+void BaseAspect::expandControl()
+{
+    emit controlExpandRequested();
+}
+
 void BaseAspect::triggerContextAction(bool checked)
 {
     Q_UNUSED(checked)

@@ -59,6 +59,35 @@ RowLayout {
     // so that what is filtered and what the field says stay the same thing.
     function setFilter(text: string): void { filter.text = text }
 
+    // Which of the top-level branches are open, in the order they are shown.
+    // A page that changes what the tree holds - hiding some rows and showing
+    // others - reads this before the change and puts it back afterwards, the
+    // way the widget views these replace kept the reader's place across a
+    // change of filter.
+    function branchState(): var {
+        const state = []
+        for (let row = 0; row < view.rows; ++row) {
+            if (view.depth(row) === 0)
+                state.push(view.isExpanded(row))
+        }
+        return state
+    }
+
+    // A branch the state says nothing about is opened: it was not there before
+    // the change, so the reader has not closed it.
+    function setBranchState(state: var): void {
+        let branch = 0
+        for (let row = 0; row < view.rows; ++row) {
+            if (view.depth(row) !== 0)
+                continue
+            if (branch < state.length && !state[branch])
+                view.collapse(row)
+            else
+                view.expand(row)
+            ++branch
+        }
+    }
+
     // Whether the rows may be dragged into a different order or under a
     // different branch. The model does the move through its own
     // mimeData()/dropMimeData(); see AspectModels.moveRow().
@@ -95,6 +124,26 @@ RowLayout {
         root.dragIndex = null
         root.dropParent = null
         root.dropRow = -1
+    }
+
+    Connections {
+        target: root.aspect
+
+        // A dialog that opens on a tree puts the cursor in its filter field,
+        // so that the reader can narrow it down without reaching for the
+        // mouse. focus rather than forceActiveFocus(), the same as
+        // StringDelegate: active focus needs the window to be the active one.
+        function onControlFocusRequested(): void {
+            filter.focus = true
+        }
+
+        // A tree that is refilled each time its dialog opens - the virtual
+        // functions of the base classes of whatever the cursor was on - is
+        // shown whole, because nothing about the last set of rows says
+        // anything about this one.
+        function onControlExpandRequested(): void {
+            root.expandAll()
+        }
     }
 
     visible: aspectVisible

@@ -234,6 +234,10 @@ public:
     // Puts the cursor in whatever this aspect is drawn as, for a page that
     // has just made something for the user to name.
     void setFocusToInputField();
+    // Opens every branch of whatever this aspect is drawn as. A tree that is
+    // refilled each time its dialog opens is shown whole, the way the widget
+    // views expanded theirs.
+    void expandControl();
     // The control's context-menu entry was toggled. See
     // AspectPresentation::contextActionText.
     Q_INVOKABLE virtual void triggerContextAction(bool checked);
@@ -379,6 +383,7 @@ signals:
     void controlConfigurationChanged();
     void controlFocusRequested();
     void controlValidationRequested();
+    void controlExpandRequested();
 
 protected:
     // final: no aspect builds its own controls any more. An aspect says which

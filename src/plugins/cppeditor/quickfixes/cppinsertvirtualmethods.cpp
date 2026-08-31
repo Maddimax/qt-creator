@@ -11,6 +11,7 @@
 #include "cppquickfixassistant.h"
 #include "cppquickfixhelpers.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 #include <texteditor/fontsettings.h>
 
@@ -18,25 +19,20 @@
 #include <cplusplus/Overview.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/changeset.h>
-#include <utils/layoutbuilder.h>
 #include <utils/qtcassert.h>
 #include <utils/utilsicons.h>
 
-#include <QAction>
-#include <QCheckBox>
-#include <QComboBox>
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QLineEdit>
 #include <QPointer>
 #include <QQueue>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QTextDocument>
-#include <QToolButton>
-#include <QTreeView>
+#include <QVBoxLayout>
 
 #ifdef WITH_TESTS
 #include "cppquickfix_test.h"
@@ -49,6 +45,7 @@ using namespace Utils;
 
 namespace CppEditor::Internal {
 
+class InsertVirtualMethodsAspects;
 class InsertVirtualMethodsModel;
 class VirtualMethodsSettings;
 
@@ -79,35 +76,14 @@ public:
 
     virtual bool gather();
 
-protected:
-    void setInsertOverrideReplacement(bool insert);
-    void setOverrideReplacement(const QString &replacements);
-
 private:
-    void setHideReimplementedFunctions(bool hide);
-    void updateOverrideReplacementsComboBox();
-
-private:
-    QTreeView *m_view = nullptr;
-    QLineEdit *m_filter = nullptr;
-    QCheckBox *m_hideReimplementedFunctions = nullptr;
-    QComboBox *m_insertMode = nullptr;
-    QCheckBox *m_virtualKeyword = nullptr;
-    QCheckBox *m_overrideReplacementCheckBox = nullptr;
-    QComboBox *m_overrideReplacementComboBox = nullptr;
-    QToolButton *m_clearUserAddedReplacementsButton = nullptr;
+    std::unique_ptr<InsertVirtualMethodsAspects> m_aspects;
     QDialogButtonBox *m_buttons = nullptr;
-    QList<bool> m_expansionStateNormal;
-    QList<bool> m_expansionStateReimp;
-    QStringList m_availableOverrideReplacements;
     bool m_hasImplementationFile = false;
     bool m_hasReimplementedFunctions = false;
 
 protected:
     VirtualMethodsSettings *m_settings;
-
-    void saveExpansionState();
-    void restoreExpansionState();
 
 public:
     InsertVirtualMethodsModel *classFunctionModel;
@@ -256,6 +232,15 @@ QStringList defaultOverrideReplacements()
         QLatin1String("override"),
         QLatin1String("Q_DECL_OVERRIDE")
     };
+}
+
+// Which row of the list the dialog builds the next time it opens holds the
+// replacement that was chosen, so that it opens on it. The widget dialog
+// stored the row the list had before what was typed was added to it, which was
+// a different list.
+int overrideReplacementRow(const QString &chosen, const QStringList &userAdded)
+{
+    return qMax(0, (defaultOverrideReplacements() + userAdded).indexOf(chosen));
 }
 
 QStringList sortedAndTrimmedStringListWithoutEmptyElements(const QStringList &list)
@@ -443,7 +428,13 @@ public:
                 auto function = static_cast<FunctionItem *>(item);
                 return QVariant(function->alreadyFound);
             }
-
+            break;
+        // Every row is a check box, and a function already reimplemented is
+        // one the reader cannot pick - which is what its flags say.
+        case AspectTable::CheckableRole:
+            return true;
+        case AspectTable::EditableRole:
+            return AspectTable::isWritable(item->flags());
         }
         return QVariant();
     }
@@ -488,6 +479,15 @@ public:
         if (!index.isValid())
             return Qt::NoItemFlags;
         return itemForIndex(index)->flags();
+    }
+
+    // The one column has no name, and a Qt Quick view draws a heading for a
+    // column that answers one.
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return AspectTable::withRoleNames(QAbstractItemModel::roleNames());
     }
 
     QList<ClassItem *> classes;
@@ -964,8 +964,6 @@ public:
             return false;
         }
 
-        if (!QSortFilterProxyModel::filterAcceptsRow(sourceRow, sourceParent))
-            return false;
         if (m_hideReimplemented)
             return !index.data(InsertVirtualMethodsDialog::Reimplemented).toBool();
         return true;
@@ -986,6 +984,185 @@ private:
     bool m_hideReimplemented = false;
 };
 
+// The tree of base classes and their virtual functions. The rows are the quick
+// fix's own model, behind the proxy that hides the ones already reimplemented;
+// the aspect only hands it over.
+class VirtualFunctionsAspect final : public BaseAspect
+{
+public:
+    VirtualFunctionsAspect(AspectContainer *container, QAbstractItemModel *model)
+        : BaseAspect(container), m_model(model)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Tree;
+        p.filterPlaceholderText = Tr::tr("Filter");
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+private:
+    QAbstractItemModel *const m_model;
+};
+
+// What the dialog asks. The values are read from and written back to
+// VirtualMethodsSettings, which is what the quick fix itself looks at.
+class InsertVirtualMethodsAspects final : public AspectContainer
+{
+public:
+    InsertVirtualMethodsAspects(QAbstractItemModel *rows,
+                                InsertVirtualMethodsFilterModel *filter);
+
+    // The replacements the list offers: the two that are always there, plus
+    // whatever has been typed into it before.
+    void setAvailableReplacements(const QStringList &replacements);
+    const QStringList &availableReplacements() const { return m_availableReplacements; }
+
+    // The last entry is only offered where there is a file to put definitions
+    // in, the way the widget dialog added and removed it.
+    void setHasImplementationFile(bool hasFile);
+
+    VirtualFunctionsAspect functions;
+    BoolAspect hideReimplemented{this};
+    SelectionAspect insertMode{this};
+    BoolAspect virtualKeyword{this};
+    BoolAspect useOverrideReplacement{this};
+    StringSelectionAspect overrideReplacement{this};
+    ActionAspect clearAddedReplacements{this};
+
+private:
+    InsertVirtualMethodsFilterModel *const m_filter;
+    QStringList m_availableReplacements;
+};
+
+InsertVirtualMethodsAspects::InsertVirtualMethodsAspects(QAbstractItemModel *rows,
+                                                         InsertVirtualMethodsFilterModel *filter)
+    : functions(this, rows)
+    , m_filter(filter)
+{
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/CppEditor/InsertVirtualMethodsDialog.qml"));
+
+    functions.setQmlName("Functions");
+
+    hideReimplemented.setQmlName("HideReimplemented");
+    hideReimplemented.setLabelText(Tr::tr("Hide reimplemented functions"));
+
+    insertMode.setQmlName("InsertMode");
+    insertMode.setDisplayStyle(SelectionAspect::DisplayStyle::ComboBox);
+
+    virtualKeyword.setQmlName("VirtualKeyword");
+    virtualKeyword.setLabelText(Tr::tr("Add \"virtual\" to function declaration"));
+
+    useOverrideReplacement.setQmlName("UseOverrideReplacement");
+    useOverrideReplacement.setLabelText(
+        Tr::tr("Add \"override\" equivalent to function declaration:"));
+
+    overrideReplacement.setQmlName("OverrideReplacement");
+    overrideReplacement.setFillCallback(
+        [this](const StringSelectionAspect::ResultCallback &cb) {
+            QList<QStandardItem *> items;
+            for (const QString &replacement : std::as_const(m_availableReplacements)) {
+                auto item = new QStandardItem(replacement);
+                // The list stores what it is called, not which row it is: it
+                // is typed into as well as picked from.
+                item->setData(replacement);
+                items.append(item);
+            }
+            cb(items);
+        });
+
+    clearAddedReplacements.setQmlName("ClearAddedReplacements");
+    clearAddedReplacements.setActionIcon(Utils::Icons::CLEAN_TOOLBAR.icon());
+    clearAddedReplacements.setToolTip(Tr::tr("Clear Added \"override\" Equivalents"));
+    clearAddedReplacements.setAction([this] {
+        setAvailableReplacements(defaultOverrideReplacements());
+    });
+
+    // Only the replacement that is going to be inserted is worth choosing.
+    connect(&useOverrideReplacement, &BaseAspect::changed, this, [this] {
+        overrideReplacement.setEnabled(useOverrideReplacement.volatileValue());
+    });
+    connect(&hideReimplemented, &BaseAspect::changed, this, [this] {
+        m_filter->setHideReimplementedFunctions(hideReimplemented.volatileValue());
+    });
+}
+
+void InsertVirtualMethodsAspects::setAvailableReplacements(const QStringList &replacements)
+{
+    m_availableReplacements = replacements;
+    overrideReplacement.ensureFilled();
+    overrideReplacement.refill();
+    clearAddedReplacements.setEnabled(
+        m_availableReplacements.size() > defaultOverrideReplacements().size());
+}
+
+// What the dialog offers, from what was saved. Kept apart from where the
+// settings are stored so that the two can be checked without a settings file.
+void showSettings(const VirtualMethodsSettings &settings,
+                  bool hasImplementationFile,
+                  bool hasReimplementedFunctions,
+                  InsertVirtualMethodsAspects *aspects)
+{
+    aspects->setAvailableReplacements(defaultOverrideReplacements()
+                                      + settings.userAddedOverrideReplacements);
+
+    aspects->hideReimplemented.setEnabled(hasReimplementedFunctions);
+    aspects->hideReimplemented.setValue(settings.hideReimplementedFunctions);
+
+    aspects->virtualKeyword.setValue(settings.insertVirtualKeyword);
+    aspects->useOverrideReplacement.setValue(settings.insertOverrideReplacement);
+    aspects->overrideReplacement.setEnabled(settings.insertOverrideReplacement);
+
+    // No clamping: a StringSelectionAspect given an id its list does not hold
+    // moves to the first entry by itself, which is what the widget dialog
+    // clamped a stale row for.
+    aspects->overrideReplacement.setValue(
+        aspects->availableReplacements().value(settings.overrideReplacementIndex));
+
+    aspects->setHasImplementationFile(hasImplementationFile);
+    aspects->insertMode.setValue(
+        aspects->insertMode.indexForItemValue(int(settings.implementationMode)));
+}
+
+// And the way back.
+void readSettings(const InsertVirtualMethodsAspects &aspects, VirtualMethodsSettings *settings)
+{
+    settings->insertVirtualKeyword = aspects.virtualKeyword.value();
+    settings->implementationMode = static_cast<InsertVirtualMethodsDialog::ImplementationMode>(
+        aspects.insertMode.itemValue().toInt());
+    settings->hideReimplementedFunctions = aspects.hideReimplemented.value();
+    settings->insertOverrideReplacement = aspects.useOverrideReplacement.value();
+    if (aspects.overrideReplacement.isEnabled())
+        settings->overrideReplacement = aspects.overrideReplacement.value().trimmed();
+
+    QSet<QString> addedReplacements = Utils::toSet(aspects.availableReplacements());
+    addedReplacements.insert(settings->overrideReplacement);
+    addedReplacements.subtract(Utils::toSet(defaultOverrideReplacements()));
+    settings->userAddedOverrideReplacements
+        = sortedAndTrimmedStringListWithoutEmptyElements(Utils::toList(addedReplacements));
+    settings->overrideReplacementIndex = overrideReplacementRow(
+        settings->overrideReplacement, settings->userAddedOverrideReplacements);
+}
+
+void InsertVirtualMethodsAspects::setHasImplementationFile(bool hasFile)
+{
+    insertMode.clearOptions();
+    insertMode.addOption({Tr::tr("Insert only declarations"), {},
+                          int(InsertVirtualMethodsDialog::ModeOnlyDeclarations)});
+    insertMode.addOption({Tr::tr("Insert definitions inside class"), {},
+                          int(InsertVirtualMethodsDialog::ModeInsideClass)});
+    insertMode.addOption({Tr::tr("Insert definitions outside class"), {},
+                          int(InsertVirtualMethodsDialog::ModeOutsideClass)});
+    if (hasFile) {
+        insertMode.addOption({Tr::tr("Insert definitions in implementation file"), {},
+                              int(InsertVirtualMethodsDialog::ModeImplementationFile)});
+    }
+}
+
 InsertVirtualMethodsDialog::InsertVirtualMethodsDialog(QWidget *parent)
     : QDialog(parent)
     , m_settings(new VirtualMethodsSettings)
@@ -993,7 +1170,6 @@ InsertVirtualMethodsDialog::InsertVirtualMethodsDialog(QWidget *parent)
     , classFunctionFilterModel(new InsertVirtualMethodsFilterModel(this))
 {
     classFunctionFilterModel->setSourceModel(classFunctionModel);
-    classFunctionFilterModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
 }
 
 InsertVirtualMethodsDialog::~InsertVirtualMethodsDialog()
@@ -1003,140 +1179,42 @@ InsertVirtualMethodsDialog::~InsertVirtualMethodsDialog()
 
 void InsertVirtualMethodsDialog::initGui()
 {
-    if (m_view)
+    if (m_aspects)
         return;
 
     setWindowTitle(Tr::tr("Insert Virtual Functions"));
 
-    // View
-    m_filter = new QLineEdit(this);
-    m_filter->setClearButtonEnabled(true);
-    m_filter->setPlaceholderText(Tr::tr("Filter"));
-    m_view = new QTreeView(this);
-    m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_view->setHeaderHidden(true);
-    m_hideReimplementedFunctions =
-            new QCheckBox(Tr::tr("&Hide reimplemented functions"), this);
+    m_aspects.reset(new InsertVirtualMethodsAspects(
+        classFunctionFilterModel,
+        static_cast<InsertVirtualMethodsFilterModel *>(classFunctionFilterModel)));
 
-    // Insertion options
-    m_insertMode = new QComboBox(this);
-    m_insertMode->addItem(Tr::tr("Insert only declarations"), ModeOnlyDeclarations);
-    m_insertMode->addItem(Tr::tr("Insert definitions inside class"), ModeInsideClass);
-    m_insertMode->addItem(Tr::tr("Insert definitions outside class"), ModeOutsideClass);
-    m_insertMode->addItem(Tr::tr("Insert definitions in implementation file"), ModeImplementationFile);
-    m_virtualKeyword = new QCheckBox(Tr::tr("Add \"&virtual\" to function declaration"), this);
-    m_overrideReplacementCheckBox = new QCheckBox(
-                Tr::tr("Add \"override\" equivalent to function declaration:"), this);
-    m_overrideReplacementComboBox = new QComboBox(this);
-    QSizePolicy sizePolicy = m_overrideReplacementComboBox->sizePolicy();
-    sizePolicy.setHorizontalPolicy(QSizePolicy::Expanding);
-    m_overrideReplacementComboBox->setSizePolicy(sizePolicy);
-    m_overrideReplacementComboBox->setEditable(true);
-    connect(m_overrideReplacementCheckBox, &QCheckBox::clicked,
-            m_overrideReplacementComboBox, &QComboBox::setEnabled);
-
-    auto clearUserAddedReplacements = new QAction(this);
-    clearUserAddedReplacements->setIcon(Utils::Icons::CLEAN_TOOLBAR.icon());
-    clearUserAddedReplacements->setText(Tr::tr("Clear Added \"override\" Equivalents"));
-    connect(clearUserAddedReplacements, &QAction::triggered, this, [this] {
-       m_availableOverrideReplacements = defaultOverrideReplacements();
-       updateOverrideReplacementsComboBox();
-       m_clearUserAddedReplacementsButton->setEnabled(false);
-    });
-    m_clearUserAddedReplacementsButton = new QToolButton(this);
-    m_clearUserAddedReplacementsButton->setDefaultAction(clearUserAddedReplacements);
-
-    // Bottom button box
     m_buttons = new QDialogButtonBox(this);
     m_buttons->setStandardButtons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    using namespace Layouting;
-    Column {
-        Group {
-            title(Tr::tr("&Functions to insert:")),
-            Column {
-                m_filter,
-                m_view,
-                m_hideReimplementedFunctions,
-            },
-        },
-        Group {
-            title(Tr::tr("&Insertion options:")),
-            Column {
-                m_insertMode,
-                m_virtualKeyword,
-                Row {
-                    m_overrideReplacementCheckBox,
-                    m_overrideReplacementComboBox,
-                    m_clearUserAddedReplacementsButton,
-                    spacing(0),
-                },
-            },
-        },
-        m_buttons,
-    }.attachTo(this);
-
-    connect(m_hideReimplementedFunctions, &QAbstractButton::toggled,
-            this, &InsertVirtualMethodsDialog::setHideReimplementedFunctions);
-    connect(m_filter, &QLineEdit::textChanged,
-            classFunctionFilterModel, &QSortFilterProxyModel::setFilterWildcard);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(m_aspects.get()));
+    layout->addWidget(m_buttons);
 }
 
 void InsertVirtualMethodsDialog::initData()
 {
     m_settings->read();
-    m_filter->clear();
-    m_hideReimplementedFunctions->setChecked(m_settings->hideReimplementedFunctions);
-    const QStringList alwaysPresentReplacements = defaultOverrideReplacements();
-    m_availableOverrideReplacements = alwaysPresentReplacements;
-    m_availableOverrideReplacements += m_settings->userAddedOverrideReplacements;
-
-    m_view->setModel(classFunctionFilterModel);
-    m_expansionStateNormal.clear();
-    m_expansionStateReimp.clear();
-    m_hideReimplementedFunctions->setEnabled(m_hasReimplementedFunctions);
-    m_virtualKeyword->setChecked(m_settings->insertVirtualKeyword);
-    m_insertMode->setCurrentIndex(m_insertMode->findData(m_settings->implementationMode));
-
-    m_overrideReplacementCheckBox->setChecked(m_settings->insertOverrideReplacement);
-    updateOverrideReplacementsComboBox();
-    const bool canClear = m_availableOverrideReplacements.size() > alwaysPresentReplacements.size();
-    m_clearUserAddedReplacementsButton->setEnabled(canClear);
-    int overrideReplacementIndex = m_settings->overrideReplacementIndex;
-    if (overrideReplacementIndex >= m_overrideReplacementComboBox->count())
-        overrideReplacementIndex = 0;
-    m_overrideReplacementComboBox->setCurrentIndex(overrideReplacementIndex);
-
-    setHideReimplementedFunctions(m_hideReimplementedFunctions->isChecked());
-
-    if (m_hasImplementationFile) {
-        if (m_insertMode->count() == 3) {
-            m_insertMode->addItem(Tr::tr("Insert definitions in implementation file"),
-                                  ModeImplementationFile);
-        }
-    } else {
-        if (m_insertMode->count() == 4)
-            m_insertMode->removeItem(3);
-    }
+    showSettings(*m_settings, m_hasImplementationFile, m_hasReimplementedFunctions,
+                 m_aspects.get());
+    // The rows are a different set of classes every time, so nothing the
+    // reader closed last time is about this tree.
+    m_aspects->functions.expandControl();
+    // A value the aspect already held is no change, so nothing would have told
+    // the proxy what to hide.
+    static_cast<InsertVirtualMethodsFilterModel *>(classFunctionFilterModel)
+        ->setHideReimplementedFunctions(m_settings->hideReimplementedFunctions);
 }
 
 void InsertVirtualMethodsDialog::saveSettings()
 {
-    m_settings->insertVirtualKeyword = m_virtualKeyword->isChecked();
-    m_settings->implementationMode = static_cast<InsertVirtualMethodsDialog::ImplementationMode>(
-                m_insertMode->itemData(m_insertMode->currentIndex()).toInt());
-    m_settings->hideReimplementedFunctions = m_hideReimplementedFunctions->isChecked();
-    m_settings->insertOverrideReplacement = m_overrideReplacementCheckBox->isChecked();
-    m_settings->overrideReplacementIndex = m_overrideReplacementComboBox->currentIndex();
-    if (m_overrideReplacementComboBox && m_overrideReplacementComboBox->isEnabled())
-        m_settings->overrideReplacement = m_overrideReplacementComboBox->currentText().trimmed();
-    QSet<QString> addedReplacements = Utils::toSet(m_availableOverrideReplacements);
-    addedReplacements.insert(m_settings->overrideReplacement);
-    addedReplacements.subtract(Utils::toSet(defaultOverrideReplacements()));
-    m_settings->userAddedOverrideReplacements =
-            sortedAndTrimmedStringListWithoutEmptyElements(Utils::toList(addedReplacements));
+    readSettings(*m_aspects, m_settings);
     m_settings->write();
 }
 
@@ -1149,7 +1227,7 @@ bool InsertVirtualMethodsDialog::gather()
 {
     initGui();
     initData();
-    m_filter->setFocus();
+    m_aspects->functions.setFocusToInputField();
 
     // Expand the dialog a little bit
     adjustSize();
@@ -1171,59 +1249,6 @@ void InsertVirtualMethodsDialog::setHasImplementationFile(bool file)
 void InsertVirtualMethodsDialog::setHasReimplementedFunctions(bool functions)
 {
     m_hasReimplementedFunctions = functions;
-}
-
-void InsertVirtualMethodsDialog::setHideReimplementedFunctions(bool hide)
-{
-    auto model = qobject_cast<InsertVirtualMethodsFilterModel *>(classFunctionFilterModel);
-
-    if (m_expansionStateNormal.isEmpty() && m_expansionStateReimp.isEmpty()) {
-        model->setHideReimplementedFunctions(hide);
-        m_view->expandAll();
-        saveExpansionState();
-        return;
-    }
-
-    if (model->hideReimplemented() == hide)
-        return;
-
-    saveExpansionState();
-    model->setHideReimplementedFunctions(hide);
-    restoreExpansionState();
-}
-
-void InsertVirtualMethodsDialog::updateOverrideReplacementsComboBox()
-{
-    m_overrideReplacementComboBox->clear();
-    for (const QString &replacement : std::as_const(m_availableOverrideReplacements))
-        m_overrideReplacementComboBox->addItem(replacement);
-}
-
-void InsertVirtualMethodsDialog::saveExpansionState()
-{
-    auto model = qobject_cast<InsertVirtualMethodsFilterModel *>(classFunctionFilterModel);
-
-    QList<bool> &state = model->hideReimplemented() ? m_expansionStateReimp
-                                                    : m_expansionStateNormal;
-    state.clear();
-    for (int i = 0; i < model->rowCount(); ++i)
-        state << m_view->isExpanded(model->index(i, 0));
-}
-
-void InsertVirtualMethodsDialog::restoreExpansionState()
-{
-    auto model = qobject_cast<InsertVirtualMethodsFilterModel *>(classFunctionFilterModel);
-
-    const QList<bool> &state = model->hideReimplemented() ? m_expansionStateReimp
-                                                          : m_expansionStateNormal;
-    const int stateCount = state.count();
-    for (int i = 0; i < model->rowCount(); ++i) {
-        if (i < stateCount && !state.at(i)) {
-            m_view->collapse(model->index(i, 0));
-            continue;
-        }
-        m_view->expand(model->index(i, 0));
-    }
 }
 
 InsertVirtualMethods::InsertVirtualMethods(InsertVirtualMethodsDialog *dialog)
@@ -1281,7 +1306,31 @@ private slots:
     void test();
     void testImplementationFile();
     void testBaseClassInNamespace();
+    void testTheDialogDrawsWithTheQmlItNames();
+    void testTheModeListFollowsTheImplementationFile();
+    void testOnlyAnInsertedReplacementIsWorthChoosing();
+    void testClearingIsOfferedOnlyForWhatWasAdded();
+    void testHidingReimplementedFunctionsFiltersTheTree();
+    void testTheSavedRowPointsIntoTheListItIsReadFrom();
+    void testTheAnswersMakeTheRoundTripThroughTheSettings();
 };
+
+// A tree of one class with the functions named, the ones in reimplemented
+// marked as already found. Enough for what the dialog does with the model;
+// the symbols are the quick fix's business, not the dialog's.
+static ClassItem *classWithFunctions(const QString &name,
+                                     const QStringList &functions,
+                                     const QStringList &reimplemented)
+{
+    auto classItem = new ClassItem(name, nullptr);
+    for (const QString &function : functions) {
+        auto item = new FunctionItem(nullptr, function, classItem);
+        item->alreadyFound = reimplemented.contains(function);
+        item->row = classItem->functions.count();
+        classItem->functions.append(item);
+    }
+    return classItem;
+}
 
 void InsertVirtualMethodsTest::test_data()
 {
@@ -1988,6 +2037,171 @@ void InsertVirtualMethodsTest::testBaseClassInNamespace()
                                      true,
                                      false));
     Tests::QuickFixOperationTest(testFiles, &factory);
+}
+
+void InsertVirtualMethodsTest::testTheDialogDrawsWithTheQmlItNames()
+{
+    InsertVirtualMethodsModel rows;
+    InsertVirtualMethodsFilterModel filter;
+    filter.setSourceModel(&rows);
+    InsertVirtualMethodsAspects aspects(&filter, &filter);
+
+    const Result<> rendered
+        = Core::aspectFormRenders(&aspects, "InsertVirtualMethodsDialog.qml");
+    QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+}
+
+void InsertVirtualMethodsTest::testTheModeListFollowsTheImplementationFile()
+{
+    InsertVirtualMethodsModel rows;
+    InsertVirtualMethodsFilterModel filter;
+    filter.setSourceModel(&rows);
+    InsertVirtualMethodsAspects aspects(&filter, &filter);
+
+    aspects.setHasImplementationFile(false);
+    QCOMPARE(aspects.insertMode.optionCount(), 3);
+    QVERIFY2(aspects.insertMode.indexForItemValue(
+                 int(InsertVirtualMethodsDialog::ModeImplementationFile)) < 0,
+             "definitions were offered a file to go in that is not there");
+
+    aspects.setHasImplementationFile(true);
+    QCOMPARE(aspects.insertMode.optionCount(), 4);
+    QCOMPARE(aspects.insertMode.itemValueForIndex(3).toInt(),
+             int(InsertVirtualMethodsDialog::ModeImplementationFile));
+
+    // And asking again drops it, rather than adding a second one: the dialog
+    // is reused, and the widget it replaces removed the entry.
+    aspects.setHasImplementationFile(false);
+    QCOMPARE(aspects.insertMode.optionCount(), 3);
+}
+
+void InsertVirtualMethodsTest::testOnlyAnInsertedReplacementIsWorthChoosing()
+{
+    InsertVirtualMethodsModel rows;
+    InsertVirtualMethodsFilterModel filter;
+    filter.setSourceModel(&rows);
+    InsertVirtualMethodsAspects aspects(&filter, &filter);
+
+    aspects.useOverrideReplacement.setValue(true);
+    QVERIFY(aspects.overrideReplacement.isEnabled());
+    aspects.useOverrideReplacement.setValue(false);
+    QVERIFY2(!aspects.overrideReplacement.isEnabled(),
+             "a replacement can be chosen that is not going to be written");
+}
+
+void InsertVirtualMethodsTest::testClearingIsOfferedOnlyForWhatWasAdded()
+{
+    InsertVirtualMethodsModel rows;
+    InsertVirtualMethodsFilterModel filter;
+    filter.setSourceModel(&rows);
+    InsertVirtualMethodsAspects aspects(&filter, &filter);
+
+    aspects.setAvailableReplacements(defaultOverrideReplacements());
+    QVERIFY2(!aspects.clearAddedReplacements.isEnabled(),
+             "there was something to clear with nothing added");
+
+    aspects.setAvailableReplacements(defaultOverrideReplacements() << "OVERRIDE");
+    QVERIFY(aspects.clearAddedReplacements.isEnabled());
+    QCOMPARE(aspects.overrideReplacement.presentation().choices.size(), 3);
+
+    // The button drops what was added, and says so by going quiet.
+    aspects.clearAddedReplacements.triggerAction();
+    QCOMPARE(aspects.availableReplacements(), defaultOverrideReplacements());
+    QVERIFY(!aspects.clearAddedReplacements.isEnabled());
+    QCOMPARE(aspects.overrideReplacement.presentation().choices.size(), 2);
+}
+
+void InsertVirtualMethodsTest::testHidingReimplementedFunctionsFiltersTheTree()
+{
+    InsertVirtualMethodsModel rows;
+    rows.addClass(classWithFunctions("Base", {"one", "two"}, {"two"}));
+    rows.addClass(classWithFunctions("AllDone", {"three"}, {"three"}));
+    InsertVirtualMethodsFilterModel filter;
+    filter.setSourceModel(&rows);
+    InsertVirtualMethodsAspects aspects(&filter, &filter);
+
+    QCOMPARE(filter.rowCount(QModelIndex()), 2);
+    QCOMPARE(filter.rowCount(filter.index(0, 0)), 2);
+
+    aspects.hideReimplemented.setValue(true);
+    // The class with nothing left to insert goes with its functions.
+    QCOMPARE(filter.rowCount(QModelIndex()), 1);
+    QCOMPARE(filter.rowCount(filter.index(0, 0)), 1);
+
+    aspects.hideReimplemented.setValue(false);
+    QCOMPARE(filter.rowCount(QModelIndex()), 2);
+}
+
+void InsertVirtualMethodsTest::testTheSavedRowPointsIntoTheListItIsReadFrom()
+{
+    // Nothing added: the row is the row in the defaults.
+    QCOMPARE(overrideReplacementRow("Q_DECL_OVERRIDE", {}), 1);
+    // Something added: the list read back is the defaults plus what was
+    // added, sorted, so the row has to be found in that.
+    QCOMPARE(overrideReplacementRow("OVERRIDE", {"OVERRIDE", "ZZZ"}), 2);
+    QCOMPARE(overrideReplacementRow("ZZZ", {"OVERRIDE", "ZZZ"}), 3);
+    // A replacement that is in neither opens the list on its first entry
+    // rather than on nothing.
+    QCOMPARE(overrideReplacementRow("gone", {}), 0);
+}
+
+void InsertVirtualMethodsTest::testTheAnswersMakeTheRoundTripThroughTheSettings()
+{
+    InsertVirtualMethodsModel rows;
+    InsertVirtualMethodsFilterModel filter;
+    filter.setSourceModel(&rows);
+    InsertVirtualMethodsAspects aspects(&filter, &filter);
+
+    VirtualMethodsSettings settings;
+    settings.insertVirtualKeyword = true;
+    settings.hideReimplementedFunctions = true;
+    settings.insertOverrideReplacement = true;
+    settings.implementationMode = InsertVirtualMethodsDialog::ModeOutsideClass;
+    settings.userAddedOverrideReplacements = {"OVERRIDE"};
+    settings.overrideReplacementIndex = 2;
+
+    showSettings(settings, true, true, &aspects);
+    QVERIFY(aspects.virtualKeyword.value());
+    QVERIFY(aspects.hideReimplemented.value());
+    QVERIFY(aspects.hideReimplemented.isEnabled());
+    QVERIFY(aspects.useOverrideReplacement.value());
+    QVERIFY(aspects.overrideReplacement.isEnabled());
+    QCOMPARE(aspects.overrideReplacement.value(), QString("OVERRIDE"));
+    QCOMPARE(aspects.insertMode.itemValue().toInt(),
+             int(InsertVirtualMethodsDialog::ModeOutsideClass));
+
+    VirtualMethodsSettings written;
+    readSettings(aspects, &written);
+    QCOMPARE(written.insertVirtualKeyword, true);
+    QCOMPARE(written.hideReimplementedFunctions, true);
+    QCOMPARE(written.insertOverrideReplacement, true);
+    QCOMPARE(written.implementationMode, InsertVirtualMethodsDialog::ModeOutsideClass);
+    QCOMPARE(written.overrideReplacement, QString("OVERRIDE"));
+    QCOMPARE(written.userAddedOverrideReplacements, QStringList{"OVERRIDE"});
+    QCOMPARE(written.overrideReplacementIndex, 2);
+
+    // A row the list is too short for opens it on its first entry. The aspect
+    // does that itself for an id it cannot find, so this pins its behaviour
+    // rather than the dialog's.
+    settings.overrideReplacementIndex = 7;
+    showSettings(settings, true, true, &aspects);
+    QCOMPARE(aspects.overrideReplacement.value(), defaultOverrideReplacements().first());
+
+    // Nothing is written for a replacement that is not going to be inserted:
+    // the last one chosen stays what it was.
+    aspects.useOverrideReplacement.setValue(false);
+    VirtualMethodsSettings unchanged;
+    unchanged.overrideReplacement = "kept";
+    readSettings(aspects, &unchanged);
+    QCOMPARE(unchanged.overrideReplacement, QString("kept"));
+    QCOMPARE(unchanged.insertOverrideReplacement, false);
+
+    // Only the entry that is offered where there is a file to put definitions
+    // in comes back when there is one.
+    showSettings(settings, false, false, &aspects);
+    QCOMPARE(aspects.insertMode.optionCount(), 3);
+    QVERIFY2(!aspects.hideReimplemented.isEnabled(),
+             "reimplemented functions could be hidden with none to hide");
 }
 
 } // namespace Tests

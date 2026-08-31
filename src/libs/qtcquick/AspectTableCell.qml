@@ -113,11 +113,20 @@ Item {
         id: check
 
         CheckBox {
+            id: box
+
             objectName: "tableCellCheckBox"
             text: cell.cellText
-            checked: cell.model.checkState === Qt.Checked
             enabled: cell.cellEditable
-            onToggled: cell.model.checkState = checked ? Qt.Checked : Qt.Unchecked
+            // Shown, not cycled to: a branch is partly checked because that is
+            // what its children say, and a click on it is a decision about all
+            // of them. An item view behaves the same way.
+            tristate: true
+            checkState: cell.model.checkState ?? Qt.Unchecked
+            nextCheckState: function() {
+                return box.checkState === Qt.Checked ? Qt.Unchecked : Qt.Checked
+            }
+            onToggled: cell.model.checkState = box.checkState
         }
     }
 

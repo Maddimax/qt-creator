@@ -205,5 +205,6 @@ if(TARGET CppEditor)
       CppQuickFixProjectPanel.qml
       CppQuickFixSettingsForm.qml
       CppQuickFixSettingsPage.qml
+      InsertVirtualMethodsDialog.qml
   )
 endif()

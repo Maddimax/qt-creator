@@ -82,6 +82,7 @@
 #include <QMetaEnum>
 #include <QQmlEngine>
 #include <QQmlError>
+#include <QJSValue>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QMimeData>
@@ -341,6 +342,8 @@ private slots:
     void testATextAreaFillsADialogThatIsMostlyText();
     void testAProgressAspectSaysHowFarAlong();
     void testATreeRowIsActivatedByReturn();
+    void testATreesOpenBranchesCanBeKeptAcrossAChange();
+    void testABranchIsCheckedByWhatIsUnderIt();
     void testATableCellShowsTheIconItsModelGives();
     void testATableWithNoColumnNamesHasNoHeader();
     void testTableAspectAddsAndRemovesRows();
@@ -6395,6 +6398,244 @@ private:
 // indent and the branch handle stand in front of the cell. A column sized
 // from the cell alone is short by exactly them, so the first column - the one
 // holding the names - is the one that clips.
+namespace {
+
+// A tree whose branches are checked by what is under them, the way the list of
+// virtual functions to insert is: a class is partly checked when some but not
+// all of its functions are.
+class PartlyCheckedTreeModel : public QAbstractItemModel
+{
+public:
+    explicit PartlyCheckedTreeModel(const QStringList &branches, int leaves)
+        : m_branches(branches), m_leaves(leaves)
+    {
+        m_checked.resize(branches.size() * leaves);
+    }
+
+    QModelIndex index(int row, int column, const QModelIndex &parent) const override
+    {
+        if (column != 0)
+            return {};
+        // A branch carries no internal id; a leaf carries its branch's row
+        // plus one, so that zero stays free for the branches themselves.
+        return createIndex(row, column, parent.isValid() ? quintptr(parent.row() + 1) : quintptr(0));
+    }
+
+    QModelIndex parent(const QModelIndex &child) const override
+    {
+        if (!child.isValid() || child.internalId() == 0)
+            return {};
+        return createIndex(int(child.internalId()) - 1, 0, quintptr(0));
+    }
+
+    int rowCount(const QModelIndex &parent) const override
+    {
+        if (!parent.isValid())
+            return m_branches.size();
+        return parent.internalId() == 0 ? m_leaves : 0;
+    }
+
+    int columnCount(const QModelIndex &) const override { return 1; }
+
+    Qt::CheckState branchState(int branch) const
+    {
+        int checked = 0;
+        for (int leaf = 0; leaf < m_leaves; ++leaf)
+            checked += m_checked.at(branch * m_leaves + leaf) ? 1 : 0;
+        if (checked == 0)
+            return Qt::Unchecked;
+        return checked == m_leaves ? Qt::Checked : Qt::PartiallyChecked;
+    }
+
+    void setLeafChecked(int branch, int leaf, bool checked)
+    {
+        m_checked[branch * m_leaves + leaf] = checked;
+        const QModelIndex branchIndex = index(branch, 0, {});
+        const QModelIndex leafIndex = index(leaf, 0, branchIndex);
+        emit dataChanged(leafIndex, leafIndex);
+        emit dataChanged(branchIndex, branchIndex);
+    }
+
+    QVariant data(const QModelIndex &idx, int role) const override
+    {
+        if (!idx.isValid())
+            return {};
+        const bool isBranch = idx.internalId() == 0;
+        switch (role) {
+        case Qt::DisplayRole:
+            return isBranch ? m_branches.at(idx.row())
+                            : QString("%1.%2").arg(m_branches.at(int(idx.internalId()) - 1))
+                                  .arg(idx.row());
+        case Qt::CheckStateRole:
+            return isBranch ? branchState(idx.row())
+                            : (m_checked.at((int(idx.internalId()) - 1) * m_leaves + idx.row())
+                                   ? Qt::Checked : Qt::Unchecked);
+        case Utils::AspectTable::CheckableRole:
+            return true;
+        case Utils::AspectTable::EditableRole:
+            // The last leaf of each branch is closed, the way a virtual
+            // function the class already reimplements is.
+            return isBranch || idx.row() != m_leaves - 1;
+        }
+        return {};
+    }
+
+    bool setData(const QModelIndex &idx, const QVariant &value, int role) override
+    {
+        if (!idx.isValid() || role != Qt::CheckStateRole)
+            return false;
+        const bool checked = value.toInt() == Qt::Checked;
+        if (idx.internalId() == 0) {
+            for (int leaf = 0; leaf < m_leaves; ++leaf)
+                setLeafChecked(idx.row(), leaf, checked);
+        } else {
+            setLeafChecked(int(idx.internalId()) - 1, idx.row(), checked);
+        }
+        return true;
+    }
+
+    QVariant headerData(int, Qt::Orientation, int) const override { return {}; }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(QAbstractItemModel::roleNames());
+    }
+
+private:
+    const QStringList m_branches;
+    const int m_leaves;
+    QList<bool> m_checked;
+};
+
+class PartlyCheckedTreeAspect : public Utils::BaseAspect
+{
+public:
+    PartlyCheckedTreeAspect(const QStringList &branches, int leaves)
+        : m_model(branches, leaves)
+    {}
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_model; }
+    PartlyCheckedTreeModel &rows() { return m_model; }
+
+private:
+    PartlyCheckedTreeModel m_model;
+};
+
+} // namespace
+
+void QuickUiTest::testATreesOpenBranchesCanBeKeptAcrossAChange()
+{
+    // A page that changes what the tree holds - the virtual functions dialog
+    // hiding the ones already reimplemented - reads which branches are open
+    // before the change and puts them back after it, the way the widget view
+    // it replaces did.
+    Utils::AspectContainer page;
+    PartlyCheckedTreeAspect tree({"alpha", "beta"}, 2);
+    tree.setLabelText("Rows");
+    page.registerAspect(&tree);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QTRY_VERIFY(findQmlNamed(delegate, "tableCellCheckBox").size() > 0);
+
+    const auto branchState = [delegate] {
+        QVariant state;
+        QMetaObject::invokeMethod(delegate, "branchState", Q_RETURN_ARG(QVariant, state));
+        return state.toList();
+    };
+    const auto setBranchState = [delegate](const QVariantList &state) {
+        QMetaObject::invokeMethod(delegate, "setBranchState", Q_ARG(QVariant, state));
+    };
+
+    // Nothing is open to begin with; the page opens what it wants open.
+    QCOMPARE(branchState(), QVariantList({false, false}));
+    QMetaObject::invokeMethod(delegate, "expandAll");
+    QTRY_COMPARE(branchState(), QVariantList({true, true}));
+
+    setBranchState({false, true});
+    QCOMPARE(branchState(), QVariantList({false, true}));
+
+    // A branch the state says nothing about was not there before the change,
+    // so the reader has not closed it: it is opened.
+    setBranchState({});
+    QCOMPARE(branchState(), QVariantList({true, true}));
+
+    // And an aspect whose rows are a different set every time its dialog opens
+    // asks for the whole tree rather than leaving it closed.
+    setBranchState({false, false});
+    QCOMPARE(branchState(), QVariantList({false, false}));
+    tree.expandControl();
+    QTRY_COMPARE(branchState(), QVariantList({true, true}));
+}
+
+void QuickUiTest::testABranchIsCheckedByWhatIsUnderIt()
+{
+    // A branch whose children disagree is drawn partly checked rather than
+    // unchecked, which is what an item view does. Clicking it is still a
+    // decision about all of them: partly checked is shown, not cycled to.
+    Utils::AspectContainer page;
+    PartlyCheckedTreeAspect tree({"alpha"}, 2);
+    tree.setLabelText("Rows");
+    page.registerAspect(&tree);
+    tree.rows().setLeafChecked(0, 0, true);
+
+    const std::unique_ptr<QWidget> form(showForm(&page));
+    QVERIFY(form);
+    auto quickWidget = form->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+
+    QQuickItem *delegate = nullptr;
+    QTRY_VERIFY(delegate = findQmlComponent(quickWidget->rootObject(), "TreeDelegate"));
+    QList<QQuickItem *> boxes;
+    QTRY_COMPARE((boxes = findQmlNamed(delegate, "tableCellCheckBox")).size(), 1);
+    QQuickItem *box = boxes.at(0);
+    QCOMPARE(box->property("checkState").toInt(), int(Qt::PartiallyChecked));
+
+    // A row the model has closed is drawn but cannot be ticked.
+    QMetaObject::invokeMethod(delegate, "expandAll");
+    QTRY_COMPARE((boxes = findQmlNamed(delegate, "tableCellCheckBox")).size(), 3);
+    QVERIFY(boxes.at(1)->property("enabled").toBool());
+    QVERIFY2(!boxes.at(2)->property("enabled").toBool(),
+             "a row the model closed could still be ticked");
+    box = boxes.at(0);
+
+    // What a click would do: check everything under the branch. A tristate box
+    // left to itself steps round the three states instead, so an unchecked
+    // branch would go to partly checked - which is not a decision about
+    // anything.
+    const QJSValue nextState = box->property("nextCheckState").value<QJSValue>();
+    QVERIFY2(nextState.isCallable(), "the box cycles through partly checked");
+    QCOMPARE(nextState.call().toInt(), int(Qt::Checked));
+
+    box->setProperty("checkState", int(Qt::Checked));
+    QMetaObject::invokeMethod(box, "toggled");
+    QCOMPARE(tree.rows().branchState(0), Qt::Checked);
+    QTRY_COMPARE(box->property("checkState").toInt(), int(Qt::Checked));
+    QCOMPARE(nextState.call().toInt(), int(Qt::Unchecked));
+
+    tree.rows().setLeafChecked(0, 0, false);
+    tree.rows().setLeafChecked(0, 1, false);
+    QTRY_COMPARE(box->property("checkState").toInt(), int(Qt::Unchecked));
+    QCOMPARE(nextState.call().toInt(), int(Qt::Checked));
+
+    // And the box follows the model rather than only its own click: checking
+    // one of the two from underneath makes the branch partial again.
+    tree.rows().setLeafChecked(0, 1, true);
+    QTRY_COMPARE(box->property("checkState").toInt(), int(Qt::PartiallyChecked));
+}
+
 void QuickUiTest::testATreeRowIsActivatedByReturn()
 {
     // The same gesture the table has: the row the reader chose and meant. The
