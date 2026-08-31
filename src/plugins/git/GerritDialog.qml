@@ -50,7 +50,6 @@ AspectPage {
                     objectName: "changeTree"
                     anchors.fill: parent
                     aspect: root.aspects.Changes
-                    onRowActivated: (index) => root.aspects.Changes.activateIndex(index)
                 }
 
                 // The list is fetched from the server, which takes a while.

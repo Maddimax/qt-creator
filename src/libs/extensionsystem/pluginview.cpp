@@ -9,15 +9,15 @@
 #include "pluginspec.h"
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
+#include <utils/aspectwidgets.h>
 #include <utils/categorysortfiltermodel.h>
 #include <utils/utilsicons.h>
-#include <utils/itemviews.h>
 #include <utils/qtcassert.h>
 
 #include <QDebug>
 #include <QDir>
 #include <QGridLayout>
-#include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QMessageBox>
 #include <QSet>
@@ -162,7 +162,7 @@ public:
             break;
         }
 
-        return QVariant();
+        return quickRole(column, role);
     }
 
     bool setData(int column, const QVariant &data, int role) override
@@ -175,6 +175,18 @@ public:
     bool isEnabled() const
     {
         return m_spec->isAvailableForHostPlatform() && !m_spec->isRequired();
+    }
+
+    // A widget view reads flags() for these; a Qt Quick one cannot, so the
+    // item answers both. Only the Load column is a check box, and only where
+    // the plugin can be turned off at all.
+    QVariant quickRole(int column, int role) const
+    {
+        if (role == Utils::AspectTable::CheckableRole)
+            return column == LoadedColumn;
+        if (role == Utils::AspectTable::EditableRole)
+            return Utils::AspectTable::isWritable(flags(column));
+        return {};
     }
 
     Qt::ItemFlags flags(int column) const override
@@ -234,6 +246,12 @@ public:
             }
         }
 
+        // The same two a Qt Quick view cannot read out of flags(). A category
+        // is a check box in the Load column and nothing else.
+        if (role == Utils::AspectTable::CheckableRole)
+            return column == LoadedColumn;
+        if (role == Utils::AspectTable::EditableRole)
+            return Utils::AspectTable::isWritable(flags(column));
         return QVariant();
     }
 
@@ -266,12 +284,72 @@ public:
 
 } // Internal
 
+namespace Internal {
+
+// The plugins, with the role names a Qt Quick view addresses its cells by.
+// Not on BaseTreeModel: registerNamedRole() asserts a name is not already
+// taken, so naming these for every model could break one of its own.
+class PluginTreeModel : public TreeModel<TreeItem, CollectionItem, PluginItem>
+{
+public:
+    using TreeModel::TreeModel;
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return Utils::AspectTable::withRoleNames(TreeModel::roleNames());
+    }
+};
+
+// The tree of categories and the plugins under them. The model is the view's;
+// the aspect hands it over and reports what the reader does with it.
+class PluginTreeAspect final : public Utils::BaseAspect
+{
+public:
+    PluginTreeAspect(Utils::AspectContainer *container, QAbstractItemModel *model)
+        : BaseAspect(container), m_model(model)
+    {}
+
+    Utils::AspectPresentation presentation() const override
+    {
+        Utils::AspectPresentation p = BaseAspect::presentation();
+        p.control = Utils::AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return m_model; }
+
+    void setCurrentIndex(const QModelIndex &index) override
+    {
+        m_current = index;
+        if (m_onCurrent)
+            m_onCurrent(index);
+    }
+
+    void activateIndex(const QModelIndex &index) override
+    {
+        if (m_onActivated)
+            m_onActivated(index);
+    }
+
+    QModelIndex currentIndex() const { return m_current; }
+    void setOnCurrent(const std::function<void(const QModelIndex &)> &f) { m_onCurrent = f; }
+    void setOnActivated(const std::function<void(const QModelIndex &)> &f) { m_onActivated = f; }
+
+private:
+    QAbstractItemModel *const m_model;
+    QPersistentModelIndex m_current;
+    std::function<void(const QModelIndex &)> m_onCurrent;
+    std::function<void(const QModelIndex &)> m_onActivated;
+};
+
+} // Internal
+
 using namespace ExtensionSystem::Internal;
 
 PluginData::PluginData(QWidget *parent, PluginView *owner)
     : m_parent(parent), m_pluginView(owner)
 {
-    m_model = new TreeModel<TreeItem, CollectionItem, PluginItem>(parent);
+    m_model = new PluginTreeModel(parent);
     m_model->setHeader({ Tr::tr("Name"), Tr::tr("Load"), Tr::tr("Version"), Tr::tr("Vendor") });
 
     m_sortModel = new CategorySortFilterModel(parent);
@@ -285,34 +363,39 @@ PluginData::PluginData(QWidget *parent, PluginView *owner)
     from a plugin manager.
 */
 PluginView::PluginView(QWidget *parent)
-    : QWidget(parent), m_data(this, this)
+    : QWidget(parent)
+    , m_data(this, this)
+    , m_aspects(new AspectContainer)
 {
-    m_categoryView = new TreeView(this);
-    m_categoryView->setAlternatingRowColors(true);
-    m_categoryView->setIndentation(20);
-    m_categoryView->setSortingEnabled(true);
-    m_categoryView->setActivationMode(DoubleClickActivation);
-    m_categoryView->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_categoryView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_aspects->setAutoApply(true);
+    m_tree = new PluginTreeAspect(m_aspects.get(), m_data.m_sortModel);
+    m_tree->setQmlName("Plugins");
+    // Sorted by name from the start, the way the header's indicator did.
+    m_data.m_sortModel->sort(NameColumn, Qt::AscendingOrder);
 
-    m_categoryView->setModel(m_data.m_sortModel);
+    // The generic form: this container is one tree and needs no page of its
+    // own. It is null where Qt Quick is not there to draw it, and then the
+    // container's own layouter is what is left - which no more draws a tree
+    // than it does for the other ported ones, but leaves something in the
+    // layout rather than nothing.
+    QWidget *form = Utils::AspectWidgets::createGenericAspectForm(m_aspects.get());
+    if (!form)
+        form = Utils::AspectWidgets::createAspectForm(m_aspects.get());
 
     auto *gridLayout = new QGridLayout(this);
     gridLayout->setContentsMargins(2, 2, 2, 2);
-    gridLayout->addWidget(m_categoryView, 1, 0, 1, 1);
-
-    QHeaderView *header = m_categoryView->header();
-    header->setSortIndicator(NameColumn, Qt::AscendingOrder);
-    header->setSectionResizeMode(QHeaderView::ResizeToContents);
+    if (form)
+        gridLayout->addWidget(form, 1, 0, 1, 1);
 
     connect(PluginManager::instance(), &PluginManager::pluginsChanged,
             this, &PluginView::updatePlugins);
 
-    connect(m_categoryView, &QAbstractItemView::activated, this,
-            [this](const QModelIndex &idx) { emit pluginActivated(pluginForIndex(idx)); });
-
-    connect(m_categoryView->selectionModel(), &QItemSelectionModel::currentChanged, this,
-            [this](const QModelIndex &idx) { emit currentPluginChanged(pluginForIndex(idx)); });
+    m_tree->setOnActivated([this](const QModelIndex &idx) {
+        emit pluginActivated(pluginForIndex(idx));
+    });
+    m_tree->setOnCurrent([this](const QModelIndex &idx) {
+        emit currentPluginChanged(pluginForIndex(idx));
+    });
 
     updatePlugins();
 }
@@ -327,7 +410,7 @@ PluginView::~PluginView() = default;
 */
 PluginSpec *PluginView::currentPlugin() const
 {
-    return pluginForIndex(m_categoryView->currentIndex());
+    return pluginForIndex(m_tree->currentIndex());
 }
 
 /*!
@@ -338,7 +421,7 @@ void PluginView::setFilter(const QString &filter)
     m_data.m_sortModel->setFilterRegularExpression(
         QRegularExpression(QRegularExpression::escape(filter),
                            QRegularExpression::CaseInsensitiveOption));
-    m_categoryView->expandAll();
+    m_tree->expandControl();
 }
 
 PluginSpec *PluginView::pluginForIndex(const QModelIndex &index) const
@@ -367,13 +450,20 @@ void PluginView::updatePlugins()
         m_data.m_model->rootItem()->appendChild(collection);
 
     emit m_data.m_model->layoutChanged();
-    m_categoryView->expandAll();
+    m_tree->expandControl();
 }
 
 PluginData &PluginView::data()
 {
     return m_data;
 }
+
+#ifdef WITH_TESTS
+QAbstractItemModel *PluginView::modelForTest() const
+{
+    return m_data.m_sortModel;
+}
+#endif
 
 bool PluginData::setPluginsEnabled(const QSet<PluginSpec *> &plugins, bool enable)
 {

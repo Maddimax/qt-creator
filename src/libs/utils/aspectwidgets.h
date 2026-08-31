@@ -54,6 +54,27 @@ QTCREATOR_UTILS_EXPORT void addMacroExpansion(BaseAspect *aspect, QWidget *widge
 // The widget from setConfigWidgetCreator(), or nullptr when none was set.
 QTCREATOR_UTILS_EXPORT QWidget *createConfigWidget(BaseAspect *aspect);
 
+// Installed by a front end that can render an AspectContainer itself, e.g. in
+// Qt Quick. Consulted before the container's own layouter; returning nullptr
+// falls back to the widget path.
+//
+// Here rather than in coreplugin because the layers below it have forms too -
+// the plugin view, and Utils' own dialogs - and none of them can call up into
+// a plugin. Core::createAspectForm() forwards to this.
+using AspectFormFactory = std::function<QWidget *(AspectContainer *)>;
+QTCREATOR_UTILS_EXPORT void setAspectFormFactory(const AspectFormFactory &factory);
+
+// A settings form for a container. Uses the factory where it takes the
+// container and the container's own layouter otherwise, so that every surface
+// shows the same thing.
+QTCREATOR_UTILS_EXPORT QWidget *createAspectForm(AspectContainer *container);
+
+// The same, for a container that has no page of its own to name: its aspects
+// are listed generically, in order. Null where Qt Quick is not there to draw
+// it, so a caller can keep whatever it did before.
+QTCREATOR_UTILS_EXPORT void setGenericAspectFormFactory(const AspectFormFactory &factory);
+QTCREATOR_UTILS_EXPORT QWidget *createGenericAspectForm(AspectContainer *container);
+
 // Places an existing check box or radio button according to the aspect's label
 // placement and ties the two together. The renderer and adoptButton() differ
 // only in who creates the button.

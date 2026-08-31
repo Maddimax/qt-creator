@@ -34,64 +34,27 @@ static QHash<Id, std::pair<QString, FilePath>> g_categories;
 
 namespace Core {
 
-static AspectFormFactory s_aspectFormFactory;
-
+// The factory and the fallback live in Utils now, so that the layers below
+// coreplugin - the plugin view, Utils' own dialogs - can have forms too.
+// These stay as the spelling the rest of the tree uses.
 void setAspectFormFactory(const AspectFormFactory &factory)
 {
-    s_aspectFormFactory = factory;
+    Utils::AspectWidgets::setAspectFormFactory(factory);
 }
-
-static AspectFormFactory s_genericAspectFormFactory;
 
 void setGenericAspectFormFactory(const AspectFormFactory &factory)
 {
-    s_genericAspectFormFactory = factory;
+    Utils::AspectWidgets::setGenericAspectFormFactory(factory);
 }
 
 QWidget *createGenericAspectForm(AspectContainer *container)
 {
-    QTC_ASSERT(container, return nullptr);
-    return s_genericAspectFormFactory ? s_genericAspectFormFactory(container) : nullptr;
+    return Utils::AspectWidgets::createGenericAspectForm(container);
 }
-
-namespace {
-
-// Building a page is not showing it: the page census builds every one of them
-// and shows none. See AspectContainer::pageShown().
-class ShowReportingWidget final : public QWidget
-{
-public:
-    explicit ShowReportingWidget(AspectContainer *container)
-        : m_container(container)
-    {}
-
-private:
-    void showEvent(QShowEvent *event) override
-    {
-        QWidget::showEvent(event);
-        if (m_container)
-            m_container->pageShown();
-    }
-
-    const QPointer<AspectContainer> m_container;
-};
-
-} // namespace
 
 QWidget *createAspectForm(AspectContainer *container)
 {
-    QTC_ASSERT(container, return nullptr);
-
-    if (s_aspectFormFactory) {
-        if (QWidget *form = s_aspectFormFactory(container))
-            return form;
-    }
-
-    const AspectWidgets::Layouter layouter = AspectWidgets::layouter(container);
-    QTC_ASSERT(layouter, return nullptr);
-    auto form = new ShowReportingWidget(container);
-    layouter().attachTo(form);
-    return form;
+    return Utils::AspectWidgets::createAspectForm(container);
 }
 
 #ifdef WITH_TESTS

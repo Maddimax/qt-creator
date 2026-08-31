@@ -256,6 +256,10 @@ public:
     // own model. The counterpart of TableAspect::setCurrentRow(), and of
     // showIndexInControl() going the other way.
     Q_INVOKABLE virtual void setCurrentIndex(const QModelIndex &index);
+    // A row of the drawn tree was chosen and meant - a double click, or Return.
+    // The counterpart of TableAspect::activateRow(), so that a tree drawn by
+    // the generic form carries activation without a page of its own.
+    Q_INVOKABLE virtual void activateIndex(const QModelIndex &index);
     // A link in the aspect's text was activated. Declared here so that a
     // renderer holding only a BaseAspect can report it; what it means is the
     // aspect's business.

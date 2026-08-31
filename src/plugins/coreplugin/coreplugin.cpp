@@ -10,6 +10,7 @@
 #include "actionmanager/actionmanager_test.h"
 #include "coreconstants.h"
 #include "coreplugintr.h"
+#include "plugindialog.h"
 #include "dialogs/codecselector.h"
 #include "sessiondialog.h"
 #include "customlanguagemodels.h"
@@ -539,6 +540,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createOutputPaneViewTest);
     addTestCreator(createDocumentManagerTest);
     addTestCreator(createExternalToolTest);
+    addTestCreator(Internal::createPluginViewTest);
     addTestCreator(createEnvVarSeparatorsTest);
     addTestCreator(Internal::createCodecSelectorTest);
     addTestCreator(Internal::createSessionDialogTest);

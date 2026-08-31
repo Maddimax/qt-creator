@@ -18,6 +18,7 @@
 #include <QLineEdit>
 #include <QTextEdit>
 #include <QVBoxLayout>
+#include <QPointer>
 
 namespace Utils::AspectWidgets {
 
@@ -263,6 +264,65 @@ Layouter layouter(const AspectContainer *container)
             column.addItem(aspect);
         return column;
     };
+}
+
+namespace {
+
+// Building a page is not showing it: the page census builds every one of them
+// and shows none. See AspectContainer::pageShown().
+class ShowReportingWidget final : public QWidget
+{
+public:
+    explicit ShowReportingWidget(AspectContainer *container)
+        : m_container(container)
+    {}
+
+private:
+    void showEvent(QShowEvent *event) override
+    {
+        QWidget::showEvent(event);
+        if (m_container)
+            m_container->pageShown();
+    }
+
+    const QPointer<AspectContainer> m_container;
+};
+
+AspectFormFactory s_aspectFormFactory;
+AspectFormFactory s_genericAspectFormFactory;
+
+} // namespace
+
+void setAspectFormFactory(const AspectFormFactory &factory)
+{
+    s_aspectFormFactory = factory;
+}
+
+QWidget *createAspectForm(AspectContainer *container)
+{
+    QTC_ASSERT(container, return nullptr);
+
+    if (s_aspectFormFactory) {
+        if (QWidget *form = s_aspectFormFactory(container))
+            return form;
+    }
+
+    const Layouter layouter = AspectWidgets::layouter(container);
+    QTC_ASSERT(layouter, return nullptr);
+    auto form = new ShowReportingWidget(container);
+    layouter().attachTo(form);
+    return form;
+}
+
+void setGenericAspectFormFactory(const AspectFormFactory &factory)
+{
+    s_genericAspectFormFactory = factory;
+}
+
+QWidget *createGenericAspectForm(AspectContainer *container)
+{
+    QTC_ASSERT(container, return nullptr);
+    return s_genericAspectFormFactory ? s_genericAspectFormFactory(container) : nullptr;
 }
 
 } // namespace Utils::AspectWidgets

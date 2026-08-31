@@ -3,8 +3,14 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace Core::Internal {
 
 void showAboutPlugins();
+
+#ifdef WITH_TESTS
+QObject *createPluginViewTest();
+#endif
 
 } // CoreInternal

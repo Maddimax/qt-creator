@@ -6395,6 +6395,12 @@ public:
 
     QAbstractItemModel *tableModel() override { return &m_model; }
 
+    // A tree drawn by the generic form has no page to connect rowActivated to,
+    // so the aspect is told directly.
+    void activateIndex(const QModelIndex &index) override { activatedRow = index.row(); }
+
+    int activatedRow = -2;
+
 private:
     Utils::TreeModel<Utils::TreeItem, Utils::StaticTreeItem> m_model{this};
 };
@@ -6981,6 +6987,10 @@ void QuickUiTest::testATreeRowIsActivatedByReturn()
 
     // The index reported is the aspect's own, not the proxy's.
     QCOMPARE(activated.takeFirst().at(0).value<QModelIndex>().model(), tree.tableModel());
+
+    // And the aspect hears it too, so a tree with no page of its own - the
+    // plugin view is one - still has activation.
+    QCOMPARE(tree.activatedRow, 0);
 
     // A key that is not Return leaves it alone.
     QTest::keyClick(window, Qt::Key_Space);

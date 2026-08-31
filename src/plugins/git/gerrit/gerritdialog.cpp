@@ -92,7 +92,7 @@ public:
         emit currentChanged();
     }
 
-    Q_INVOKABLE void activateIndex(const QModelIndex &index)
+    void activateIndex(const QModelIndex &index) override
     {
         setCurrentIndex(index);
         emit indexActivated();

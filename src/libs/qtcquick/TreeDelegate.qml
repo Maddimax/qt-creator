@@ -53,6 +53,10 @@ RowLayout {
     // the aspect's own model, like currentIndex above.
     signal rowActivated(index: var)
 
+    // The aspect hears it too, so that a tree drawn by the generic form has
+    // activation without a page written for it.
+    onRowActivated: (index) => root.aspect?.activateIndex(index)
+
     // What a row offers when it is asked. A popup is not in the item tree, so
     // this is the only way to reach it from outside.
     readonly property alias rowMenu: rowMenu

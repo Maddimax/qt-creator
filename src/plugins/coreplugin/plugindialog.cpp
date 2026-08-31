@@ -13,6 +13,14 @@
 #include <extensionsystem/pluginspec.h>
 #include <extensionsystem/pluginview.h>
 
+#include <utils/aspectpresentation.h>
+#include <utils/aspects.h>
+#include <utils/aspectwidgets.h>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
+
 #include <utils/fancylineedit.h>
 #include <utils/layoutbuilder.h>
 
@@ -166,4 +174,106 @@ void showAboutPlugins()
     dialog.exec();
 }
 
+#ifdef WITH_TESTS
+
+class PluginViewTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testACellSaysWhetherItIsATickableCheckBox()
+    {
+        // The Load column is a check box and the rest are read; a widget view
+        // read that out of flags(), and a Qt Quick one cannot.
+        ExtensionSystem::PluginView view;
+        QAbstractItemModel *rows = view.modelForTest();
+        QVERIFY(rows);
+
+        const QHash<int, QByteArray> names = rows->roleNames();
+        QCOMPARE(names.value(Qt::CheckStateRole), QByteArray("checkState"));
+        QCOMPARE(names.value(Utils::AspectTable::CheckableRole), QByteArray("checkable"));
+        QCOMPARE(names.value(Utils::AspectTable::EditableRole), QByteArray("editable"));
+
+        // A category, and a plugin under it. There is always at least one of
+        // each: this test is running inside a loaded plugin.
+        QVERIFY(rows->rowCount({}) > 0);
+        const QModelIndex category = rows->index(0, 0);
+        QVERIFY(rows->rowCount(category) > 0);
+
+        const QModelIndex plugin = rows->index(0, 0, category);
+        for (const QModelIndex &row : {category, plugin}) {
+            QVERIFY2(!row.siblingAtColumn(0).data(Utils::AspectTable::CheckableRole).toBool(),
+                     "the name column was drawn as a check box");
+            QVERIFY2(row.siblingAtColumn(1).data(Utils::AspectTable::CheckableRole).toBool(),
+                     "the Load column was not drawn as a check box");
+        }
+
+        // A category can always be turned off.
+        QVERIFY(category.siblingAtColumn(1).data(Utils::AspectTable::EditableRole).toBool());
+    }
+
+    void testTheViewIsDrawnByTheGenericForm()
+    {
+        // The plugin view is one tree and names no QML of its own, so what
+        // draws it is the generic form - which is null unless Qt Quick is
+        // there, and this run loads it.
+        Utils::AspectContainer container;
+        Utils::BoolAspect flag(&container);
+        flag.setLabelText("Something");
+        const std::unique_ptr<QWidget> form(
+            Utils::AspectWidgets::createGenericAspectForm(&container));
+        // Non-null is the whole assertion: the generic form is only ever
+        // built by the factory a Qt Quick front end installs, and answers
+        // nothing at all where there is none.
+        QVERIFY2(form, "nothing renders a container that names no QML of its own");
+    }
+
+    void testTheNamesAreSortedFromTheStart()
+    {
+        // The widget view set a sort indicator on its header; nothing draws one
+        // now, so the model is sorted when it is built.
+        ExtensionSystem::PluginView view;
+        QAbstractItemModel *rows = view.modelForTest();
+        QVERIFY(rows);
+        QVERIFY(rows->rowCount({}) > 1);
+
+        const auto namesUnder = [rows](const QModelIndex &parent) {
+            QStringList names;
+            for (int row = 0, count = rows->rowCount(parent); row < count; ++row)
+                names << rows->index(row, 0, parent).data().toString();
+            return names;
+        };
+
+        // The categories are put in in order, so they say nothing about the
+        // sorting. The plugins under one are appended as they were found, and
+        // only the proxy's sort puts them in order.
+        QModelIndex biggest;
+        int most = 0;
+        for (int row = 0, count = rows->rowCount({}); row < count; ++row) {
+            const QModelIndex category = rows->index(row, 0);
+            if (rows->rowCount(category) > most) {
+                most = rows->rowCount(category);
+                biggest = category;
+            }
+        }
+        QVERIFY2(most > 1, "no category held more than one plugin to sort");
+
+        const QStringList names = namesUnder(biggest);
+        QStringList sorted = names;
+        sorted.sort(Qt::CaseInsensitive);
+        QCOMPARE(names, sorted);
+    }
+};
+
+QObject *createPluginViewTest()
+{
+    return new PluginViewTest;
+}
+
+#endif // WITH_TESTS
+
 } // Core::Internal
+
+#ifdef WITH_TESTS
+#include "plugindialog.moc"
+#endif

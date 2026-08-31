@@ -958,6 +958,11 @@ void BaseAspect::setCurrentIndex(const QModelIndex &index)
     Q_UNUSED(index)
 }
 
+void BaseAspect::activateIndex(const QModelIndex &index)
+{
+    Q_UNUSED(index)
+}
+
 void BaseAspect::triggerAction()
 {}
 

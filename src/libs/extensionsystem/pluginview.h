@@ -6,6 +6,7 @@
 #include "extensionsystemwidgets_global.h"
 #include "pluginspec.h"
 
+#include <utils/aspects.h>
 #include <utils/treemodel.h>
 
 #include <QMetaType>
@@ -16,7 +17,6 @@
 
 namespace Utils {
 class CategorySortFilterModel;
-class TreeView;
 } // Utils
 
 namespace ExtensionSystem {
@@ -27,6 +27,8 @@ class PluginView;
 namespace Internal {
 class CollectionItem;
 class PluginItem;
+class PluginTreeAspect;
+class PluginTreeModel;
 } // Internal
 
 class EXTENSIONSYSTEM_WIDGETS_EXPORT PluginData
@@ -39,7 +41,7 @@ public:
 private:
     QWidget *m_parent = nullptr;
     PluginView *m_pluginView = nullptr;
-    Utils::TreeModel<Utils::TreeItem, Internal::CollectionItem, Internal::PluginItem> *m_model;
+    Internal::PluginTreeModel *m_model;
     Utils::CategorySortFilterModel *m_sortModel;
     std::unordered_map<PluginSpec *, bool> m_affectedPlugins;
 
@@ -62,6 +64,12 @@ public:
 
     PluginData &data();
 
+#ifdef WITH_TESTS
+    // The rows as the drawn tree sees them, so that a test can ask what a cell
+    // says about itself.
+    QAbstractItemModel *modelForTest() const;
+#endif
+
 signals:
     void currentPluginChanged(ExtensionSystem::PluginSpec *spec);
     void pluginActivated(ExtensionSystem::PluginSpec *spec);
@@ -72,7 +80,8 @@ private:
     void updatePlugins();
 
     PluginData m_data;
-    Utils::TreeView *m_categoryView;
+    std::unique_ptr<Utils::AspectContainer> m_aspects;
+    Internal::PluginTreeAspect *m_tree = nullptr;
 };
 
 } // namespace ExtensionSystem

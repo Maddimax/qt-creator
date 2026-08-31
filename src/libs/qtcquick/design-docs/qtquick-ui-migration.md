@@ -24233,3 +24233,65 @@ What is actually left, then:
 **Next:** `PluginView`, which is the only unblocked one of the trees and needs
 nothing new. Then `ColorSettings`, whose combo and two buttons are aspects and
 whose swatch strip is the first of the painted components.
+
+## 2026-08-31 — The form seam moves down, and the plugin view follows it
+
+`PluginView` (ExtensionSystem) was the one unblocked tree the corrected census
+left. Porting it turned on a question the plan has recorded as a blocker since
+the Utils dialogs came up: **`createAspectForm()` lived in coreplugin**, and
+extensionsystem is *below* coreplugin, so it could not call up into it.
+
+**The seam is in Utils now.** `Utils::AspectWidgets::setAspectFormFactory()`,
+`createAspectForm()` and the generic pair, with `ShowReportingWidget` beside
+them; `Core::` keeps all four names as one-line forwarders, so the 126 call
+sites and everything the plan says about `Core::createAspectForm` still hold.
+Nothing else moved: the factory is still installed by QuickUi, and the fallback
+is still the container's own layouter, which lives in Utils already. **This
+clears the recorded blocker for `PasswordDialog`, `RemoveFileDialog`,
+`NameValuesDialog` and `InspectorWidget` as well** - they are Utils' own and
+can now have forms.
+
+**`PluginView` keeps its class and its exported API** and holds a form, the
+same shape as `SelectableFilesWidget`: `plugindialog.cpp` needed no change. Its
+container is one tree aspect and names no QML, so what draws it is
+`createGenericAspectForm()` - which answers **nullptr** where Qt Quick is not
+there, and that is the whole assertion the test makes.
+
+**A tree drawn generically had no activation.** `TreeDelegate` emits
+`rowActivated` and a hand-written page connects it; a generic form has no page.
+`BaseAspect::activateIndex()` is a virtual no-op that the delegate calls as
+well, so a tree carries activation with no QML written for it - the counterpart
+of `TableAspect::activateRow()`.
+
+**And that broke Gerrit**, which is the only page with a *tree* wiring
+`onRowActivated` by hand: it fired twice, and `GerritDialogTest` said so
+(`activated.count()` 2 where it wanted 1). The page's line is gone and its
+aspect's `activateIndex()` is an `override` now. The twelve other
+`onRowActivated` lines are all `TableDelegate`'s `activateRow`, untouched.
+
+**Two controls that did not bite, and what they taught:**
+
+- Sorting the proxy by name looked untested, because the *categories* are
+  already sorted before they are appended - `Utils::sort(collections,
+  &CollectionItem::m_name)`. What the proxy's sort is actually for is the
+  plugins *inside* a category, which are appended as they were found. The test
+  looks at the biggest category now, and then it bites.
+- The first control on the moved factory drove
+  `QtcQuick::createGenericAspectForm()` directly, which never consults it.
+  Driving it through `Core::aspectFormRenders()` - which any
+  `testTheDialogDrawsWithTheQmlItNames` does - bites.
+
+Negative controls: the model not naming its roles; every column reading as a
+check box; the plugins left in the order they were found; nothing telling the
+aspect a row was activated; the moved factory not consulted; and the generic
+factory answering nothing. All six bit.
+
+QuickUi 206 passed / 0 failed / 1 skipped, exit 0. `Core` (5 passed for
+`PluginViewTest`) and `Help` clean, `Git` clean after the fix above;
+`ProjectExplorer` its two standing failures. `ninja all_qmllint` zero warnings.
+No `.qbs` edit - no file added or removed.
+
+**Next:** the two painted widgets, `CropScene` (screenrecorder) and
+`ColorThemeView` (the swatch strip in `ScxmlEditor`'s `ColorSettings`), and the
+custom widget wizard's two pages. `LoggingViewManagerWidget` stays blocked on
+driving a tree's selection.
