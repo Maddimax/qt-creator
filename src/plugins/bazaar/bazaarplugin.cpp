@@ -14,6 +14,7 @@
 #include <coreplugin/actionmanager/actioncontainer.h>
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/idocument.h>
 #include <coreplugin/documentmanager.h>
@@ -24,6 +25,7 @@
 #include <extensionsystem/iplugin.h>
 
 #include <utils/action.h>
+#include <utils/aspects.h>
 #include <utils/commandline.h>
 #include <utils/environment.h>
 #include <utils/fileutils.h>
@@ -41,15 +43,11 @@
 #include <vcsbase/vcsoutputwindow.h>
 
 #include <QAction>
-#include <QCheckBox>
 #include <QDebug>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QGroupBox>
-#include <QLabel>
-#include <QLineEdit>
 #include <QMenu>
-#include <QPushButton>
+#include <QVBoxLayout>
 
 #ifdef WITH_TESTS
 #include <QTest>
@@ -91,37 +89,62 @@ const char COMMIT[] = "Bazaar.Action.Commit";
 const char UNCOMMIT[] = "Bazaar.Action.UnCommit";
 const char CREATE_REPOSITORY[] = "Bazaar.Action.CreateRepository";
 
+// Revert to the default revision, or to one the user names. The field is
+// enabled by the flag rather than by a checkable group box, which is the same
+// arrangement with the enabling written down instead of implied.
+class RevertSettings final : public AspectContainer
+{
+public:
+    RevertSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Bazaar/RevertDialog.qml"));
+
+        specifyRevision.setQmlName("SpecifyRevision");
+        specifyRevision.setLabelText(Tr::tr("Specify a revision other than the default?"));
+
+        revision.setQmlName("Revision");
+        revision.setLabelText(Tr::tr("Revision:"));
+        revision.setDisplayStyle(StringAspect::LineEditDisplay);
+        revision.setEnabler(&specifyRevision);
+    }
+
+    // What was typed while the flag was off is not what was asked for. The
+    // group box this replaces only disabled the field, so text left behind
+    // there was still handed to bzr - a caller that asked for the default
+    // revision got a revision.
+    QString effectiveRevision() const
+    {
+        return specifyRevision() ? revision().trimmed() : QString();
+    }
+
+    BoolAspect specifyRevision{this};
+    StringAspect revision{this};
+};
+
 class RevertDialog : public QDialog
 {
 public:
-    RevertDialog() : QDialog(ICore::dialogParent())
+    explicit RevertDialog(const QString &title)
+        : QDialog(ICore::dialogParent())
     {
         resize(400, 162);
-        setWindowTitle(Tr::tr("Revert"));
+        setWindowTitle(title);
 
-        auto groupBox = new QGroupBox(Tr::tr("Specify a revision other than the default?"));
-        groupBox->setCheckable(true);
-        groupBox->setChecked(false);
+        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
 
-        revisionLineEdit = new QLineEdit;
-
-        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
-
-        using namespace Layouting;
-        Form {
-            Tr::tr("Revision:"), revisionLineEdit
-        }.attachTo(groupBox);
-
-        Column {
-            groupBox,
-            buttonBox,
-        }.attachTo(this);
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addWidget(buttonBox);
 
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     }
 
-    QLineEdit *revisionLineEdit;
+    QString revision() const { return m_settings.effectiveRevision(); }
+
+private:
+    RevertSettings m_settings;
 };
 
 class BazaarPluginPrivate final : public VersionControlBase
@@ -268,6 +291,54 @@ public:
          std::bind(&BazaarPluginPrivate::vcsDescribe, this, _1, _2)}};
 };
 
+class UnCommitSettings final : public AspectContainer
+{
+public:
+    UnCommitSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Bazaar/UnCommitDialog.qml"));
+
+        keepTags.setQmlName("KeepTags");
+        keepTags.setLabelText(Tr::tr("Keep tags that point to removed revisions"));
+
+        local.setQmlName("Local");
+        local.setLabelText(
+            Tr::tr("Only remove the commits from the local branch when in a checkout"));
+
+        revision.setQmlName("Revision");
+        revision.setLabelText(Tr::tr("Revision:"));
+        revision.setDisplayStyle(StringAspect::LineEditDisplay);
+        revision.setPlaceHolderText(Tr::tr("Last committed"));
+        revision.setToolTip(Tr::tr("If a revision is specified, uncommits revisions to leave "
+                                   "the branch at the specified revision.\n"
+                                   "For example, \"Revision: 15\" will leave the branch at "
+                                   "revision 15."));
+
+        dryRun.setQmlName("DryRun");
+        dryRun.setActionText(Tr::tr("Dry Run"));
+        dryRun.setToolTip(Tr::tr("Test the outcome of removing the last committed revision, "
+                                 "without actually removing anything."));
+    }
+
+    // What the two flags come to on the command line, in the order bzr's own
+    // help lists them.
+    QStringList extraOptions() const
+    {
+        QStringList opts;
+        if (keepTags())
+            opts += "--keep-tags";
+        if (local())
+            opts += "--local";
+        return opts;
+    }
+
+    BoolAspect keepTags{this};
+    BoolAspect local{this};
+    StringAspect revision{this};
+    ActionAspect dryRun{this};
+};
+
 class UnCommitDialog : public QDialog
 {
 public:
@@ -277,63 +348,34 @@ public:
         resize(412, 124);
         setWindowTitle(Tr::tr("Uncommit"));
 
-        keepTagsCheckBox = new QCheckBox(Tr::tr("Keep tags that point to removed revisions"));
+        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok);
 
-        localCheckBox = new QCheckBox(Tr::tr("Only remove the commits from the local branch when in a checkout"));
+        auto layout = new QVBoxLayout(this);
+        layout->addWidget(Core::createAspectForm(&m_settings));
+        layout->addStretch();
+        layout->addWidget(buttonBox);
 
-        revisionLineEdit = new QLineEdit(this);
-        revisionLineEdit->setToolTip(Tr::tr("If a revision is specified, uncommits revisions to leave "
-            "the branch at the specified revision.\n"
-            "For example, \"Revision: 15\" will leave the branch at revision 15."));
-        revisionLineEdit->setPlaceholderText(Tr::tr("Last committed"));
+        m_settings.dryRun.setAction([this, plugin] { runDryRun(plugin); });
 
-        auto buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
-
-        auto dryRunBtn = new QPushButton(Tr::tr("Dry Run"));
-        dryRunBtn->setToolTip(Tr::tr("Test the outcome of removing the last committed revision, without actually removing anything."));
-        buttonBox->addButton(dryRunBtn, QDialogButtonBox::ApplyRole);
-
-        using namespace Layouting;
-        Column {
-            Form {
-                keepTagsCheckBox, br,
-                localCheckBox, br,
-                Tr::tr("Revision:"), revisionLineEdit, br,
-            },
-            st,
-            buttonBox,
-        }.attachTo(this);
-
-        connect(dryRunBtn, &QPushButton::clicked, this, [this, plugin] {
-            QTC_ASSERT(plugin->currentState().hasTopLevel(), return);
-            plugin->m_client.synchronousUncommit(plugin->currentState().topLevel(),
-                                                 revision(),
-                                                 extraOptions() << "--dry-run");
-        });
         connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
         connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     }
 
-    QStringList extraOptions() const
-    {
-        QStringList opts;
-        if (keepTagsCheckBox->isChecked())
-            opts += "--keep-tags";
-        if (localCheckBox->isChecked())
-            opts += "--local";
-        return opts;
-    }
-
-    QString revision() const
-    {
-        return revisionLineEdit->text().trimmed();
-    }
+    QStringList extraOptions() const { return m_settings.extraOptions(); }
+    QString revision() const { return m_settings.revision().trimmed(); }
 
 private:
-    QCheckBox *keepTagsCheckBox;
-    QCheckBox *localCheckBox;
-    QLineEdit *revisionLineEdit;
+    void runDryRun(BazaarPluginPrivate *plugin);
+
+    UnCommitSettings m_settings;
 };
+
+void UnCommitDialog::runDryRun(BazaarPluginPrivate *plugin)
+{
+    QTC_ASSERT(plugin->currentState().hasTopLevel(), return);
+    plugin->m_client.synchronousUncommit(plugin->currentState().topLevel(), revision(),
+                                         extraOptions() << "--dry-run");
+}
 
 BazaarPluginPrivate::BazaarPluginPrivate()
     : VersionControlBase(Context(Constants::BAZAAR_CONTEXT))
@@ -561,12 +603,12 @@ void BazaarPluginPrivate::revertCurrentFile()
     const VcsBasePluginState state = currentState();
     QTC_ASSERT(state.hasFile(), return);
 
-    RevertDialog dialog;
+    RevertDialog dialog(Tr::tr("Revert"));
     if (dialog.exec() != QDialog::Accepted)
         return;
     m_client.revertFile(state.currentFileTopLevel(),
                          state.relativeCurrentFile(),
-                         dialog.revisionLineEdit->text());
+                         dialog.revision());
 }
 
 void BazaarPluginPrivate::statusCurrentFile()
@@ -598,10 +640,10 @@ void BazaarPluginPrivate::revertAll()
     const VcsBasePluginState state = currentState();
     QTC_ASSERT(state.hasTopLevel(), return);
 
-    RevertDialog dialog;
+    RevertDialog dialog(Tr::tr("Revert"));
     if (dialog.exec() != QDialog::Accepted)
         return;
-    m_client.revertAll(state.topLevel(), dialog.revisionLineEdit->text());
+    m_client.revertAll(state.topLevel(), dialog.revision());
 }
 
 void BazaarPluginPrivate::statusMulti()
@@ -658,11 +700,10 @@ void BazaarPluginPrivate::update()
     const VcsBasePluginState state = currentState();
     QTC_ASSERT(state.hasTopLevel(), return);
 
-    RevertDialog dialog;
-    dialog.setWindowTitle(Tr::tr("Update"));
+    RevertDialog dialog(Tr::tr("Update"));
     if (dialog.exec() != QDialog::Accepted)
         return;
-    m_client.update(state.topLevel(), dialog.revisionLineEdit->text());
+    m_client.update(state.topLevel(), dialog.revision());
 }
 
 void BazaarPluginPrivate::commit()
@@ -736,6 +777,93 @@ void BazaarPluginPrivate::diffFromEditorSelected(const QStringList &files)
     m_client.diff(m_submitRepository, files);
 }
 
+#ifdef WITH_TESTS
+
+class RevertDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testARevisionIsOnlyUsedWhenAskedFor()
+    {
+        RevertSettings settings;
+        const Result<> rendered = Core::aspectFormRenders(&settings, "RevertDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+
+        // The field follows the flag, so it cannot be typed into until the
+        // question above it has been answered.
+        QVERIFY2(!settings.revision.isEnabled(),
+                 "the revision field is editable before it was asked for");
+        settings.specifyRevision.setValue(true);
+        QVERIFY(settings.revision.isEnabled());
+
+        // And what was typed while the flag was off is not what was asked
+        // for. The group box this replaced only disabled the field, so text
+        // left behind there was still handed to bzr.
+        settings.revision.setValue("42");
+        QCOMPARE(settings.effectiveRevision(), QString("42"));
+        settings.specifyRevision.setValue(false);
+        QCOMPARE(settings.effectiveRevision(), QString());
+
+        // Spaces around a revision are not part of it. The three dialogs of
+        // this shape trimmed in one place out of three.
+        settings.specifyRevision.setValue(true);
+        settings.revision.setValue("  42  ");
+        QCOMPARE(settings.effectiveRevision(), QString("42"));
+    }
+};
+
+class UnCommitDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDialogDrawsWithTheQmlItNames()
+    {
+        UnCommitSettings settings;
+        const Result<> rendered = Core::aspectFormRenders(&settings, "UnCommitDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testWhatTheFlagsComeToOnTheCommandLine()
+    {
+        UnCommitSettings settings;
+        QCOMPARE(settings.extraOptions(), QStringList());
+
+        settings.keepTags.setValue(true);
+        QCOMPARE(settings.extraOptions(), QStringList{"--keep-tags"});
+
+        settings.local.setValue(true);
+        QCOMPARE(settings.extraOptions(), (QStringList{"--keep-tags", "--local"}));
+
+        settings.keepTags.setValue(false);
+        QCOMPARE(settings.extraOptions(), QStringList{"--local"});
+    }
+
+    void testDryRunIsOfferedBesideWhatItWouldUse()
+    {
+        // It says what would happen without doing any of it, so it belongs
+        // with the settings rather than among the buttons that close the
+        // dialog - where the widget version had it, as an ApplyRole button.
+        UnCommitSettings settings;
+        QCOMPARE(settings.dryRun.presentation().actionText, Tr::tr("Dry Run"));
+        QVERIFY2(!settings.dryRun.toolTip().isEmpty(),
+                 "nothing says a dry run changes nothing");
+    }
+};
+
+QObject *createRevertDialogTest()
+{
+    return new RevertDialogTest;
+}
+
+QObject *createUnCommitDialogTest()
+{
+    return new UnCommitDialogTest;
+}
+
+#endif // WITH_TESTS
+
 class BazaarPlugin final : public ExtensionSystem::IPlugin
 {
     Q_OBJECT
@@ -751,6 +879,8 @@ class BazaarPlugin final : public ExtensionSystem::IPlugin
     {
 #ifdef WITH_TESTS
         addTestCreator(createPullOrPushDialogTest);
+        addTestCreator(createRevertDialogTest);
+        addTestCreator(createUnCommitDialogTest);
 #endif
         d = new BazaarPluginPrivate;
     }

@@ -31,6 +31,7 @@ if(TARGET Fossil)
     QML_FILES
       ConfigureDialog.qml
       PullOrPushDialog.qml
+      RevertDialog.qml
       FossilSettingsPage.qml
   )
 endif()

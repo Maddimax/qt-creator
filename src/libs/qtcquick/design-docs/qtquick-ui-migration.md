@@ -22646,3 +22646,76 @@ and the locator family are done; what the census still names is the list of
 dialogs that need a component of their own. Worth re-running the census rather
 than trusting the old list - four batches have removed whole categories from
 it since it was taken.
+
+## 2026-08-31 — The census, retaken, and the third copy of one dialog
+
+The old census was taken by classifying dialogs by what widgets their file
+mentions. Re-running it found the classification had a bug of its own: a dialog
+declared in a `.h` and built in the matching `.cpp` was read from the header
+alone, so every ported dialog whose header says nothing about aspects counted
+as unported. Pairing the two files moves 31 dialogs from "not yet" to "done"
+and shrinks the "something else" pile from 25 to 5.
+
+**Where it actually stands.** 143 `QDialog` subclasses outside QmlDesigner;
+**64 are drawn from an aspect container**, 79 are not:
+
+| shape | count |
+|---|---|
+| form controls only | 29 |
+| a table or a list | 24 |
+| holds a text editor | 21 |
+| something else | 5 |
+
+The "something else" pile is now five dialogs (`DeviceTestDialog`, two qmake
+wizard dialogs, `ScreenRecorderDialog`, `ColorThemeDialog`) rather than a
+category. **The 21 text-editor dialogs are the one real question left**, and it
+is the same one from two months ago: whether a Qt Quick `TextArea` is enough
+for a dialog showing a document.
+
+The command, for whoever retakes it: classify by the *pair* of files, and count
+`createAspectForm`/`setQmlSource` in either.
+
+**Then the batch: the last two copies of a dialog already ported once.**
+"Specify a revision other than the default?" exists three times - Mercurial,
+Bazaar, Fossil. Mercurial's was ported weeks ago, with the flag written down as
+a `BoolAspect` and `setEnabler()` on the field. The other two were still
+checkable group boxes, **with the bug Mercurial's port had already found and
+fixed**: a checkable `QGroupBox` only *disables* its children, so a revision
+typed while the box was ticked and then unticked was still handed to `bzr` and
+to `fossil`. A caller asking for the default revision got a revision.
+
+That is worth saying plainly: **the same defect survived in two plugins for as
+long as it took to notice it in the third.** Grepping the user-visible string
+found all three in one line; nothing about the code would have.
+
+`UnCommitDialog` came with the batch because it is in the same file. Its **Dry
+Run** was an `ApplyRole` button in the `QDialogButtonBox` - it says what would
+happen without doing any of it, so it belongs beside the settings it would use.
+An `ActionAspect` in the form, as `RemoteDialog`'s Refresh and
+`PasteSelectDialog`'s were.
+
+**And the trimming was inconsistent.** Of the three revision fields in one
+file, one trimmed and two did not. All three do now.
+
+**A control ran against a stale plugin and looked like a bug.** Control 2 edits
+only Bazaar, but `ninja Bazaar` leaves Fossil's dylib holding the *previous*
+control - so Fossil failed too and the control looked to have a blast radius it
+did not have. Rebuild every plugin the controls touch, every time, not the one
+that was edited.
+
+Negative controls: the flag ignored, as the widget dialogs did (both plugins);
+the field not gated by the flag; `--local` always passed; the uncommit page
+naming an aspect that is not there; and a revision left untrimmed. All five
+bit.
+
+QuickUi 196 passed / 0 failed / 1 skipped, exit 0. `Bazaar`, `Fossil` and
+`Mercurial` exit 0 with no failures - `RevertDialogTest` 3 passed in each of
+the two, `UnCommitDialogTest` 5. `ninja all_qmllint` still zero warnings. No
+`.qbs` edit: both plugins take `*.qml` by wildcard and the classes stayed in
+the plugin files, so no C++ file was added.
+
+**Next:** the 29 form-only dialogs are routine now - `SymbolPathsDialog`
+(Debugger), `AuthenticationDialog` (Gerrit), `WaitForStopDialog` and
+`RecordOptionsDialog` are the small ones. Before starting the 21 text-editor
+dialogs, answer their shared question once: `LogDialog` (coreplugin/icore.cpp)
+is the smallest of them and would settle whether `TextArea` is enough.

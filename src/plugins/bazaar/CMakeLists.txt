@@ -25,6 +25,8 @@ if(TARGET Bazaar)
     NO_PLUGIN
     QML_FILES
       PullOrPushDialog.qml
+      RevertDialog.qml
+      UnCommitDialog.qml
       BazaarSettingsPage.qml
   )
 endif()

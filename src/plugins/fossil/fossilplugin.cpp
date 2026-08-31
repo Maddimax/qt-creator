@@ -17,6 +17,7 @@
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/idocument.h>
 #include <coreplugin/jsexpander.h>
@@ -32,6 +33,7 @@
 #include <utils/commandline.h>
 #include <utils/fileutils.h>
 #include <utils/layoutbuilder.h>
+#include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
 #include <vcsbase/vcsbaseclient.h>
@@ -44,6 +46,7 @@
 #include <QAction>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QVBoxLayout>
 #include <QDir>
 #include <QGroupBox>
 #include <QMenu>
@@ -233,14 +236,49 @@ public:
 
 static FossilPluginPrivate *dd = nullptr;
 
+// Revert to the default revision, or to one the user names. The field is
+// enabled by the flag rather than by a checkable group box, which is the same
+// arrangement with the enabling written down instead of implied.
+class RevertSettings final : public AspectContainer
+{
+public:
+    RevertSettings()
+    {
+        setAutoApply(true);
+        setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Fossil/RevertDialog.qml"));
+
+        specifyRevision.setQmlName("SpecifyRevision");
+        specifyRevision.setLabelText(Tr::tr("Specify a revision other than the default?"));
+        specifyRevision.setToolTip(
+            Tr::tr("Checkout revision, can also be a branch or a tag name."));
+
+        revision.setQmlName("Revision");
+        revision.setLabelText(Tr::tr("Revision"));
+        revision.setDisplayStyle(StringAspect::LineEditDisplay);
+        revision.setEnabler(&specifyRevision);
+    }
+
+    // What was typed while the flag was off is not what was asked for. The
+    // group box this replaces only disabled the field, so text left behind
+    // there was still handed to fossil - a caller that asked for the default
+    // revision got a revision.
+    QString effectiveRevision() const
+    {
+        return specifyRevision() ? revision().trimmed() : QString();
+    }
+
+    BoolAspect specifyRevision{this};
+    StringAspect revision{this};
+};
+
 class RevertDialog : public QDialog
 {
 public:
     RevertDialog(const QString &title, QWidget *parent = nullptr);
-    QString revision() const { return m_revisionLineEdit->text(); }
+    QString revision() const { return m_settings.effectiveRevision(); }
 
 private:
-    QLineEdit *m_revisionLineEdit = nullptr;
+    RevertSettings m_settings;
 };
 
 
@@ -1035,28 +1073,60 @@ RevertDialog::RevertDialog(const QString &title, QWidget *parent)
     resize(600, 0);
     setWindowTitle(title);
 
-    auto *groupBox = new QGroupBox(Tr::tr("Specify a revision other than the default?"));
-    groupBox->setCheckable(true);
-    groupBox->setChecked(false);
-    groupBox->setToolTip(Tr::tr("Checkout revision, can also be a branch or a tag name."));
-
-    m_revisionLineEdit = new QLineEdit;
-
     auto buttonBox = new QDialogButtonBox;
     buttonBox->setStandardButtons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    using namespace Layouting;
-    Form {
-        Tr::tr("Revision"), m_revisionLineEdit, br,
-    }.attachTo(groupBox);
-
-    Column {
-        groupBox,
-        buttonBox,
-    }.attachTo(this);
+    auto layout = new QVBoxLayout(this);
+    layout->addWidget(Core::createAspectForm(&m_settings));
+    layout->addWidget(buttonBox);
 }
+
+#ifdef WITH_TESTS
+
+class RevertDialogTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testARevisionIsOnlyUsedWhenAskedFor()
+    {
+        RevertSettings settings;
+        const Result<> rendered = Core::aspectFormRenders(&settings, "RevertDialog.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+
+        QVERIFY2(!settings.revision.isEnabled(),
+                 "the revision field is editable before it was asked for");
+        settings.specifyRevision.setValue(true);
+        QVERIFY(settings.revision.isEnabled());
+
+        // The group box this replaced only disabled the field, so a revision
+        // typed and then unasked for was still handed to fossil.
+        settings.revision.setValue("trunk");
+        QCOMPARE(settings.effectiveRevision(), QString("trunk"));
+        settings.specifyRevision.setValue(false);
+        QCOMPARE(settings.effectiveRevision(), QString());
+
+        settings.specifyRevision.setValue(true);
+        settings.revision.setValue("  trunk  ");
+        QCOMPARE(settings.effectiveRevision(), QString("trunk"));
+
+        // A dialog nobody has touched asks for the default, whatever it is
+        // called - the title is the caller's and the answer is not.
+        const RevertDialog revert(Tr::tr("Revert"));
+        QCOMPARE(revert.revision(), QString());
+        const RevertDialog update(Tr::tr("Update"));
+        QCOMPARE(update.revision(), QString());
+    }
+};
+
+QObject *createRevertDialogTest()
+{
+    return new RevertDialogTest;
+}
+
+#endif // WITH_TESTS
 
 #ifdef WITH_TESTS
 
@@ -1141,6 +1211,7 @@ class FossilPlugin final : public ExtensionSystem::IPlugin
         addTest<FossilTests>();
         addTestCreator(createConfigureDialogTest);
         addTestCreator(createPullOrPushDialogTest);
+        addTestCreator(createRevertDialogTest);
 #endif
     }
 
