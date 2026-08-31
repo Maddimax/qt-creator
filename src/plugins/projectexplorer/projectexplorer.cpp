@@ -940,6 +940,7 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createAbiTest);
     addTestCreator(Internal::createWaitForStopDialogTest);
     addTestCreator(Internal::createPathListDialogTest);
+    addTestCreator(Internal::createSelectableFilesTest);
     addTestCreator(Internal::createDeviceFactorySelectionDialogTest);
     addTestCreator(createOutputTaskParserTest);
     addTestCreator(createAbiAspectsTest);
@@ -978,7 +979,6 @@ Result<> ProjectExplorerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createRunConfigurationTest);
     addTestCreator(createRunWorkerConflictTest);
     addTestCreator(createSanitizerOutputParserTest);
-    addTestCreator(createSelectableFilesWidgetTest);
     addTestCreator(createSessionTest);
     addTestCreator(createTaskHandlingTest);
     addTestCreator(createToolchainManagerTest);

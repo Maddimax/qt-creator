@@ -242,6 +242,10 @@ public:
     // whatever it is under. The counterpart of TableAspect::showRow() for an
     // aspect whose rows are addressed by index rather than by row.
     void showIndexInControl(const QModelIndex &index);
+    // Opens a branch without moving the reader onto it. A tree that opens
+    // itself where there is something to see - a directory only some of whose
+    // files are picked - asks for each of them.
+    void expandIndexInControl(const QModelIndex &index);
     // The control's context-menu entry was toggled. See
     // AspectPresentation::contextActionText.
     Q_INVOKABLE virtual void triggerContextAction(bool checked);
@@ -396,6 +400,7 @@ signals:
     void controlValidationRequested();
     void controlExpandRequested();
     void controlIndexRequested(const QModelIndex &index);
+    void controlExpandIndexRequested(const QModelIndex &index);
 
 protected:
     // final: no aspect builds its own controls any more. An aspect says which

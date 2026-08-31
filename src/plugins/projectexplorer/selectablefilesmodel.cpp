@@ -6,9 +6,11 @@
 #include "projectexplorerconstants.h"
 #include "projectexplorertr.h"
 
+#include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/icore.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/async.h>
 #include <utils/fancylineedit.h>
 #include <utils/fsengine/fileiconprovider.h>
@@ -17,10 +19,17 @@
 
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QGridLayout>
+#include <QVBoxLayout>
+
+#ifdef WITH_TESTS
+#include <QSignalSpy>
+#include <QTemporaryDir>
+#include <QTest>
+#endif
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSortFilterProxyModel>
 #include <QTreeView>
 
 #include <memory>
@@ -224,7 +233,26 @@ QVariant SelectableFilesModel::data(const QModelIndex &index, int role) const
             t->icon = FileIconProvider::icon(t->fullPath);
         return t->icon;
     }
+    // A widget view reads flags() for these; a Qt Quick one cannot, so the
+    // model answers both. Every row is a check box and every one may be
+    // ticked, which is what flags() says.
+    if (role == AspectTable::CheckableRole)
+        return true;
+    if (role == AspectTable::EditableRole)
+        return AspectTable::isWritable(flags(index));
     return {};
+}
+
+// The one column has no name - the widget view hid its header - and a Qt Quick
+// view draws a heading for a column that answers one.
+QVariant SelectableFilesModel::headerData(int, Qt::Orientation, int) const
+{
+    return {};
+}
+
+QHash<int, QByteArray> SelectableFilesModel::roleNames() const
+{
+    return AspectTable::withRoleNames(QAbstractItemModel::roleNames());
 }
 
 bool SelectableFilesModel::setData(const QModelIndex &index, const QVariant &value, int role)
@@ -514,66 +542,242 @@ enum class SelectableFilesWidgetRows {
     BaseDirectory, SelectFileFilter, HideFileFilter, ApplyButton, View, Progress, PreservedInformation
 };
 
+namespace {
+
+// The tree of what was found. The model is the form's, and comes and goes with
+// the directory being looked at; the aspect hands out one proxy for its whole
+// life and swaps what is behind it.
+class SelectableFilesTreeAspect final : public BaseAspect
+{
+public:
+    explicit SelectableFilesTreeAspect(AspectContainer *container)
+        : BaseAspect(container)
+    {}
+
+    AspectPresentation presentation() const override
+    {
+        AspectPresentation p = BaseAspect::presentation();
+        p.control = AspectControls::Tree;
+        return p;
+    }
+
+    QAbstractItemModel *tableModel() override { return &m_shown; }
+
+    void setModel(QAbstractItemModel *model) { m_shown.setSourceModel(model); }
+
+    // The rows the form hands out are the proxy's, so an index of the model
+    // behind it has to be translated before anyone else sees it.
+    QModelIndex fromModel(const QModelIndex &index) const { return m_shown.mapFromSource(index); }
+
+private:
+    QSortFilterProxyModel m_shown;
+};
+
+} // namespace
+
+// What the form asks, and what it does about the answers. The model does the
+// looking; this says when to start, what to keep, and what the reader is told
+// while it runs.
+class SelectableFilesAspects final : public AspectContainer
+{
+public:
+    explicit SelectableFilesAspects(SelectableFilesWidget *widget);
+
+    void resetModel(const FilePath &path, const FilePaths &files);
+    void setAddFileFilter(const QString &filter);
+    void setBaseDirEditable(bool edit);
+    void enableFilterHistoryCompletion(const Key &keyPrefix);
+    void cancelParsing();
+
+    FilePaths selectedFiles() const { return m_model ? m_model->selectedFiles() : FilePaths(); }
+    FilePaths selectedPaths() const { return m_model ? m_model->selectedPaths() : FilePaths(); }
+    bool hasFilesSelected() const { return m_model && m_model->hasCheckedFiles(); }
+
+    FilePathAspect baseDir{this};
+    ActionAspect startParsing{this};
+    StringAspect selectFilter{this};
+    StringAspect hideFilter{this};
+    ActionAspect applyFilters{this};
+    SelectableFilesTreeAspect files{this};
+    TextDisplay preserved{this};
+    TextDisplay progress{this};
+
+private:
+    void applyFilter();
+    void beginParsing(const FilePath &baseDir);
+    void showParsingProgress(const QString &text);
+    void parsingFinished();
+    void enableAspects(bool enabled);
+    // Opens every directory only some of whose files are picked, so that what
+    // was picked is what the reader sees first.
+    void expandWhereSomethingIsPicked(const QModelIndex &index);
+
+    SelectableFilesWidget *const m_widget;
+    SelectableFilesFromDirModel *m_model = nullptr;
+    bool m_filteringScheduled = false;
+};
+
+SelectableFilesAspects::SelectableFilesAspects(SelectableFilesWidget *widget)
+    : m_widget(widget)
+{
+    setAutoApply(true);
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/SelectableFilesForm.qml"));
+
+    const QString selectFilterDefault
+        = Core::ICore::settings()->value("GenericProject/ShowFileFilter",
+                                         QLatin1String(SELECT_FILE_FILTER_DEFAULT)).toString();
+    const QString hideFilterDefault
+        = Core::ICore::settings()->value("GenericProject/FileFilter",
+                                         QLatin1String(HIDE_FILE_FILTER_DEFAULT)).toString();
+
+    baseDir.setQmlName("BaseDir");
+    baseDir.setLabelText(Tr::tr("Source directory:"));
+    baseDir.setExpectedKind(PathChooserKind::ExistingDirectory);
+    baseDir.setHistoryCompleter("PE.AddToProjectDir.History");
+
+    startParsing.setQmlName("StartParsing");
+    startParsing.setActionText(Tr::tr("Start Parsing"));
+    startParsing.setAction([this] { beginParsing(baseDir()); });
+
+    selectFilter.setQmlName("SelectFilter");
+    selectFilter.setLabelText(Tr::tr("Select files matching:"));
+    selectFilter.setDisplayStyle(StringAspect::LineEditDisplay);
+    selectFilter.setValue(selectFilterDefault);
+
+    hideFilter.setQmlName("HideFilter");
+    hideFilter.setLabelText(Tr::tr("Hide files matching:"));
+    hideFilter.setDisplayStyle(StringAspect::LineEditDisplay);
+    hideFilter.setValue(hideFilterDefault);
+
+    applyFilters.setQmlName("ApplyFilters");
+    applyFilters.setActionText(Tr::tr("Apply Filters"));
+    applyFilters.setAction([this] { applyFilter(); });
+
+    files.setQmlName("Files");
+
+    preserved.setQmlName("Preserved");
+    preserved.setVisible(false);
+
+    progress.setQmlName("Progress");
+    progress.setVisible(false);
+
+    // Nothing to parse until the directory is one.
+    connect(&baseDir, &BaseAspect::changed, this, [this] {
+        startParsing.setEnabled(baseDir().isDir());
+    });
+    startParsing.setEnabled(false);
+}
+
+void SelectableFilesAspects::resetModel(const FilePath &path, const FilePaths &files_)
+{
+    delete m_model;
+    m_model = new SelectableFilesFromDirModel(this);
+    m_model->setInitialMarkedFiles(files_);
+    connect(m_model, &SelectableFilesFromDirModel::parsingProgress,
+            this, &SelectableFilesAspects::showParsingProgress);
+    connect(m_model, &SelectableFilesFromDirModel::parsingFinished,
+            this, &SelectableFilesAspects::parsingFinished);
+    connect(m_model, &SelectableFilesModel::checkedFilesChanged,
+            m_widget, &SelectableFilesWidget::selectedFilesChanged);
+
+    files.setModel(m_model);
+    baseDir.setValue(path);
+    beginParsing(path);
+}
+
+void SelectableFilesAspects::setAddFileFilter(const QString &filter)
+{
+    selectFilter.setValue(filter);
+    if (applyFilters.isEnabled())
+        applyFilter();
+    else
+        m_filteringScheduled = true;
+}
+
+void SelectableFilesAspects::setBaseDirEditable(bool edit)
+{
+    baseDir.setVisible(edit);
+    startParsing.setVisible(edit);
+}
+
+void SelectableFilesAspects::enableFilterHistoryCompletion(const Key &keyPrefix)
+{
+    selectFilter.setHistoryCompleter(keyPrefix + ".select");
+    hideFilter.setHistoryCompleter(keyPrefix + ".hide");
+}
+
+void SelectableFilesAspects::cancelParsing()
+{
+    if (m_model)
+        m_model->cancel();
+}
+
+void SelectableFilesAspects::applyFilter()
+{
+    m_filteringScheduled = false;
+    if (m_model)
+        m_model->applyFilter(selectFilter.value(), hideFilter.value());
+}
+
+void SelectableFilesAspects::beginParsing(const FilePath &dir)
+{
+    if (!m_model)
+        return;
+    enableAspects(false);
+    applyFilter();
+    m_model->startParsing(dir);
+}
+
+void SelectableFilesAspects::showParsingProgress(const QString &text)
+{
+    progress.setText(Tr::tr("Generating file list...\n\n%1").arg(text));
+}
+
+void SelectableFilesAspects::parsingFinished()
+{
+    if (!m_model)
+        return;
+
+    expandWhereSomethingIsPicked(m_model->index(0, 0, {}));
+
+    const FilePaths preservedFiles = m_model->preservedFiles();
+    preserved.setText(Tr::tr("Not showing %n files that are outside of the base directory.\n"
+                             "These files are preserved.", nullptr, preservedFiles.count()));
+
+    enableAspects(true);
+    if (m_filteringScheduled)
+        applyFilter();
+}
+
+void SelectableFilesAspects::enableAspects(bool enabled)
+{
+    hideFilter.setEnabled(enabled);
+    selectFilter.setEnabled(enabled);
+    applyFilters.setEnabled(enabled);
+    files.setEnabled(enabled);
+    baseDir.setEnabled(enabled);
+    startParsing.setEnabled(enabled && baseDir().isDir());
+
+    progress.setVisible(!enabled);
+    preserved.setVisible(m_model && !m_model->preservedFiles().isEmpty());
+}
+
+void SelectableFilesAspects::expandWhereSomethingIsPicked(const QModelIndex &index)
+{
+    if (!index.isValid() || index.data(Qt::CheckStateRole) != Qt::PartiallyChecked)
+        return;
+    files.expandIndexInControl(files.fromModel(index));
+    for (int row = 0, rows = m_model->rowCount(index); row < rows; ++row)
+        expandWhereSomethingIsPicked(m_model->index(row, 0, index));
+}
+
 SelectableFilesWidget::SelectableFilesWidget(QWidget *parent)
     : QWidget(parent)
-    , m_baseDirChooser(new PathChooser)
-    , m_baseDirLabel(new QLabel)
-    , m_startParsingButton(new QPushButton)
-    , m_selectFilesFilterLabel(new QLabel)
-    , m_selectFilesFilterEdit(new FancyLineEdit)
-    , m_hideFilesFilterLabel(new QLabel)
-    , m_hideFilesFilterEdit(new FancyLineEdit)
-    , m_applyFiltersButton(new QPushButton)
-    , m_view(new QTreeView)
-    , m_preservedFilesLabel(new QLabel)
-    , m_progressLabel(new QLabel)
+    , d(new SelectableFilesAspects(this))
 {
-    const QString selectFilter
-            = Core::ICore::settings()->value("GenericProject/ShowFileFilter",
-                                             QLatin1String(SELECT_FILE_FILTER_DEFAULT)).toString();
-    const QString hideFilter
-            = Core::ICore::settings()->value("GenericProject/FileFilter",
-                                             QLatin1String(HIDE_FILE_FILTER_DEFAULT)).toString();
-
-    auto layout = new QGridLayout(this);
+    auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-
-    m_baseDirLabel->setText(Tr::tr("Source directory:"));
-    m_baseDirChooser->setHistoryCompleter("PE.AddToProjectDir.History");
-    m_startParsingButton->setText(Tr::tr("Start Parsing"));
-    layout->addWidget(m_baseDirLabel, static_cast<int>(SelectableFilesWidgetRows::BaseDirectory), 0);
-    layout->addWidget(m_baseDirChooser, static_cast<int>(SelectableFilesWidgetRows::BaseDirectory), 1, 1, 2);
-    layout->addWidget(m_startParsingButton, static_cast<int>(SelectableFilesWidgetRows::BaseDirectory), 3);
-
-    connect(m_baseDirChooser, &PathChooser::validChanged,
-            this, &SelectableFilesWidget::baseDirectoryChanged);
-    connect(m_startParsingButton, &QAbstractButton::clicked,
-            this, [this] { startParsing(m_baseDirChooser->filePath()); });
-
-    m_selectFilesFilterLabel->setText(Tr::tr("Select files matching:"));
-    m_selectFilesFilterEdit->setText(selectFilter);
-    layout->addWidget(m_selectFilesFilterLabel, static_cast<int>(SelectableFilesWidgetRows::SelectFileFilter), 0);
-    layout->addWidget(m_selectFilesFilterEdit, static_cast<int>(SelectableFilesWidgetRows::SelectFileFilter), 1, 1, 3);
-
-    m_hideFilesFilterLabel->setText(Tr::tr("Hide files matching:"));
-    m_hideFilesFilterEdit->setText(hideFilter);
-    layout->addWidget(m_hideFilesFilterLabel, static_cast<int>(SelectableFilesWidgetRows::HideFileFilter), 0);
-    layout->addWidget(m_hideFilesFilterEdit, static_cast<int>(SelectableFilesWidgetRows::HideFileFilter), 1, 1, 3);
-
-    m_applyFiltersButton->setText(Tr::tr("Apply Filters"));
-    layout->addWidget(m_applyFiltersButton, static_cast<int>(SelectableFilesWidgetRows::ApplyButton), 3);
-
-    connect(m_applyFiltersButton, &QAbstractButton::clicked,
-            this, &SelectableFilesWidget::applyFilter);
-
-    m_view->setMinimumSize(500, 400);
-    m_view->setHeaderHidden(true);
-    layout->addWidget(m_view, static_cast<int>(SelectableFilesWidgetRows::View), 0, 1, 4);
-
-    layout->addWidget(m_preservedFilesLabel, static_cast<int>(SelectableFilesWidgetRows::PreservedInformation), 0, 1, 4);
-
-    m_progressLabel->setMaximumWidth(500);
-    layout->addWidget(m_progressLabel, static_cast<int>(SelectableFilesWidgetRows::Progress), 0, 1, 4);
+    layout->addWidget(Core::createAspectForm(d.get()));
 }
 
 SelectableFilesWidget::SelectableFilesWidget(const FilePath &path, const FilePaths &files,
@@ -583,136 +787,46 @@ SelectableFilesWidget::SelectableFilesWidget(const FilePath &path, const FilePat
     resetModel(path, files);
 }
 
+SelectableFilesWidget::~SelectableFilesWidget() = default;
+
 void SelectableFilesWidget::setAddFileFilter(const QString &filter)
 {
-    m_selectFilesFilterEdit->setText(filter);
-    if (m_applyFiltersButton->isEnabled())
-        applyFilter();
-    else
-        m_filteringScheduled = true;
+    d->setAddFileFilter(filter);
 }
 
 void SelectableFilesWidget::setBaseDirEditable(bool edit)
 {
-    m_baseDirLabel->setVisible(edit);
-    m_baseDirChooser->setVisible(edit);
-    m_startParsingButton->setVisible(edit);
+    d->setBaseDirEditable(edit);
 }
 
 FilePaths SelectableFilesWidget::selectedFiles() const
 {
-    return m_model ? m_model->selectedFiles() : FilePaths();
+    return d->selectedFiles();
 }
 
 FilePaths SelectableFilesWidget::selectedPaths() const
 {
-    return m_model ? m_model->selectedPaths() : FilePaths();
+    return d->selectedPaths();
 }
 
 bool SelectableFilesWidget::hasFilesSelected() const
 {
-    return m_model ? m_model->hasCheckedFiles() : false;
+    return d->hasFilesSelected();
 }
 
 void SelectableFilesWidget::resetModel(const FilePath &path, const FilePaths &files)
 {
-    m_view->setModel(nullptr);
-
-    delete m_model;
-    m_model = new SelectableFilesFromDirModel(this);
-
-    m_model->setInitialMarkedFiles(files);
-    connect(m_model, &SelectableFilesFromDirModel::parsingProgress,
-            this, &SelectableFilesWidget::parsingProgress);
-    connect(m_model, &SelectableFilesFromDirModel::parsingFinished,
-            this, &SelectableFilesWidget::parsingFinished);
-    connect(m_model, &SelectableFilesModel::checkedFilesChanged,
-            this, &SelectableFilesWidget::selectedFilesChanged);
-
-    m_baseDirChooser->setFilePath(path);
-    m_view->setModel(m_model);
-
-    startParsing(path);
+    d->resetModel(path, files);
 }
 
 void SelectableFilesWidget::cancelParsing()
 {
-    if (m_model)
-        m_model->cancel();
+    d->cancelParsing();
 }
 
 void SelectableFilesWidget::enableFilterHistoryCompletion(const Key &keyPrefix)
 {
-    m_selectFilesFilterEdit->setHistoryCompleter(keyPrefix + ".select", true);
-    m_hideFilesFilterEdit->setHistoryCompleter(keyPrefix + ".hide", true);
-}
-
-void SelectableFilesWidget::enableWidgets(bool enabled)
-{
-    m_hideFilesFilterEdit->setEnabled(enabled);
-    m_selectFilesFilterEdit->setEnabled(enabled);
-    m_applyFiltersButton->setEnabled(enabled);
-    m_view->setEnabled(enabled);
-    m_baseDirChooser->setEnabled(enabled);
-
-    m_startParsingButton->setEnabled(enabled);
-
-    m_progressLabel->setVisible(!enabled);
-    m_preservedFilesLabel->setVisible(m_model && !m_model->preservedFiles().isEmpty());
-}
-
-void SelectableFilesWidget::applyFilter()
-{
-    m_filteringScheduled = false;
-    if (m_model)
-        m_model->applyFilter(m_selectFilesFilterEdit->text(), m_hideFilesFilterEdit->text());
-}
-
-void SelectableFilesWidget::baseDirectoryChanged(bool validState)
-{
-    m_startParsingButton->setEnabled(validState);
-}
-
-void SelectableFilesWidget::startParsing(const FilePath &baseDir)
-{
-    if (!m_model)
-        return;
-
-    enableWidgets(false);
-    applyFilter();
-    m_model->startParsing(baseDir);
-}
-
-void SelectableFilesWidget::parsingProgress(const QString &progress)
-{
-    m_progressLabel->setText(Tr::tr("Generating file list...\n\n%1").arg(progress));
-}
-
-void SelectableFilesWidget::parsingFinished()
-{
-    if (!m_model)
-        return;
-
-    smartExpand(m_model->index(0, 0, {}));
-
-    const FilePaths preservedFiles = m_model->preservedFiles();
-    m_preservedFilesLabel->setText(Tr::tr("Not showing %n files that are outside of the base directory.\n"
-                                      "These files are preserved.", nullptr, preservedFiles.count()));
-
-    enableWidgets(true);
-    if (m_filteringScheduled)
-        applyFilter();
-}
-
-void SelectableFilesWidget::smartExpand(const QModelIndex &idx)
-{
-    QAbstractItemModel *model = m_view->model();
-    if (model->data(idx, Qt::CheckStateRole) == Qt::PartiallyChecked) {
-        m_view->expand(idx);
-        int rows = model->rowCount(idx);
-        for (int i = 0; i < rows; ++i)
-            smartExpand(model->index(i, 0, idx));
-    }
+    d->enableFilterHistoryCompletion(keyPrefix);
 }
 
 //////////
@@ -770,35 +884,176 @@ SelectableFilesFromDirModel::SelectableFilesFromDirModel(QObject *parent)
 }
 
 #ifdef WITH_TESTS
+
 namespace Internal {
 
-class SelectableFilesWidgetTest : public QObject
+class SelectableFilesTest final : public QObject
 {
     Q_OBJECT
 
 private slots:
-    // The widget used to move the path chooser's line edit and browse button
-    // into its own layout, which made it delete widgets the chooser owns.
-    void testTeardownLeavesThePathChooserAlone()
+    void testTheFormDrawsWithTheQmlItNames()
     {
-        const auto widget = std::make_unique<SelectableFilesWidget>(nullptr);
-        const auto chooser = widget->findChild<PathChooser *>();
-        QVERIFY(chooser);
-        QCOMPARE(chooser->lineEdit()->parentWidget(), chooser);
-        QCOMPARE(chooser->buttonAtIndex(0)->parentWidget(), chooser);
+        SelectableFilesWidget widget;
+        const Result<> rendered = Core::aspectFormRenders(widget.aspectsForTest(),
+                                                          "SelectableFilesForm.qml");
+        QVERIFY2(rendered, qPrintable(rendered ? QString() : rendered.error()));
+    }
+
+    void testACellSaysItIsATickableCheckBox()
+    {
+        // Every row of this tree is a check box and every one can be ticked -
+        // which is what the widget view read out of flags() and a Qt Quick one
+        // cannot. The one column has no name, so it draws no heading.
+        SelectableFilesModel model(nullptr);
+        QCOMPARE(model.headerData(0, Qt::Horizontal, Qt::DisplayRole), QVariant());
+        const QHash<int, QByteArray> names = model.roleNames();
+        QCOMPARE(names.value(Qt::CheckStateRole), QByteArray("checkState"));
+        QCOMPARE(names.value(AspectTable::CheckableRole), QByteArray("checkable"));
+        QCOMPARE(names.value(AspectTable::EditableRole), QByteArray("editable"));
+    }
+
+    void testTheDirectoryIsOnlyAskedForWhereItCanBeChanged()
+    {
+        SelectableFilesWidget widget;
+        SelectableFilesAspects *d = widget.aspectsForTest();
+
+        widget.setBaseDirEditable(false);
+        QVERIFY2(!d->baseDir.isVisible(), "a directory was asked for that the caller had chosen");
+        QVERIFY(!d->startParsing.isVisible());
+
+        widget.setBaseDirEditable(true);
+        QVERIFY(d->baseDir.isVisible());
+        QVERIFY(d->startParsing.isVisible());
+    }
+
+    void testNothingIsParsedUntilThereIsSomewhereToLook()
+    {
+        SelectableFilesWidget widget;
+        SelectableFilesAspects *d = widget.aspectsForTest();
+        QVERIFY2(!d->startParsing.isEnabled(), "parsing was offered with no directory to parse");
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        d->baseDir.setValue(FilePath::fromString(dir.path()));
+        QVERIFY(d->startParsing.isEnabled());
+
+        d->baseDir.setValue(FilePath::fromString(dir.path() + "/not-there"));
+        QVERIFY2(!d->startParsing.isEnabled(), "a directory that is not one was offered");
+    }
+
+    void testWhatIsSaidWhileTheFilesAreBeingRead()
+    {
+        // Nothing is said before there is anything to say, and what the form
+        // asks is closed while it is reading.
+        SelectableFilesWidget widget;
+        SelectableFilesAspects *d = widget.aspectsForTest();
+        QVERIFY(!d->progress.isVisible());
+        QVERIFY(!d->preserved.isVisible());
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const FilePath base = FilePath::fromString(dir.path());
+        QVERIFY(base.pathAppended("a.cpp").writeFileContents("a"));
+        QVERIFY(base.pathAppended("notes.txt").writeFileContents("b"));
+
+        QSignalSpy picked(&widget, &SelectableFilesWidget::selectedFilesChanged);
+        widget.resetModel(base, {});
+        // Reading is a task tree, so it has not finished here: the form is
+        // closed and says what it is doing.
+        QVERIFY2(!d->selectFilter.isEnabled(), "the filters could be changed mid-read");
+        QVERIFY(d->progress.isVisible());
+
+        QTRY_VERIFY(d->selectFilter.isEnabled());
+        QVERIFY2(!d->progress.isVisible(),
+                 "the form still said it was reading when it had stopped");
+        QVERIFY(picked.count() > 0);
+        // The filter the form opens with is source files, so the note beside
+        // them is found and left unticked.
+        QCOMPARE(widget.selectedFiles(), FilePaths{base.pathAppended("a.cpp")});
+    }
+
+    void testTheTreeIsOpenedWhereSomethingIsPickedUnderIt()
+    {
+        // The form opens the directories only some of whose files are ticked,
+        // and the rows it names are the ones the drawn tree holds - a proxy's,
+        // not the model's behind it. Nothing but a complaint says otherwise,
+        // so the complaint is what is checked.
+        QStringList complaints;
+        const auto previous = qInstallMessageHandler(nullptr);
+        static QStringList *collected = nullptr;
+        collected = &complaints;
+        qInstallMessageHandler([](QtMsgType, const QMessageLogContext &, const QString &text) {
+            if (collected && text.contains("wrong model"))
+                collected->append(text);
+        });
+
+        {
+            SelectableFilesWidget widget;
+            SelectableFilesAspects *d = widget.aspectsForTest();
+
+            QTemporaryDir dir;
+            QVERIFY(dir.isValid());
+            const FilePath base = FilePath::fromString(dir.path());
+            QVERIFY(base.pathAppended("sub").createDir());
+            QVERIFY(base.pathAppended("sub/kept.cpp").writeFileContents("a"));
+            QVERIFY(base.pathAppended("sub/left.txt").writeFileContents("b"));
+
+            QSignalSpy opened(&d->files, &BaseAspect::controlExpandIndexRequested);
+            widget.resetModel(base, {});
+            QTRY_VERIFY(d->selectFilter.isEnabled());
+
+            QVERIFY2(opened.count() > 0, "nothing was opened where a file had been ticked");
+        }
+
+        collected = nullptr;
+        qInstallMessageHandler(previous);
+        QVERIFY2(complaints.isEmpty(), qPrintable(complaints.join(", ")));
+    }
+
+    void testTheFilterIsAppliedToWhatWasFound()
+    {
+        SelectableFilesWidget widget;
+        SelectableFilesAspects *d = widget.aspectsForTest();
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const FilePath base = FilePath::fromString(dir.path());
+        QVERIFY(base.pathAppended("kept.cpp").writeFileContents("a"));
+        QVERIFY(base.pathAppended("dropped.log").writeFileContents("b"));
+
+        d->selectFilter.setValue("*.cpp");
+        d->hideFilter.setValue("");
+        widget.resetModel(base, {});
+        QTRY_VERIFY(d->selectFilter.isEnabled());
+        QCOMPARE(widget.selectedFiles(), FilePaths{base.pathAppended("kept.cpp")});
+
+        // And the rows say what they are: a check box that can be ticked.
+        QAbstractItemModel *rows = d->files.tableModel();
+        const QModelIndex row = rows->index(0, 0, {});
+        QVERIFY(row.isValid());
+        QVERIFY(row.data(AspectTable::CheckableRole).toBool());
+        QVERIFY(row.data(AspectTable::EditableRole).toBool());
+
+        // And it is applied again when the reader says so, not before.
+        d->selectFilter.setValue("*.log");
+        QCOMPARE(widget.selectedFiles(), FilePaths{base.pathAppended("kept.cpp")});
+        d->applyFilters.triggerAction();
+        QCOMPARE(widget.selectedFiles(), FilePaths{base.pathAppended("dropped.log")});
     }
 };
 
-QObject *createSelectableFilesWidgetTest()
+QObject *createSelectableFilesTest()
 {
-    return new SelectableFilesWidgetTest;
+    return new SelectableFilesTest;
 }
 
 } // namespace Internal
+
 #endif // WITH_TESTS
 
 } // namespace ProjectExplorer
 
 #ifdef WITH_TESTS
-#include <selectablefilesmodel.moc>
+#include "selectablefilesmodel.moc"
 #endif

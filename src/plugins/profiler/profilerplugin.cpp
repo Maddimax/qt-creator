@@ -80,7 +80,7 @@ class ProfilerPlugin final : public ExtensionSystem::IPlugin
         addTest<CtfTimelineModelTest>();
         addTestCreator(createPerfLoadDialogTest);
         addTestCreator(createQmlProfilerAttachSettingsTest);
-        addTestCreator(QmlProfiler::Internal::createProcessPickerDialogTest);
+        addTestCreator(createProcessPickerDialogTest);
         addTest<DebugMessagesModelTest>();
         addTest<FlameGraphModelTest>();
         addTest<FlameGraphViewTest>();

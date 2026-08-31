@@ -15,6 +15,8 @@
 #include <QRegularExpression>
 #include <QSet>
 
+#include <memory>
+
 namespace Utils {
 class FancyLineEdit;
 class PathChooser;
@@ -95,6 +97,8 @@ public:
 
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
     Qt::ItemFlags flags(const QModelIndex &index) const override;
 
     Utils::FilePaths selectedFiles() const;
@@ -162,6 +166,15 @@ private:
     QtTaskTree::QSingleTaskTreeRunner m_taskTreeRunner;
 };
 
+class SelectableFilesAspects;
+
+#ifdef WITH_TESTS
+namespace Internal { QObject *createSelectableFilesTest(); }
+#endif
+
+// The form that picks files out of a directory: where to look, what to look
+// for, what to leave out, and the tree of what was found. A widget only so
+// that a wizard page and a dialog can hold it; everything it asks is aspects.
 class PROJECTEXPLORER_EXPORT SelectableFilesWidget : public QWidget
 {
     Q_OBJECT
@@ -170,6 +183,7 @@ public:
     explicit SelectableFilesWidget(QWidget *parent = nullptr);
     SelectableFilesWidget(const Utils::FilePath &path, const Utils::FilePaths &files,
                           QWidget *parent = nullptr);
+    ~SelectableFilesWidget() override;
 
     void setAddFileFilter(const QString &filter);
     void setBaseDirEditable(bool edit);
@@ -184,40 +198,15 @@ public:
 
     void enableFilterHistoryCompletion(const Utils::Key &keyPrefix);
 
+#ifdef WITH_TESTS
+    SelectableFilesAspects *aspectsForTest() const { return d.get(); }
+#endif
+
 signals:
     void selectedFilesChanged();
 
 private:
-    void enableWidgets(bool enabled);
-    void applyFilter();
-    void baseDirectoryChanged(bool validState);
-
-    void startParsing(const Utils::FilePath &baseDir);
-    void parsingProgress(const QString &progress);
-    void parsingFinished();
-
-    void smartExpand(const QModelIndex &idx);
-
-    SelectableFilesFromDirModel *m_model = nullptr;
-
-    Utils::PathChooser *m_baseDirChooser;
-    QLabel *m_baseDirLabel;
-    QPushButton *m_startParsingButton;
-
-    QLabel *m_selectFilesFilterLabel;
-    Utils::FancyLineEdit *m_selectFilesFilterEdit;
-
-    QLabel *m_hideFilesFilterLabel;
-    Utils::FancyLineEdit *m_hideFilesFilterEdit;
-
-    QPushButton *m_applyFiltersButton;
-
-    QTreeView *m_view;
-
-    QLabel *m_preservedFilesLabel;
-
-    QLabel *m_progressLabel;
-    bool m_filteringScheduled = false;
+    const std::unique_ptr<SelectableFilesAspects> d;
 };
 
 class PROJECTEXPLORER_EXPORT SelectableFilesDialogEditFiles : public QDialog
@@ -243,11 +232,5 @@ public:
     SelectableFilesDialogAddDirectory(const Utils::FilePath &path, const Utils::FilePaths &files,
                                       QWidget *parent);
 };
-
-namespace Internal {
-#ifdef WITH_TESTS
-QObject *createSelectableFilesWidgetTest();
-#endif
-} // namespace Internal
 
 } // namespace ProjectExplorer

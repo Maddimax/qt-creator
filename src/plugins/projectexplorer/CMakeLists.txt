@@ -234,27 +234,28 @@ if(TARGET ProjectExplorer)
     NO_PLUGIN
     QML_FILES
       AppOutputSettingsPage.qml
-      DeviceFactorySelectionDialog.qml
-      PathListDialog.qml
-      WaitForStopDialog.qml
       BuildAndRunProjectPanel.qml
       BuildAndRunSettingsPage.qml
       BuildPropertiesSettingsPage.qml
       CodeStyleProjectPanel.qml
       CompileOutputSettingsPage.qml
       CustomParsersSettingsPage.qml
+      DependenciesPanel.qml
+      DeviceFactorySelectionDialog.qml
       DeviceProcessesDialog.qml
       DropFileDialog.qml
-      FilterKitAspectsDialog.qml
-      DependenciesPanel.qml
-      IssuesPane.qml
       EditorProjectPanel.qml
+      FilterKitAspectsDialog.qml
+      IssuesPane.qml
       KitsPage.qml
       MakeStep.qml
       ParseIssuesDialog.qml
+      PathListDialog.qml
       ProjectCommentsPanel.qml
       ProjectEnvironmentPanel.qml
+      SelectableFilesForm.qml
       ToolchainsPage.qml
+      WaitForStopDialog.qml
       WindowsAppSdkPage.qml
       devicesupport/DevicesPage.qml
       devicesupport/SshSettingsPage.qml

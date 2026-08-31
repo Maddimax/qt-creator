@@ -78,6 +78,15 @@ RowLayout {
         view.selectionModel.setCurrentIndex(shown, ItemSelectionModel.ClearAndSelect)
     }
 
+    // Opens a branch and leaves the reader where they were.
+    function expandIndex(index: var): void {
+        if (!index || !index.valid)
+            return
+        const shown = root.rows.mapFromSource(index)
+        if (shown.valid)
+            view.expandToIndex(shown)
+    }
+
     // A page that filters the tree on the user's behalf - "show me what else
     // uses this shortcut" - writes into the field rather than into the proxy,
     // so that what is filtered and what the field says stay the same thing.
@@ -180,6 +189,11 @@ RowLayout {
         // picked in the box above the tree is the folder shown in it.
         function onControlIndexRequested(index: var): void {
             root.setCurrentIndex(index)
+        }
+
+        // And a branch it wants open without moving the reader into it.
+        function onControlExpandIndexRequested(index: var): void {
+            root.expandIndex(index)
         }
     }
 

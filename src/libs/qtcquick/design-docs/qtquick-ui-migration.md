@@ -23970,3 +23970,64 @@ swallow them - rather than this dialog's.
 `LoggingViewManagerWidget` (Core): two tree views, eight tool buttons, two
 context menus and a save-to-file. The row menu added last batch is what the
 second of those was waiting for.
+
+## 2026-08-31 — Picking files out of a directory
+
+`SelectableFilesWidget` (ProjectExplorer), which the census filed under "the
+genuinely custom" and which `SelectableFilesDialogEditFiles`,
+`SelectableFilesDialogAddDirectory` and two wizard pages all wrap.
+
+**The exported widget stays, holding a form.** It is a `QWidget` whose whole
+content is `Core::createAspectForm()` and whose public methods forward to the
+container, so `genericprojectwizard.cpp` and `simpleprojectwizard.cpp` - which
+put it in a `QWizardPage` - needed no change at all. That is the cheapest shape
+for anything exported: keep the class and empty it out.
+
+Its eight aspects are the eight things it asked: the directory and the button
+that reads it (both hidden where the caller has already decided), the two
+filters, the button that applies them, the tree, the note about preserved
+files, and the line that says what it is doing while it reads.
+
+**A tree can be opened without moving the reader into it.**
+`BaseAspect::expandIndexInControl()` and `controlExpandIndexRequested`, beside
+last batch's `showIndexInControl()`, which expands *and* selects. The widget's
+`smartExpand()` opened every directory only some of whose files were ticked;
+that is the aspect walking the model and asking for each, and it needs the
+"open it" verb without the "go there" one.
+
+**An aspect that hands out a proxy has to hand out the proxy's rows.** The tree
+aspect holds one `QSortFilterProxyModel` for its whole life and swaps what is
+behind it, which is the rule for a model that comes and goes - and then
+`expandIndexInControl()` was given indices of the model *behind* it. Nothing
+failed: the row simply was not opened, and Qt said
+`QSortFilterProxyModel: index from wrong model passed to mapFromSource` into
+the test log. **That warning is the only evidence there is**, so the test
+installs a message handler and asserts it does not appear - see
+[[assert-the-diagnostic-not-the-outcome]] and [[read-test-run-warnings]]. The
+control for it (handing out the unmapped index) prints the complaint twice.
+
+**A test that assumed its own fixture.** The first version wrote `a.txt` and
+expected it to come back selected. The filter the form opens with is
+`*.c; *.cc; *.cpp; ...`, so the file was found and correctly left unticked -
+the test was wrong, not the port. It writes an `a.cpp` and a `notes.txt` now
+and says which of them the default filter picks, which is worth pinning.
+
+Negative controls: the model not saying a row is a check box; the one column
+answering a name (`QVariant(int, 1)`, the "1" header from
+[[qtc-rolenames-plumbing-traps]]); the model not naming its roles; parsing
+offered with nowhere to look; the directory asked for where the caller had
+chosen it; the form staying open while it reads; the Apply button not applying;
+and the index handed out being the model's rather than the tree's. All eight
+bit.
+
+QuickUi 203 passed / 0 failed / 1 skipped, exit 0.
+`-test ProjectExplorer,SelectableFilesTest` 9 passed, exit 0;
+`GenericProjectManager` and `Help` clean; `ProjectExplorer` as a whole its two
+standing failures. `ninja all_qmllint` zero warnings. No `.qbs` edit: one
+`.qml` added, and ProjectExplorer's `.qbs` takes `**/*.qml` by wildcard.
+
+**Next:** `LoggingViewManagerWidget` (Core) is what the census has left in the
+tree group - two tree views, eight tool buttons, two context menus and a
+save-to-file; the row menu from two batches ago is what it was waiting for.
+After that the census's "genuinely custom" list is `CropScene`,
+`ColorSettings`, `DockManager`, `PluginView` and `CustomWidgetWizardPage`.

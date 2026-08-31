@@ -936,6 +936,11 @@ void BaseAspect::showIndexInControl(const QModelIndex &index)
     emit controlIndexRequested(index);
 }
 
+void BaseAspect::expandIndexInControl(const QModelIndex &index)
+{
+    emit controlExpandIndexRequested(index);
+}
+
 void BaseAspect::triggerContextAction(bool checked)
 {
     Q_UNUSED(checked)
