@@ -25951,3 +25951,54 @@ wants the file path, the multi-cursor, the caret and a snapshot, and gives back
 an edited cursor - none of that is a widget. `TextDocument` is where it belongs,
 beside `createAssistInterface()`, with `TextViewport` asking before it inserts
 the newline itself. After that, the three remaining `openCppEditor()` callers.
+
+## 2026-09-02 — A language can handle a key
+
+The seam the last entry asked for. It is the first thing in this migration that
+a language does **in the middle of ordinary typing**: everything before it was
+a command, an assist request or a navigation, all of which have somewhere to be
+registered. Pressing Enter inside a `/*!` and getting a doxygen block has
+nowhere, and lived in `CppEditorWidget::keyPressEvent()`.
+
+```cpp
+// TextDocument
+virtual bool handleKeyPress(QKeyEvent *event, const QTextCursor &cursor);
+```
+
+Both views ask before acting on the key themselves, and only with a single
+caret - what these handlers do is edit around one, and several would each want
+their own answer. `CppEditorDocument` overrides it for Return and Enter.
+
+`trySplitComment()` and its two helpers wanted the widget for four things and
+all four are the document: the file path, the `QTextDocument`, `autoIndent()`
+and - the one that looked like a view - `multiTextCursor().hasMultipleCursors()`,
+which is the caller's question rather than the handler's and is now asked by the
+caller. It comes out of the anonymous namespace into `CppEditor::Internal`.
+
+`DoxygenTest` is **34 / 0 in both views**, up from 32 / 2, and exit 0 in both.
+
+Negative controls, and the second is the interesting one. Taking the ask out of
+`TextViewport::keyPressEvent()` puts the Quick run back to 32 / 2. Making
+`CppEditorDocument::handleKeyPress()` answer false costs **27 of the 34 cases on
+the widget path** - which is the proof that there is now one implementation
+rather than two: the widget no longer has its own copy to fall back on.
+
+**The use-after-free from the last entry is worth one more sentence.** It fires
+in the control run and not in the fixed one, from the same test - so it is a
+teardown ordering hazard whose timing this changes rather than a bug this
+introduces or fixes. `LanguageClient::Marks::~Marks()` frees marks that
+`TextDocumentLayout::documentClosing()` then writes to. It is not the Quick
+editor's, and it will bite somebody else; it wants its own change.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. Widget path: `CompletionTest` 204, `FollowSymbolTest` 155,
+`InsertDefFromDeclTest` 79, `DoxygenTest` 34, `SelectionsTest` 14 - exit 0.
+No new file, no `.qbs` edit.
+
+**Next:** three `openCppEditor()` callers still hold a widget -
+`cpphighlighter` types into it, `cppuseselections_test` reads its extra
+selections, and `followsymbol_switchmethoddecldef_test` with
+`fileandtokenactions_test` call its methods. `cppuseselections_test` is the one
+to do next: the selections are the document's or the view's depending on kind,
+and this document already knows which is which, so it is a conversion rather
+than a discovery.

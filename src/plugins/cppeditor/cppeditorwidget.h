@@ -5,6 +5,8 @@
 
 #include "cppeditor_global.h"
 
+#include <cplusplus/CppDocument.h>
+
 #include <texteditor/codeassist/assistenums.h>
 #include <texteditor/texteditor.h>
 
@@ -27,6 +29,14 @@ namespace Internal {
 class CppEditorOutline;
 class CppEditorWidgetPrivate;
 class FunctionDeclDefLink;
+} // namespace Internal
+
+namespace Internal {
+// What Enter does inside a comment. Lives here because its helpers do; the
+// document is what calls it, so that either view gets the same answer.
+bool trySplitComment(TextEditor::TextDocument *document,
+                     QTextCursor cursor,
+                     const CPlusPlus::Snapshot &snapshot);
 } // namespace Internal
 
 class CPPEDITOR_EXPORT CppEditorWidget : public TextEditor::TextEditorWidget

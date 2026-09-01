@@ -166,9 +166,8 @@ bool lineStartsWithCppDoxygenCommentAndCursorIsAfter(const QTextCursor &cursor,
 }
 
 bool isCursorAfterNonNestedCppStyleComment(const QTextCursor &cursor,
-                                           TextEditor::TextEditorWidget *editorWidget)
+                                           const QTextDocument *document)
 {
-    QTextDocument *document = editorWidget->document();
     QTextCursor cursorBeforeCppComment(cursor);
     while (document->characterAt(cursorBeforeCppComment.position()) != QLatin1Char('/')
            && cursorBeforeCppComment.movePosition(QTextCursor::PreviousCharacter)) {
@@ -215,11 +214,10 @@ bool handleDoxygenCppStyleContinuation(QTextCursor &cursor)
 }
 
 bool handleDoxygenContinuation(QTextCursor &cursor,
-                               TextEditor::TextEditorWidget *editorWidget,
+                               const QTextDocument *doc,
                                const bool enableDoxygen,
                                const bool leadingAsterisks)
 {
-    const QTextDocument *doc = editorWidget->document();
 
     // It might be a continuation if:
     // a) current line starts with /// or //! and cursor is positioned after the comment
@@ -229,7 +227,7 @@ bool handleDoxygenContinuation(QTextCursor &cursor,
         if (enableDoxygen && lineStartsWithCppDoxygenCommentAndCursorIsAfter(cursor, doc))
             return handleDoxygenCppStyleContinuation(cursor);
 
-        if (isCursorAfterNonNestedCppStyleComment(cursor, editorWidget))
+        if (isCursorAfterNonNestedCppStyleComment(cursor, doc))
             return false;
     }
 
@@ -303,19 +301,21 @@ bool handleDoxygenContinuation(QTextCursor &cursor,
     return false;
 }
 
-static bool trySplitComment(TextEditorWidget *editorWidget,
-                            const CPlusPlus::Snapshot &snapshot)
+} // anonymous namespace
+
+// What Enter does inside a comment: write the doxygen block, or carry the
+// leading asterisk down. Takes the document and the caret rather than a view,
+// because it is neither - it edits the file the reader is in.
+bool trySplitComment(TextEditor::TextDocument *document,
+                     QTextCursor cursor,
+                     const CPlusPlus::Snapshot &snapshot)
 {
-    const CommentsSettings::Data settings =
-            ProjectExplorer::commentsSettingsForFile(editorWidget->textDocument()->filePath());
+    const CommentsSettings::Data settings
+        = ProjectExplorer::commentsSettingsForFile(document->filePath());
 
     if (!settings.enableDoxygen && !settings.leadingAsterisks)
         return false;
 
-    if (editorWidget->multiTextCursor().hasMultipleCursors())
-        return false;
-
-    QTextCursor cursor = editorWidget->textCursor();
     if (!CPlusPlus::MatchingText::isInCommentHelper(cursor))
         return false;
 
@@ -329,7 +329,7 @@ static bool trySplitComment(TextEditorWidget *editorWidget,
     if (settings.enableDoxygen && cursor.positionInBlock() >= 3) {
         const int pos = cursor.position();
         if (isStartOfDoxygenComment(cursor)) {
-            QTextDocument *textDocument = editorWidget->document();
+            QTextDocument * const textDocument = document->document();
             DoxygenGenerator::DocumentationStyle style = doxygenStyle(cursor, textDocument);
 
             // Check if we're already in a CppStyle Doxygen comment => continuation
@@ -349,15 +349,14 @@ static bool trySplitComment(TextEditorWidget *editorWidget,
             }
 
             if (!cursor.atEnd()) {
-                const QString &comment = doxygen.generate(cursor,
-                                                          snapshot,
-                                                          editorWidget->textDocument()->filePath());
+                const QString &comment
+                    = doxygen.generate(cursor, snapshot, document->filePath());
                 if (!comment.isEmpty()) {
                     cursor.beginEditBlock();
                     cursor.setPosition(pos);
                     cursor.insertText(comment);
                     cursor.setPosition(pos - 3, QTextCursor::KeepAnchor);
-                    editorWidget->textDocument()->autoIndent(cursor);
+                    document->autoIndent(cursor);
                     cursor.endEditBlock();
                     return true;
                 }
@@ -367,12 +366,10 @@ static bool trySplitComment(TextEditorWidget *editorWidget,
     } // right after first doxygen comment
 
     return handleDoxygenContinuation(cursor,
-                                     editorWidget,
+                                     document->document(),
                                      settings.enableDoxygen,
                                      settings.leadingAsterisks);
 }
-
-} // anonymous namespace
 
 class CppEditorWidgetPrivate
 {
@@ -1158,11 +1155,10 @@ void CppEditorWidget::keyPressEvent(QKeyEvent *e)
     if (handleStringSplitting(e))
         return;
 
-    if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
-        if (trySplitComment(this, semanticInfo().snapshot)) {
-            e->accept();
-            return;
-        }
+    if (!multiTextCursor().hasMultipleCursors() && cppEditorDocument()->handleKeyPress(e,
+                                                                                       textCursor())) {
+        e->accept();
+        return;
     }
 
     TextEditorWidget::keyPressEvent(e);

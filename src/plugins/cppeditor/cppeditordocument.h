@@ -53,6 +53,8 @@ public:
     // part of the question here, for the same reason.
     bool isSemanticInfoValid() const;
 
+    bool handleKeyPress(QKeyEvent *event, const QTextCursor &cursor) override;
+
     std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
         const QTextCursor &cursor,
         TextEditor::AssistKind kind,

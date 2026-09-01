@@ -562,6 +562,13 @@ std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(
     return std::make_unique<AssistInterface>(cursor, filePath(), reason);
 }
 
+bool TextDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)
+{
+    Q_UNUSED(event)
+    Q_UNUSED(cursor)
+    return false;
+}
+
 void TextDocument::setCodeStyle(ICodeStylePreferences *preferences)
 {
     indenter()->setCodeStylePreferences(preferences);

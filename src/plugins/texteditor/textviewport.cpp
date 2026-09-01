@@ -1823,6 +1823,19 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    // What the language does with the key, before this does anything with it:
+    // Enter inside a doxygen comment writes the block rather than a newline.
+    // Asked only with one caret, because that is what these edit around.
+
+    // What the language does with the key, before this does anything with it:
+    // Enter inside a doxygen comment writes the block rather than a newline.
+    // Asked only with one caret, because that is what these edit around.
+    TextDocument * const language = m_document ? m_document->textDocument() : nullptr;
+    if (language && !multiTextCursor().hasMultipleCursors()
+        && language->handleKeyPress(event, cursor)) {
+        return event->accept();
+    }
+
     const QTextCursor::MoveMode mode = event->modifiers().testFlag(Qt::ShiftModifier)
                                            ? QTextCursor::KeepAnchor
                                            : QTextCursor::MoveAnchor;

@@ -25,6 +25,7 @@
 
 QT_BEGIN_NAMESPACE
 class QAction;
+class QKeyEvent;
 class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
@@ -211,6 +212,19 @@ public:
     // document offers the same assist.
     virtual std::unique_ptr<AssistInterface> createAssistInterface(
         const QTextCursor &cursor, AssistKind kind, AssistReason reason) const;
+
+    // What this language does with \a event before the view acts on it, with
+    // the caret at \a cursor. Answers whether it did anything, in which case
+    // the view leaves the key alone.
+    //
+    // The one thing a language does in the middle of ordinary typing: Enter
+    // inside a doxygen comment writes the block. A command or an assist has
+    // somewhere to be registered; this does not, so it is here - and asking
+    // the document is what makes both views type the same.
+    //
+    // Only asked where there is a single caret: what these do is edit around
+    // one, and several would each want their own answer.
+    virtual bool handleKeyPress(QKeyEvent *event, const QTextCursor &cursor);
 
     void setCodeStyle(ICodeStylePreferences *preferences);
     ICodeStylePreferences *codeStyle() const;

@@ -45,6 +45,7 @@
 
 #include <QApplication>
 #include <QScopeGuard>
+#include <QKeyEvent>
 #include <QTextDocument>
 
 #include <memory>
@@ -300,6 +301,13 @@ bool CppEditorDocument::isSemanticInfoValid() const
 {
     return d->m_semanticInfo.doc && d->m_semanticInfo.revision == unsigned(document()->revision())
            && !d->m_semanticInfo.snapshot.isEmpty();
+}
+
+bool CppEditorDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)
+{
+    if (event->key() != Qt::Key_Return && event->key() != Qt::Key_Enter)
+        return false;
+    return Internal::trySplitComment(this, cursor, semanticInfo().snapshot);
 }
 
 std::unique_ptr<TextEditor::AssistInterface> CppEditorDocument::createAssistInterface(
