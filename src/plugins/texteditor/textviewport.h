@@ -148,6 +148,7 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // whose rows kept their place, and a binding reads the one role it wants
     // rather than the whole row.
     Q_PROPERTY(QAbstractItemModel *visibleRows READ visibleRows CONSTANT)
+    Q_PROPERTY(QVariantList refactorMarkers READ refactorMarkers NOTIFY refactorMarkersChanged)
     // The selection, as positions in the document. Both -1 for none.
     Q_PROPERTY(int selectionStart READ selectionStart WRITE setSelectionStart
                    NOTIFY selectionChanged)
@@ -624,9 +625,14 @@ public:
     };
 
     // Something the file offers at a place in it - a quick fix waiting, a
-    // toolbar to open. The document holds them; this is how the form asks
-    // where they are and acts on one. Answers whether there was one to act on.
-    Q_INVOKABLE QVariantList refactorMarkers() const;
+    // toolbar to open. The document holds them; this says where each one is on
+    // screen so the form can draw it, and acts on the one at a position.
+    // Answers whether there was one to act on.
+    //
+    // A property rather than a call, because a binding to a call records no
+    // dependency and would be evaluated once: these move when the view scrolls
+    // and change when a producer says so, and the form has to follow both.
+    QVariantList refactorMarkers() const;
     Q_INVOKABLE bool applyRefactorMarkerAt(int position);
 
     // Selecting by pointer rather than by caret: the word under a double
@@ -833,6 +839,8 @@ signals:
     void functionHintAvailable(const QStringList &signatures, int activeArgument);
     void selectionChanged();
     void cursorPositionChanged();
+    // Where the markers are on screen, or which ones there are, has changed.
+    void refactorMarkersChanged();
     // One appeared, or the one that was there is gone. What the commands that
     // take a suggestion listen to, so that they are offered only when there
     // is something to take.

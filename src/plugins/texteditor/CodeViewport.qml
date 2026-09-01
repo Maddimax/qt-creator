@@ -711,6 +711,46 @@ Item {
                 }
             }
 
+            // What the file offers where the caret is not: a quick fix the
+            // analyser found, a code action the server offers, a toolbar to
+            // open. The viewport says where each one is on screen, because
+            // only it knows; clicking one is what the producer asked for.
+            Repeater {
+                model: viewport.refactorMarkers
+
+                delegate: Rectangle {
+                    id: refactorMarker
+
+                    required property var modelData
+
+                    objectName: "refactorMarker"
+                    x: refactorMarker.modelData.x - viewport.scrollX
+                    y: refactorMarker.modelData.y
+                    width: viewport.lineHeight
+                    height: viewport.lineHeight
+                    visible: refactorMarker.modelData.onScreen
+                    color: "transparent"
+
+                    Text {
+                        anchors.centerIn: parent
+                        // The lamp the widget editor draws, which is what a
+                        // reader is looking for at the end of a line.
+                        text: "\u{1F4A1}"
+                        font.pixelSize: viewport.lineHeight * 0.7
+                    }
+
+                    HoverHandler { id: markerHover }
+
+                    ToolTip.text: refactorMarker.modelData.toolTip
+                    ToolTip.visible: markerHover.hovered && ToolTip.text !== ""
+
+                    TapHandler {
+                        onTapped: viewport.applyRefactorMarkerAt(
+                                      refactorMarker.modelData.position)
+                    }
+                }
+            }
+
             // What a mark on the line says. Placed where the viewport puts it
             // rather than after the text: the display settings choose between
             // the end of the line, the right margin and the right edge, and

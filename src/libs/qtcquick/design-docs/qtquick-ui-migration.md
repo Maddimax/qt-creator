@@ -25451,3 +25451,54 @@ neither of which needs CppEditor at all. Then `FunctionDeclDefLink` itself,
 which is the last of gap 3 apart from `CppLocalRenaming` - and local renaming
 may be right to leave alone, since the Quick editor now has the global rename
 that `CppEditorWidget` already falls back to when the mode cannot start.
+
+## 2026-09-01 — Drawing the markers, and a lamp at the end of the line
+
+Finishes the last entry. The document held the markers and the viewport could
+place and apply one; nothing rendered them, so a quick fix waiting in the Quick
+editor was reachable by position and invisible. `CodeViewport.qml` now draws a
+lamp at each, with the producer's tooltip, and a tap applies it. **That lights
+up ClangTools' fixits and the language client's code actions in the Quick
+editor, neither of which needs CppEditor at all.**
+
+**`refactorMarkers` had to stop being a call.** It was `Q_INVOKABLE`, and a QML
+binding to a call records no dependency: the Repeater would have read it once,
+at a moment when the document had nothing, and never again. It is a
+`Q_PROPERTY` with a NOTIFY now - see [[qml-binding-to-invokable-runs-once]] -
+and it carries **where each marker is on screen**, not just its position,
+because working that out is `rectangleAt()`, which is another call nothing can
+bind to.
+
+That makes the signal fire on two different occasions, and both are needed: the
+document says a producer changed something, and the viewport says it has laid
+out again - which is every scroll, because the placement is in item
+coordinates. Each has its own control below, and each control breaks a
+different half of the test.
+
+**Two traps, both already written down and both hit anyway.**
+`findChild<QQuickItem *>("refactorMarker")` finds nothing: a Repeater's
+delegates are visual children of the item and QObject children of somewhere
+else ([[delegates-are-not-qobject-children]]). And a pointer to a delegate does
+not survive: the list is rebuilt on every notify, so the Repeater destroys and
+recreates them, and the second half of the test was reading a dangling item -
+which happened to answer `isVisible() == false` and so *passed* the assertion
+it should have failed. The test looks the item up again each time now.
+
+Negative controls, all three bit, on three different assertions: the Repeater's
+model replaced by an empty list, which draws nothing; the relayout not emitting,
+after which the marker stays on screen while its line scrolls away; and the
+document's change not forwarded, after which a marker set while the file sits
+there is never drawn at all.
+
+`TextEditor` 406 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. No new file, no `.qbs`
+edit.
+
+**Next:** `FunctionDeclDefLink`, which is what the last two batches were
+clearing the way for. It draws a marker - which now works for any view - and
+applies its change through `CppEditorWidget::applyDeclDefLinkChanges()`, which
+owns the link and the undo group; the link is found by
+`FunctionDeclDefLinkFinder` from a cursor and a semantic info, both of which
+any view now has. After that, gap 3 is `CppLocalRenaming` alone, and the honest
+answer there may be that the Quick editor should do without it: it now has the
+global rename `CppEditorWidget` itself falls back to when the mode cannot start.

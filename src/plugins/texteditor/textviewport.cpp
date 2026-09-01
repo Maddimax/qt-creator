@@ -869,6 +869,10 @@ void TextViewport::rebuildVisibleLines()
                             line.whitespace});
     }
     static_cast<VisibleRowsModel *>(visibleRows())->setRows(std::move(rows));
+
+    // The markers are placed in item coordinates, so every relayout and every
+    // scroll moves them even when the document says nothing has changed.
+    emit refactorMarkersChanged();
 }
 
 QVariantMap TextViewport::visibleLine(int index) const
@@ -3191,8 +3195,16 @@ QVariantList TextViewport::refactorMarkers() const
     for (const RefactorMarker &marker : all) {
         if (marker.cursor.isNull())
             continue;
-        markers.append(QVariantMap{{"position", marker.cursor.selectionEnd()},
-                                   {"toolTip", marker.tooltip}});
+        const int position = marker.cursor.selectionEnd();
+        // Where it is drawn, worked out here because only the view knows: a
+        // marker off screen has an empty rectangle and the form skips it.
+        const QRectF where = rectangleAt(position);
+        markers.append(QVariantMap{{"position", position},
+                                   {"toolTip", marker.tooltip},
+                                   {"x", where.x()},
+                                   {"y", where.y()},
+                                   {"height", where.height()},
+                                   {"onScreen", !where.isEmpty()}});
     }
     return markers;
 }
@@ -4050,6 +4062,11 @@ void TextViewport::documentChangedInternal()
                 polish();
                 update();
             });
+            // A marker appears while the file sits there - a quick fix the
+            // analyser has just worked out - so the form is told even when
+            // nothing has been laid out again.
+            connect(doc, &TextDocument::refactorMarkersChanged, this,
+                    &TextViewport::refactorMarkersChanged);
             // The font, the colours and the zoom are all read in updatePolish()
             // from the document's font settings, and nothing else makes this
             // lay out again - so without this an open file keeps the size and

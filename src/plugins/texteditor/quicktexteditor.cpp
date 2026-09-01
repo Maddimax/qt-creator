@@ -1021,6 +1021,23 @@ private:
     static inline QtMessageHandler s_previous = nullptr;
 };
 
+// A Repeater's delegates are visual children of the item and QObject children
+// of somewhere else, so findChild() never sees one. See
+// textviewport_test.cpp, which walks the tree the same way.
+static QQuickItem *itemNamed(QQuickItem *root, const QString &name)
+{
+    if (!root)
+        return nullptr;
+    if (root->objectName() == name)
+        return root;
+    const QList<QQuickItem *> children = root->childItems();
+    for (QQuickItem *child : children) {
+        if (QQuickItem * const found = itemNamed(child, name))
+            return found;
+    }
+    return nullptr;
+}
+
 class QuickTextEditorTest final : public QObject
 {
     Q_OBJECT
@@ -3607,6 +3624,76 @@ private slots:
         // And emptying the kind takes it away again.
         document->setRefactorMarkers(marker.type, {});
         QVERIFY(view->refactorMarkers().isEmpty());
+    }
+
+    // And the form draws one. The viewport says where each marker is on
+    // screen, so the item has to be there, be visible, and be where the
+    // viewport put it - not merely exist.
+    void testTheFormDrawsARefactorMarker()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-marker-drawn");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("many.txt");
+        QString text;
+        for (int line = 0; line < 200; ++line)
+            text += QString("line %1\n").arg(line);
+        QVERIFY(file.writeFileContents(text.toUtf8()));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Nothing offered yet, so nothing drawn.
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QVERIFY2(!itemNamed(quick->rootObject(), "refactorMarker"),
+                 "a marker was drawn before anything offered one");
+
+        QTextCursor at(document->document());
+        at.movePosition(QTextCursor::EndOfLine);
+        const int markerPosition = at.position();
+        RefactorMarker marker;
+        marker.cursor = at;
+        marker.tooltip = "Show available quick fixes";
+        marker.type = Utils::Id("QuickEditorDrawnMarkerTest");
+        marker.callback = [](Core::IEditor *) {};
+        document->setRefactorMarkers(marker.type, {marker});
+
+        // Looked up each time rather than held: the list is rebuilt whenever
+        // anything moves, so the Repeater destroys its delegates and makes new
+        // ones, and a pointer kept across that is dangling.
+        const auto markerItem = [quick] {
+            return itemNamed(quick->rootObject(), "refactorMarker");
+        };
+        QTRY_VERIFY2(markerItem(), "the form drew nothing for a marker the document offers");
+        QVERIFY2(markerItem()->isVisible(), "the marker was drawn where it cannot be seen");
+
+        // Where the viewport says it is, which is the whole reason the form
+        // asks rather than working it out from a line number.
+        const QRectF where = view->rectangleAt(markerPosition);
+        QVERIFY2(!where.isEmpty(), "the viewport places the marker nowhere");
+        QCOMPARE(markerItem()->y(), where.y());
+
+        // And it follows the text: scrolling a screenful down takes the first
+        // line off screen, and the marker with it.
+        view->setScrollY(view->lineHeight() * 100);
+        QTRY_VERIFY2(markerItem() && !markerItem()->isVisible(),
+                     "the marker stayed on screen while its line scrolled away");
+
+        view->setScrollY(0);
+        QTRY_VERIFY2(markerItem() && markerItem()->isVisible(),
+                     "the marker did not come back with its line");
+
+        // Emptying the kind takes the item away again.
+        document->setRefactorMarkers(marker.type, {});
+        QTRY_VERIFY2(!itemNamed(quick->rootObject(), "refactorMarker"),
+                     "the form kept a marker nobody offers any more");
     }
 
     // And the other direction: everything that produces one today does it
