@@ -9852,6 +9852,10 @@ void BaseTextEditor::setTextCursor(const QTextCursor &cursor)
 
 QTextCursor BaseTextEditor::textCursor() const
 {
+    // An editor whose widget has gone answers nothing rather than crashing:
+    // this is reached from code that walks the open editors, and one of them
+    // may be on its way out.
+    QTC_ASSERT(editorWidget(), return {});
     return editorWidget()->textCursor();
 }
 

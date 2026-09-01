@@ -23,8 +23,11 @@ public:
     {
         QVERIFY(succeededSoFar());
         const TestDocumentPtr &doc = m_documentWithMarker;
-        const CursorInEditor cursorInEditor(doc->m_editor->textCursor(), doc->filePath(),
-                                            doc->m_editorWidget, doc->m_editor->textDocument());
+        const CursorInEditor cursorInEditor(
+            TextEditor::textCursorOf(doc->m_anyEditor),
+            doc->filePath(),
+            qobject_cast<CppEditorWidget *>(doc->m_anyEditor->widget()),
+            qobject_cast<TextEditor::TextDocument *>(doc->m_anyEditor->document()));
 
         QEventLoop loop;
         CppModelManager::globalRename(cursorInEditor, replacement, [&loop]{ loop.quit(); });
@@ -33,7 +36,11 @@ public:
 
         // Compare all files
         for (const TestDocumentPtr &testDocument : std::as_const(m_testDocuments)) {
-            QString result = testDocument->m_editorWidget->document()->toPlainText();
+            auto * const opened
+                = qobject_cast<TextEditor::TextDocument *>(testDocument->m_anyEditor->document());
+            QVERIFY(opened);
+            QTextDocument * const text = opened->document();
+            QString result = text->toPlainText();
             if (result != testDocument->m_expectedSource) {
                 qDebug() << "---" << testDocument->m_expectedSource;
                 qDebug() << "+++" << result;
@@ -42,8 +49,8 @@ public:
 
             // Undo the change
             for (int i = 0; i < 100; ++i)
-                testDocument->m_editorWidget->undo();
-            result = testDocument->m_editorWidget->document()->toPlainText();
+                text->undo();
+            result = text->toPlainText();
             QCOMPARE(result, testDocument->m_source);
         }
     }

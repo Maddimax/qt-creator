@@ -157,7 +157,7 @@ QTextCursor CppQuickFixInterface::adjustedCursor()
     const TranslationUnit * const tu = m_semanticInfo.doc->translationUnit();
     const int selStart = cursor.selectionStart();
     const int selEnd = cursor.selectionEnd();
-    const QTextDocument * const doc = m_editor->textDocument()->document();
+    const QTextDocument * const doc = m_document->document();
 
     // Binary search for matching token.
     for (int l = 0, u = tu->tokenCount() - 1; l <= u; ) {

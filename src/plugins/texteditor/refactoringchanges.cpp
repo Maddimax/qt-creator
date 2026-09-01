@@ -153,8 +153,19 @@ const QTextCursor RefactoringFile::cursor() const
 {
     if (m_editor)
         return m_editor->textCursor();
-    if (m_textDocument)
+    if (m_textDocument) {
+        // The caret in whichever view is showing it. A refactoring asks this
+        // to know what the reader has picked out - isCursorOn() is built on it
+        // - and a cursor at the start of the file is not a wrong answer, it is
+        // a different question.
+        const QList<IEditor *> editors = DocumentModel::editorsForDocument(m_textDocument);
+        for (IEditor * const editor : editors) {
+            const QTextCursor caret = textCursorOf(editor);
+            if (!caret.isNull())
+                return caret;
+        }
         return QTextCursor(m_textDocument->document());
+    }
     if (!m_filePath.isEmpty()) {
         if (QTextDocument *doc = mutableDocument())
             return QTextCursor(doc);

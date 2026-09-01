@@ -3707,6 +3707,37 @@ private slots:
                      "the form kept a marker nobody offers any more");
     }
 
+    // What a refactoring means by "the cursor": where the reader is looking,
+    // not the start of the file. RefactoringFile asked the widget and fell
+    // back to a fresh cursor otherwise, so every refactoring built on
+    // isCursorOn() matched nothing in a view that is not one.
+    void testARefactoringSeesWhereTheReaderIs()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-refactoring-cursor");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Into the third line, which is nowhere near where a fresh cursor is.
+        editor->gotoLine(3, 3);
+        const int caret = TextEditor::textCursorOf(editor).position();
+        QVERIFY2(caret > 0, "the caret never moved");
+
+        const RefactoringFilePtr refactoring = PlainRefactoringFileFactory().file(file);
+        QVERIFY2(refactoring->isValid(), "the refactoring found no file");
+        QCOMPARE(refactoring->cursor().position(), caret);
+    }
+
     // And the other direction: everything that produces one today does it
     // through TextEditorWidget, so the widget has to tell the document or the
     // other view never learns of any marker that exists in practice.

@@ -25830,3 +25830,68 @@ in the Quick editor, and the likely difference is what
 the widget's `semanticInfo()` carries the local uses and may be a newer parse
 than the document's cached copy. Start by comparing the two `SemanticInfo`s for
 one failing case.
+
+## 2026-09-01 — What "the cursor" means to a refactoring, and a crash the last batch shipped
+
+The 25 cases the last entry pointed at were one bug, and it is not a test bug.
+
+**`RefactoringFile::cursor()` answered the wrong question.** The batch that
+moved it onto the document left the caret behind: with a widget it returns
+`m_editor->textCursor()`, and otherwise it returned a *fresh* `QTextCursor` at
+position 0. `CppRefactoringFile::isCursorOn()` is built on that, and
+`InsertDeclFromDef`, `AddDeclarationForUndeclaredIdentifier` and
+`InsertDefsFromDecls` all walk the AST path asking `file->isCursorOn(node)` -
+so in the Quick editor they matched nothing at all, at any caret. It now asks
+the views showing the document, through `textCursorOf()`.
+
+That is a product bug, not a test one: **every refactoring built on
+`isCursorOn()` was inert in the Quick editor**, and it was invisible until the
+suite could reach that editor. Three for three - each of the last three batches
+that opened the suite up found a defect rather than a missing feature.
+
+| class | widget | Quick editor before | after |
+|---|---|---|---|
+| `InsertDeclFromDefTest` | 12 / 0 | 3 / 9 | **12 / 0** |
+| `AddDeclarationForUndeclaredIdentifierTest` | 22 / 0 | 9 / 13 | **22 / 0** |
+| `InsertDefsFromDeclsTest` | 6 / 0 | 3 / 3 | **6 / 0** |
+
+**And the last batch shipped a crash.** `GlobalRenamingTest` is exit 134 at
+`eab0d3ed3b2`: `RenamingTestRunner` derives from `BaseQuickFixTestCase` and
+reads `doc->m_editor->textCursor()`, and converting the base class to
+`m_anyEditor` left `m_editor` null. It is in a different file from the harness,
+which is why converting the harness did not find it - and the sweep that batch
+ran did not include it, because the class had been green all session. Fixed
+here, and **the batch that broke it should have run it**: a harness change
+touches every class built on that harness, which is a bigger set than the ones
+whose numbers moved.
+
+`BaseTextEditor::textCursor()` dereferenced `editorWidget()` unguarded, which
+is how a null editor became a SEGV rather than a soft assert. It is a
+`QTC_ASSERT` now - the next mistake of this shape will name itself.
+
+**`CppQuickFixInterface::adjustedCursor()` had the same latent null**: it read
+`m_editor->textDocument()->document()` and the document constructor leaves
+`m_editor` null. It only fires for a selection, which is why no test had hit it
+yet. It asks the document now.
+
+Negative controls. Putting `cursor()` back to a fresh cursor fails the new
+`testARefactoringSeesWhereTheReaderIs` and puts `InsertDeclFromDefTest` back to
+3 / 9. A second control - removing the `if (m_editor)` shortcut so a widget
+editor takes the new path too - did **not** bite, and that is the useful
+answer: the two paths agree, so the shortcut is a fast path rather than a
+different answer. It is kept because with a split it is the *right* view's
+caret, where the loop takes the first editor's.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. Widget path: `InsertDefFromDeclTest` 79,
+`GenerateGetterSetterTest` 58, `AddDeclarationForUndeclaredIdentifierTest` 22,
+`SelectionsTest` 14, `InsertDeclFromDefTest` 12, `InsertDefsFromDeclsTest` 6,
+`GlobalRenamingTest` 4 - exit 0. No new file, no `.qbs` edit.
+
+**Next:** the four `openCppEditor()` callers still holding a widget -
+`cppdoxygen_test` and `cpphighlighter` type into it,
+`cppuseselections_test` reads its extra selections, and
+`followsymbol_switchmethoddecldef_test` with `fileandtokenactions_test` call
+its methods. Typing is the interesting one: `TextViewport` has its own key
+handling, so those two would be the first tests to drive the Quick editor as a
+*reader* does rather than through APIs.
