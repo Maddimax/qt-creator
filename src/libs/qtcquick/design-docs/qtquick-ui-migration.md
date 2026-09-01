@@ -25696,3 +25696,67 @@ editor and now has a test that catches it - or the six remaining
 `openCppEditor()` callers that want the widget for something. The doxygen one
 is smaller and is the first thing gap 1 was built to find, so it should go
 first.
+
+## 2026-09-01 — A C++ file was being highlighted by the wrong highlighter
+
+The last entry named one failing case and called it "the first difference in
+behaviour this suite has been able to see". It was, and it was not small:
+**the Quick editor was replacing `CppHighlighter` with the generic
+KSyntaxHighlighting definition for every C++ file it opened.**
+
+`CppEditorDocument` builds a `CppHighlighter` in its constructor.
+`QuickTextEditor::configureHighlighter()` runs on `filePathChanged` and did
+`m_document->resetSyntaxHighlighter(...)` unconditionally, so whatever the
+document had brought with it was thrown away and a KSyntaxHighlighting
+definition put in its place. The colours looked plausible, which is why nothing
+noticed - but `CppHighlighter` also leaves **block states** behind, and those
+are what say that a line is the continuation of a comment.
+
+`CppCompletionAssistProcessor::startOfOperator()` reads them, through
+`BackwardsScanner::previousBlockState()`, to decide whether the caret is inside
+a doxygen comment. On the second line of a `/*! ... */` the generic definition's
+state means something else, so the completion ran and offered no tags. That was
+`testDoxygenTagCompletion(C comment multi line)`, and it is the only one of the
+three that spans two lines.
+
+The fix is four lines: **a document that came with a highlighter of its own
+keeps it.** `CompletionTest` in the Quick editor is **204 / 0** now - the same
+as the widget path, with nothing left over.
+
+**What this says about the rest.** Anything that reads a C++ block state was
+wrong in the Quick editor, not only completion: indenting past a multi-line
+comment, `isInCommentOrString()`, the comment/uncomment command. None of them
+had a test that could see it. This is the second time in two batches that
+making the suite reach the Quick editor found a real defect rather than a
+missing feature, which is the case for finishing gap 1 rather than flipping the
+switch and looking.
+
+The new test lives with `CppHighlighter` and asserts both halves: a C++ file in
+the Quick editor is highlighted by a `CppHighlighter`, and the second line of a
+multi-line comment carries a lexer state.
+
+**A control that bit**, on two suites at once: taking the guard out again gives
+"a C++ file in the Quick editor is highlighted by something else" and puts
+`CompletionTest` back to 203 / 1 with the same doxygen case.
+
+**A control that did not bite.** Keeping *every* highlighter, including the
+generic one, changed nothing: a freshly built document has none at all, so the
+guard is only reached on a second `configureHighlighter()` - a file reopened as
+another type - and no test drives that. The `qobject_cast<Highlighter *>` is
+right and unexercised, and this says so rather than counting it.
+
+`TextEditor` 406 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `CppEditor` on the widget path: `CompletionTest` 204,
+`CppHighlighterTest` 86, `QuickEditorHighlighterTest` 3, `DeclDefLinkTest` 3,
+`CodeFoldingTest` 2 - exit 0. In the Quick editor: `CompletionTest` **204 / 0**,
+`ModelManagerTest` 20 / 1 standing, `IncludeHierarchyTest` 8 / 0. No new file,
+no `.qbs` edit.
+
+**Next:** the six `openCppEditor()` callers that still want a widget -
+`cppdoxygen_test` and `cpphighlighter` type into it, `cppuseselections_test`
+reads its extra selections, `followsymbol_switchmethoddecldef_test` and
+`fileandtokenactions_test` call its methods, `cppquickfix_test` builds a
+`CppQuickFixInterface` from it. The last of those is the one to do next: the
+document has answered `createAssistInterface(QuickFix)` since the quick-fix
+batch, so the test can ask the document instead of building the interface
+itself, and that is another large block of cases.

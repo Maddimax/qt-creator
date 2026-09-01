@@ -21,6 +21,11 @@
 #include <QTextLayout>
 
 #ifdef WITH_TESTS
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+#include <texteditor/texteditor.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
 #include "cppeditorwidget.h"
 #include "cpptoolstestcase.h"
 #include <QTest>
@@ -841,6 +846,55 @@ private:
     QTextDocument m_doc;
 };
 
+// Which highlighter a C++ file gets. CppEditorDocument builds a CppHighlighter
+// in its constructor, and the Qt Quick editor was replacing it with the
+// generic definition for every file it opened - so a C++ file there was
+// coloured by KSyntaxHighlighting, and everything that reads the block states
+// CppHighlighter leaves behind saw the wrong thing.
+class QuickEditorHighlighterTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testACppDocumentKeepsItsOwnHighlighter()
+    {
+        Utils::TemporaryDirectory dir("cpp-highlighter-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("/*! text\n *  @tag\n */\nint main() { return 0; }\n"));
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(qobject_cast<CppHighlighter *>(document->syntaxHighlighter()),
+                 "a C++ file in the Quick editor is highlighted by something else");
+
+        // What the block states are for: the second line of a C comment is
+        // inside it only because the first line said so, and completion and
+        // indenting both read that.
+        QTRY_VERIFY2(document->syntaxHighlighter()->syntaxHighlighterUpToDate(),
+                     "the file was never highlighted");
+        const QTextBlock second = document->document()->findBlockByNumber(1);
+        QVERIFY(second.isValid());
+        QVERIFY2(second.userState() > 0,
+                 "the line inside the comment carries no lexer state");
+    }
+};
+
 class CodeFoldingTest : public QObject
 {
     Q_OBJECT
@@ -947,6 +1001,7 @@ void registerHighlighterTests(ExtensionSystem::IPlugin &plugin)
 #ifdef WITH_TESTS
     plugin.addTest<CppHighlighterTest>();
     plugin.addTest<CodeFoldingTest>();
+    plugin.addTest<QuickEditorHighlighterTest>();
 #else
     Q_UNUSED(plugin)
 #endif

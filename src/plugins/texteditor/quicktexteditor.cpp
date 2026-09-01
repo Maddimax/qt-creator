@@ -903,6 +903,17 @@ private:
                                    Utils::MimeMatchMode::MatchDefaultAndRemote)
                 .name());
 
+        // A document that came with a highlighter of its own keeps it.
+        // CppEditorDocument builds a CppHighlighter in its constructor, and
+        // the block states that leaves behind are what says a line is inside
+        // a comment - which the generic definition does not know, so replacing
+        // it silently changes what completion and indenting see.
+
+        if (SyntaxHighlighter * const own = m_document->syntaxHighlighter()) {
+            if (!qobject_cast<Highlighter *>(own))
+                return;
+        }
+
         const HighlighterHelper::Definitions definitions
             = HighlighterHelper::definitionsForDocument(m_document.get());
         const HighlighterHelper::Definition definition
