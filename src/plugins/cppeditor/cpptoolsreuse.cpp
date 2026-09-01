@@ -28,6 +28,9 @@
 
 #ifdef WITH_TESTS
 #include <coreplugin/editormanager/ieditor.h>
+#include <coreplugin/find/searchresultwindow.h>
+#include <texteditor/symbolrequests.h>
+#include <QSignalSpy>
 #include "cppeditordocument.h"
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
@@ -137,6 +140,50 @@ QStringList identifierWordsUnderCursor(const QTextCursor &tc)
         }
     } while (!isValidIdentifierCharAt(startCursor));
     return results;
+}
+
+void findUsagesOf(Core::IEditor *editor, QTextCursor cursor)
+{
+    if (!editor)
+        return;
+    const auto document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    if (cursor.isNull())
+        cursor = TextEditor::textCursorOf(editor);
+    if (!document || cursor.isNull())
+        return;
+    CppModelManager::findUsages(
+        CursorInEditor{cursor,
+                       document->filePath(),
+                       qobject_cast<CppEditorWidget *>(editor->widget()),
+                       document});
+}
+
+void renameUsagesOf(Core::IEditor *editor, const QString &replacement, QTextCursor cursor)
+{
+    if (!editor)
+        return;
+    const auto document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    if (cursor.isNull())
+        cursor = TextEditor::textCursorOf(editor);
+    if (!document || cursor.isNull())
+        return;
+
+    const CursorInEditor data{cursor,
+                              document->filePath(),
+                              qobject_cast<CppEditorWidget *>(editor->widget()),
+                              document};
+
+    // Where the symbol is declared decides whether renaming it is a good idea
+    // at all, so the rename waits for follow symbol to say.
+    const Utils::LinkHandler continuation
+        = [data, replacement, alive = QPointer(editor)](const Utils::Link &link) {
+              if (!alive)
+                  return;
+              showRenameWarningIfFileIsGenerated(link.targetFilePath);
+              CppModelManager::globalRename(data, replacement);
+          };
+    Internal::NonInteractiveFollowSymbolMarker niMarker;
+    CppModelManager::followSymbol(data, continuation, false, false, FollowSymbolMode::Exact);
 }
 
 Core::IEditor *editorFor(TextEditor::TextEditorWidget *widget)
@@ -684,6 +731,113 @@ private slots:
         // position being reachable.
         switchDeclarationDefinition(editor, /*inNextSplit=*/false);
         QTRY_COMPARE(editor->currentLine(), 2);
+    }
+
+    // Find Usages, which the viewport asks for through a relay rather than by
+    // being asked itself. Nobody answered that relay for the built-in code
+    // model, so Ctrl+Shift+U in the Quick editor did nothing.
+    void testFindUsagesAnswersTheViewsRequest()
+    {
+        Utils::TemporaryDirectory dir("cpp-find-usages-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("uses.cpp");
+        QVERIFY(file.writeFileContents(
+            "int main()\n{\n    int alpha = 1;\n    return alpha + alpha;\n}\n"));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        TextEditor::SymbolRequests * const requests
+            = TextEditor::symbolRequestsForEditor(editor);
+        QVERIFY2(requests, "the Quick editor has no relay to ask through");
+
+        // Starting a search is what pops the Search Results pane, so that is
+        // the one thing a test can see without reaching into it.
+        QSignalSpy searches(Core::SearchResultWindow::instance(),
+                            &Core::IOutputPane::showPage);
+
+        editor->gotoLine(3, 10); // on alpha
+        requests->askForUsages(TextEditor::textCursorOf(editor));
+        QTRY_VERIFY2(searches.count() > 0, "asking for usages started no search");
+
+        // And a caret on nothing asks for nothing, so what is asserted above
+        // is the symbol rather than the request being unconditional.
+        const int afterSymbol = searches.count();
+        editor->gotoLine(2, 1);
+        requests->askForUsages(TextEditor::textCursorOf(editor));
+        QCOMPARE(searches.count(), afterSymbol);
+    }
+
+    // Rename asks the same relay, but reaches the model manager the long way
+    // round: follow symbol first, so that renaming something declared in a
+    // generated file can say so, and the rename runs from that answer.
+    void testRenameAnswersTheViewsRequest()
+    {
+        Utils::TemporaryDirectory dir("cpp-rename-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("rename.cpp");
+        QVERIFY(file.writeFileContents(
+            "int main()\n{\n    int alpha = 1;\n    return alpha + alpha;\n}\n"));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        TextEditor::SymbolRequests * const requests
+            = TextEditor::symbolRequestsForEditor(editor);
+        QVERIFY2(requests, "the Quick editor has no relay to ask through");
+
+        QSignalSpy searches(Core::SearchResultWindow::instance(),
+                            &Core::IOutputPane::showPage);
+
+        editor->gotoLine(3, 10); // on alpha
+        requests->askForRename(TextEditor::textCursorOf(editor));
+        QTRY_VERIFY2(searches.count() > 0, "asking for a rename started no search");
     }
 };
 

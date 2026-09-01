@@ -25308,3 +25308,77 @@ is **global rename**, which needs no local-renaming mode at all: wiring
 `SymbolRequests::requestRename` to what `CppEditorWidget::renameUsages()` does
 would give the Quick editor Rename Symbol, and `showRenameWarningIfFileIsGenerated()`
 is already a widget method that touches no widget state.
+
+## 2026-09-01 — Find Usages and Rename, answered for the built-in model
+
+Fifth of gap 3, and the last of the navigating ones. Both were dead in the
+Quick editor for a C++ file with the built-in code model, in two different
+ways at once.
+
+**Nobody was listening.** `TextViewport::findUsages()` and
+`renameSymbolUnderCursor()` do not act; they ask, through the
+`SymbolRequests` relay this migration already built for the language client.
+`LanguageClientManager` connects to it - so a *clangd* C++ file already
+worked - and nothing else did, because `CppEditorWidget` **overrides**
+`findUsages()` and `renameSymbolUnderCursor()` and therefore never emits the
+signals the relay mirrors. The plugin now answers that relay for every C++
+editor that is not a widget, and only when clangd is not in charge: with clangd
+the language client answers the same relay, and two answers would be two
+searches.
+
+**And underneath, two more `QTC_ASSERT(editorWidget, return)`.**
+`BuiltinModelManagerSupport::findUsages()` and `globalRename()` both took the
+semantic info from the widget and gave up without one. `semanticDocumentOf()`,
+added two batches ago for the three jumps, closes these two as well - **five
+call sites in that one file now**, every one of them a widget standing in for
+a document that has answered `semanticInfo()` since the quick-fix batch.
+
+`CppEditorWidget::findUsages()` and `renameUsages()` forward to free functions
+`findUsagesOf()` and `renameUsagesOf()`, so there is one implementation.
+`showRenameWarningIfFileIsGenerated()` became a free function on the way: it
+was a widget method that read no widget state.
+
+**What a test can see of a search.** Starting one calls
+`SearchResultWindow::instance()->popup()`, which is `IOutputPane::popup()`,
+which emits `showPage(flags)`. A `QSignalSpy` on that is the whole observable -
+there is no "a search started" signal and the `SearchResult` is not reachable
+from outside. Both tests also assert the *other* way round: a caret on a blank
+line asks for nothing and starts nothing, so what they measure is the symbol.
+
+**A hang that was not the test.** The first rename run sat for ten minutes.
+Sampling it showed the main thread inside
+`-[NSPersistentUIRestorer promptToIgnorePersistentState]` under
+`PluginManagerPrivate::startDelayedInitialize()` - macOS's "reopen windows?"
+alert, modal, left over from an earlier run this session that a timeout had
+killed. Nothing to do with the code. `defaults write org.qt-project.qtcreator
+ApplePersistenceIgnoreState -bool YES` stops it recurring. Worth knowing,
+because it looks exactly like a test that hangs and it appears in the run
+*after* the one that was killed.
+
+Negative controls, all three bit: the plugin not connecting the relay, after
+which both tests see no search; and each of the two `QTC_ASSERT`s put back,
+each of which kills exactly one of the two tests.
+
+`TextEditor` 403 passed across 18 classes, 0 failed, exit 0. QuickUi 208 passed,
+0 failed, exit 0. `CppEditor`: `FollowSymbolTest` 155, `SelectionsTest` 14,
+`SymbolJumpTest` 5, `GlobalRenamingTest` 4, `UseSelectionsTest` 3 - exit 0.
+`FollowSymbolTest` came out 154/1 once at `switchmethoddecldef_test.cpp:439`
+and 155/0 three times after; that class failed once in the previous batch's
+sweep too, so it belongs on the same flaky list as `SelectionsTest` and
+`GlobalRenamingTest`. No new file, no `.qbs` edit.
+
+**Known difference, not closed:** a clangd C++ file in the Quick editor gets
+the *language client's* generic Find Usages and Rename, where the widget editor
+gets `ClangdClient`'s C++-aware ones through `CppModelManager`. Both work; they
+are not the same code. Closing it means letting one plugin claim a relay so
+that the other stands down, which is a `SymbolRequests` change rather than a
+CppEditor one.
+
+**Next:** gap 3 has two items left and both are editing rather than navigating.
+`FunctionDeclDefLink` draws a refactor marker and owns a widget-side undo
+group - the marker has to become a document-level thing first, the way the
+extra selections did. `CppLocalRenaming` is an editing mode, and is the one
+thing on this list that genuinely belongs to a view: it may be right for the
+Quick editor to do without it and fall back to the global rename this batch
+just gave it, which is what `CppEditorWidget` already does when the mode
+cannot start.

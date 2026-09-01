@@ -141,7 +141,6 @@ private:
     const ProjectPart *projectPart() const;
 
     void handleOutlineChanged(const QWidget* newOutline);
-    void showRenameWarningIfFileIsGenerated(const Utils::FilePath &filePath);
     void addRefactoringActions(QMenu *menu) const;
 
 private:

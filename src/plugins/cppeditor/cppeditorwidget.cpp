@@ -605,34 +605,12 @@ void CppEditorWidget::findUsages()
 
 void CppEditorWidget::findUsages(QTextCursor cursor)
 {
-    // 'this' in cursorInEditor is never used (and must never be used) asynchronously.
-    const CursorInEditor cursorInEditor{cursor, textDocument()->filePath(), this, textDocument()};
-    QPointer<CppEditorWidget> cppEditorWidget = this;
-    CppModelManager::findUsages(cursorInEditor);
+    CppEditor::findUsagesOf(editorFor(this), cursor);
 }
 
 void CppEditorWidget::renameUsages(const QString &replacement, QTextCursor cursor)
 {
-    if (cursor.isNull())
-        cursor = textCursor();
-
-    // First check if the symbol to be renamed comes from a generated file.
-    LinkHandler continuation = [this, cursor, replacement, self = QPointer(this)](const Link &link) {
-        if (!self)
-            return;
-        showRenameWarningIfFileIsGenerated(link.targetFilePath);
-        const CursorInEditor cursorInEditor{cursor, textDocument()->filePath(), this, textDocument()};
-        CppModelManager::globalRename(cursorInEditor, replacement);
-    };
-    NonInteractiveFollowSymbolMarker niMarker;
-    CppModelManager::followSymbol(CursorInEditor{cursor,
-                                                 textDocument()->filePath(),
-                                                 this,
-                                                 textDocument()},
-                                  continuation,
-                                  false,
-                                  false,
-                                  FollowSymbolMode::Exact);
+    CppEditor::renameUsagesOf(editorFor(this), replacement, cursor);
 }
 
 void CppEditorWidget::renameUsages(const Utils::FilePath &filePath, const QString &replacement,
@@ -752,7 +730,7 @@ void CppEditorWidget::handleOutlineChanged(const QWidget *newOutline)
     }
 }
 
-void CppEditorWidget::showRenameWarningIfFileIsGenerated(const Utils::FilePath &filePath)
+void showRenameWarningIfFileIsGenerated(const Utils::FilePath &filePath)
 {
     if (filePath.isEmpty())
         return;

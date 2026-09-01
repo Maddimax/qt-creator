@@ -8,6 +8,9 @@
 #include <cplusplus/CppDocument.h>
 #include <texteditor/quickfix.h>
 #include <utils/id.h>
+#include <utils/filepath.h>
+
+#include <QTextCursor>
 #include <utils/searchresultitem.h>
 
 namespace CPlusPlus {
@@ -38,6 +41,18 @@ enum class FollowSymbolMode { Exact, Fuzzy };
 // TextEditor::textCursorOf() and TextEditor::openLinkInEditor().
 void CPPEDITOR_EXPORT switchDeclarationDefinition(Core::IEditor *editor, bool inNextSplit);
 void CPPEDITOR_EXPORT goToParentImpl(Core::IEditor *editor, bool inNextSplit);
+
+// Where else the symbol under \a cursor is used, and renaming it everywhere.
+// Both are the built-in code model's answers; a language server answers the
+// same two questions itself. \a cursor defaults to where the caret is.
+void CPPEDITOR_EXPORT findUsagesOf(Core::IEditor *editor, QTextCursor cursor = {});
+void CPPEDITOR_EXPORT renameUsagesOf(Core::IEditor *editor,
+                                     const QString &replacement = {},
+                                     QTextCursor cursor = {});
+
+// Says so in the info bar when \a filePath is generated, because renaming
+// something declared there is overwritten by the next build.
+void CPPEDITOR_EXPORT showRenameWarningIfFileIsGenerated(const Utils::FilePath &filePath);
 
 // The editor \a widget is the view of. What gets from a widget-side object to
 // the view-agnostic functions above, and to TextEditor::setViewSelections().

@@ -175,10 +175,9 @@ void BuiltinModelManagerSupport::globalRename(const CursorInEditor &data,
                                               const QString &replacement,
                                               const std::function<void()> &callback)
 {
-    CppEditorWidget *editorWidget = data.editorWidget();
-    QTC_ASSERT(editorWidget, return;);
-
-    SemanticInfo info = editorWidget->semanticInfo();
+    SemanticInfo info;
+    info.doc = semanticDocumentOf(data);
+    QTC_ASSERT(info.doc, return);
     info.snapshot = CppModelManager::snapshot();
     info.snapshot.insert(info.doc);
     const QTextCursor &cursor = data.cursor();
@@ -194,10 +193,9 @@ void BuiltinModelManagerSupport::globalRename(const CursorInEditor &data,
 
 void BuiltinModelManagerSupport::findUsages(const CursorInEditor &data) const
 {
-    CppEditorWidget *editorWidget = data.editorWidget();
-    QTC_ASSERT(editorWidget, return;);
-
-    SemanticInfo info = editorWidget->semanticInfo();
+    SemanticInfo info;
+    info.doc = semanticDocumentOf(data);
+    QTC_ASSERT(info.doc, return);
     info.snapshot = CppModelManager::snapshot();
     info.snapshot.insert(info.doc);
     const QTextCursor &cursor = data.cursor();

@@ -78,6 +78,7 @@
 #include <texteditor/fontsettings.h>
 #include <texteditor/snippets/snippetprovider.h>
 #include <texteditor/texteditor.h>
+#include <texteditor/symbolrequests.h>
 #include <texteditor/texteditorconstants.h>
 
 #include <utils/clangutils.h>
@@ -508,6 +509,24 @@ void CppEditorPlugin::addPerSymbolActions()
                 // positions in a parse, so a new parse is new ranges.
                 connect(document, &CppEditorDocument::semanticInfoUpdated, updater,
                         [updater] { updater->scheduleUpdate(); });
+
+                // Find Usages and Rename Symbol. A view that is not a widget
+                // asks through a relay rather than by being asked itself, and
+                // only the built-in model needs answering here: with clangd in
+                // charge the language client answers the same relay, and two
+                // answers would be two searches.
+                TextEditor::SymbolRequests * const requests
+                    = TextEditor::symbolRequestsForEditor(editor);
+                if (!requests || CppModelManager::usesClangd(document))
+                    return;
+                connect(requests, &TextEditor::SymbolRequests::requestUsages, editor,
+                        [editor](const QTextCursor &cursor) {
+                            CppEditor::findUsagesOf(editor, cursor);
+                        });
+                connect(requests, &TextEditor::SymbolRequests::requestRename, editor,
+                        [editor](const QTextCursor &cursor) {
+                            CppEditor::renameUsagesOf(editor, {}, cursor);
+                        });
             });
 
     addSymbolActionToMenus(TextEditor::Constants::OPEN_TYPE_HIERARCHY);
