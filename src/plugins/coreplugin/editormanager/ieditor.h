@@ -43,6 +43,10 @@ public:
 
 signals:
     void editorDuplicated(IEditor *duplicate);
+    // The caret moved. Whoever follows it - the outline, the type hierarchy -
+    // asks the editor rather than the widget, so that a view which is not one
+    // can be followed too.
+    void cursorPositionChanged();
 
 private:
     bool m_duplicateSupported;

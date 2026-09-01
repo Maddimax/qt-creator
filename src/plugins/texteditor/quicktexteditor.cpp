@@ -248,8 +248,13 @@ public:
         // A tooltip is a widget and has to be placed in screen coordinates.
         // The item is in a QQuickWidget's offscreen window, whose own position
         // is meaningless, so the hosting widget is what it maps through.
-        if (TextViewport * const view = viewport())
+        if (TextViewport * const view = viewport()) {
             view->setTooltipHost(widget->quickWidget());
+            // Whoever follows the caret - the outline, the type hierarchy -
+            // listens to the editor rather than to a widget.
+            connect(view, &TextViewport::cursorPositionChanged,
+                    this, &Core::IEditor::cursorPositionChanged);
+        }
 
         // Preferences are pushed into a document, not read from one, so an
         // editor that pushes nothing saves and indents differently from every

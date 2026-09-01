@@ -108,7 +108,9 @@ public:
 class LanguageClientOutlineWidget final : public TextEditor::IOutlineWidget
 {
 public:
-    LanguageClientOutlineWidget(Client *client, TextEditor::TextEditorWidget *editorWidget);
+    LanguageClientOutlineWidget(Client *client,
+                                Core::IEditor *editor,
+                                TextEditor::TextDocument *document);
 
 private:
     QList<QAction *> filterMenuActions() const final;
@@ -126,7 +128,9 @@ private:
     void onItemActivated(const QModelIndex &index);
 
     QPointer<Client> m_client;
-    QPointer<TextEditor::TextEditorWidget> m_editorWidget;
+    // The editor rather than the widget: the caret is all this wants from the
+    // view, and both views report and move one.
+    QPointer<Core::IEditor> m_editor;
     LanguageClientOutlineModel m_model;
     DragSortFilterProxyModel m_proxyModel;
     Utils::NavigationTreeView m_view;
@@ -137,12 +141,13 @@ private:
 };
 
 LanguageClientOutlineWidget::LanguageClientOutlineWidget(Client *client,
-                                                         TextEditor::TextEditorWidget *editorWidget)
+                                                         Core::IEditor *editor,
+                                                         TextEditor::TextDocument *document)
     : m_client(client)
-    , m_editorWidget(editorWidget)
+    , m_editor(editor)
     , m_model(client)
     , m_view(this)
-    , m_uri(m_client->hostPathToServerUri(editorWidget->textDocument()->filePath()))
+    , m_uri(m_client->hostPathToServerUri(document->filePath()))
 {
     connect(client->documentSymbolCache(),
             &DocumentSymbolCache::gotSymbols,
@@ -160,7 +165,7 @@ LanguageClientOutlineWidget::LanguageClientOutlineWidget(Client *client,
     layout->setSpacing(0);
     layout->addWidget(Core::ItemViewFind::createSearchableWrapper(&m_view));
     setLayout(layout);
-    m_model.setFilePath(editorWidget->textDocument()->filePath());
+    m_model.setFilePath(document->filePath());
     m_proxyModel.setSourceModel(&m_model);
     m_delegate.setDelimiter(" ");
     m_delegate.setAnnotationRole(LanguageClientOutlineItem::AnnotationRole);
@@ -173,7 +178,7 @@ LanguageClientOutlineWidget::LanguageClientOutlineWidget(Client *client,
     m_view.setItemDelegate(&m_delegate);
     connect(&m_view, &QAbstractItemView::activated,
             this, &LanguageClientOutlineWidget::onItemActivated);
-    connect(m_editorWidget, &TextEditor::TextEditorWidget::cursorPositionChanged,
+    connect(m_editor, &Core::IEditor::cursorPositionChanged,
             this, &LanguageClientOutlineWidget::updateSelectionInTree);
     setFocusProxy(&m_view);
 }
@@ -249,13 +254,13 @@ void LanguageClientOutlineWidget::updateTextCursor(const QModelIndex &proxyIndex
         return;
     const Position &pos = item->pos();
     // line has to be 1 based, column 0 based!
-    m_editorWidget->gotoLine(pos.line() + 1, pos.character(), true, true);
+    if (m_editor)
+        m_editor->gotoLine(pos.line() + 1, pos.character(), true);
 }
 
-static LanguageClientOutlineItem *itemForCursor(const LanguageClientOutlineModel &m_model,
-                                                const QTextCursor &cursor)
+static LanguageClientOutlineItem *itemForPosition(const LanguageClientOutlineModel &m_model,
+                                                 const Position &pos)
 {
-    const Position pos(cursor);
     LanguageClientOutlineItem *result = nullptr;
     m_model.forAllItems([&](LanguageClientOutlineItem *candidate){
         if (!candidate->valid() || !candidate->contains(pos))
@@ -269,10 +274,11 @@ static LanguageClientOutlineItem *itemForCursor(const LanguageClientOutlineModel
 
 void LanguageClientOutlineWidget::updateSelectionInTree()
 {
-    if (!m_sync || !m_editorWidget)
+    if (!m_sync || !m_editor)
         return;
-    const QTextCursor currentCursor = m_editorWidget->textCursor();
-    if (LanguageClientOutlineItem *item = itemForCursor(m_model, currentCursor)) {
+    // IEditor counts both from one; the protocol counts both from zero.
+    const Position caret(m_editor->currentLine() - 1, m_editor->currentColumn() - 1);
+    if (LanguageClientOutlineItem *item = itemForPosition(m_model, caret)) {
         const QModelIndex index = m_proxyModel.mapFromSource(m_model.indexForItem(item));
         m_view.setCurrentIndex(index);
         m_view.scrollTo(index);
@@ -283,11 +289,12 @@ void LanguageClientOutlineWidget::updateSelectionInTree()
 
 void LanguageClientOutlineWidget::onItemActivated(const QModelIndex &index)
 {
-    if (!index.isValid() || !m_editorWidget)
+    if (!index.isValid() || !m_editor)
         return;
 
     updateTextCursor(index);
-    m_editorWidget->setFocus();
+    if (QWidget * const view = m_editor->widget())
+        view->setFocus();
 }
 
 class OutlineComboBox : public Utils::TreeViewComboBox
@@ -374,7 +381,8 @@ void OutlineComboBox::updateModel(const DocumentUri &resultUri, const DocumentSy
 
 void OutlineComboBox::updateEntry()
 {
-    if (LanguageClientOutlineItem *item = itemForCursor(m_model, m_editorWidget->textCursor()))
+    if (LanguageClientOutlineItem *item
+            = itemForPosition(m_model, Position(m_editorWidget->textCursor())))
         setCurrentIndex(m_proxyModel.mapFromSource(m_model.indexForItem(item)));
     else
         setCurrentIndex(m_proxyModel.mapFromSource(m_model.index(0,0)));
@@ -468,11 +476,11 @@ public:
 
     TextEditor::IOutlineWidget *createWidget(Core::IEditor *editor) final
     {
-        auto editorWidget = TextEditor::TextEditorWidget::fromEditor(editor);
-        QTC_ASSERT(editorWidget, return nullptr);
-        if (Client *client = LanguageClientManager::clientForDocument(editorWidget->textDocument())) {
-            if (client->supportsDocumentSymbols(editorWidget->textDocument()))
-                return new LanguageClientOutlineWidget(client, editorWidget);
+        const auto document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QTC_ASSERT(document, return nullptr);
+        if (Client *client = LanguageClientManager::clientForDocument(document)) {
+            if (client->supportsDocumentSymbols(document))
+                return new LanguageClientOutlineWidget(client, editor, document);
         }
         return nullptr;
     }

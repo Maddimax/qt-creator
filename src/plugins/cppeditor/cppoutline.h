@@ -3,8 +3,18 @@
 
 #pragma once
 
+#include <QtGlobal>
+
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace CppEditor::Internal {
 
 void setupCppOutline();
+
+#ifdef WITH_TESTS
+QObject *createCppOutlineTest();
+#endif
 
 } // CppEditor::Internal

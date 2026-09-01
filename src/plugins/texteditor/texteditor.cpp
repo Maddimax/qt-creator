@@ -10261,6 +10261,8 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
                      [editor](EditorManager::OpenEditorFlags flags) {
                          EditorManager::activateEditor(editor, flags);
                      });
+    QObject::connect(textEditorWidget, &TextEditorWidget::cursorPositionChanged,
+                     editor, &IEditor::cursorPositionChanged);
     QObject::connect(
         textEditorWidget,
         &TextEditorWidget::saveCurrentStateForNavigationHistory,

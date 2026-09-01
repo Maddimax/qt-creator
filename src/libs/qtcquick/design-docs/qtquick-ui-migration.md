@@ -25042,3 +25042,66 @@ classes, every one that covers a quick fix this touched: `CompletionTest` 204,
 the symbol under the cursor, the declaration/definition link, rename, type
 hierarchy, the outline (including the language client's, above) and find
 usages. The outline is the cheapest of them and the one that already asserts.
+
+## 2026-09-01 — The outline follows a caret, not a widget
+
+First of gap 3, and the one that already asserted: opening a C++ file in the
+Quick editor tripped `QTC_ASSERT(editorWidget, return nullptr)` in the language
+client's outline factory, and got no outline at all from either factory.
+
+**What an outline needs from a view is two things** - where the caret is, and
+how to move it - and `Core::IEditor` has both already: `currentLine()`,
+`currentColumn()` and `gotoLine()`, which `QuickTextEditor` implements. What it
+did not have is **a signal saying the caret moved**, which is why both outlines
+reached past it for a `TextEditorWidget`. `IEditor::cursorPositionChanged` is
+that signal; `createEditorHelper()` forwards the widget's, and the Quick editor
+forwards the viewport's.
+
+With that, both factories stop asking for a widget:
+
+- `CppOutlineWidget` takes the `IEditor` and its `CppEditorDocument`. Three of
+  its five uses of the widget were the document (`cppEditorDocument()`,
+  `document()->revision()`) and the other two are the caret.
+  `supportsEditor()` was `qobject_cast<BaseTextEditor *>` plus
+  `isCppEditor()` - the cast said nothing the context test did not.
+- `LanguageClientOutlineWidget` the same. Its `supportsEditor()` already asked
+  the document; only `createWidget()` reached for the widget, which is what
+  asserted.
+
+**Two conversions to get right, in opposite directions.** `IEditor` counts the
+line *and* the column from one; `Utils::Text::Position` counts the column from
+zero, and the protocol's `Position` counts both from zero. Written out at each
+call rather than assumed.
+
+`itemForCursor(model, QTextCursor)` became `itemForPosition(model, Position)`:
+the cursor was only ever there to be turned into a `Position`, and the combo
+box - which still has a widget, because its one caller does - makes one itself.
+
+**The test drives both directions**, because they fail separately: the caret
+moves and the outline's current row has to follow, then a row is activated and
+the caret has to move to it. It also turns clangd off *before opening the file*
+- `usesClangd()` is settled when the document is opened, so switching after
+leaves `supportsEditor()` answering false and the test skipping vacuously.
+Finding beta() by its text rather than by row number, because the view sorts.
+
+Negative controls, all three bit: `supportsEditor()` asking for a
+`BaseTextEditor` again, which made the outline not offer itself; the Quick
+editor not forwarding the viewport's `cursorPositionChanged`, after which no
+row is ever current; and the outline not calling `gotoLine()`, after which
+activating a row leaves the caret where it was.
+
+`CppEditor,ModelManagerTest` with `QTC_QUICK_CPP_EDITOR=1` is still 18 / 3 -
+the outline is not what those three are about.
+
+`TextEditor` 403 passed across 18 classes, 0 failed, exit 0. QuickUi 208 passed,
+0 failed, exit 0. `LanguageClient` 27 passed across 3 classes, exit 0.
+`CppEditor`: `CompletionTest` 204, `FollowSymbolTest` 155, `ModelManagerTest`
+20/1 standing, `SelectionsTest` 14, `QuickFixAssistTest` 4, `CppOutlineTest` 3 -
+exit 0. No new file, no `.qbs` edit.
+
+**Next:** the rest of gap 3, in the order they are keyed on the widget - the
+uses of the symbol under the cursor (`CppUseSelectionsUpdater`), the
+declaration/definition link, rename, find usages and the type hierarchy.
+`CppTypeHierarchyFactory::createWidget()` is the same shape as the two outlines
+and should be next; `CppUseSelectionsUpdater` is the biggest, because what it
+produces is extra selections that a `TextViewport` draws differently.
