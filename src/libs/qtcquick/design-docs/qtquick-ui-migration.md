@@ -25163,3 +25163,72 @@ undo group; renaming a local is `CppLocalRenaming`, which is a widget-side
 editing mode. `textCursorOf()` is what the first two of those will want, and
 find usages - `CppModelManager::findUsages(CursorInEditor)` - should be the
 cheapest of them, since `CursorInEditor` already accepts a null widget.
+
+## 2026-09-01 — Switching declaration and definition, from either view
+
+Third of gap 3. Shift+F2 in the Quick editor did nothing: the four actions for
+it and for "Follow Virtual Function to Base Class Implementation" all start
+`if (CppEditorWidget *editorWidget = currentCppEditorWidget())`, so with no
+widget the whole lambda was skipped and no diagnostic said so.
+
+**The jump is three things and none of them is a widget**: where the caret is,
+what to ask about it, and where to put the reader when the answer comes back.
+The first was solved last batch (`textCursorOf()`); the third is the same
+question in the other direction, so it is a function too:
+
+```cpp
+TEXTEDITOR_EXPORT bool openLinkInEditor(Core::IEditor *editor, const Utils::Link &link,
+                                        bool inNextSplit = false);
+```
+
+Both views already have `openLink(link, inNextSplit)` doing the same two
+things - a jump inside this file, the editor manager for anything else - so it
+dispatches rather than reimplements. `TextEditorWidget::openLink()` had to move
+from protected to public; it is what the Quick viewport already offers
+publicly, so this is the API catching up with the pair rather than widening for
+one caller.
+
+With those two, `switchDeclarationDefinition()` and `goToParentImpl()` become
+free functions over a `Core::IEditor *`, and there is **one implementation
+rather than two**: `CppEditorWidget`'s methods now forward to them, finding
+their editor through `BaseTextEditor::textEditorsForDocument()`. The widget is
+still passed into `CursorInEditor` where there is one, so the widget path hands
+over exactly what it did before.
+
+**The blocker underneath was the semantic info, again.**
+`BuiltinModelManagerSupport` reads it as
+`data.editorWidget() ? data.editorWidget()->semanticInfo().doc : data.cppDocument()`
+in three places - follow symbol, follow-to-parent-impl and switch decl/def - and
+with no widget `cppDocument()` is whatever the caller happened to put in the
+`CursorInEditor`, which for these callers is nothing. Since the quick-fix batch
+the *document* answers `semanticInfo()`, so a `semanticDocumentOf()` helper
+closes all three at once. That is the second time this session that a
+`CppEditorWidget` dependency turned out to be a cache of something the document
+already had.
+
+Negative controls, all three bit, and all three on the same assertion - the
+caret does not reach line 5:  `semanticDocumentOf()` not asking the document;
+`openLinkInEditor()` not dispatching to the viewport; and the cursor taken from
+`TextEditorWidget::fromEditor()` again. Three separate links in one chain, each
+of which silently does nothing when broken, which is what made the feature dead
+without a diagnostic in the first place.
+
+`TextEditor` 403 passed across 18 classes, 0 failed, exit 0. QuickUi 208 passed,
+0 failed, exit 0. `CppEditor`: `CompletionTest` 204, `FollowSymbolTest` 155 -
+which is what covers the widget's `switchDeclarationDefinition()` and so proves
+the forwarding - `QuickFixAssistTest` 4, `SymbolJumpTest` 3, `CppOutlineTest` 3,
+`CppTypeHierarchyTest` 3, `FileAndTokenActionsTest` 2 - all 0 failed, exit 0.
+`ModelManagerTest` with `QTC_QUICK_CPP_EDITOR=1` is still 18 / 3. No new file,
+no `.qbs` edit.
+
+**Next:** what is left of gap 3 is the editing, not the navigating:
+`CppUseSelectionsUpdater` (the symbol under the cursor highlighted everywhere
+it is used - extra selections, which a `TextViewport` draws its own way),
+`FunctionDeclDefLink` (a refactor marker plus a widget-side undo group) and
+`CppLocalRenaming` (an editing mode). Of these the use-selections are the ones
+a reader misses first, and the ones whose output - `TextDocument`'s extra
+selections - a `TextViewport` may already know how to draw; check that before
+anything else. Rename has a view-free fallback already: `renameUsages()` is
+what `CppEditorWidget` does when local renaming cannot start, so wiring
+`SymbolRequests::requestRename` to it would give the Quick editor global rename
+without touching the local-renaming mode at all.

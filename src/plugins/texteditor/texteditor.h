@@ -686,6 +686,11 @@ public:
     static TextEditorWidget *fromEditor(const Core::IEditor *editor);
     static QList<TextEditorWidget *> textEditorWidgetsForDocument(TextDocument *document);
 
+    /*!
+       Returns whether the link was opened successfully.
+     */
+    bool openLink(const Utils::Link &link, bool inNextSplit = false);
+
 protected:
     /*!
        Reimplement this function to enable code navigation.
@@ -702,11 +707,6 @@ protected:
                             const Utils::LinkHandler &processLinkCallback,
                             bool resolveTarget = true,
                             bool inNextSplit = false);
-
-    /*!
-       Returns whether the link was opened successfully.
-     */
-    bool openLink(const Utils::Link &link, bool inNextSplit = false);
 
     /*!
       Reimplement this function to change the default replacement text.
@@ -869,6 +869,11 @@ private:
 // caret, and only one of them is a QPlainTextEdit to ask for it. Null where
 // \a editor shows no text.
 TEXTEDITOR_EXPORT QTextCursor textCursorOf(Core::IEditor *editor);
+
+// Go to \a link the way \a editor's view would: a jump within the same file,
+// or the editor manager for anything else. Answers whether it went anywhere.
+TEXTEDITOR_EXPORT bool openLinkInEditor(Core::IEditor *editor, const Utils::Link &link,
+                                        bool inNextSplit = false);
 
 } // namespace TextEditor
 

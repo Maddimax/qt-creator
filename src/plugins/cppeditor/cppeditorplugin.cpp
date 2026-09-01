@@ -433,8 +433,7 @@ void CppEditorPlugin::addPerSymbolActions()
     followToParentImpl.setScriptable(true);
     followToParentImpl.addToContainers(menus, Constants::G_SYMBOL);
     followToParentImpl.addOnTriggered(this, [] {
-        if (CppEditorWidget *editorWidget = currentCppEditorWidget())
-            editorWidget->goToParentImpl(/*inNextSplit*/ false);
+        CppEditor::goToParentImpl(EditorManager::currentEditor(), /*inNextSplit*/ false);
     });
 
     ActionBuilder followToParentImplSplit(this, "CppEditor.FollowToParentImplInNextSplit");
@@ -444,8 +443,7 @@ void CppEditorPlugin::addPerSymbolActions()
     followToParentImplSplit.setScriptable(true);
     followToParentImplSplit.addToContainers(menus, Constants::G_SYMBOL);
     followToParentImplSplit.addOnTriggered(this, [] {
-        if (CppEditorWidget *editorWidget = currentCppEditorWidget())
-            editorWidget->goToParentImpl(/*inNextSplit*/ true);
+        CppEditor::goToParentImpl(EditorManager::currentEditor(), /*inNextSplit*/ true);
     });
 
     ActionBuilder switchDeclDef(this, Constants::SWITCH_DECLARATION_DEFINITION);
@@ -457,8 +455,8 @@ void CppEditorPlugin::addPerSymbolActions()
     switchDeclDef.addToContainers(menus, Constants::G_SYMBOL);
     switchDeclDef.addToContainer(Core::Constants::TOUCH_BAR, Core::Constants::G_TOUCHBAR_NAVIGATION);
     switchDeclDef.addOnTriggered(this, [] {
-        if (CppEditorWidget *editorWidget = currentCppEditorWidget())
-            editorWidget->switchDeclarationDefinition(/*inNextSplit*/ false);
+        CppEditor::switchDeclarationDefinition(EditorManager::currentEditor(),
+                                               /*inNextSplit*/ false);
     });
 
     ActionBuilder openDeclDefSplit(this, Constants::OPEN_DECLARATION_DEFINITION_IN_NEXT_SPLIT);
@@ -468,8 +466,8 @@ void CppEditorPlugin::addPerSymbolActions()
     openDeclDefSplit.setDefaultKeySequence(Tr::tr("Meta+E, Shift+F2"), Tr::tr("Ctrl+E, Shift+F2"));
     openDeclDefSplit.addToContainers(menus, Constants::G_SYMBOL);
     openDeclDefSplit.addOnTriggered(this, [] {
-        if (CppEditorWidget *editorWidget = currentCppEditorWidget())
-            editorWidget->switchDeclarationDefinition(/*inNextSplit*/ true);
+        CppEditor::switchDeclarationDefinition(EditorManager::currentEditor(),
+                                               /*inNextSplit*/ true);
     });
 
     addSymbolActionToMenus(TextEditor::Constants::FIND_USAGES);
@@ -646,6 +644,7 @@ void CppEditorPlugin::registerTests()
     addTest<HeaderPathFilterTest>();
     addTestCreator(createCppCodeStyleAspectsTest);
     addTestCreator(createCppHeaderSourceTest);
+    addTestCreator(createSymbolJumpTest);
     addTestCreator(createIncludeGroupsTest);
     addTestCreator(createCppPreProcessorDialogTest);
     addTestCreator(createClangdSettingsTest);

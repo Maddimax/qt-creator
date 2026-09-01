@@ -6,6 +6,7 @@
 #include "builtineditordocumentprocessor.h"
 #include "cppcanonicalsymbol.h"
 #include "cppcompletionassist.h"
+#include "cppeditordocument.h"
 #include "cppeditortr.h"
 #include "cppeditorwidget.h"
 #include "cppelementevaluator.h"
@@ -102,6 +103,17 @@ TextEditor::BaseHoverHandler &BuiltinModelManagerSupport::cppHoverHandler()
     return theCppHoverHandler;
 }
 
+// The parse the three jumps below walk. The widget caches it, but so does the
+// document now - and a view that is not that widget has only the document.
+static CPlusPlus::Document::Ptr semanticDocumentOf(const CursorInEditor &data)
+{
+    if (data.editorWidget())
+        return data.editorWidget()->semanticInfo().doc;
+    if (const auto document = qobject_cast<CppEditorDocument *>(data.textDocument()))
+        return document->semanticInfo().doc;
+    return data.cppDocument();
+}
+
 void BuiltinModelManagerSupport::followSymbol(const CursorInEditor &data,
                                               const Utils::LinkHandler &processLinkCallback,
                                               FollowSymbolMode mode,
@@ -114,8 +126,7 @@ void BuiltinModelManagerSupport::followSymbol(const CursorInEditor &data,
     SymbolFinder finder;
     m_followSymbol->findLink(data, processLinkCallback,
             resolveTarget, CppModelManager::snapshot(),
-            data.editorWidget() ? data.editorWidget()->semanticInfo().doc : data.cppDocument(),
-            &finder, inNextSplit);
+            semanticDocumentOf(data), &finder, inNextSplit);
 }
 
 void BuiltinModelManagerSupport::followSymbolToType(const CursorInEditor &data,
@@ -137,7 +148,7 @@ void BuiltinModelManagerSupport::followFunctionToParentImpl(
         data,
         processLinkCallback,
         CppModelManager::snapshot(),
-        data.editorWidget() ? data.editorWidget()->semanticInfo().doc : data.cppDocument(),
+        semanticDocumentOf(data),
         &finder);
 }
 
@@ -146,8 +157,7 @@ void BuiltinModelManagerSupport::switchDeclDef(const CursorInEditor &data,
 {
     SymbolFinder finder;
     m_followSymbol->switchDeclDef(data, processLinkCallback, CppModelManager::snapshot(),
-            data.editorWidget() ? data.editorWidget()->semanticInfo().doc : data.cppDocument(),
-            &finder);
+            semanticDocumentOf(data), &finder);
 }
 
 void BuiltinModelManagerSupport::startLocalRenaming(const CursorInEditor &data,

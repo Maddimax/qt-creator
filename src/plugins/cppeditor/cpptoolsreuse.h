@@ -15,6 +15,7 @@ class Macro;
 class Symbol;
 class LookupContext;
 } // namespace CPlusPlus
+namespace Core { class IEditor; }
 namespace ProjectExplorer { class Project; }
 namespace TextEditor {
 class AssistInterface;
@@ -30,6 +31,17 @@ class ProjectInfo;
 class CppCompletionAssistProcessor;
 
 enum class FollowSymbolMode { Exact, Fuzzy };
+
+// Jump between a function's declaration and its definition, and from a virtual
+// call to the implementation it would reach. What the view is asked for is the
+// caret and somewhere to land, so any view answers - see
+// TextEditor::textCursorOf() and TextEditor::openLinkInEditor().
+void CPPEDITOR_EXPORT switchDeclarationDefinition(Core::IEditor *editor, bool inNextSplit);
+void CPPEDITOR_EXPORT goToParentImpl(Core::IEditor *editor, bool inNextSplit);
+
+#ifdef WITH_TESTS
+namespace Internal { QObject *createSymbolJumpTest(); }
+#endif
 
 void CPPEDITOR_EXPORT moveCursorToEndOfIdentifier(QTextCursor *tc);
 void CPPEDITOR_EXPORT moveCursorToStartOfIdentifier(QTextCursor *tc);

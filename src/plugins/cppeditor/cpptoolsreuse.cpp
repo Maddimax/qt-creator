@@ -22,7 +22,17 @@
 #include <projectexplorer/projectmanager.h>
 
 #include <texteditor/codeassist/assistinterface.h>
+#include <texteditor/displaysettings.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
+
+#ifdef WITH_TESTS
+#include <coreplugin/editormanager/ieditor.h>
+#include "cppeditordocument.h"
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#endif
 
 #include <cplusplus/BackwardsScanner.h>
 #include <cplusplus/declarationcomments.h>
@@ -127,6 +137,49 @@ QStringList identifierWordsUnderCursor(const QTextCursor &tc)
         }
     } while (!isValidIdentifierCharAt(startCursor));
     return results;
+}
+
+// The three things every jump of this shape needs: where the caret is, what
+// to ask about it, and where to put the reader when the answer comes back.
+static void jumpFromCaret(
+    Core::IEditor *editor,
+    bool inNextSplit,
+    const std::function<void(const CursorInEditor &, const Utils::LinkHandler &)> &ask)
+{
+    if (!editor)
+        return;
+    const auto document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    const QTextCursor cursor = TextEditor::textCursorOf(editor);
+    if (!document || cursor.isNull())
+        return;
+
+    // The widget where the view is one: its own semantic info carries the
+    // local uses, and the model manager prefers it where it is there.
+    const CursorInEditor data(cursor,
+                              document->filePath(),
+                              qobject_cast<CppEditorWidget *>(editor->widget()),
+                              document);
+    const bool split = inNextSplit != TextEditor::displaySettings().openLinksInNextSplit();
+    ask(data, [target = QPointer(editor), split](const Utils::Link &link) {
+        if (target && link.hasValidTarget())
+            TextEditor::openLinkInEditor(target, link, split);
+    });
+}
+
+void switchDeclarationDefinition(Core::IEditor *editor, bool inNextSplit)
+{
+    jumpFromCaret(editor, inNextSplit,
+                  [](const CursorInEditor &data, const Utils::LinkHandler &callback) {
+                      CppModelManager::switchDeclDef(data, callback);
+                  });
+}
+
+void goToParentImpl(Core::IEditor *editor, bool inNextSplit)
+{
+    jumpFromCaret(editor, inNextSplit,
+                  [](const CursorInEditor &data, const Utils::LinkHandler &callback) {
+                      CppModelManager::followFunctionToParentImpl(data, callback);
+                  });
 }
 
 void moveCursorToEndOfIdentifier(QTextCursor *tc)
@@ -563,6 +616,71 @@ QList<Text::Range> symbolOccurrencesInDeclarationComments(CppEditorWidget *edito
 
 namespace Internal {
 
+#ifdef WITH_TESTS
+
+// Switching between a declaration and its definition is a caret read and a
+// caret moved, and both were taken from CppEditorWidget - so Shift+F2 in the
+// Qt Quick editor did nothing at all.
+class SymbolJumpTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testDeclDefJumpsInAnyView()
+    {
+        Utils::TemporaryDirectory dir("cpp-decl-def-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("c.cpp");
+        QVERIFY(file.writeFileContents("struct C {\n    void f();\n};\n\nvoid C::f()\n{\n}\n"));
+
+        // The built-in model does this jump; clangd answers it itself, and
+        // usesClangd() is settled when the document is opened.
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // On f() in the declaration, which is line 2.
+        editor->gotoLine(2, 10);
+        QCOMPARE(editor->currentLine(), 2);
+        switchDeclarationDefinition(editor, /*inNextSplit=*/false);
+        QTRY_COMPARE(editor->currentLine(), 5);
+
+        // And back, so that what is asserted is the jump rather than one
+        // position being reachable.
+        switchDeclarationDefinition(editor, /*inNextSplit=*/false);
+        QTRY_COMPARE(editor->currentLine(), 2);
+    }
+};
+
+QObject *createSymbolJumpTest()
+{
+    return new SymbolJumpTest;
+}
+
+#endif // WITH_TESTS
+
 void decorateCppDocument(TextEditor::TextDocument *document)
 {
     document->resetSyntaxHighlighter([] { return new CppHighlighter(); });
@@ -571,3 +689,7 @@ void decorateCppDocument(TextEditor::TextDocument *document)
 
 } // Internal
 } // CppEditor
+
+#ifdef WITH_TESTS
+#include "cpptoolsreuse.moc"
+#endif

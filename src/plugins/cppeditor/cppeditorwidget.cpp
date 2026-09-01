@@ -890,32 +890,28 @@ void CppEditorWidget::updatePreprocessorButtonTooltip()
     d->m_preprocessorButton->setToolTip(cmd->action()->toolTip());
 }
 
+// The editor this widget is the view of. The jumps below are the editor's
+// once any view can make them, and this is the one line that gets from here
+// to there.
+static Core::IEditor *editorFor(CppEditorWidget *widget)
+{
+    const QList<TextEditor::BaseTextEditor *> editors
+        = TextEditor::BaseTextEditor::textEditorsForDocument(widget->textDocument());
+    for (TextEditor::BaseTextEditor * const editor : editors) {
+        if (editor->editorWidget() == widget)
+            return editor;
+    }
+    return nullptr;
+}
+
 void CppEditorWidget::switchDeclarationDefinition(bool inNextSplit)
 {
-    if (!CppModelManager::instance())
-        return;
-
-    const CursorInEditor cursor(textCursor(), textDocument()->filePath(), this, textDocument());
-    auto callback = [self = QPointer(this),
-            split = inNextSplit != alwaysOpenLinksInNextSplit()](const Link &link) {
-        if (self && link.hasValidTarget())
-            self->openLink(link, split);
-    };
-    CppModelManager::switchDeclDef(cursor, std::move(callback));
+    CppEditor::switchDeclarationDefinition(editorFor(this), inNextSplit);
 }
 
 void CppEditorWidget::goToParentImpl(bool inNextSplit)
 {
-    if (!CppModelManager::instance())
-        return;
-
-    const CursorInEditor cursor(textCursor(), textDocument()->filePath(), this, textDocument());
-    auto callback = [self = QPointer(this),
-                     split = inNextSplit != alwaysOpenLinksInNextSplit()](const Link &link) {
-        if (self && link.hasValidTarget())
-            self->openLink(link, split);
-    };
-    CppModelManager::followFunctionToParentImpl(cursor, callback);
+    CppEditor::goToParentImpl(editorFor(this), inNextSplit);
 }
 
 bool CppEditorWidget::followUrl(const QTextCursor &cursor,

@@ -10196,6 +10196,17 @@ QTextCursor textCursorOf(Core::IEditor *editor)
     return {};
 }
 
+bool openLinkInEditor(Core::IEditor *editor, const Utils::Link &link, bool inNextSplit)
+{
+    if (!editor)
+        return false;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->openLink(link, inNextSplit);
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->openLink(link, inNextSplit);
+    return false;
+}
+
 void TextEditorFactory::addEditorContext(Id id)
 {
     d->m_editorContexts.add(id);
