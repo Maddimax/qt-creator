@@ -26151,3 +26151,73 @@ conversions rather than discoveries, and they finish gap 1. After that the
 question is no longer "what is missing" but "what does a run of the whole
 CppEditor suite in the Quick editor say", which is the thing to measure before
 the switch is flipped.
+
+## 2026-09-02 — Where the migration actually stands: 26 of 28 classes agree
+
+**No code changed in this batch.** The plan's next step was the last two
+`openCppEditor()` callers, and both need Quick equivalents of widget navigation
+API - `enableTestMode()`, `proposalsReady`, `openLinkUnderCursor()`,
+`gotoNextWordCamelCase()` - which is a batch each. Before spending them, the
+question the last three entries kept deferring is worth answering: **run
+everything in both views and see what differs.**
+
+Twenty-eight classes, chosen because their test file opens an editor at all -
+the rest cannot tell the two views apart. Each run twice, once plain and once
+with `QTC_QUICK_CPP_EDITOR=1`:
+
+| | widget | Quick |
+|---|---|---|
+| `CompletionTest` | 204 / 0 | 204 / 0 |
+| `FollowSymbolTest` | 155 / 0 | **2 / 153** |
+| `CppHighlighterTest` | 86 / 0 | 86 / 0 |
+| `InsertDefFromDeclTest` | 79 / 0 | 79 / 0 |
+| `GenerateGetterSetterTest` | 58 / 0 | 58 / 0 |
+| `DoxygenTest` | 34 / 0 | 34 / 0 |
+| `CompleteSwitchStatementTest` | 25 / 0 | 25 / 0 |
+| `AddDeclarationForUndeclaredIdentifierTest` | 22 / 0 | 22 / 0 |
+| `ModelManagerTest` | 20 / 1 | 20 / 1 |
+| `LocatorFilterTest` | 15 / 0 | 15 / 0 |
+| `SelectionsTest` | 14 / 0 | 14 / 0 |
+| `EscapeStringLiteralTest` | 13 / 0 | 13 / 0 |
+| `InsertDeclFromDefTest` | 12 / 0 | 12 / 0 |
+| `CppMcpSupportTest` | 10 / 0 | 10 / 0 |
+| `ConvertToCamelCaseTest` | 10 / 0 | 10 / 0 |
+| `IncludeHierarchyTest` | 8 / 0 | 8 / 0 |
+| `SourceProcessorTest` | 7 / 0 | 7 / 0 |
+| `InsertDefsFromDeclsTest` | 6 / 0 | 6 / 0 |
+| `SymbolJumpTest` | 5 / 0 | 5 / 0 |
+| `QuickFixAssistTest`, `GlobalRenamingTest` | 4 / 0 | 4 / 0 |
+| `DeclDefLinkTest`, `CppOutlineTest`, `CppTypeHierarchyTest`, `UseSelectionsTest`, `QuickEditorHighlighterTest` | 3 / 0 | 3 / 0 |
+| `CodeFoldingTest` | 2 / 0 | **2 / 1** |
+| `FileAndTokenActionsTest` | 2 / 0 | 2 / 0 |
+
+**Twenty-six of twenty-eight agree exactly**, `ModelManagerTest`'s standing
+failure included. And the two that differ fail for **the same single reason**,
+which is not a behavioural difference at all: both are still opened with
+`TestCase::openCppEditor()`, which casts to `BaseTextEditor` and returns false -
+`FollowSymbolTest` at its first line, and `CodeFoldingTest`, which this
+document's list of remaining callers had missed because it lives in
+`cpphighlighter.cpp` beside a class that was already counted.
+
+**So there is no measured difference in behaviour left** between the two views
+for anything this suite covers. That is a different statement from "the switch
+can be flipped" - the suite covers what it covers - but it is the strongest one
+available, and every batch since the harness work has been finding real defects
+through exactly this route: the wrong highlighter, `isCursorOn()` inert, Enter
+in a comment, document highlights never asked for. That well has run dry, which
+is itself the finding.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. No negative controls, because nothing changed: the two
+sweeps are the measurement, and each is its own control for the other.
+
+**Next**, and now with a reason rather than an order:
+
+1. `followsymbol_switchmethoddecldef_test` and `fileandtokenactions_test` -
+   153 cases between them, and the only two things the suite still cannot see.
+   They need `openLinkUnderCursor()`, `gotoNextWordCamelCase()`, a test mode and
+   a `proposalsReady` signal on the Quick side. `TextViewport` has
+   `followSymbolAt()` and `openLink()` already, so the first is close; the
+   virtual-function proposal machinery is the real work.
+2. Then the switch: `setUsesQuickEditor(true)` in `CppEditorFactory` without the
+   environment variable, and `QTC_WIDGET_CPP_EDITOR` as the way back.
