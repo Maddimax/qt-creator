@@ -29,6 +29,7 @@
 #include <cppeditor/cppmodelmanager.h>
 #include <cppeditor/cpprefactoringchanges.h>
 #include <cppeditor/cppsemanticinfo.h>
+#include <cppeditor/cppeditordocument.h>
 #include <cppeditor/cpptoolsreuse.h>
 #include <cppeditor/semantichighlighter.h>
 
@@ -793,10 +794,10 @@ bool ClangdClient::fileBelongsToProject(const Utils::FilePath &filePath) const
 }
 
 QList<Text::Range> ClangdClient::additionalDocumentHighlights(
-    TextEditorWidget *editorWidget, const QTextCursor &cursor)
+    TextEditor::TextDocument *document, const QTextCursor &cursor)
 {
     return CppEditor::symbolOccurrencesInDeclarationComments(
-        qobject_cast<CppEditor::CppEditorWidget *>(editorWidget), cursor);
+        qobject_cast<CppEditor::CppEditorDocument *>(document), cursor);
 }
 
 bool ClangdClient::shouldSendDidSave(const TextEditor::TextDocument *doc) const

@@ -593,10 +593,12 @@ void LanguageClientManager::editorOpened(Core::IEditor *editor)
                                                             Side::Left);
                     }
                 });
-        connect(widget, &TextEditorWidget::cursorPositionChanged, this, [widget]() {
-            if (Client *client = clientForDocument(widget->textDocument()))
+        connect(editor, &Core::IEditor::cursorPositionChanged, this, [editor]() {
+            if (Client *client = clientForDocument(
+                    qobject_cast<TextEditor::TextDocument *>(editor->document()))) {
                 if (client->reachable())
-                    client->cursorPositionChanged(widget);
+                    client->cursorPositionChanged(editor);
+            }
         });
         if (TextEditor::TextDocument *document = widget->textDocument()) {
             if (Client *client = m_clientForDocument[document])
@@ -636,6 +638,17 @@ void LanguageClientManager::editorOpened(Core::IEditor *editor)
                             Constants::CALL_HIERARCHY_FACTORY_ID, Side::Left);
                     }
                 });
+
+        // Following the caret is not one of the relay's questions - nobody
+        // asks for it, it happens as the caret moves - so it is wired to the
+        // editor the same way the widget branch above is.
+        connect(editor, &Core::IEditor::cursorPositionChanged, this, [editor, document]() {
+            if (Client *client = clientForDocument(document)) {
+                if (client->reachable())
+                    client->cursorPositionChanged(editor);
+            }
+        });
+
 
         if (document) {
             if (Client *client = m_clientForDocument[document])

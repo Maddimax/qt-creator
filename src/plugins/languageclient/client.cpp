@@ -272,8 +272,8 @@ public:
     void updateCompletionProvider(TextEditor::TextDocument *document);
     void updateFunctionHintProvider(TextEditor::TextDocument *document);
 
-    void requestDocumentHighlights(TextEditor::TextEditorWidget *widget);
-    void requestDocumentHighlightsNow(TextEditor::TextEditorWidget *widget);
+    void requestDocumentHighlights(Core::IEditor *widget);
+    void requestDocumentHighlightsNow(Core::IEditor *widget);
     LanguageServerProtocol::SemanticRequestTypes supportedSemanticRequests(TextEditor::TextDocument *document) const;
     void handleSemanticTokens(const LanguageServerProtocol::SemanticTokens &tokens);
     void requestCodeActions(const LanguageServerProtocol::DocumentUri &uri,
@@ -319,7 +319,7 @@ public:
     std::unordered_map<TextEditor::TextDocument *,
                        QList<LanguageServerProtocol::DidChangeTextDocumentParams::TextDocumentContentChangeEvent>>
         m_documentsToUpdate;
-    QHash<TextEditor::TextEditorWidget *, QTimer *> m_documentHighlightsTimer;
+    QHash<Core::IEditor *, QTimer *> m_documentHighlightsTimer;
     QTimer m_documentUpdateTimer;
     const Utils::Id m_id;
     LanguageServerProtocol::ClientCapabilities m_clientCapabilities{q->defaultClientCapabilities()};
@@ -334,7 +334,7 @@ public:
 
     AssistProviders m_clientProviders;
     QHash<TextEditor::TextDocument *, AssistProviders> m_resetAssistProvider;
-    QHash<TextEditor::TextEditorWidget *, LanguageServerProtocol::MessageId> m_highlightRequests;
+    QHash<Core::IEditor *, LanguageServerProtocol::MessageId> m_highlightRequests;
     QHash<QString, Client::CustomMethodHandler> m_customHandlers;
     static const int MaxRestarts = 5;
     int m_restartsLeft = MaxRestarts;
@@ -904,7 +904,7 @@ void ClientPrivate::updateFunctionHintProvider(TextEditor::TextDocument *documen
     }
 }
 
-void ClientPrivate::requestDocumentHighlights(TextEditor::TextEditorWidget *widget)
+void ClientPrivate::requestDocumentHighlights(Core::IEditor *widget)
 {
     QTimer *timer = m_documentHighlightsTimer[widget];
     if (!timer) {
@@ -913,7 +913,7 @@ void ClientPrivate::requestDocumentHighlights(TextEditor::TextEditorWidget *widg
         timer = new QTimer;
         timer->setSingleShot(true);
         m_documentHighlightsTimer.insert(widget, timer);
-        auto connection = connect(widget, &QWidget::destroyed, this, [widget, this]() {
+        auto connection = connect(widget, &QObject::destroyed, this, [widget, this]() {
             delete m_documentHighlightsTimer.take(widget);
         });
         connect(timer, &QTimer::timeout, this, [this, widget, connection]() {
@@ -929,14 +929,16 @@ void ClientPrivate::requestDocumentHighlights(TextEditor::TextEditorWidget *widg
     timer->start(250);
 }
 
-void ClientPrivate::requestDocumentHighlightsNow(TextEditor::TextEditorWidget *widget)
+void ClientPrivate::requestDocumentHighlightsNow(Core::IEditor *widget)
 {
     QTC_ASSERT(q->reachable(), return);
-    const auto uri = q->hostPathToServerUri(widget->textDocument()->filePath());
+    const auto document = qobject_cast<TextEditor::TextDocument *>(widget->document());
+    QTC_ASSERT(document, return);
+    const auto uri = q->hostPathToServerUri(document->filePath());
     if (m_dynamicCapabilities.isRegistered(DocumentHighlightsRequest::methodName).value_or(false)) {
         TextDocumentRegistrationOptions option(
             m_dynamicCapabilities.option(DocumentHighlightsRequest::methodName));
-        if (!option.filterApplies(widget->textDocument()->filePath()))
+        if (!option.filterApplies(document->filePath()))
             return;
     } else {
         std::optional<std::variant<bool, WorkDoneProgressOptions>> provider
@@ -951,8 +953,8 @@ void ClientPrivate::requestDocumentHighlightsNow(TextEditor::TextEditorWidget *w
     if (m_highlightRequests.contains(widget))
         q->cancelRequest(m_highlightRequests.take(widget));
 
-    const QTextCursor adjustedCursor = q->adjustedCursorForHighlighting(widget->textCursor(),
-                                                                        widget->textDocument());
+    const QTextCursor adjustedCursor
+        = q->adjustedCursorForHighlighting(TextEditor::textCursorOf(widget), document);
     DocumentHighlightsRequest request(
         TextDocumentPositionParams(TextDocumentIdentifier(uri), Position{adjustedCursor}));
     auto connection = connect(widget, &QObject::destroyed, this, [this, widget]() {
@@ -966,19 +968,24 @@ void ClientPrivate::requestDocumentHighlightsNow(TextEditor::TextEditorWidget *w
             m_highlightRequests.remove(widget);
             disconnect(connection);
             const Id &id = TextEditor::TextEditorWidget::CodeSemanticsSelection;
-            QList<QTextEdit::ExtraSelection> selections;
+            QList<TextEditor::TextDocument::ExtraSelection> selections;
             const std::optional<DocumentHighlightsResult> &result = response.result();
+            const auto textDocument
+                = qobject_cast<TextEditor::TextDocument *>(widget->document());
+            if (!textDocument)
+                return;
             if (!result.has_value() || std::holds_alternative<std::nullptr_t>(*result)) {
-                widget->setExtraSelections(id, selections);
+                TextEditor::setViewSelections(widget, id, selections);
                 return;
             }
 
-            const QTextCharFormat &format =
-                widget->textDocument()->fontSettings().toTextCharFormat(TextEditor::C_OCCURRENCES);
-            QTextDocument *document = widget->document();
+            const QTextCharFormat &format
+                = textDocument->fontSettings().toTextCharFormat(TextEditor::C_OCCURRENCES);
+            QTextDocument *document = textDocument->document();
             const auto highlights = std::get_if<QList<DocumentHighlight>>(&*result);
             for (const auto &highlight : *highlights) {
-                QTextEdit::ExtraSelection selection{widget->textCursor(), format};
+                TextEditor::TextDocument::ExtraSelection selection{QTextCursor(document),
+                                                                  format};
                 const int &start = highlight.range().start().toPositionInDocument(document);
                 const int &end = highlight.range().end().toPositionInDocument(document);
                 if (start < 0 || end < 0)
@@ -989,14 +996,16 @@ void ClientPrivate::requestDocumentHighlightsNow(TextEditor::TextEditorWidget *w
             }
             if (!selections.isEmpty()) {
                 const QList<Text::Range> extraRanges = q->additionalDocumentHighlights(
-                    widget, adjustedCursor);
+                    textDocument, adjustedCursor);
                 for (const Text::Range &range : extraRanges) {
-                    QTextEdit::ExtraSelection selection{widget->textCursor(), format};
+                    TextEditor::TextDocument::ExtraSelection selection{QTextCursor(document),
+                                                                      format};
                     selection.cursor = range.toTextCursor(document);
                     if (!selection.cursor.hasSelection())
                         continue;
-                    static const auto cmp = [](const QTextEdit::ExtraSelection &s1,
-                                        const QTextEdit::ExtraSelection &s2) {
+                    static const auto cmp
+                        = [](const TextEditor::TextDocument::ExtraSelection &s1,
+                             const TextEditor::TextDocument::ExtraSelection &s2) {
                         return s1.cursor.position() < s2.cursor.position();
                     };
                     const auto it = std::lower_bound(selections.begin(), selections.end(),
@@ -1004,7 +1013,7 @@ void ClientPrivate::requestDocumentHighlightsNow(TextEditor::TextEditorWidget *w
                     selections.insert(it, selection);
                 }
             }
-            widget->setExtraSelections(id, selections);
+            TextEditor::setViewSelections(widget, id, selections);
         });
     m_highlightRequests[widget] = request.id();
     q->sendMessage(request);
@@ -1037,7 +1046,7 @@ void Client::activateEditor(Core::IEditor *editor)
         TextEditor::IOutlineWidgetFactory::updateOutline();
     if (TextEditor::TextEditorWidget *widget = TextEditor::TextEditorWidget::fromEditor(editor)) {
         widget->addHoverHandler(&d->m_hoverHandler);
-        d->requestDocumentHighlights(widget);
+        d->requestDocumentHighlights(editor);
         uint optionalActions = widget->optionalActions();
         if (symbolSupport().supportsFindUsages(widget->textDocument()))
             optionalActions |= TextEditor::OptionalActions::FindUsage;
@@ -1325,10 +1334,12 @@ void Client::documentContentsChanged(TextEditor::TextDocument *document,
 
     ++d->m_documentVersions[document->filePath()];
     using namespace TextEditor;
-    for (TextEditorWidget *widget : TextEditorWidget::textEditorWidgetsForDocument(document)) {
-        delete d->m_documentHighlightsTimer.take(widget);
+    for (Core::IEditor * const editor : Core::DocumentModel::editorsForDocument(document))
+        delete d->m_documentHighlightsTimer.take(editor);
+    for (TextEditorWidget *widget : TextEditorWidget::textEditorWidgetsForDocument(document))
         widget->clearRefactorMarkers(id());
-    }
+    // A view that is not a widget reads the markers from the document.
+    document->setRefactorMarkers(id(), {});
     d->m_documentUpdateTimer.start();
 }
 
@@ -1359,24 +1370,26 @@ void Client::setAutoRequestCodeActions(bool enabled)
     d->m_autoRequestCodeActions = enabled;
 }
 
-void Client::cursorPositionChanged(TextEditor::TextEditorWidget *widget)
+void Client::cursorPositionChanged(Core::IEditor *editor)
 {
     if (d->m_runningFindLinkRequest.isValid())
         cancelRequest(d->m_runningFindLinkRequest);
-    TextEditor::TextDocument *document = widget->textDocument();
+    const auto document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    QTC_ASSERT(document, return);
     if (d->m_documentsToUpdate.find(document) != d->m_documentsToUpdate.end())
         return; // we are currently changing this document so postpone the DocumentHighlightsRequest
-    d->requestDocumentHighlights(widget);
+    d->requestDocumentHighlights(editor);
     const Id selectionsId(TextEditor::TextEditorWidget::CodeSemanticsSelection);
-    const QList semanticSelections = widget->extraSelections(selectionsId);
+    const QList semanticSelections = TextEditor::viewSelections(editor, selectionsId);
     if (!semanticSelections.isEmpty()) {
+        const int pos = TextEditor::textCursorOf(editor).position();
         auto selectionContainsPos =
-            [pos = widget->position()](const QTextEdit::ExtraSelection &selection) {
+            [pos](const TextEditor::TextDocument::ExtraSelection &selection) {
                 const QTextCursor cursor = selection.cursor;
                 return cursor.selectionStart() <= pos && cursor.selectionEnd() >= pos;
             };
         if (!Utils::anyOf(semanticSelections, selectionContainsPos))
-            widget->setExtraSelections(selectionsId, {});
+            TextEditor::setViewSelections(editor, selectionsId, {});
     }
 }
 
@@ -2007,8 +2020,10 @@ void ClientPrivate::sendPostponedDocumentUpdates(Schedule semanticTokensSchedule
         q->sendMessage(update.notification, Client::SendDocUpdates::Ignore);
         emit q->documentUpdated(update.document);
 
-        if (currentWidget && currentWidget->textDocument() == update.document)
-            requestDocumentHighlights(currentWidget);
+        if (Core::IEditor * const current = Core::EditorManager::currentEditor();
+            current && current->document() == update.document) {
+            requestDocumentHighlights(current);
+        }
 
         switch (semanticTokensSchedule) {
         case Schedule::Now:

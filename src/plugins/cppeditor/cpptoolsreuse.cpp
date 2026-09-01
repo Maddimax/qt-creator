@@ -641,12 +641,12 @@ QList<Text::Range> symbolOccurrencesInText(const QTextDocument &doc, QStringView
     return ranges;
 }
 
-QList<Text::Range> symbolOccurrencesInDeclarationComments(CppEditorWidget *editorWidget,
+QList<Text::Range> symbolOccurrencesInDeclarationComments(CppEditorDocument *document,
                                                           const QTextCursor &cursor)
 {
-    if (!editorWidget)
+    if (!document)
         return {};
-    const SemanticInfo &semanticInfo = editorWidget->semanticInfo();
+    const SemanticInfo semanticInfo = document->semanticInfo();
     const Document::Ptr &cppDoc = semanticInfo.doc;
     if (!cppDoc)
         return {};
@@ -654,7 +654,7 @@ QList<Text::Range> symbolOccurrencesInDeclarationComments(CppEditorWidget *edito
     const Symbol * const symbol = cs(cursor);
     if (!symbol || !symbol->asArgument())
         return {};
-    const QTextDocument * const textDoc = editorWidget->textDocument()->document();
+    const QTextDocument * const textDoc = document->document();
     QTC_ASSERT(textDoc, return {});
     const QList<Token> comments = commentsForDeclaration(symbol, *textDoc, cppDoc);
     if (comments.isEmpty())

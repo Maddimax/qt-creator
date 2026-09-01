@@ -28,6 +28,7 @@ class TextEditorWidget;
 namespace Utils { namespace Text { class Range; } }
 
 namespace CppEditor {
+class CppEditorDocument;
 class CppEditorWidget;
 class CppRefactoringFile;
 class ProjectInfo;
@@ -109,8 +110,9 @@ QList<Utils::Text::Range> CPPEDITOR_EXPORT symbolOccurrencesInText(
     const QTextDocument &doc, QStringView text, int offset, const QString &symbolName);
 Utils::SearchResultItems CPPEDITOR_EXPORT
 symbolOccurrencesInDeclarationComments(const Utils::SearchResultItems &symbolOccurrencesInCode);
+// The document rather than a view: what this reads is the parse and the text.
 QList<Utils::Text::Range> CPPEDITOR_EXPORT symbolOccurrencesInDeclarationComments(
-    CppEditorWidget *editorWidget, const QTextCursor &cursor);
+    CppEditorDocument *document, const QTextCursor &cursor);
 
 bool fileSizeExceedsLimit(const Utils::FilePath &filePath, int sizeLimitInMb);
 

@@ -26048,3 +26048,60 @@ three of which now dispatch - and `LanguageClientManager` needs the same
 connection on the relay branch, driven by `IEditor::cursorPositionChanged`. That
 closes the five above and, with them, the last thing a C++ reader would notice
 missing in the Quick editor.
+
+## 2026-09-02 — The language client follows the caret in any view
+
+The gap the last entry named, closed. `SelectionsTest` in the Quick editor goes
+from **9 / 5** - where all nine were `Abort`-mode `QEXPECT_FAIL`s - to
+**13 / 1**, three runs the same.
+
+**Following the caret is not a request, which is why it was missed.** The relay
+this migration built carries the four things a reader *asks* for - usages,
+rename, call hierarchy, type-at. Document highlights are none of those: they
+happen as the caret moves, so there was nothing to relay and nobody noticed the
+widget branch was the only one wired.
+
+The chain was keyed on `TextEditorWidget *` from end to end - two `QHash`es,
+the debounce timer, the request, the response - and each use turned out to be
+the editor, the document or the caret:
+
+- `Client::cursorPositionChanged()` and `ClientPrivate::requestDocumentHighlights()`
+  take a `Core::IEditor *`; the maps are keyed by it.
+- The response applies through `TextEditor::setViewSelections()` and builds
+  `TextDocument::ExtraSelection`s, so `QTextEdit::ExtraSelection` leaves that
+  code entirely.
+- `Client::additionalDocumentHighlights()` takes a `TextDocument *`, and
+  CppEditor's `symbolOccurrencesInDeclarationComments()` with it - it wanted the
+  widget for `semanticInfo()` and `textDocument()->document()`, both the
+  document's since earlier batches.
+- Clearing the markers on an edit did `widget->clearRefactorMarkers()` for each
+  widget; it also tells the document now, which is where a view that is not one
+  reads them.
+
+`LanguageClientManager` connects `IEditor::cursorPositionChanged` in **both**
+branches - the widget branch used the widget's signal, which the editor forwards
+anyway, so the two are now one line each of the same shape.
+
+**Controls, and the second is the better one.** Dropping the relay branch's
+connection puts the Quick run back to 9 / 5 and leaves the widget at 14 / 0.
+Dropping the `setViewSelections()` at the end of the response costs **both**
+paths equally - 9 / 5 each - which is the proof that there is one application
+point now rather than a widget one and a Quick one.
+
+**One case still differs**: `testUseSelections(local uses)` times out in the
+Quick editor, three runs the same, while every other case including the other
+local-variable ones passes. It is the first entry in the data table, so a
+warm-up rather than a difference in kind is possible - the debounce is 250 ms,
+the wait is 2500 ms, and the server has to start. Worth measuring before
+assuming it is a bug.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `LanguageClient` 0 failures. Widget path: `CompletionTest`
+204, `FollowSymbolTest` 155, `DoxygenTest` 34, `SelectionsTest` 14,
+`GlobalRenamingTest` 4 - exit 0. No new file, no `.qbs` edit.
+
+**Next:** `testUseSelections(local uses)`, which is one case and answers whether
+anything is left here at all; then the last two `openCppEditor()` callers,
+`followsymbol_switchmethoddecldef_test` and `fileandtokenactions_test`, which
+call widget methods that have all moved by now - those are conversions rather
+than discoveries, and they finish gap 1.

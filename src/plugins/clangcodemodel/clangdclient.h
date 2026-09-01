@@ -152,7 +152,7 @@ private:
                               const Utils::FilePath &candidate) override;
     bool fileBelongsToProject(const Utils::FilePath &filePath) const override;
     QList<Utils::Text::Range> additionalDocumentHighlights(
-        TextEditor::TextEditorWidget *editorWidget, const QTextCursor &cursor) override;
+        TextEditor::TextDocument *document, const QTextCursor &cursor) override;
     bool shouldSendDidSave(const TextEditor::TextDocument *doc) const override;
 
     class Private;

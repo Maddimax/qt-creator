@@ -138,7 +138,11 @@ public:
                                  int position,
                                  int charsRemoved,
                                  int charsAdded);
-    void cursorPositionChanged(TextEditor::TextEditorWidget *widget);
+    // The caret moved in \a editor, which is showing one of this client's
+    // documents: ask the server what else the symbol under it touches. Takes
+    // the editor rather than the widget - the caret is the view's and every
+    // view has one.
+    void cursorPositionChanged(Core::IEditor *editor);
     bool documentUpdatePostponed(const Utils::FilePath &fileName) const;
     int documentVersion(const Utils::FilePath &filePath) const;
     int documentVersion(const LanguageServerProtocol::DocumentUri &uri) const;
@@ -257,7 +261,7 @@ private:
     virtual bool referencesShadowFile(const TextEditor::TextDocument *doc,
                                       const Utils::FilePath &candidate);
     virtual QList<Utils::Text::Range> additionalDocumentHighlights(
-        TextEditor::TextEditorWidget *, const QTextCursor &) { return {}; }
+        TextEditor::TextDocument *, const QTextCursor &) { return {}; }
     virtual bool shouldSendDidSave(const TextEditor::TextDocument *) const { return true; }
 };
 

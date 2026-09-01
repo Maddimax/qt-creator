@@ -15,6 +15,7 @@
 
 #include <cppeditor/cppeditorwidget.h>
 #include <cppeditor/cppfindreferences.h>
+#include <cppeditor/cppeditordocument.h>
 #include <cppeditor/cpptoolsreuse.h>
 
 #include <languageclient/languageclientsymbolsupport.h>
@@ -812,7 +813,8 @@ void ClangdFindLocalReferences::Private::handleReferences(const QList<Location> 
         if (editorWidget && document) {
             const QTextCursor cursor = pos.toTextCursor(document->document());
             const QList<Text::Range> occurrencesInComments
-                = symbolOccurrencesInDeclarationComments(editorWidget, cursor);
+                = symbolOccurrencesInDeclarationComments(
+                    qobject_cast<CppEditor::CppEditorDocument *>(document), cursor);
             for (const Text::Range &range : occurrencesInComments) {
                 static const auto cmp = [](const Link &l, const Text::Range &r) {
                     if (l.target.line < r.begin.line)
