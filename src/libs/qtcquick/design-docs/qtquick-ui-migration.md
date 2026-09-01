@@ -26282,3 +26282,64 @@ No new file, no `.qbs` edit.
 see and the last thing on the gap-3 list that a reader would notice. After that
 `fileandtokenactions_test` - two cases that run here, ten skipped, so it is
 tidiness rather than coverage - and then the switch.
+
+## 2026-09-02 — The override proposal, and the last measured difference is gone
+
+`FollowSymbolTest` is **155 / 0 in both views**. The eighteen
+`testFollowVirtualFunctionCall` cases the last entry located are closed, and
+with them the last difference the C++ suite can see.
+
+**The gate was the bug, not the popup.** The code read
+
+```cpp
+if (editorWidget && m_virtualFunctionAssistProvider->configure(params))
+```
+
+and `configure()` is what *works the overrides out*; the widget is only needed
+to *show* them. So a virtual call in the Quick editor did not merely fail to
+offer a choice - the question was never asked. The gate is `configure()` alone
+now, and showing goes through `invokeAssistIn()`, which gained the provider
+argument the widget's `invokeAssist()` always had. For a view that is not a
+widget a follow-symbol proposal is routed through the quick-fix channel,
+because a list to choose from is the shape that channel already carries.
+
+`editorFor(const CursorInEditor &)` is the last of the little lookups: the
+widget's editor where the data carries one, and otherwise the current editor if
+it is showing that document - which it is, because following a symbol is
+something the reader just did.
+
+**What the test proves and what it does not.** The eighteen cases exercise
+`configure()`: the test's provider computes the proposals there and returns
+false, so `invokeAssistIn()` is never reached from them. **The showing of the
+proposal in the Quick editor is therefore unexercised** - the routing is
+written and argued for, and no test has seen it. Said here rather than counted
+as covered, and it is the first thing to check by hand.
+
+Negative control: the `editorWidget &&` gate put back, which is 137 / 18 in the
+Quick editor and 155 / 0 on the widget path - exactly the state this batch
+started from. A second control on the routing is not possible for the reason
+above.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `FollowSymbolTest` 155 / 0 in both. `ClangCodeModel` has
+one failure, `ClangdTestHighlighting::initTestCase()` timing out waiting for the
+server - it is before any of this code runs and needs a configured clangd, so it
+is environmental here. No new file, no `.qbs` edit.
+
+**Where this leaves the migration.** Of the twenty-eight classes the sweep
+measured, twenty-seven now give identical answers in both views; the twenty-
+eighth is `FileAndTokenActionsTest`, which is 2 / 0 in both and skips ten cases
+here, so it agrees too - it is simply not saying much. **There is no measured
+difference left.**
+
+**Next**, and the plan is nearly out of gaps:
+
+1. Check by hand that following a virtual call in the Quick editor offers the
+   overrides, since no test covers the showing.
+2. `fileandtokenactions_test`, for tidiness rather than coverage.
+3. The switch: `setUsesQuickEditor(true)` in `CppEditorFactory` without the
+   environment variable, `QTC_WIDGET_CPP_EDITOR` as the way back. The things
+   knowingly missing are `CppLocalRenaming` - the in-place rename mode, with
+   global rename as the fallback the widget itself uses - and the C++ toolbar
+   extras (the outline combo, the parse-context and preprocessor buttons),
+   which no test covers and which this document has never counted.

@@ -10270,22 +10270,28 @@ void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor)
         view->setTextCursor(cursor);
 }
 
-void invokeAssistIn(Core::IEditor *editor, AssistKind kind)
+void invokeAssistIn(Core::IEditor *editor, AssistKind kind, IAssistProvider *provider)
 {
     if (!editor)
         return;
     if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
-        widget->invokeAssist(kind);
+        widget->invokeAssist(kind, provider);
         return;
     }
     TextViewport * const view = Internal::viewportForEditor(editor);
     if (!view)
         return;
     switch (kind) {
-    case QuickFix: view->requestQuickFixes(); break;
+    case QuickFix: view->requestQuickFixes(provider); break;
     case Completion: view->requestCompletions(); break;
     case FunctionHint: view->requestFunctionHint(); break;
-    case FollowSymbol: break; // Not an assist the viewport offers on demand.
+    case FollowSymbol:
+        // A follow-symbol proposal is a list to choose from, which is the
+        // shape the quick-fix channel already carries. Only with a provider:
+        // there is no such thing to ask the document for.
+        if (provider)
+            view->requestQuickFixes(provider);
+        break;
     }
 }
 

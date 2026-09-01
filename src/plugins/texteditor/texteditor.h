@@ -892,7 +892,11 @@ TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);
 // Put the caret in \a editor's view where \a cursor is, and ask its language
 // for \a kind. Both dispatch on the view the same way the pair above does.
 TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
-TEXTEDITOR_EXPORT void invokeAssistIn(Core::IEditor *editor, AssistKind kind);
+// \a provider is the one to ask, where the caller has a particular one in
+// mind - the choice of override behind a virtual call is a proposal from a
+// provider of its own rather than the document's.
+TEXTEDITOR_EXPORT void invokeAssistIn(Core::IEditor *editor, AssistKind kind,
+                                      IAssistProvider *provider = nullptr);
 
 // Go to \a link the way \a editor's view would: a jump within the same file,
 // or the editor manager for anything else. Answers whether it went anywhere.

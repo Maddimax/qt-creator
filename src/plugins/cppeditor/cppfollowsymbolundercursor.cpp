@@ -3,6 +3,12 @@
 
 #include "cppfollowsymbolundercursor.h"
 
+#include <texteditor/texteditor.h>
+
+#include <coreplugin/editormanager/ieditor.h>
+
+#include <coreplugin/editormanager/editormanager.h>
+
 #include "baseeditordocumentprocessor.h"
 #include "cppeditordocument.h"
 #include "cppeditorwidget.h"
@@ -516,6 +522,19 @@ FollowSymbolUnderCursor::FollowSymbolUnderCursor()
 {
 }
 
+// The editor \a data was taken in. The widget where it carries one, and
+// otherwise whichever editor is showing that document - which is the one the
+// reader is in, because following a symbol is something they just did.
+static Core::IEditor *editorFor(const CursorInEditor &data)
+{
+    if (data.editorWidget())
+        return TextEditor::editorForWidget(data.editorWidget());
+    Core::IEditor * const current = Core::EditorManager::currentEditor();
+    if (current && current->document() == data.textDocument())
+        return current;
+    return nullptr;
+}
+
 static int skipMatchingParentheses(const Tokens &tokens, int idx, int initialDepth)
 {
     int j = idx;
@@ -660,7 +679,7 @@ void FollowSymbolUnderCursor::findLink(
     }
 
     // May be absent: a view that is not a TextEditorWidget still gets a link,
-    // it only misses the two things below that are a widget's to show.
+    // it only misses the preprocessor popup below, which is a widget's to show.
     CppEditorWidget * const editorWidget = data.editorWidget();
 
     // Now we prefer the doc from the snapshot with macros expanded.
@@ -789,12 +808,13 @@ void FollowSymbolUnderCursor::findLink(
                     params.cursorPosition = cursor.position();
                     params.openInNextSplit = inNextSplit;
 
-                    // The choice of override is offered as a popup, which
-                    // only a widget can put up; without one the link below
-                    // still points at the declaration.
-                    if (editorWidget && m_virtualFunctionAssistProvider->configure(params)) {
-                        editorWidget->invokeTextEditorWidgetAssist(
-                                    FollowSymbol,m_virtualFunctionAssistProvider.data());
+                    // The choice of override is a proposal, and the provider
+                    // is what works it out - so it is asked whatever the view
+                    // is, and only showing the answer needs one.
+                    if (m_virtualFunctionAssistProvider->configure(params)) {
+                        TextEditor::invokeAssistIn(editorFor(data),
+                                                   FollowSymbol,
+                                                   m_virtualFunctionAssistProvider.data());
                         m_virtualFunctionAssistProvider->clearParams();
                     }
 
