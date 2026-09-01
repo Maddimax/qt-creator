@@ -26002,3 +26002,49 @@ selections, and `followsymbol_switchmethoddecldef_test` with
 to do next: the selections are the document's or the view's depending on kind,
 and this document already knows which is which, so it is a conversion rather
 than a discovery.
+
+## 2026-09-02 — The use selections, and who really produces them
+
+Fifth slice of gap 1. `cppuseselections_test` wanted the widget for five
+things and every one had somewhere to go already: the opener, the caret
+(`setTextCursorOf()`), the rehighlight wait's document overload,
+`convertPosition()` - which is `Utils::Text`'s, not the widget's - and
+`extraSelections(CodeSemanticsSelection)`, which is
+`TextEditor::viewSelections()` since the use-selections batch. The conversion
+is mechanical; what it found is not.
+
+**With clangd, nothing highlights the symbol under the caret in the Quick
+editor at all.** The test is 14 / 0 on the widget path and 9 / 5 in the Quick
+one, and the nine are not nine successes: **every one of them is an
+`Abort`-mode `QEXPECT_FAIL`** for a case clangd does not answer - four macro
+cases and one macro-argument case. The five that fail are exactly the five that
+expect selections, and they fail by timing out.
+
+The reason is one connection. `Client::cursorPositionChanged(TextEditorWidget *)`
+is what asks the server for document highlights, and `LanguageClientManager`
+wires it to `TextEditorWidget::cursorPositionChanged` - in the widget branch
+only. The relay branch that this migration added for a view that is not a widget
+carries usages, rename, call hierarchy and type-at, and **not this**, because
+this one is not a request the reader makes; it happens as the caret moves.
+
+That also explains a control that looked wrong. Making `setViewSelections()`
+skip the viewport changed nothing - 9 / 5 either way - because in the Quick
+editor **nothing calls it**: with clangd the built-in updater stands down
+(`m_updateSelections = !usesClangd(...)`) and the language client never starts.
+A control cannot bite on a path that is not taken, and that is the finding, not
+a flaw in the control.
+
+The control that did bite: the harness opening with `openCppEditor()` again,
+which is 4 / 10 - it does not even get as far as timing out.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `CppEditor,SelectionsTest` 14 / 0 on the widget path.
+No new file, no `.qbs` edit.
+
+**Next**, and it is a feature rather than a harness slice: **the language client
+has to follow the caret in any view.** `Client::cursorPositionChanged()` takes a
+widget and uses it for the document, the caret and `extraSelections()` - all
+three of which now dispatch - and `LanguageClientManager` needs the same
+connection on the relay branch, driven by `IEditor::cursorPositionChanged`. That
+closes the five above and, with them, the last thing a C++ reader would notice
+missing in the Quick editor.

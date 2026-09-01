@@ -3,6 +3,14 @@
 
 #include "cppuseselections_test.h"
 
+#include <utils/textutils.h>
+
+#include <coreplugin/editormanager/ieditor.h>
+
+#include <texteditor/texteditor.h>
+
+#include "cppeditordocument.h"
+
 #include "cppeditorwidget.h"
 #include "cppmodelmanager.h"
 #include "cpptoolstestcase.h"
@@ -50,12 +58,16 @@ public:
                           const SelectionList &expectedSelections);
 
 private:
-    SelectionList toSelectionList(const QList<QTextEdit::ExtraSelection> &extraSelections) const;
-    QList<QTextEdit::ExtraSelection> getExtraSelections() const;
+    using Selections = QList<TextEditor::TextDocument::ExtraSelection>;
+    SelectionList toSelectionList(const Selections &selections) const;
+    Selections drawnSelections() const;
     SelectionList waitForUseSelections(bool *hasTimedOut) const;
 
 private:
-    CppEditorWidget *m_editorWidget = nullptr;
+    // The editor, whichever view it is: where the symbol under the caret is
+    // marked is per view, and both views answer viewSelections().
+    Core::IEditor *m_editor = nullptr;
+    QTextDocument *m_text = nullptr;
 };
 
 UseSelectionsTestCase::UseSelectionsTestCase(CppTestDocument &testFile,
@@ -71,11 +83,16 @@ UseSelectionsTestCase::UseSelectionsTestCase(CppTestDocument &testFile,
     testFile.setBaseDirectory(temporaryDir.path());
     testFile.writeToDisk();
 
-    QVERIFY(openCppEditor(testFile.filePath(), &testFile.m_editor, &m_editorWidget));
-    closeEditorAtEndOfTestCase(testFile.m_editor);
+    QVERIFY(openCppEditorInAnyView(testFile.filePath(), &m_editor));
+    closeEditorAtEndOfTestCase(m_editor);
+    auto * const cppDocument = qobject_cast<CppEditorDocument *>(m_editor->document());
+    QVERIFY(cppDocument);
+    m_text = cppDocument->document();
 
-    testFile.m_editor->setCursorPosition(testFile.m_cursorPosition);
-    QVERIFY(waitForRehighlightedSemanticDocument(m_editorWidget));
+    QTextCursor caret(m_text);
+    caret.setPosition(testFile.m_cursorPosition);
+    TextEditor::setTextCursorOf(m_editor, caret);
+    QVERIFY(waitForRehighlightedSemanticDocument(cppDocument));
 
     bool hasTimedOut;
     const SelectionList selections = waitForUseSelections(&hasTimedOut);
@@ -102,23 +119,22 @@ UseSelectionsTestCase::UseSelectionsTestCase(CppTestDocument &testFile,
     QCOMPARE(selections, expectedSelections);
 }
 
-SelectionList UseSelectionsTestCase::toSelectionList(
-        const QList<QTextEdit::ExtraSelection> &extraSelections) const
+SelectionList UseSelectionsTestCase::toSelectionList(const Selections &selections) const
 {
     SelectionList result;
-    for (const QTextEdit::ExtraSelection &selection : extraSelections) {
+    for (const TextEditor::TextDocument::ExtraSelection &selection : selections) {
         int line, column;
         const int position = qMin(selection.cursor.position(), selection.cursor.anchor());
-        m_editorWidget->convertPosition(position, &line, &column);
+        Utils::Text::convertPosition(m_text, position, &line, &column);
         result << Selection(line, column, selection.cursor.selectedText().size());
     }
     return result;
 }
 
-QList<QTextEdit::ExtraSelection> UseSelectionsTestCase::getExtraSelections() const
+UseSelectionsTestCase::Selections UseSelectionsTestCase::drawnSelections() const
 {
-    return m_editorWidget->extraSelections(
-        TextEditor::TextEditorWidget::CodeSemanticsSelection);
+    return TextEditor::viewSelections(m_editor,
+                                      TextEditor::TextEditorWidget::CodeSemanticsSelection);
 }
 
 SelectionList UseSelectionsTestCase::waitForUseSelections(bool *hasTimedOut) const
@@ -128,18 +144,18 @@ SelectionList UseSelectionsTestCase::waitForUseSelections(bool *hasTimedOut) con
     if (hasTimedOut)
         *hasTimedOut = false;
 
-    QList<QTextEdit::ExtraSelection> extraSelections = getExtraSelections();
-    while (extraSelections.isEmpty()) {
+    Selections selections = drawnSelections();
+    while (selections.isEmpty()) {
         if (timer.hasExpired(2500)) {
             if (hasTimedOut)
                 *hasTimedOut = true;
             break;
         }
         QCoreApplication::processEvents();
-        extraSelections = getExtraSelections();
+        selections = drawnSelections();
     }
 
-    return toSelectionList(extraSelections);
+    return toSelectionList(selections);
 }
 
 void SelectionsTest::testUseSelections_data()
