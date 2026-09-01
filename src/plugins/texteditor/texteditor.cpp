@@ -10207,6 +10207,60 @@ bool openLinkInEditor(Core::IEditor *editor, const Utils::Link &link, bool inNex
     return false;
 }
 
+void setViewSelections(Core::IEditor *editor, Utils::Id kind,
+                       const QList<TextDocument::ExtraSelection> &selections)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        QList<QTextEdit::ExtraSelection> forWidget;
+        forWidget.reserve(selections.size());
+        for (const TextDocument::ExtraSelection &selection : selections)
+            forWidget.append({selection.cursor, selection.format});
+        widget->setExtraSelections(kind, forWidget);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        QList<TextViewport::Highlight> highlights;
+        highlights.reserve(selections.size());
+        for (const TextDocument::ExtraSelection &selection : selections) {
+            if (selection.cursor.hasSelection()) {
+                highlights.append({selection.cursor.selectionStart(),
+                                   selection.cursor.selectionEnd(),
+                                   selection.format});
+            }
+        }
+        view->setHighlights(kind, highlights);
+    }
+}
+
+QList<TextDocument::ExtraSelection> viewSelections(Core::IEditor *editor, Utils::Id kind)
+{
+    if (!editor)
+        return {};
+    QList<TextDocument::ExtraSelection> selections;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        const QList<QTextEdit::ExtraSelection> drawn = widget->extraSelections(kind);
+        selections.reserve(drawn.size());
+        for (const QTextEdit::ExtraSelection &selection : drawn)
+            selections.append({selection.cursor, selection.format});
+        return selections;
+    }
+    TextViewport * const view = Internal::viewportForEditor(editor);
+    TextDocument * const document = view ? view->textDocument() : nullptr;
+    if (!document)
+        return {};
+    const QList<TextViewport::Highlight> drawn = view->highlights(kind);
+    selections.reserve(drawn.size());
+    for (const TextViewport::Highlight &highlight : drawn) {
+        QTextCursor cursor(document->document());
+        cursor.setPosition(highlight.start);
+        cursor.setPosition(highlight.end, QTextCursor::KeepAnchor);
+        selections.append({cursor, highlight.format});
+    }
+    return selections;
+}
+
 void TextEditorFactory::addEditorContext(Id id)
 {
     d->m_editorContexts.add(id);

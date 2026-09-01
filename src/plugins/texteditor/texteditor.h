@@ -12,6 +12,7 @@
 #include "indenter.h"
 #include "refactoroverlay.h"
 #include "snippets/snippetparser.h"
+#include "textdocument.h"
 
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
@@ -874,6 +875,16 @@ TEXTEDITOR_EXPORT QTextCursor textCursorOf(Core::IEditor *editor);
 // or the editor manager for anything else. Answers whether it went anywhere.
 TEXTEDITOR_EXPORT bool openLinkInEditor(Core::IEditor *editor, const Utils::Link &link,
                                         bool inNextSplit = false);
+
+// Ranges drawn differently in \a editor's view, replacing whatever was drawn
+// for \a kind. This view rather than the document, because these follow a
+// caret - where else the symbol under it is used - and two views of one file
+// have two carets. TextDocument::setExtraSelections() is the other half of the
+// pair, for the ones that are facts about the file.
+TEXTEDITOR_EXPORT void setViewSelections(Core::IEditor *editor, Utils::Id kind,
+                                         const QList<TextDocument::ExtraSelection> &selections);
+TEXTEDITOR_EXPORT QList<TextDocument::ExtraSelection> viewSelections(Core::IEditor *editor,
+                                                                     Utils::Id kind);
 
 } // namespace TextEditor
 

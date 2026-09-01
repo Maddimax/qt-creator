@@ -890,20 +890,6 @@ void CppEditorWidget::updatePreprocessorButtonTooltip()
     d->m_preprocessorButton->setToolTip(cmd->action()->toolTip());
 }
 
-// The editor this widget is the view of. The jumps below are the editor's
-// once any view can make them, and this is the one line that gets from here
-// to there.
-static Core::IEditor *editorFor(CppEditorWidget *widget)
-{
-    const QList<TextEditor::BaseTextEditor *> editors
-        = TextEditor::BaseTextEditor::textEditorsForDocument(widget->textDocument());
-    for (TextEditor::BaseTextEditor * const editor : editors) {
-        if (editor->editorWidget() == widget)
-            return editor;
-    }
-    return nullptr;
-}
-
 void CppEditorWidget::switchDeclarationDefinition(bool inNextSplit)
 {
     CppEditor::switchDeclarationDefinition(editorFor(this), inNextSplit);

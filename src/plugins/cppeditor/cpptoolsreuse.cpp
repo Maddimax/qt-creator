@@ -139,6 +139,19 @@ QStringList identifierWordsUnderCursor(const QTextCursor &tc)
     return results;
 }
 
+Core::IEditor *editorFor(TextEditor::TextEditorWidget *widget)
+{
+    if (!widget)
+        return nullptr;
+    const QList<TextEditor::BaseTextEditor *> editors
+        = TextEditor::BaseTextEditor::textEditorsForDocument(widget->textDocument());
+    for (TextEditor::BaseTextEditor * const editor : editors) {
+        if (editor->editorWidget() == widget)
+            return editor;
+    }
+    return nullptr;
+}
+
 // The three things every jump of this shape needs: where the caret is, what
 // to ask about it, and where to put the reader when the answer comes back.
 static void jumpFromCaret(

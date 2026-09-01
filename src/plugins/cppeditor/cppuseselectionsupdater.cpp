@@ -6,12 +6,24 @@
 #include "cppeditordocument.h"
 #include "cppeditorwidget.h"
 #include "cppmodelmanager.h"
+#include "cpptoolsreuse.h"
+
+#include <coreplugin/editormanager/ieditor.h>
 
 #include <texteditor/fontsettings.h>
+#include <texteditor/texteditor.h>
 
 #include <utils/futuresynchronizer.h>
 #include <utils/qtcassert.h>
 #include <utils/textutils.h>
+
+#ifdef WITH_TESTS
+#include "clangdsettings.h"
+#include <coreplugin/editormanager/editormanager.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#endif
 
 #include <QCoreApplication>
 #include <QTextBlock>
@@ -27,6 +39,52 @@ CppUseSelectionsUpdater::CppUseSelectionsUpdater(CppEditorWidget *editorWidget)
     m_timer.setSingleShot(true);
     m_timer.setInterval(updateUseSelectionsInternalInMs);
     connect(&m_timer, &QTimer::timeout, this, [this] { update(); });
+}
+
+CppUseSelectionsUpdater::CppUseSelectionsUpdater(Core::IEditor *editor)
+    : m_editor(editor)
+{
+    m_timer.setSingleShot(true);
+    m_timer.setInterval(updateUseSelectionsInternalInMs);
+    connect(&m_timer, &QTimer::timeout, this, [this] { update(); });
+}
+
+Core::IEditor *CppUseSelectionsUpdater::editor() const
+{
+    return m_editorWidget ? editorFor(m_editorWidget) : m_editor.data();
+}
+
+CppEditorDocument *CppUseSelectionsUpdater::cppDocument() const
+{
+    if (m_editorWidget)
+        return qobject_cast<CppEditorDocument *>(m_editorWidget->textDocument());
+    return m_editor ? qobject_cast<CppEditorDocument *>(m_editor->document()) : nullptr;
+}
+
+QTextCursor CppUseSelectionsUpdater::cursor() const
+{
+    return m_editorWidget ? m_editorWidget->textCursor() : TextEditor::textCursorOf(m_editor);
+}
+
+int CppUseSelectionsUpdater::revision() const
+{
+    CppEditorDocument * const document = cppDocument();
+    return document ? document->document()->revision() : -1;
+}
+
+bool CppUseSelectionsUpdater::isRenaming() const
+{
+    return m_editorWidget && m_editorWidget->isRenaming();
+}
+
+// The widget's own where there is one: it has the local uses patched into it
+// as the caret moves, and that is what this is about to work out again.
+SemanticInfo CppUseSelectionsUpdater::semanticInfo() const
+{
+    if (m_editorWidget)
+        return m_editorWidget->semanticInfo();
+    CppEditorDocument * const document = cppDocument();
+    return document ? document->semanticInfo() : SemanticInfo();
 }
 
 CppUseSelectionsUpdater::~CppUseSelectionsUpdater()
@@ -47,18 +105,18 @@ void CppUseSelectionsUpdater::abortSchedule()
 
 CppUseSelectionsUpdater::RunnerInfo CppUseSelectionsUpdater::update(CallType callType)
 {
-    auto *cppEditorWidget = qobject_cast<CppEditorWidget *>(m_editorWidget);
-    QTC_ASSERT(cppEditorWidget, return RunnerInfo::FailedToStart);
-
-    auto *cppEditorDocument = qobject_cast<CppEditorDocument *>(cppEditorWidget->textDocument());
+    CppEditorDocument * const cppEditorDocument = cppDocument();
     QTC_ASSERT(cppEditorDocument, return RunnerInfo::FailedToStart);
 
-    m_updateSelections = !CppModelManager::usesClangd(cppEditorDocument)
-                         && !m_editorWidget->isRenaming();
+    const QTextCursor caret = cursor();
+    if (caret.isNull())
+        return RunnerInfo::FailedToStart;
+
+    m_updateSelections = !CppModelManager::usesClangd(cppEditorDocument) && !isRenaming();
 
     CursorInfoParams params;
-    params.semanticInfo = cppEditorWidget->semanticInfo();
-    params.textCursor = Utils::Text::wordStartCursor(cppEditorWidget->textCursor());
+    params.semanticInfo = semanticInfo();
+    params.textCursor = Utils::Text::wordStartCursor(caret);
 
     if (callType == CallType::Asynchronous) {
         if (isSameIdentifierAsBefore(params.textCursor))
@@ -71,7 +129,7 @@ CppUseSelectionsUpdater::RunnerInfo CppUseSelectionsUpdater::update(CallType cal
         connect(m_runnerWatcher.get(), &QFutureWatcherBase::finished,
                 this, &CppUseSelectionsUpdater::onFindUsesFinished);
 
-        m_runnerRevision = m_editorWidget->document()->revision();
+        m_runnerRevision = revision();
         m_runnerWordStartPosition = params.textCursor.position();
 
         m_runnerWatcher->setFuture(cppEditorDocument->cursorInfo(params));
@@ -104,7 +162,7 @@ CppUseSelectionsUpdater::RunnerInfo CppUseSelectionsUpdater::update(CallType cal
 bool CppUseSelectionsUpdater::isSameIdentifierAsBefore(const QTextCursor &cursorAtWordStart) const
 {
     return m_runnerRevision != -1
-        && m_runnerRevision == m_editorWidget->document()->revision()
+        && m_runnerRevision == revision()
         && m_runnerWordStartPosition == cursorAtWordStart.position();
 }
 
@@ -118,7 +176,12 @@ void CppUseSelectionsUpdater::processResults(const CursorInfo &result)
                 localVariableSelections = selections;
         }
         updateUnusedSelections(result.unusedVariablesRanges);
-        emit selectionsForVariableUnderCursorUpdated(localVariableSelections);
+        // The local renaming this feeds is the widget's, and so is its type.
+        QList<QTextEdit::ExtraSelection> forRenaming;
+        forRenaming.reserve(localVariableSelections.size());
+        for (const TextEditor::TextDocument::ExtraSelection &selection : localVariableSelections)
+            forRenaming.append({selection.cursor, selection.format});
+        emit selectionsForVariableUnderCursorUpdated(forRenaming);
     }
     emit finished(result.localUses, true);
 }
@@ -132,12 +195,11 @@ void CppUseSelectionsUpdater::onFindUsesFinished()
         emit finished(SemanticInfo::LocalUseMap(), false);
         return;
     }
-    if (m_runnerRevision != m_editorWidget->document()->revision()) {
+    if (m_runnerRevision != revision()) {
         emit finished(SemanticInfo::LocalUseMap(), false);
         return;
     }
-    if (m_runnerWordStartPosition
-            != Utils::Text::wordStartCursor(m_editorWidget->textCursor()).position()) {
+    if (m_runnerWordStartPosition != Utils::Text::wordStartCursor(cursor()).position()) {
         emit finished(SemanticInfo::LocalUseMap(), false);
         return;
     }
@@ -154,20 +216,22 @@ CppUseSelectionsUpdater::toExtraSelections(const CursorInfo::Ranges &ranges,
     CppUseSelectionsUpdater::ExtraSelections selections;
     selections.reserve(ranges.size());
 
+    CppEditorDocument * const cppEditorDocument = cppDocument();
+    QTC_ASSERT(cppEditorDocument, return selections);
+    QTextDocument * const document = cppEditorDocument->document();
+    const QTextCharFormat format = cppEditorDocument->fontSettings().toTextCharFormat(style);
+
     for (const CursorInfo::Range &range : ranges) {
-        QTextDocument *document = m_editorWidget->document();
         const int position
                 = document->findBlockByNumber(static_cast<int>(range.line) - 1).position()
                     + static_cast<int>(range.column) - 1;
         const int anchor = position + static_cast<int>(range.length);
 
-        QTextEdit::ExtraSelection sel;
-        sel.format = m_editorWidget->textDocument()->fontSettings().toTextCharFormat(style);
-        sel.cursor = QTextCursor(document);
-        sel.cursor.setPosition(anchor);
-        sel.cursor.setPosition(position, QTextCursor::KeepAnchor);
+        QTextCursor selection(document);
+        selection.setPosition(anchor);
+        selection.setPosition(position, QTextCursor::KeepAnchor);
 
-        selections.append(sel);
+        selections.append({selection, format});
     }
 
     return selections;
@@ -176,15 +240,17 @@ CppUseSelectionsUpdater::toExtraSelections(const CursorInfo::Ranges &ranges,
 CppUseSelectionsUpdater::ExtraSelections
 CppUseSelectionsUpdater::currentUseSelections() const
 {
-    return m_editorWidget->extraSelections(TextEditor::TextEditorWidget::CodeSemanticsSelection);
+    return TextEditor::viewSelections(editor(),
+                                     TextEditor::TextEditorWidget::CodeSemanticsSelection);
 }
 
 CppUseSelectionsUpdater::ExtraSelections
 CppUseSelectionsUpdater::updateUseSelections(const CursorInfo::Ranges &ranges)
 {
     const ExtraSelections selections = toExtraSelections(ranges, TextEditor::C_OCCURRENCES);
-    m_editorWidget->setExtraSelections(TextEditor::TextEditorWidget::CodeSemanticsSelection,
-                                       selections);
+    TextEditor::setViewSelections(editor(),
+                                  TextEditor::TextEditorWidget::CodeSemanticsSelection,
+                                  selections);
 
     return selections;
 }
@@ -192,8 +258,94 @@ CppUseSelectionsUpdater::updateUseSelections(const CursorInfo::Ranges &ranges)
 void CppUseSelectionsUpdater::updateUnusedSelections(const CursorInfo::Ranges &ranges)
 {
     const ExtraSelections selections = toExtraSelections(ranges, TextEditor::C_OCCURRENCES_UNUSED);
-    m_editorWidget->setExtraSelections(TextEditor::TextEditorWidget::UnusedSymbolSelection,
-                                       selections);
+    TextEditor::setViewSelections(editor(),
+                                  TextEditor::TextEditorWidget::UnusedSymbolSelection,
+                                  selections);
 }
 
+
+#ifdef WITH_TESTS
+
+// The symbol under the caret, marked everywhere else it is used. Every step of
+// it went through CppEditorWidget - the caret, the semantic info, and the
+// extra selections it drew - so a C++ file in the Qt Quick editor showed none
+// of it, and nobody even made an updater for that editor.
+class UseSelectionsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testUsesAreMarkedInAnyView()
+    {
+        Utils::TemporaryDirectory dir("cpp-use-selections-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents(
+            "int main()\n{\n    int alpha = 1;\n    return alpha + alpha;\n}\n"));
+
+        // The built-in model works these out; clangd marks them itself, and
+        // usesClangd() is settled when the document is opened.
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // Made by the plugin for this editor, because nothing else would.
+        auto * const updater = editor->findChild<CppUseSelectionsUpdater *>();
+        QVERIFY2(updater, "nobody made an updater for an editor that is not a widget");
+
+        // On alpha where it is declared. All three of it are one symbol, so
+        // all three are marked.
+        editor->gotoLine(3, 10);
+        updater->update(CppUseSelectionsUpdater::CallType::Synchronous);
+
+        const QList<TextEditor::TextDocument::ExtraSelection> marked
+            = TextEditor::viewSelections(editor,
+                                         TextEditor::TextEditorWidget::CodeSemanticsSelection);
+        QCOMPARE(marked.size(), 3);
+        for (const TextEditor::TextDocument::ExtraSelection &selection : marked)
+            QCOMPARE(selection.cursor.selectedText(), QString("alpha"));
+
+        // And the caret somewhere that is not a symbol marks nothing, so what
+        // is asserted above is the symbol rather than the file.
+        editor->gotoLine(2, 1);
+        updater->update(CppUseSelectionsUpdater::CallType::Synchronous);
+        QVERIFY2(TextEditor::viewSelections(
+                     editor, TextEditor::TextEditorWidget::CodeSemanticsSelection).isEmpty(),
+                 "a caret on nothing still marked something");
+    }
+};
+
+QObject *createUseSelectionsTest()
+{
+    return new UseSelectionsTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace CppEditor::Internal
+
+#ifdef WITH_TESTS
+#include "cppuseselectionsupdater.moc"
+#endif

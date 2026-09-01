@@ -25232,3 +25232,79 @@ anything else. Rename has a view-free fallback already: `renameUsages()` is
 what `CppEditorWidget` does when local renaming cannot start, so wiring
 `SymbolRequests::requestRename` to it would give the Quick editor global rename
 without touching the local-renaming mode at all.
+
+## 2026-09-01 — The symbol under the caret, marked in either view
+
+Fourth of gap 3, and the one a reader misses first. Every step of it went
+through `CppEditorWidget` - the caret, the semantic info, and the extra
+selections it drew - and worse, **nobody made an updater at all** for a view
+that is not that widget: `CppEditorWidgetPrivate` owns one, so a C++ file in
+the Quick editor had no `CppUseSelectionsUpdater` in existence.
+
+**The plan's guess was half right.** `TextViewport` does already draw the
+document's extra selections (`updateDocumentSelections()`), and
+`TextEditorWidget::setExtraSelections()` already forwards the document-wide
+kinds to the document so the other view can draw them. But
+`CodeSemanticsSelection` is deliberately **not** in that shared set, and should
+not be: where else the symbol under the caret is used depends on *which caret*,
+and two split views of one file have two. Only `UnusedSymbolSelection` is a
+fact about the file.
+
+So this is a **per-view** set, and it gets the per-view pair to match the ones
+the last two batches added:
+
+```cpp
+TEXTEDITOR_EXPORT void setViewSelections(Core::IEditor *editor, Utils::Id kind,
+                                         const QList<TextDocument::ExtraSelection> &selections);
+TEXTEDITOR_EXPORT QList<TextDocument::ExtraSelection> viewSelections(Core::IEditor *editor,
+                                                                     Utils::Id kind);
+```
+
+`TextEditorWidget::setExtraSelections()` for one view, `TextViewport::setHighlights()`
+for the other - which is the same conversion the viewport already does for the
+document's, `{cursor.selectionStart(), cursor.selectionEnd(), format}`.
+`QTextEdit::ExtraSelection` stays inside the widget half.
+
+`CppUseSelectionsUpdater` now takes either a `CppEditorWidget *` or a
+`Core::IEditor *`, and everything it wanted from the view goes through six
+accessors: the editor, the document, the caret, the revision, whether a rename
+is in progress and the semantic info. Only two of those differ per view - the
+caret, and *is a rename in progress*, which is a widget editing mode and so is
+simply false elsewhere. **The editor is found rather than held for the widget
+case**: the widget is constructed before the editor that shows it, and the
+updater is made with the widget, so holding one would hold null forever.
+`editorFor()` moved to `cpptoolsreuse.h` for that.
+
+**And somebody has to own one.** The plugin makes an updater for every C++
+editor that is not a widget, parented to the editor, scheduled on
+`IEditor::cursorPositionChanged` and on `semanticInfoUpdated`. That is the same
+pair the widget wires up for itself.
+
+Negative controls, all three bit: nobody making an updater, which fails on the
+`findChild`; `setViewSelections()` not reaching the viewport, which marks
+nothing; and the semantic info coming only from a widget, likewise. The test
+also asserts the *other* direction - a caret on an empty line marks nothing -
+so what it measures is the symbol rather than the file.
+
+**Two CppEditor classes failed once and have not since.** In one sweep
+`SelectionsTest` was 13/1 and `GlobalRenamingTest` 2/2; both are 14/0 and 4/0
+in three runs each afterwards, in separate processes. That is the standing
+CppEditor flakiness this document has recorded before, but it is worth naming
+because those two are exactly the classes this batch touches - if they fail
+again, look here first.
+
+`TextEditor` 403 passed across 18 classes, 0 failed, exit 0. QuickUi 208 passed,
+0 failed, exit 0 - one run before it hit the `testTheListingCanBeReadBothWaysRound`
+sort flake for the third time this session. `CppEditor`: `SelectionsTest` 14,
+`QuickFixAssistTest` 4, `GlobalRenamingTest` 4, `UseSelectionsTest` 3,
+`SymbolJumpTest` 3, `CppOutlineTest` 3, `CppTypeHierarchyTest` 3 - exit 0.
+No new file, no `.qbs` edit.
+
+**Next:** of gap 3 there remain `FunctionDeclDefLink` - a refactor marker plus a
+widget-side undo group, so the marker has to be a document-level thing before
+the link can move - and `CppLocalRenaming`, an editing mode which is the one
+thing on this list that genuinely belongs to a view. The cheap win beside them
+is **global rename**, which needs no local-renaming mode at all: wiring
+`SymbolRequests::requestRename` to what `CppEditorWidget::renameUsages()` does
+would give the Quick editor Rename Symbol, and `showRenameWarningIfFileIsGenerated()`
+is already a widget method that touches no widget state.

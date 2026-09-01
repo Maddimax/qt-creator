@@ -39,6 +39,10 @@ enum class FollowSymbolMode { Exact, Fuzzy };
 void CPPEDITOR_EXPORT switchDeclarationDefinition(Core::IEditor *editor, bool inNextSplit);
 void CPPEDITOR_EXPORT goToParentImpl(Core::IEditor *editor, bool inNextSplit);
 
+// The editor \a widget is the view of. What gets from a widget-side object to
+// the view-agnostic functions above, and to TextEditor::setViewSelections().
+Core::IEditor CPPEDITOR_EXPORT *editorFor(TextEditor::TextEditorWidget *widget);
+
 #ifdef WITH_TESTS
 namespace Internal { QObject *createSymbolJumpTest(); }
 #endif

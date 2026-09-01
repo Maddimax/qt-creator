@@ -20,6 +20,7 @@
 #include "cppoutline.h"
 #include "cppprojectupdater.h"
 #include "cpptoolsreuse.h"
+#include "cppuseselectionsupdater.h"
 #include "cpptoolssettings.h"
 #include "cpptypehierarchy.h"
 #include "mcpsupport.h"
@@ -489,6 +490,26 @@ void CppEditorPlugin::addPerSymbolActions()
 
     setupCppTypeHierarchy();
 
+    // The symbol under the caret, highlighted everywhere else it is used.
+    // CppEditorWidget owns one of these itself; a view that is not one has
+    // nobody to own it, so the plugin does - for the editor's lifetime.
+    connect(EditorManager::instance(), &EditorManager::editorOpened, this,
+            [](IEditor *editor) {
+                if (!editor || TextEditor::TextEditorWidget::fromEditor(editor))
+                    return;
+                const auto document = qobject_cast<CppEditorDocument *>(editor->document());
+                if (!document)
+                    return;
+                auto * const updater = new CppUseSelectionsUpdater(editor);
+                updater->setParent(editor);
+                connect(editor, &IEditor::cursorPositionChanged, updater,
+                        [updater] { updater->scheduleUpdate(); });
+                // And when the file has been read again: the ranges are
+                // positions in a parse, so a new parse is new ranges.
+                connect(document, &CppEditorDocument::semanticInfoUpdated, updater,
+                        [updater] { updater->scheduleUpdate(); });
+            });
+
     addSymbolActionToMenus(TextEditor::Constants::OPEN_TYPE_HIERARCHY);
     addSymbolActionToMenus(TextEditor::Constants::OPEN_CALL_HIERARCHY);
 
@@ -645,6 +666,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppCodeStyleAspectsTest);
     addTestCreator(createCppHeaderSourceTest);
     addTestCreator(createSymbolJumpTest);
+    addTestCreator(createUseSelectionsTest);
     addTestCreator(createIncludeGroupsTest);
     addTestCreator(createCppPreProcessorDialogTest);
     addTestCreator(createClangdSettingsTest);
