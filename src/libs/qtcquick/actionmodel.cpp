@@ -82,6 +82,8 @@ QVariant ActionModel::data(const QModelIndex &index, int role) const
         return false;
     case IconRole:
         return iconUrl(action->icon());
+    case ToolTipRole:
+        return action->toolTip();
     default:
         return {};
     }
@@ -99,7 +101,8 @@ QHash<int, QByteArray> ActionModel::roleNames() const
             {CheckableRole, "actionCheckable"},
             {CheckedRole, "actionChecked"},
             {SeparatorRole, "actionSeparator"},
-            {IconRole, "actionIcon"}};
+            {IconRole, "actionIcon"},
+            {ToolTipRole, "actionToolTip"}};
 }
 
 void ActionModel::trigger(int row)

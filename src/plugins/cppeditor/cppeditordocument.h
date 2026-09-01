@@ -63,6 +63,11 @@ public:
     void setPreferredParseContext(const QString &parseContextId);
     void updateSoftPreferredParseContext(const ProjectExplorer::Node *currentNode);
     void setExtraPreprocessorDirectives(const QByteArray &directives);
+    // Ask which extra directives this file should be parsed with. A dialog,
+    // but not a view's: what it changes is the document.
+    void showPreProcessorDialog();
+
+    QList<QAction *> toolBarActions() const override;
 
     // the blocks list must be sorted
     void setIfdefedOutBlocks(const QList<TextEditor::BlockRange> &blocks);

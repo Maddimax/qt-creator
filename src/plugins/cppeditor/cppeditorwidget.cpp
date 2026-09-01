@@ -1295,14 +1295,7 @@ void CppEditorWidget::abortDeclDefLink()
 
 void CppEditorWidget::showPreProcessorWidget()
 {
-    const FilePath filePath = textDocument()->filePath();
-
-    CppPreProcessorDialog dialog(filePath, this);
-    if (dialog.exec() == QDialog::Accepted) {
-        const QByteArray extraDirectives = dialog.extraPreprocessorDirectives().toUtf8();
-        cppEditorDocument()->setExtraPreprocessorDirectives(extraDirectives);
-        cppEditorDocument()->scheduleProcessDocument();
-    }
+    cppEditorDocument()->showPreProcessorDialog();
 }
 
 void CppEditorWidget::invokeTextEditorWidgetAssist(TextEditor::AssistKind assistKind,

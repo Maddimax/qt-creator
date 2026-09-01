@@ -588,8 +588,11 @@ void CppEditorPlugin::addPerFileActions()
     openPreprocessor.setDefaultKeySequence({});
     openPreprocessor.addToContainers(menus, Constants::G_FILE);
     openPreprocessor.addOnTriggered(this, [] {
-        if (CppEditorWidget *editorWidget = currentCppEditorWidget())
-            editorWidget->showPreProcessorWidget();
+        Core::IEditor * const editor = EditorManager::currentEditor();
+        if (const auto document = qobject_cast<CppEditorDocument *>(
+                editor ? editor->document() : nullptr)) {
+            document->showPreProcessorDialog();
+        }
     });
 
     ActionBuilder showPreprocessed(this, Constants::SHOW_PREPROCESSED_FILE);

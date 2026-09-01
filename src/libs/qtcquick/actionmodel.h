@@ -40,6 +40,10 @@ public:
         CheckedRole,
         SeparatorRole,
         IconRole,
+        // What the action says about itself when pointed at, shortcut and
+        // all. A menu shows the shortcut in its own column; a toolbar button
+        // has only this.
+        ToolTipRole,
     };
 
     explicit ActionModel(QObject *parent = nullptr);

@@ -18,8 +18,34 @@ Row {
     // The form this belongs to is a separate component from the editor's, so
     // the viewport is handed over rather than found.
     required property TextViewport viewport
+    // What the language wants here - the preprocessor button for a C++ file.
+    // A model of actions rather than widgets, so this decides how they look.
+    required property ActionModel languageActions
 
     spacing: Spacing.GapHM
+
+    Repeater {
+        model: root.languageActions
+
+        delegate: QtcButton {
+            id: languageButton
+
+            required property int index
+            required property string actionText
+            required property bool actionEnabled
+            required property bool actionVisible
+            required property string actionToolTip
+
+            objectName: "languageToolBarButton"
+            anchors.verticalCenter: parent.verticalCenter
+            text: languageButton.actionText
+            enabled: languageButton.actionEnabled
+            visible: languageButton.actionVisible
+            ToolTip.text: languageButton.actionToolTip
+            ToolTip.visible: hovered && ToolTip.text !== ""
+            onClicked: root.languageActions.trigger(languageButton.index)
+        }
+    }
 
     QtcLabel {
         objectName: "lineColumnLabel"

@@ -674,8 +674,18 @@ public:
         if (!view)
             return nullptr;
 
+        // What the language wants there, beside what the toolbar shows of its
+        // own. Asked again each time, because a document gains them as it is
+        // configured - the same reason the context menu is asked again.
+        m_toolBarActions.setProvider([this] {
+            TextDocument * const doc = m_document.get();
+            return doc ? doc->toolBarActions() : QList<QAction *>();
+        });
+
         auto bar = new QtcQuick::QuickWidget;
-        bar->quickWidget()->setInitialProperties({{"viewport", QVariant::fromValue(view)}});
+        bar->quickWidget()->setInitialProperties(
+            {{"viewport", QVariant::fromValue(view)},
+             {"languageActions", QVariant::fromValue(&m_toolBarActions)}});
         bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
         m_toolBar = bar;
         return m_toolBar;
@@ -944,6 +954,7 @@ public:
     // which kind of view is showing it.
     TextDocumentPtr m_document;
     QtcQuick::ActionModel m_contextActions;
+    QtcQuick::ActionModel m_toolBarActions;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
     QPointer<QWidget> m_toolBar;
     QPointer<QAction> m_wrapAction;
@@ -3776,6 +3787,62 @@ private slots:
         widget->clearRefactorMarkers(kind);
         QVERIFY2(document->refactorMarkers(kind).isEmpty(),
                  "the document kept a marker the widget had cleared");
+    }
+
+    // What a language wants in the toolbar row. The document says so and the
+    // form draws it; CppEditorDocument's is the button that asks how the file
+    // should be preprocessed, and this is the same seam with a document made
+    // for the purpose, because TextEditor has no language of its own.
+    void testTheFormDrawsTheLanguagesToolBarActions()
+    {
+        class ToolBarDocument final : public TextDocument
+        {
+        public:
+            ToolBarDocument()
+                : TextDocument("QuickEditorToolBarTest")
+                , m_action(new QAction("#", this))
+            {
+                m_action->setToolTip("Additional Preprocessor Directives...");
+            }
+            QList<QAction *> toolBarActions() const override { return {m_action}; }
+            QAction * const m_action;
+        };
+
+        class ToolBarFactory final : public TextEditorFactory
+        {
+        public:
+            ToolBarFactory()
+            {
+                setId("QuickEditorToolBarTest");
+                setDisplayName("Quick Editor Tool Bar Test");
+                setDocumentCreator([] { return new ToolBarDocument; });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        ToolBarFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = static_cast<ToolBarDocument *>(editor->document());
+        QVERIFY(document);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "languageToolBarButton")),
+                     "the toolbar drew nothing for the language's action");
+        QCOMPARE(drawn->property("text").toString(), QString("#"));
+        QVERIFY2(drawn->isVisible(), "the button was drawn where it cannot be seen");
+
+        // And pressing it is what the action does, which is the whole point of
+        // describing it rather than handing over a widget.
+        QSignalSpy pressed(document->m_action, &QAction::triggered);
+        QMetaObject::invokeMethod(drawn, "clicked");
+        QTRY_VERIFY2(!pressed.isEmpty(), "the button did nothing");
     }
 
     // The provider is on the document, and asking it is what turns that into

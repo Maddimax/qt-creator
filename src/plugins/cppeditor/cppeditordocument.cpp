@@ -6,7 +6,10 @@
 #include "cppcodeformatter.h"
 #include "cppcompletionassistprovider.h"
 #include "cppeditorconstants.h"
-#include "cppeditorconstants.h"
+#include <coreplugin/icore.h>
+#include <coreplugin/actionmanager/command.h>
+#include <coreplugin/actionmanager/actionmanager.h>
+#include "cpppreprocessordialog.h"
 #include "cppeditordocument.h"
 #include "cppeditorlogging.h"
 #include "cppeditortr.h"
@@ -134,6 +137,8 @@ public:
     bool m_isObjCEnabled = false;
 
     SemanticInfo m_semanticInfo;
+    // The toolbar's, made on demand and owned by the document.
+    QAction *m_preprocessorAction = nullptr;
 
     // Caching contents
     mutable QMutex m_cachedContentsLock;
@@ -301,6 +306,39 @@ bool CppEditorDocument::isSemanticInfoValid() const
 {
     return d->m_semanticInfo.doc && d->m_semanticInfo.revision == unsigned(document()->revision())
            && !d->m_semanticInfo.snapshot.isEmpty();
+}
+
+void CppEditorDocument::showPreProcessorDialog()
+{
+    Internal::CppPreProcessorDialog dialog(filePath(), Core::ICore::dialogParent());
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    setExtraPreprocessorDirectives(dialog.extraPreprocessorDirectives().toUtf8());
+    scheduleProcessDocument();
+}
+
+QList<QAction *> CppEditorDocument::toolBarActions() const
+{
+    // Made once and kept: the toolbar is rebuilt whenever a view is, and an
+    // action made per rebuild would lose whatever was connected to it.
+    if (!d->m_preprocessorAction) {
+        d->m_preprocessorAction = new QAction(QLatin1String("#"),
+                                              const_cast<CppEditorDocument *>(this));
+        // The tooltip is the command's, shortcut and all, and it changes when
+        // the reader rebinds the key.
+        Core::Command * const command
+            = Core::ActionManager::command(Constants::OPEN_PREPROCESSOR_DIALOG);
+        const auto describe = [action = d->m_preprocessorAction, command] {
+            if (command)
+                action->setToolTip(command->action()->toolTip());
+        };
+        if (command)
+            connect(command, &Core::Command::keySequenceChanged, d->m_preprocessorAction, describe);
+        describe();
+        connect(d->m_preprocessorAction, &QAction::triggered,
+                const_cast<CppEditorDocument *>(this), &CppEditorDocument::showPreProcessorDialog);
+    }
+    return {d->m_preprocessorAction};
 }
 
 bool CppEditorDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)

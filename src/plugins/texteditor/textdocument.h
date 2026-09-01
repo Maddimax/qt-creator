@@ -226,6 +226,12 @@ public:
     // one, and several would each want their own answer.
     virtual bool handleKeyPress(QKeyEvent *event, const QTextCursor &cursor);
 
+    // What this language wants in the toolbar row beside what the editor puts
+    // there itself - the button that opens the preprocessor dialog for a C++
+    // file, say. Actions rather than widgets, so that whichever view is
+    // drawing decides how, the same way the context menu is described.
+    virtual QList<QAction *> toolBarActions() const;
+
     void setCodeStyle(ICodeStylePreferences *preferences);
     ICodeStylePreferences *codeStyle() const;
     void setTabSettings(const TextEditor::TabSettingsData &tabSettings);
@@ -246,6 +252,8 @@ signals:
     void fontSettingsChanged();
     void extraSelectionsChanged();
     void refactorMarkersChanged();
+    // Which actions the toolbar should show has changed.
+    void toolBarActionsChanged();
     void markRemoved(TextEditor::TextMark *mark);
 
 protected:

@@ -562,6 +562,11 @@ std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(
     return std::make_unique<AssistInterface>(cursor, filePath(), reason);
 }
 
+QList<QAction *> TextDocument::toolBarActions() const
+{
+    return {};
+}
+
 bool TextDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)
 {
     Q_UNUSED(event)

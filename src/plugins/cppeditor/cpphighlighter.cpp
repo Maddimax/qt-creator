@@ -895,6 +895,54 @@ private slots:
     }
 };
 
+// What a language puts in the toolbar. CppEditorWidget inserted a QToolButton
+// into its own toolbar, so a C++ file in the Qt Quick editor had no way to ask
+// how it should be preprocessed.
+class LanguageToolBarTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheLanguagesButtonIsInTheToolBar()
+    {
+        Utils::TemporaryDirectory dir("cpp-toolbar-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // The document is what says so, whichever view is drawing.
+        const QList<QAction *> actions = document->toolBarActions();
+        QCOMPARE(actions.size(), 1);
+        QCOMPARE(actions.first()->text(), QString("#"));
+        QVERIFY2(!actions.first()->toolTip().isEmpty(),
+                 "the button says nothing about what it does");
+        // Asked twice, the same action: the toolbar is rebuilt whenever a view
+        // is, and a fresh one each time would lose what is connected to it.
+        QCOMPARE(document->toolBarActions().first(), actions.first());
+
+        // That the form draws it is TextEditor's to say - this plugin has no
+        // Qt Quick to look with. See QuickTextEditorTest.
+    }
+};
+
 class CodeFoldingTest : public QObject
 {
     Q_OBJECT
@@ -1002,6 +1050,7 @@ void registerHighlighterTests(ExtensionSystem::IPlugin &plugin)
     plugin.addTest<CppHighlighterTest>();
     plugin.addTest<CodeFoldingTest>();
     plugin.addTest<QuickEditorHighlighterTest>();
+    plugin.addTest<LanguageToolBarTest>();
 #else
     Q_UNUSED(plugin)
 #endif

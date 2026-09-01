@@ -26394,3 +26394,61 @@ is left is not a gap but a decision:
    toolbar extras: the outline combo, the parse-context button and the
    preprocessor button. Those are what a reader would notice first after the
    flip, and they are the honest content of "not finished" now.
+
+## 2026-09-02 — A language can put something in the toolbar
+
+The last entry called the C++ toolbar extras one of the two honest contents of
+"not finished". This is the seam for them, and the first of the three moved.
+
+`CppEditorWidget` builds a `QToolButton` saying `#` and calls
+`insertExtraToolBarWidget()` on itself, so a C++ file in the Quick editor had
+no way to ask how it should be preprocessed - the menu entry existed and did
+nothing there, because it too went through `currentCppEditorWidget()`.
+
+```cpp
+// TextDocument
+virtual QList<QAction *> toolBarActions() const;
+```
+
+**Actions rather than widgets**, the same choice the context menu made: what a
+button says, whether it is on, what it does when pressed - and the view decides
+how it looks. `EditorToolBar.qml` repeats over a `QtcQuick::ActionModel` fed
+from the document, which is the model the context menu already uses; it gained
+a `ToolTipRole`, because a menu shows a shortcut in its own column and a toolbar
+button has only the tooltip to say it with.
+
+`CppEditorDocument::showPreProcessorDialog()` is the widget's method with the
+dialog parented to `ICore::dialogParent()` instead of to the view - the only
+thing it wanted one for. The widget's button and the `OPEN_PREPROCESSOR_DIALOG`
+command both go through it, so there is one implementation.
+
+**Two things the QML would not take.** `QtcButton::checkable` is *readonly* -
+it is derived from the button's role - so binding it is a load error, and a
+load error in the toolbar form is silent except that every existing toolbar
+test fails with `QQuickWidget::Error`. That is how it was found. The delegate
+describes only what this action needs. And a `Q_OBJECT` class cannot be local
+to a function, so the test holds its document by its own type rather than
+casting back to it.
+
+**The test is in two halves because the plugins are.** CppEditor cannot include
+`textviewport.h` or `QQuickItem` - it has no Qt Quick - so it asserts what the
+*document* offers, and `QuickTextEditorTest` asserts that the form draws it and
+that pressing it triggers the action, using a factory whose document offers one.
+Same split as the override proposal last batch, for the same reason.
+
+Negative controls, both bit: the toolbar's repeater given an empty model, which
+draws nothing; and `CppEditorDocument::toolBarActions()` answering nothing,
+which is the language half.
+
+`TextEditor` 408 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. `CompletionTest` 204 in
+both views, `CppHighlighterTest` 86, `DoxygenTest` 34, `CppMcpSupportTest` 10,
+`LanguageToolBarTest` 3 in both. No new file, no `.qbs` edit.
+
+**Next:** the other two toolbar extras now have somewhere to go, and neither
+fits a plain `QAction`. The **parse-context** widget is a combo box over
+`ParseContextModel` - a chooser, so the seam wants to carry a model as well as
+an action, or `ParseContextModel` needs to be what is handed over. The
+**outline combo** is a tree combo over `OutlineModel` and is the one a reader
+actually looks at; `QtcQuick` has tree delegates already. After those,
+`CppLocalRenaming` is the last thing on the list, and then the switch.
