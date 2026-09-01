@@ -5,6 +5,7 @@
 
 #include "baseeditordocumentparser.h"
 #include "baseeditordocumentprocessor.h"
+#include "cppeditordocument.h"
 #include "cppeditorwidget.h"
 #include "cppmodelmanager.h"
 #include "cppworkingcopy.h"
@@ -351,6 +352,19 @@ CPlusPlus::Document::Ptr TestCase::waitForRehighlightedSemanticDocument(
         QThread::msleep(20);
     }
     return editorWidget->semanticInfo().doc;
+}
+
+CPlusPlus::Document::Ptr TestCase::waitForRehighlightedSemanticDocument(
+    CppEditorDocument *document, int timeoutInMs)
+{
+    if (!document)
+        return {};
+    // Waited for rather than forced: recalculateSemanticInfo() computes it
+    // synchronously from a smaller snapshot than the processor's, and the
+    // fixes read that snapshot to work out how much of a name to qualify.
+    if (!QTest::qWaitFor([document] { return document->isSemanticInfoValid(); }, timeoutInMs))
+        return {};
+    return document->semanticInfo().doc;
 }
 
 bool TestCase::parseFiles(const QSet<FilePath> &filePaths)

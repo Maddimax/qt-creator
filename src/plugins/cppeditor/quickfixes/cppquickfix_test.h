@@ -25,7 +25,10 @@ namespace TextEditor { class QuickFixOperation; }
 namespace CppEditor {
 class CppQuickFixFactory;
 
-namespace Internal::Tests {
+namespace Internal {
+class CppQuickFixInterface;
+
+namespace Tests {
 
 class QuickFixSettings
 {
@@ -48,6 +51,11 @@ public:
     ~BaseQuickFixTestCase();
 
 protected:
+    // What the fixes are matched against: the AST path under the marker, taken
+    // from the document rather than from a widget, so that a test says the
+    // same thing in either view.
+    std::unique_ptr<CppQuickFixInterface> interfaceForMarkedDocument() const;
+
     TestDocumentPtr m_documentWithMarker;
     QList<TestDocumentPtr> m_testDocuments;
 
@@ -125,5 +133,6 @@ private:
 QList<TestDocumentPtr> singleDocument(
     const QByteArray &original, const QByteArray &expected, const QByteArray fileName = "file.cpp");
 
-} // namespace Internal::Tests
+} // namespace Tests
+} // namespace Internal
 } // namespace CppEditor

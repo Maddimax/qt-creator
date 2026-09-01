@@ -31,6 +31,7 @@ class IAssistProposal;
 }
 
 namespace CppEditor {
+class CppEditorDocument;
 class CppEditorWidget;
 
 namespace Internal::Tests {
@@ -80,6 +81,10 @@ public:
     QString m_selectionStartMarker;
     QString m_selectionEndMarker;
     QString m_expectedSource;
+    // The editor this document is open in, whichever view that is.
+    // m_editor is the same one where the view is a widget, and is what the
+    // tests that have not been converted still use.
+    Core::IEditor *m_anyEditor = nullptr;
     TextEditor::BaseTextEditor *m_editor = nullptr;
     CppEditorWidget *m_editorWidget = nullptr;
 };
@@ -145,6 +150,11 @@ public:
 
     static CPlusPlus::Document::Ptr waitForRehighlightedSemanticDocument(
         CppEditorWidget *editorWidget, int timeoutInMs = defaultTimeOutInMs);
+    // The same for any view: the document's semantic info is the parse the
+    // quick fixes walk. Local uses are the widget's own addition to it, and
+    // nothing that reads this needs them.
+    static CPlusPlus::Document::Ptr waitForRehighlightedSemanticDocument(
+        CppEditorDocument *document, int timeoutInMs = defaultTimeOutInMs);
 
     enum { defaultTimeOutInMs = 30 * 1000 /* = 30 secs*/ };
     static bool waitUntilProjectIsFullyOpened(ProjectExplorer::Project *project,

@@ -3,6 +3,10 @@
 
 #include "cppquickfix_test.h"
 
+#include <texteditor/texteditor.h>
+
+#include "../cppeditordocument.h"
+
 #include "../cppeditortr.h"
 #include "../cppeditorwidget.h"
 #include "../cppmodelmanager.h"
@@ -86,24 +90,27 @@ BaseQuickFixTestCase::BaseQuickFixTestCase(const QList<TestDocumentPtr> &testDoc
 
     // Open Files
     for (const TestDocumentPtr &document : std::as_const(m_testDocuments)) {
-        QVERIFY(openCppEditor(document->filePath(), &document->m_editor,
-                              &document->m_editorWidget));
-        closeEditorAtEndOfTestCase(document->m_editor);
+        QVERIFY(openCppEditorInAnyView(document->filePath(), &document->m_anyEditor));
+        closeEditorAtEndOfTestCase(document->m_anyEditor);
+        auto * const cppDocument
+            = qobject_cast<CppEditorDocument *>(document->m_anyEditor->document());
+        QVERIFY(cppDocument);
 
-        // Set cursor position
+        // Set cursor position. Through the editor rather than by being one:
+        // a selection is an anchor and a position on the same cursor.
+        QTextCursor caret(cppDocument->document());
         if (document->hasCursorMarker()) {
             if (document->hasAnchorMarker()) {
-                document->m_editor->setCursorPosition(document->m_anchorPosition);
-                document->m_editor->select(document->m_cursorPosition);
+                caret.setPosition(document->m_anchorPosition);
+                caret.setPosition(document->m_cursorPosition, QTextCursor::KeepAnchor);
             } else {
-                document->m_editor->setCursorPosition(document->m_cursorPosition);
+                caret.setPosition(document->m_cursorPosition);
             }
-        } else {
-            document->m_editor->setCursorPosition(0);
         }
+        TextEditor::setTextCursorOf(document->m_anyEditor, caret);
 
         // Rehighlight
-        QVERIFY(waitForRehighlightedSemanticDocument(document->m_editorWidget));
+        QVERIFY(waitForRehighlightedSemanticDocument(cppDocument));
     }
 
     // Enforce the default cpp code style, so we are independent of config file settings.
@@ -140,6 +147,22 @@ BaseQuickFixTestCase::~BaseQuickFixTestCase()
         QVERIFY(testDocument->filePath().removeFile());
 }
 
+std::unique_ptr<CppQuickFixInterface> BaseQuickFixTestCase::interfaceForMarkedDocument() const
+{
+    if (!m_documentWithMarker || !m_documentWithMarker->m_anyEditor)
+        return {};
+    auto * const document
+        = qobject_cast<CppEditorDocument *>(m_documentWithMarker->m_anyEditor->document());
+    if (!document)
+        return {};
+    // Where the marker is, which is where the caret was put when the file was
+    // opened - asked of the view, because a selection is part of the answer.
+    const QTextCursor caret = TextEditor::textCursorOf(m_documentWithMarker->m_anyEditor);
+    if (caret.isNull())
+        return {};
+    return std::make_unique<CppQuickFixInterface>(document, caret, ExplicitlyInvoked);
+}
+
 QuickFixOfferedOperationsTest::QuickFixOfferedOperationsTest(
         const QList<TestDocumentPtr> &testDocuments,
         CppQuickFixFactory *factory,
@@ -148,9 +171,10 @@ QuickFixOfferedOperationsTest::QuickFixOfferedOperationsTest(
     : BaseQuickFixTestCase(testDocuments, headerPaths)
 {
     // Get operations
-    CppQuickFixInterface quickFixInterface(m_documentWithMarker->m_editorWidget, ExplicitlyInvoked);
+    const std::unique_ptr<CppQuickFixInterface> quickFixInterface = interfaceForMarkedDocument();
+    QVERIFY(quickFixInterface);
     QuickFixOperations actualOperations;
-    factory->match(quickFixInterface, actualOperations);
+    factory->match(*quickFixInterface, actualOperations);
 
     // Convert to QStringList
     QStringList actualOperationsAsStringList;
@@ -198,9 +222,10 @@ QuickFixOperationTest::QuickFixOperationTest(const QList<TestDocumentPtr> &testD
     QVERIFY(succeededSoFar());
 
     // Perform operation if there is one
-    CppQuickFixInterface quickFixInterface(m_documentWithMarker->m_editorWidget, ExplicitlyInvoked);
+    const std::unique_ptr<CppQuickFixInterface> quickFixInterface = interfaceForMarkedDocument();
+    QVERIFY(quickFixInterface);
     QuickFixOperations operations;
-    factory->match(quickFixInterface, operations);
+    factory->match(*quickFixInterface, operations);
     if (operations.isEmpty()) {
         QEXPECT_FAIL("QTCREATORBUG-25998", "FIXME", Abort);
         QVERIFY(testDocuments.first()->m_expectedSource.isEmpty());
@@ -214,7 +239,11 @@ QuickFixOperationTest::QuickFixOperationTest(const QList<TestDocumentPtr> &testD
     // Compare all files
     for (const TestDocumentPtr &testDocument : std::as_const(m_testDocuments)) {
         // Check
-        QString result = testDocument->m_editorWidget->document()->toPlainText();
+        auto * const opened
+            = qobject_cast<TextEditor::TextDocument *>(testDocument->m_anyEditor->document());
+        QVERIFY(opened);
+        QTextDocument * const text = opened->document();
+        QString result = text->toPlainText();
         removeTrailingWhitespace(result);
         QEXPECT_FAIL("escape-raw-string", "FIXME", Continue);
         QEXPECT_FAIL("unescape-adjacent-literals", "FIXME", Continue);
@@ -228,8 +257,8 @@ QuickFixOperationTest::QuickFixOperationTest(const QList<TestDocumentPtr> &testD
 
         // Undo the change
         for (int i = 0; i < 100; ++i)
-            testDocument->m_editorWidget->undo();
-        result = testDocument->m_editorWidget->document()->toPlainText();
+            text->undo();
+        result = text->toPlainText();
         QCOMPARE(result, testDocument->m_source);
     }
 }

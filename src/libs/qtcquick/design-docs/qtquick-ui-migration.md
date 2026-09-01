@@ -25760,3 +25760,73 @@ reads its extra selections, `followsymbol_switchmethoddecldef_test` and
 document has answered `createAssistInterface(QuickFix)` since the quick-fix
 batch, so the test can ask the document instead of building the interface
 itself, and that is another large block of cases.
+
+## 2026-09-01 — The quick-fix suite, and three differences it found
+
+Third slice of gap 1, and the biggest block of cases after `CompletionTest`:
+every `CppQuickFixTestObject` goes through `BaseQuickFixTestCase`, which opened
+with `openCppEditor()` and built its `CppQuickFixInterface` from the widget. All
+of them answered nothing in the Quick editor.
+
+The harness wanted the widget for five things and **every one of them had
+somewhere else to go already**: the file opens with `openCppEditorInAnyView()`;
+the caret goes on the marker with `TextEditor::setTextCursorOf()`, which the
+refactor-marker batch added; the interface comes from
+`CppQuickFixInterface(document, cursor, reason)`, which the quick-fix batch
+added; the text and the undo are the `QTextDocument`'s. `waitForRehighlighted-
+SemanticDocument()` gained a document overload.
+
+**One trap in that overload, and it bit on the widget path first.** Written as
+`recalculateSemanticInfo()` and then wait, it broke six `InsertDefFromDecl`
+cases *in the widget editor*: that call computes the semantic info
+synchronously from a smaller snapshot than the processor's, and the fixes read
+that snapshot to decide how much of a name to qualify -
+`const int N::Foo::_bar{}` where the file says `using namespace N;` and the
+answer is `Foo::_bar`. Waiting for the processor's own answer, the way the
+widget overload does, is 79 / 0 again. A test helper that *makes* the state it
+is waiting for is not the same helper.
+
+Measured, and most of it is now identical in both views:
+
+| class | widget | Quick editor |
+|---|---|---|
+| `InsertDefFromDeclTest` | 79 / 0 | **79 / 0** |
+| `GenerateGetterSetterTest` | 58 / 0 | **58 / 0** |
+| `CompleteSwitchStatementTest` | 25 / 0 | **25 / 0** |
+| `EscapeStringLiteralTest` | 13 / 0 | **13 / 0** |
+| `InsertQtPropertyMembersTest` | 12 / 0 | **12 / 0** |
+| `ConvertToCamelCaseTest` | 10 / 0 | **10 / 0** |
+| `InsertDeclFromDefTest` | 12 / 0 | 3 / 9 |
+| `AddDeclarationForUndeclaredIdentifierTest` | 22 / 0 | 9 / 13 |
+| `InsertDefsFromDeclsTest` | 6 / 0 | 3 / 3 |
+
+**The three that differ are the batch's real find.** They fail on
+`operations.isEmpty()` - the factory matches nothing at all where the widget
+matches something - so it is not the edit that differs but whether the fix is
+offered. All three insert a *declaration* from a definition or from a use, which
+is the family that looks at more than the AST under the caret. That is the next
+thing to chase, and it now has 25 failing cases pointing at it.
+
+Negative controls. The harness opening with `openCppEditor()` again puts the
+converted classes back where they were - `CompleteSwitchStatementTest` 2 / 23,
+`ConvertToCamelCaseTest` 2 / 8. And not putting the caret on the marker costs
+`ConvertToCamelCaseTest` five cases **on the widget path too**, which is worth
+saying: the replacement for `m_editor->setCursorPosition()` is load-bearing in
+both views, not just a translation.
+
+`TextEditor` 406 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. The widget path is unchanged across ten quick-fix classes:
+`InsertDefFromDeclTest` 79, `GenerateGetterSetterTest` 58,
+`AddDeclarationForUndeclaredIdentifierTest` 22, `EscapeStringLiteralTest` 13,
+`InsertDeclFromDefTest` 12, `InsertQtPropertyMembersTest` 12,
+`WrapStringLiteralTest` 8, `InsertDefsFromDeclsTest` 6,
+`MoveClassToOwnFileTest` 2, `SynchronizeMemberFunctionOrderTest` 2 - exit 0.
+No new file, no `.qbs` edit.
+
+**Next:** the 25 cases above. `InsertDeclFromDef`,
+`AddDeclarationForUndeclaredIdentifier` and `InsertDefsFromDecls` offer nothing
+in the Quick editor, and the likely difference is what
+`CppQuickFixInterface`'s document constructor has that the widget one does not -
+the widget's `semanticInfo()` carries the local uses and may be a newer parse
+than the document's cached copy. Start by comparing the two `SemanticInfo`s for
+one failing case.
