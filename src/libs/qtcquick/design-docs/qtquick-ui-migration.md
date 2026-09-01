@@ -24761,3 +24761,106 @@ The whole `TextEditor` suite reports
 `QuickTextEditorTest::testRestingTheMouseAsksTheHoverHandlers` failing, which
 is the physical-pointer hover flake: that class alone is 44 passed, exit 0.
 `ninja all_qmllint` zero warnings.
+
+## 2026-09-01 — A factory can build the Quick editor, and what C++ costs
+
+New goal, from the user: **replace the widget text editor with the Quick one,
+starting with C++ files.** The cron prompt now says so.
+
+**A plain text file already opens in the Quick editor.** `setupQuickTextEditor()`
+runs before `setupPlainTextEditor()`, so the header comment saying it "must not
+become what a text file opens in" is stale - it is what one opens in. What still
+opens in `TextEditorWidget` is every language with a `TextEditorFactory` of its
+own, because a factory claiming `text/x-c++src` directly beats the Quick
+factory's claim on the *parent* mime type.
+
+**So the seam is the factory, not the mime type.** `QuickTextEditor` cannot be
+reached by adding mime types to it: the editor manager builds the editor and
+*then* opens its document, so the document type is fixed before the path is
+known, and a C++ file needs a `CppEditorDocument` - which is what registers it
+with the model manager, parses it and answers the quick-fix provider. Only the
+factory that owns the document creator can decide.
+
+`TextEditorFactory::setUsesQuickEditor(bool)` is that decision. Everything above
+the branch in the factory's editor creator configures the *document* - the
+document creator's own type, the indenter, the syntax highlighter, the
+completion provider - and only what draws it differs:
+
+```cpp
+if (d->m_usesQuickEditor) {
+    Context context(id());
+    context.add(d->m_editorContexts);
+    return Internal::createQuickTextEditor(doc, context);
+}
+return d->createEditorHelper(doc);
+```
+
+**The context was the part that did not come for free.** `CppEditorFactory` was
+adding `CXX_LANGUAGE_ID` inside its *editor creator*, which the Quick branch
+does not call - and `CppModelManager::isCppEditor()` is nothing but
+`context().contains(CXX_LANGUAGE_ID)`. So a C++ file in the Quick editor was not
+a C++ editor to the model manager at all. `TextEditorFactory::addEditorContext()`
+moves that up to the factory, where both views see it; `CppEditorFactory` uses it
+and its editor creator is gone, being the base's default anyway. Measured on
+`CppEditor,ModelManagerTest` with the switch on: **11 passed / 10 failed before
+the context moved, 17 / 4 after.** Only three languages add an editor context at
+all - C++, QML/JS and SCXML - and the last two do it in an editor subclass,
+which the Quick branch will have to answer separately.
+
+`createQuickTextEditor()` *adds* the factory's context rather than setting it:
+the editor gave itself two in its constructor - the shared `QUICK_TEXT_EDITOR_ID`
+and one of its own that its per-editor actions are registered against - and
+replacing them kills those actions silently.
+
+**What flipping C++ costs today**, measured rather than guessed:
+
+| suite | widget editor | Quick editor |
+|---|---|---|
+| `CppEditor,ModelManagerTest` | 20 passed, 1 failed | 17 passed, 4 failed |
+| `CppEditor,CompletionTest` | 204 passed, 0 failed | 2 passed, 202 failed |
+
+The completion number is not 202 separate problems. It is one:
+`TestCase::openCppEditor()` in `cpptoolstestcase.cpp` does
+`dynamic_cast<BaseTextEditor *>(EditorManager::openEditor(...))` and returns
+false when that fails, so every test built on it stops at its first line. The
+harness is the first gap, and it is shared.
+
+**So it ships behind `QTC_QUICK_CPP_EDITOR`**, off by default. Turning it on is
+one variable and gets a real C++ file in the Quick editor with its own document,
+model manager registration, indenter and completions; leaving it off changes
+nothing. That is what makes the gaps below measurable one at a time instead of
+all at once.
+
+**The gaps between here and the default flipping**, in the order they look
+worth doing:
+
+1. `TestCase::openCppEditor()` and the ~24 sites reaching for
+   `currentCppEditorWidget()`. Until the harness can drive either view, no
+   CppEditor test says anything about the Quick one.
+2. `CppQuickFixInterface` takes a `CppEditorWidget *`. It uses four things from
+   it - `textCursor()`, `textDocument()`, `semanticInfo()` and
+   `CppRefactoringChanges::file(editor, doc)` - and `semanticInfo()` is the
+   *document's*: `CppEditorDocument::semanticInfoUpdated` is where the widget
+   gets it, and `recalculateSemanticInfo()` is on the document too. So this
+   looks like a widget dependency that is not one.
+3. The uses-of-the-symbol-under-the-cursor selections, the declaration/
+   definition link, rename, type hierarchy and the outline - each keyed on the
+   widget the same way.
+4. `createPlainTextEditor()` does `qobject_cast<BaseTextEditor *>(factory
+   .createEditor())` and would answer nullptr if the plain factory were ever
+   switched. Nothing does that yet; it is a trap for whoever does.
+
+Negative controls, all three bit: the branch replaced by `if (false)`, which
+built the widget editor and failed on "the factory built the widget editor
+anyway"; `setContext()` in place of the add, which failed on "the Quick editor
+lost the context its own commands use"; and the view building a document of its
+own instead of adopting the factory's, which failed the id comparison.
+
+`TextEditor` whole suite 401 passed across 18 classes, 0 failed, exit 0 -
+including the hover flake, which passed this time. QuickUi 207 passed / 0 failed
+/ 1 skipped, exit 0. `CppEditor,CompletionTest` 204 passed, exit 0 with the
+variable unset. No new file and no `.qbs` edit.
+
+**Next:** gap 1 - teach `TestCase::openCppEditor()` and the `CppEditorWidget`
+accessors to answer either view, so that turning the variable on is something a
+test run can measure rather than something only a person can see.

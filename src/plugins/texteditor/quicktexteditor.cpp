@@ -9,6 +9,7 @@
 #include "textdocument.h"
 #include "icodestylepreferencesfactory.h"
 #include "indenter.h"
+#include "textindenter.h"
 #include "codestylepool.h"
 #include "autocompleter.h"
 #include "codeassist/documentcontentcompletion.h"
@@ -952,6 +953,19 @@ public:
         setEditorCreator([] { return new QuickTextEditor; });
     }
 };
+
+Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
+                                     const Core::Context &context)
+{
+    auto * const editor = new QuickTextEditor(document);
+    // Added rather than set: the editor gave itself the two contexts every
+    // Quick editor needs - the shared one and its own - in the constructor,
+    // and replacing them would take the per-editor actions with them.
+    Core::Context contexts = editor->context();
+    contexts.add(context);
+    editor->setContext(contexts);
+    return editor;
+}
 
 void setupQuickTextEditor()
 {
@@ -3361,6 +3375,80 @@ private slots:
         const QString opened = cursor.block().text();
         QVERIFY2(opened.startsWith(" ") || opened.startsWith("\t"),
                  qPrintable(QString("the line after '{' was not indented: '%1'").arg(opened)));
+    }
+
+    // A language does not open in the Quick editor by finding it, but by its
+    // own factory building it: the document, the indenter, the highlighter
+    // and the completions stay the factory's, and only the view changes. That
+    // is what makes a language editor - CppEditorDocument and all - showable
+    // here at all, since the document is built before the path is known and
+    // cannot be looked up afterwards.
+    void testAFactoryCanBuildTheQuickEditorInstead()
+    {
+        const Utils::Id factoryId("QuickEditorSeamTest");
+        // What a language adds beside its factory's own id - CppEditor adds
+        // the C++ language id, and that is what says "this is a C++ editor"
+        // to everything that asks.
+        static const auto languageContext = [] { return Utils::Id("QuickEditorSeamLanguage"); };
+
+        class SeamFactory final : public TextEditorFactory
+        {
+        public:
+            explicit SeamFactory(Utils::Id id)
+            {
+                setId(id);
+                setDisplayName("Quick Editor Seam Test");
+                // No mime type: this claims no file, so it changes nothing
+                // about what the rest of the run opens.
+                setDocumentCreator([id] { return new TextDocument(id); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setIndenterCreator([](QTextDocument *doc) { return new TextIndenter(doc); });
+                addEditorContext(languageContext());
+            }
+        };
+
+        SeamFactory factory(factoryId);
+
+        // The widget editor while nothing says otherwise, so that what is
+        // asserted below is the switch rather than the factory.
+        const std::unique_ptr<Core::IEditor> widgetEditor(factory.createEditor());
+        QVERIFY2(widgetEditor.get(), "the factory built nothing");
+        QVERIFY2(qobject_cast<BaseTextEditor *>(widgetEditor.get()),
+                 "a factory nobody switched over stopped building the widget editor");
+        QVERIFY2(widgetEditor->context().contains(languageContext()),
+                 "the factory's language context does not reach the widget editor");
+        QVERIFY2(!factory.usesQuickEditor(), "the switch is on before anyone set it");
+
+        factory.setUsesQuickEditor(true);
+        const std::unique_ptr<Core::IEditor> quickEditor(factory.createEditor());
+        QVERIFY2(quickEditor.get(), "the switched factory built nothing");
+        QVERIFY2(!qobject_cast<BaseTextEditor *>(quickEditor.get()),
+                 "the factory built the widget editor anyway");
+
+        // The document is the one the factory made and configured, not one
+        // the view made for itself - which is the whole point.
+        auto * const document = qobject_cast<TextDocument *>(quickEditor->document());
+        QVERIFY2(document, "the Quick editor has no text document");
+        QCOMPARE(document->id(), factoryId);
+        QVERIFY2(document->indenter(), "the factory's indenter never reached the document");
+        QVERIFY2(document->completionAssistProvider(),
+                 "the factory's completions never reached the document");
+
+        // And the view draws that same document rather than one of its own.
+        TextViewport * const view = viewportForEditor(quickEditor.get());
+        QVERIFY2(view, "the editor the factory built has no Quick viewport");
+        QVERIFY(view->document());
+        QCOMPARE(view->document()->textDocument(), document);
+
+        // A language registers its commands against its factory's id, so they
+        // reach this view only if that context came with it - and the Quick
+        // editor's own two have to survive, or its per-editor actions die.
+        QVERIFY2(quickEditor->context().contains(factoryId),
+                 "the factory's context did not reach the Quick editor");
+        QVERIFY2(quickEditor->context().contains(QUICK_TEXT_EDITOR_ID),
+                 "the Quick editor lost the context its own commands use");
+        QVERIFY2(quickEditor->context().contains(languageContext()),
+                 "the factory's language context does not reach the Quick editor");
     }
 
     // The provider is on the document, and asking it is what turns that into

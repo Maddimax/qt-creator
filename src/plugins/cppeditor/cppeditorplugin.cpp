@@ -80,6 +80,7 @@
 #include <texteditor/texteditorconstants.h>
 
 #include <utils/clangutils.h>
+#include <utils/environment.h>
 #include <utils/fsengine/fileiconprovider.h>
 #include <utils/hostosinfo.h>
 #include <utils/macroexpander.h>
@@ -150,13 +151,16 @@ public:
         addMimeType(Utils::Constants::QDOC_MIMETYPE);
         addMimeType(Utils::Constants::MOC_MIMETYPE);
 
+        addEditorContext(ProjectExplorer::Constants::CXX_LANGUAGE_ID);
+
+        // The Qt Quick view of a C++ file, for whoever asks for it. Not yet
+        // the default: what it does not have is everything CppEditorWidget
+        // adds - quick fixes, renaming, the uses of the symbol under the
+        // cursor - and every one of those is keyed on being that widget.
+        setUsesQuickEditor(Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_CPP_EDITOR"));
+
         setDocumentCreator([]() { return new CppEditorDocument; });
         setEditorWidgetCreator([]() { return new CppEditorWidget; });
-        setEditorCreator([]() {
-            const auto editor = new BaseTextEditor;
-            editor->addContext(ProjectExplorer::Constants::CXX_LANGUAGE_ID);
-            return editor;
-        });
         setAutoCompleterCreator([]() { return new CppAutoCompleter; });
         setLinkFinder(&findCppLinkAt);
         setCommentDefinition(CommentDefinition::CppStyle);

@@ -3,6 +3,10 @@
 
 #pragma once
 
+#include "textdocument.h"
+
+#include <coreplugin/icontext.h>
+
 #include <QObject>
 
 namespace Core { class IEditor; }
@@ -17,8 +21,19 @@ namespace Internal {
 // What the free functions handing out a view's relay objects dispatch on.
 TextViewport *viewportForEditor(Core::IEditor *editor);
 
-// The Qt Quick code editor, offered beside the widget one rather than instead
-// of it: it is not finished, so it must not become what a text file opens in.
+// A Qt Quick view of a document a TextEditorFactory has already built and
+// configured: the language's own TextDocument, carrying its indenter, its
+// highlighter and its completions. \a context is what the factory would have
+// put on a BaseTextEditor, so that the language's own commands reach this view
+// too; the editor's own two contexts are kept.
+//
+// This is how a factory offers the Quick editor of the language it configures
+// instead of a TextEditorWidget. See TextEditorFactory::setUsesQuickEditor().
+Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
+                                     const Core::Context &context);
+
+// The Qt Quick code editor. What a plain text file opens in; a language whose
+// factory has not said setUsesQuickEditor() still opens in the widget one.
 void setupQuickTextEditor();
 
 #ifdef WITH_TESTS

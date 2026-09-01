@@ -27,6 +27,7 @@
 #include "linenumberfilter.h"
 #include "marginsettings.h"
 #include "mergeconflict.h"
+#include "quicktexteditor.h"
 #include "refactoroverlay.h"
 #include "snippets/snippetoverlay.h"
 #include "storagesettings.h"
@@ -10035,9 +10036,11 @@ public:
     TextEditorFactory::SyntaxHighLighterCreator m_syntaxHighlighterCreator;
     CommentDefinition m_commentDefinition;
     QList<BaseHoverHandler *> m_hoverHandlers; // not owned
+    Context m_editorContexts;
     TextEditorFactory::LinkFinder m_linkFinder;
     std::unique_ptr<CompletionAssistProvider> m_completionAssistProvider; // owned
     int m_optionalActionMask = 0;
+    bool m_usesQuickEditor = false;
     bool m_useGenericHighlighter = false;
     bool m_duplicatedSupported = true;
     bool m_codeFoldingSupported = false;
@@ -10072,7 +10075,7 @@ void TextEditorFactory::setEditorWidgetCreator(const EditorWidgetCreator &creato
 void TextEditorFactory::setEditorCreator(const EditorCreator &creator)
 {
     d->m_editorCreator = creator;
-    IEditorFactory::setEditorCreator([this] {
+    IEditorFactory::setEditorCreator([this]() -> IEditor * {
         static DocumentContentCompletionProvider basicSnippetProvider;
         TextDocumentPtr doc(d->m_documentCreator());
 
@@ -10085,6 +10088,14 @@ void TextEditorFactory::setEditorCreator(const EditorCreator &creator)
         doc->setCompletionAssistProvider(d->m_completionAssistProvider
                                              ? d->m_completionAssistProvider.get()
                                              : &basicSnippetProvider);
+
+        // Everything above configures the *document*, which is the same one
+        // either view shows. Only what draws it differs.
+        if (d->m_usesQuickEditor) {
+            Context context(id());
+            context.add(d->m_editorContexts);
+            return Internal::createQuickTextEditor(doc, context);
+        }
 
         return d->createEditorHelper(doc);
     });
@@ -10173,6 +10184,21 @@ void TextEditorFactory::setCompletionAssistProvider(CompletionAssistProvider *pr
     d->m_completionAssistProvider.reset(provider);
 }
 
+void TextEditorFactory::addEditorContext(Id id)
+{
+    d->m_editorContexts.add(id);
+}
+
+void TextEditorFactory::setUsesQuickEditor(bool on)
+{
+    d->m_usesQuickEditor = on;
+}
+
+bool TextEditorFactory::usesQuickEditor() const
+{
+    return d->m_usesQuickEditor;
+}
+
 void TextEditorFactory::setCommentDefinition(CommentDefinition definition)
 {
     d->m_commentDefinition = definition;
@@ -10211,6 +10237,8 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
     BaseTextEditor *editor = m_editorCreator();
     editor->setDuplicateSupported(m_duplicatedSupported);
     editor->addContext(q->id());
+    for (const Id context : m_editorContexts)
+        editor->addContext(context);
     editor->d->m_origin = this;
 
     editor->m_widget = widget;

@@ -821,6 +821,21 @@ public:
     // the C++ factory and a plain text file finds the plain one.
     static TextEditorFactory *preferredFactoryFor(const Utils::FilePath &filePath);
 
+    // A context every editor this factory builds is in, whichever view it
+    // shows the document in. The language's own commands are registered
+    // against it, so an editor that does not carry it is one those commands
+    // do not reach - which is why it belongs to the factory rather than to
+    // the editor creator, where only one of the two views would see it.
+    void addEditorContext(Utils::Id id);
+
+    // Which view an editor built here shows its document in: the Qt Quick
+    // editor rather than a TextEditorWidget. The document, the indenter, the
+    // highlighter and the completions are this factory's either way - only
+    // the view changes - so a language turns this on once the Quick editor
+    // has what it overrides on the widget.
+    void setUsesQuickEditor(bool on);
+    bool usesQuickEditor() const;
+
     void setCommentDefinition(Utils::CommentDefinition definition);
     void setDuplicatedSupported(bool on);
     void setMarksVisible(bool on);
