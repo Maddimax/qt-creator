@@ -863,6 +863,13 @@ private:
     std::unique_ptr<Internal::LineColumnButtonPrivate> m_d;
 };
 
+// Where the caret is in \a editor, as a cursor over its document - selection
+// and all. For code that wants a cursor and has no business knowing which view
+// the reader is looking at: both the widget editor and the Qt Quick one have a
+// caret, and only one of them is a QPlainTextEdit to ask for it. Null where
+// \a editor shows no text.
+TEXTEDITOR_EXPORT QTextCursor textCursorOf(Core::IEditor *editor);
+
 } // namespace TextEditor
 
 QT_BEGIN_NAMESPACE

@@ -25105,3 +25105,61 @@ declaration/definition link, rename, find usages and the type hierarchy.
 `CppTypeHierarchyFactory::createWidget()` is the same shape as the two outlines
 and should be next; `CppUseSelectionsUpdater` is the biggest, because what it
 produces is extra selections that a `TextViewport` draws differently.
+
+## 2026-09-01 — The type hierarchy, and a cursor any view can hand over
+
+Second of gap 3, and the same shape as the outlines: `CppTypeHierarchyFactory`
+cast the editor to `BaseTextEditor` only to reach `textDocument()`, and
+`CppTypeHierarchyWidget::perform()` asked `CppEditorWidget` for two things -
+`textDocument()` and `textCursor()`. A C++ file in the Quick editor therefore
+answered "No type hierarchy available" whatever the caret was on, and the
+command was already registered in the Quick editor's context, so the entry was
+live and did nothing.
+
+**A cursor is the thing the widget was really being asked for**, and it comes
+up again and again - the last batch reconstructed one from `currentLine()` and
+`currentColumn()`, and so would every remaining item in gap 3. So it is a
+function now:
+
+```cpp
+TEXTEDITOR_EXPORT QTextCursor textCursorOf(Core::IEditor *editor);
+```
+
+It asks the widget where there is one and the `TextViewport` otherwise, so the
+answer carries the **selection** as well as the position - which reconstructing
+from a line and a column does not, and which anything acting on what the reader
+has picked out needs. That is why it lives in `texteditor.cpp`, where both
+views are reachable, rather than on `Core::IEditor`.
+
+**The factory's cast said nothing.** `qobject_cast<BaseTextEditor *>(editor)`
+was only ever a way to reach `textDocument()`; `editor->document()` is the same
+document and every view has one. Same removal as both outlines.
+
+**The test pins the caret's value, not just its presence.** `struct Base {};`
+and `struct Derived : Base {};`, caret on `Derived`, and the assertion is that
+the Bases group holds `Base`. Moving the caret to line 1 instead - Base, which
+has no base - empties that group, so the test fails on a cursor that is
+non-null but wrong. `createWidget()` had to become public for the test to build
+one directly; it is a factory method, so that costs nothing.
+
+Negative controls, all three bit: the factory asking for a `BaseTextEditor`
+again, after which it offers nothing; `perform()` taking the cursor from
+`TextEditorWidget::fromEditor()` again, after which the hierarchy stays empty;
+and the caret on `Base` rather than `Derived`, which is the control on the
+cursor's *position* rather than on its existence.
+
+`TextEditor` 403 passed across 18 classes, 0 failed, exit 0. QuickUi 208 passed,
+0 failed, exit 0 - one run before it reported the standing
+`testTheListingCanBeReadBothWaysRound` sort flake, seen twice now this session.
+`CppEditor`: `CompletionTest` 204, `FollowSymbolTest` 155,
+`TypeHierarchyBuilderTest` 4, `QuickFixAssistTest` 4, `CppOutlineTest` 3,
+`CppTypeHierarchyTest` 3 - all 0 failed, exit 0. No new file, no `.qbs` edit.
+
+**Next:** the rest of gap 3. What is left is keyed on the widget for a reason
+rather than by accident, so it is bigger than the three navigation panes were:
+`CppUseSelectionsUpdater` produces extra selections and a `TextViewport` draws
+those differently; `FunctionDeclDefLink` draws a marker and owns a widget-side
+undo group; renaming a local is `CppLocalRenaming`, which is a widget-side
+editing mode. `textCursorOf()` is what the first two of those will want, and
+find usages - `CppModelManager::findUsages(CursorInEditor)` - should be the
+cheapest of them, since `CursorInEditor` already accepts a null widget.

@@ -6,7 +6,6 @@
 #include "cppeditorconstants.h"
 #include "cppeditordocument.h"
 #include "cppeditortr.h"
-#include "cppeditorwidget.h"
 #include "cppelementevaluator.h"
 
 #include <coreplugin/editormanager/editormanager.h>
@@ -31,6 +30,15 @@
 #include <QStackedLayout>
 #include <QStandardItemModel>
 #include <QVBoxLayout>
+
+#ifdef WITH_TESTS
+#include "clangdsettings.h"
+#include <coreplugin/editormanager/ieditor.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#include <QTreeView>
+#endif
 
 using namespace Core;
 using namespace Utils;
@@ -220,22 +228,18 @@ void CppTypeHierarchyWidget::perform()
 
     m_showOldClass = false;
 
-    auto editor = TextEditor::BaseTextEditor::currentTextEditor();
-    if (!editor) {
-        showNoTypeHierarchyLabel();
-        return;
-    }
-
-    auto widget = qobject_cast<CppEditorWidget *>(editor->widget());
-    if (!widget) {
+    Core::IEditor * const editor = Core::EditorManager::currentEditor();
+    const auto document = editor ? qobject_cast<CppEditorDocument *>(editor->document())
+                                 : nullptr;
+    const QTextCursor cursor = TextEditor::textCursorOf(editor);
+    if (!document || cursor.isNull()) {
         showNoTypeHierarchyLabel();
         return;
     }
 
     showProgress();
 
-    m_future = CppElementEvaluator::asyncExecute(widget->textDocument(),
-                                                widget->textCursor());
+    m_future = CppElementEvaluator::asyncExecute(document, cursor);
     m_futureWatcher.setFuture(QFuture<void>(m_future));
     m_synchronizer.addFuture(m_future);
 
@@ -414,12 +418,10 @@ QMimeData *CppTypeHierarchyModel::mimeData(const QModelIndexList &indexes) const
 
 class CppTypeHierarchyFactory final : public TextEditor::TypeHierarchyWidgetFactory
 {
+public:
     TextEditor::TypeHierarchyWidget *createWidget(Core::IEditor *editor) final
     {
-        const auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-        if (!textEditor)
-            return nullptr;
-        const auto cppDoc = qobject_cast<CppEditorDocument *>(textEditor->textDocument());
+        const auto cppDoc = qobject_cast<CppEditorDocument *>(editor->document());
         if (!cppDoc || cppDoc->usesClangd())
             return nullptr;
 
@@ -438,4 +440,78 @@ void setupCppTypeHierarchy()
     (void) cppTypeHierarchyFactory(); // Trigger instantiation
 }
 
+#ifdef WITH_TESTS
+
+// The hierarchy is worked out from the document and the caret, and it asked
+// for a CppEditorWidget to get both - so a C++ file in the Qt Quick editor got
+// "No type hierarchy available" whatever the caret was on.
+class CppTypeHierarchyTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheHierarchyReadsTheCaretInAnyView()
+    {
+        Utils::TemporaryDirectory dir("cpp-type-hierarchy-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("classes.cpp");
+        QVERIFY(file.writeFileContents("struct Base {};\nstruct Derived : Base {};\n"));
+
+        // The built-in code model, before the file is opened: usesClangd() is
+        // settled when the document is, and the factory refuses when it is on.
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        CppTypeHierarchyFactory factory;
+        const std::unique_ptr<TextEditor::TypeHierarchyWidget> hierarchy(
+            factory.createWidget(editor));
+        QVERIFY2(hierarchy.get(), "the type hierarchy offered nothing for a C++ file");
+
+        // On "Derived", which is what decides whose hierarchy this is.
+        editor->gotoLine(2, 9);
+
+        auto * const tree = hierarchy->findChild<QTreeView *>();
+        QVERIFY(tree && tree->model());
+        QTRY_VERIFY2([&] {
+            hierarchy->reload();
+            return tree->model()->rowCount() > 0;
+        }(), "the hierarchy stayed empty with the caret on Derived");
+
+        // Derived's base, which is the answer only if the caret was read from
+        // the editor: on Base instead, the Bases group is empty.
+        const QModelIndex bases = tree->model()->index(0, 0);
+        QCOMPARE(bases.data().toString(), QString("Bases"));
+        QVERIFY2(tree->model()->rowCount(bases) > 0, "Derived was listed as having no base");
+        QCOMPARE(tree->model()->index(0, 0, bases).data().toString(), QString("Base"));
+    }
+};
+
+QObject *createCppTypeHierarchyTest()
+{
+    return new CppTypeHierarchyTest;
+}
+
+#endif // WITH_TESTS
+
 } // CppEditor::Internal
+
+#ifdef WITH_TESTS
+#include "cpptypehierarchy.moc"
+#endif

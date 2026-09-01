@@ -28,6 +28,7 @@
 #include "marginsettings.h"
 #include "mergeconflict.h"
 #include "quicktexteditor.h"
+#include "textviewport.h"
 #include "refactoroverlay.h"
 #include "snippets/snippetoverlay.h"
 #include "storagesettings.h"
@@ -10182,6 +10183,17 @@ void TextEditorFactory::addHoverHandler(BaseHoverHandler *handler)
 void TextEditorFactory::setCompletionAssistProvider(CompletionAssistProvider *provider)
 {
     d->m_completionAssistProvider.reset(provider);
+}
+
+QTextCursor textCursorOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return {};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->textCursor();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->textCursor();
+    return {};
 }
 
 void TextEditorFactory::addEditorContext(Id id)

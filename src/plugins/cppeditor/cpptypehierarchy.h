@@ -3,6 +3,16 @@
 
 #pragma once
 
+#include <QtGlobal>
+
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace CppEditor::Internal {
 void setupCppTypeHierarchy();
+
+#ifdef WITH_TESTS
+QObject *createCppTypeHierarchyTest();
+#endif
 } // CppEditor::Internal
