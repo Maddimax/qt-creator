@@ -63,10 +63,12 @@ public:
         QVERIFY(m_editor);
 
         closeEditorAtEndOfTestCase(m_editor);
-        m_editorWidget = TextEditorWidget::fromEditor(m_editor);
-        QVERIFY(m_editorWidget);
+        // The document rather than the widget: everything below reads the
+        // text and asks where the caret would be, and both are the file's.
+        m_document = qobject_cast<TextEditor::TextDocument *>(m_editor->document());
+        QVERIFY(m_document);
 
-        m_textDocument = m_editorWidget->document();
+        m_textDocument = m_document->document();
 
         // Get Document
         const Document::Ptr document = waitForFileInGlobalSnapshot(filePath);
@@ -90,12 +92,11 @@ public:
         QStringList completions;
         LanguageFeatures languageFeatures = LanguageFeatures::defaultFeatures();
         languageFeatures.objCEnabled = false;
-        QTextCursor textCursor = m_editorWidget->textCursor();
+        QTextCursor textCursor(m_textDocument);
         textCursor.setPosition(m_position);
-        m_editorWidget->setTextCursor(textCursor);
         std::unique_ptr<CppCompletionAssistInterface> ai(
-            new CppCompletionAssistInterface(m_editorWidget->textDocument()->filePath(),
-                                             m_editorWidget,
+            new CppCompletionAssistInterface(m_document->filePath(),
+                                             textCursor,
                                              ExplicitlyInvoked,
                                              m_snapshot,
                                              ProjectExplorer::HeaderPaths(),
@@ -142,13 +143,14 @@ public:
 
     bool waitForSyntaxHighlighting()
     {
-        TextEditor::BaseTextEditor *cppEditor = qobject_cast<TextEditor::BaseTextEditor *>(m_editor);
-        if (!cppEditor)
+        SyntaxHighlighter * const highlighter = m_document ? m_document->syntaxHighlighter()
+                                                           : nullptr;
+        if (!highlighter)
             return false;
-        if (cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate())
+        if (highlighter->syntaxHighlighterUpToDate())
             return true;
         return ::CppEditor::Tests::waitForSignalOrTimeout(
-            cppEditor->textDocument()->syntaxHighlighter(), &SyntaxHighlighter::finished, 5000);
+            highlighter, &SyntaxHighlighter::finished, 5000);
     }
 
 private:
@@ -156,7 +158,7 @@ private:
     int m_position = -1;
     Snapshot m_snapshot;
     QScopedPointer<CppEditor::Tests::TemporaryDir> m_temporaryDir;
-    TextEditorWidget *m_editorWidget = nullptr;
+    TextEditor::TextDocument *m_document = nullptr;
     QTextDocument *m_textDocument = nullptr;
     IEditor *m_editor = nullptr;
 };

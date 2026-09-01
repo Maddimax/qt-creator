@@ -1248,12 +1248,14 @@ std::unique_ptr<AssistInterface> CppEditorWidget::createAssistInterface(AssistKi
         };
 
         if (cap)
-            return cap->createAssistInterface(textDocument()->filePath(), this, getFeatures(), reason);
+            return cap->createAssistInterface(textDocument()->filePath(), textCursor(),
+                                              getFeatures(), reason);
 
         if (isOldStyleSignalOrSlot()
             || isInCommentOrString(textCursor(), LanguageFeatures::defaultFeatures())) {
             return CppModelManager::completionAssistProvider()
-                ->createAssistInterface(textDocument()->filePath(), this, getFeatures(), reason);
+                ->createAssistInterface(textDocument()->filePath(), textCursor(),
+                                        getFeatures(), reason);
         }
     }
     if (kind == QuickFix && isSemanticInfoValid())

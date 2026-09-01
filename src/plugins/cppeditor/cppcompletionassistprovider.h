@@ -8,6 +8,8 @@
 #include <texteditor/codeassist/assistenums.h>
 #include <texteditor/codeassist/completionassistprovider.h>
 
+#include <QTextCursor>
+
 QT_BEGIN_NAMESPACE
 class QTextDocument;
 QT_END_NAMESPACE
@@ -33,9 +35,11 @@ public:
     bool isActivationCharSequence(const QString &sequence) const override;
     bool isContinuationChar(const QChar &c) const override;
 
+    // The caret rather than the view: what a completion needs to know is
+    // where it was asked from, and every view answers that.
     virtual std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
         const Utils::FilePath &filePath,
-        const TextEditor::TextEditorWidget *textEditorWidget,
+        const QTextCursor &cursor,
         const CPlusPlus::LanguageFeatures &languageFeatures,
         TextEditor::AssistReason reason) const = 0;
 

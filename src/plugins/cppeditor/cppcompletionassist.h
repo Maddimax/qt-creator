@@ -62,7 +62,7 @@ public:
 
     std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
         const Utils::FilePath &filePath,
-        const TextEditor::TextEditorWidget *textEditorWidget,
+        const QTextCursor &cursor,
         const CPlusPlus::LanguageFeatures &languageFeatures,
         TextEditor::AssistReason reason) const override;
 };
@@ -144,13 +144,15 @@ private:
 class CppCompletionAssistInterface : public TextEditor::AssistInterface
 {
 public:
+    // The caret, not the view it is in: the widget was only ever asked for
+    // textCursor(), and any view has one.
     CppCompletionAssistInterface(const Utils::FilePath &filePath,
-                                 const TextEditor::TextEditorWidget *textEditorWidget,
+                                 const QTextCursor &cursor,
                                  BuiltinEditorDocumentParser::Ptr parser,
                                  const CPlusPlus::LanguageFeatures &languageFeatures,
                                  TextEditor::AssistReason reason,
                                  const WorkingCopy &workingCopy)
-        : TextEditor::AssistInterface(textEditorWidget->textCursor(), filePath, reason)
+        : TextEditor::AssistInterface(cursor, filePath, reason)
         , m_parser(parser)
         , m_gotCppSpecifics(false)
         , m_workingCopy(workingCopy)
@@ -158,12 +160,12 @@ public:
     {}
 
     CppCompletionAssistInterface(const Utils::FilePath &filePath,
-                                 const TextEditor::TextEditorWidget *textEditorWidget,
+                                 const QTextCursor &cursor,
                                  TextEditor::AssistReason reason,
                                  const CPlusPlus::Snapshot &snapshot,
                                  const ProjectExplorer::HeaderPaths &headerPaths,
                                  const CPlusPlus::LanguageFeatures &features)
-        : TextEditor::AssistInterface(textEditorWidget->textCursor(), filePath, reason)
+        : TextEditor::AssistInterface(cursor, filePath, reason)
         , m_gotCppSpecifics(true)
         , m_snapshot(snapshot)
         , m_headerPaths(headerPaths)

@@ -386,15 +386,15 @@ IAssistProcessor *InternalCompletionAssistProvider::createProcessor(const Assist
 
 std::unique_ptr<AssistInterface> InternalCompletionAssistProvider::createAssistInterface(
     const Utils::FilePath &filePath,
-    const TextEditorWidget *textEditorWidget,
+    const QTextCursor &cursor,
     const LanguageFeatures &languageFeatures,
     AssistReason reason) const
 {
-    QTC_ASSERT(textEditorWidget, return nullptr);
+    QTC_ASSERT(!cursor.isNull(), return nullptr);
 
     return std::make_unique<CppCompletionAssistInterface>(
                 filePath,
-                textEditorWidget,
+                cursor,
                 BuiltinEditorDocumentParser::get(filePath),
                 languageFeatures,
                 reason,

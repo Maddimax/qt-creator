@@ -25643,3 +25643,56 @@ No new file, no `.qbs` edit.
 which is what unlocks `CompletionTest`. After that the remaining six callers,
 in whatever order suits - and `CppLocalRenaming`, if the answer there turns out
 not to be "leave it".
+
+## 2026-09-01 — 204 completion cases, and the first real difference
+
+Second slice of gap 1, and the largest single block of coverage there was.
+`CompletionTest` is 204 of `CppEditor`'s cases and was 2 passed / 202 failed in
+the Quick editor. It is **203 / 1** now, and the one that is left is not a
+harness artifact - it is the first thing this suite has ever said about the
+Quick editor that is a genuine difference in behaviour.
+
+**The widget was one call.** `CppCompletionAssistInterface`'s two constructors
+took a `const TextEditorWidget *` and used it for `textEditorWidget->textCursor()`
+and nothing else; so did `CppCompletionAssistProvider::createAssistInterface()`,
+whose one implementor passed it straight through. All three take a
+`QTextCursor` now. Three callers followed: `CppEditorWidget` passes its
+`textCursor()`, the MCP server **stopped moving the caret and putting it back**
+- it was doing that only because the interface read the position from the view -
+and the test builds a cursor on the document.
+
+The test itself wanted the widget for one thing too: `m_editorWidget->document()`,
+the `QTextDocument`. It holds the `TextEditor::TextDocument` instead, which is
+also what `waitForSyntaxHighlighting()` needed - that one cast to
+`BaseTextEditor` and returned false, which is what the three doxygen cases were
+failing on before the last three lines changed.
+
+| | widget path | Quick editor |
+|---|---|---|
+| `CompletionTest` before | 204 passed, 0 failed | 2 passed, 202 failed |
+| `CompletionTest` after | 204 passed, 0 failed | **203 passed, 1 failed** |
+
+**The one that is left is worth naming.**
+`testDoxygenTagCompletion(C comment multi line)` fails on
+`isDoxygenTagCompletion(completions)` - the completion runs, and does not offer
+doxygen tags - consistently, twice in a row, and only in the Quick editor. The
+other two doxygen cases pass. Every batch in this document until now has closed
+a gap where the Quick editor did *nothing*; this is the first case of it doing
+something *different*, and it was invisible until the harness could reach it.
+That is the argument for gap 1 in one line.
+
+Negative controls, both bit: making the test insist on a widget again, which
+puts it straight back to 2 / 202; and `waitForSyntaxHighlighting()` casting to
+`BaseTextEditor` again, which is 201 / 3 - the two numbers this batch moved
+between, each recovered by putting back the line that caused it.
+
+`TextEditor` 406 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `CppEditor` on the widget path: `CompletionTest` 204,
+`FollowSymbolTest` 155, `ModelManagerTest` 20/1 standing,
+`CppMcpSupportTest` 10 - exit 0. No new file, no `.qbs` edit.
+
+**Next:** either the doxygen difference - which is a real bug in the Quick
+editor and now has a test that catches it - or the six remaining
+`openCppEditor()` callers that want the widget for something. The doxygen one
+is smaller and is the first thing gap 1 was built to find, so it should go
+first.
