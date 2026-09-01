@@ -4088,6 +4088,58 @@ void TextViewport::geometryChange(const QRectF &newGeometry, const QRectF &oldGe
         polish();
 }
 
+// The same ranges, cut at every boundary so that none of them overlap.
+//
+// A QTextLayout takes overlapping ranges and QTextLayout::draw() merges them,
+// so the widget editor never had to care. A QSGTextNode does not: it splits
+// the text at every boundary and keeps one format per run, so where two ranges
+// overlap the run outside the overlap loses whatever the other one said. A
+// selection ending inside a coloured token took the colour off the rest of it
+// that way.
+//
+// Later ranges win, property by property, which is what merging them in order
+// gives and what draw() would have done.
+static QList<QTextLayout::FormatRange> flattenedFormats(
+    const QList<QTextLayout::FormatRange> &formats)
+{
+    if (formats.size() < 2)
+        return formats;
+
+    QList<int> edges;
+    edges.reserve(formats.size() * 2);
+    for (const QTextLayout::FormatRange &range : formats) {
+        edges.append(range.start);
+        edges.append(range.start + range.length);
+    }
+    std::sort(edges.begin(), edges.end());
+    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
+
+    QList<QTextLayout::FormatRange> flat;
+    for (int i = 1; i < edges.size(); ++i) {
+        const int from = edges.at(i - 1);
+        const int to = edges.at(i);
+        QTextCharFormat merged;
+        bool covered = false;
+        for (const QTextLayout::FormatRange &range : formats) {
+            if (range.start <= from && range.start + range.length >= to) {
+                merged.merge(range.format);
+                covered = true;
+            }
+        }
+        if (!covered)
+            continue;
+        // Runs that say the same thing are one run: fewer glyph runs to build,
+        // and the reuse check below compares format lists.
+        if (!flat.isEmpty() && flat.last().start + flat.last().length == from
+            && flat.last().format == merged) {
+            flat.last().length += to - from;
+            continue;
+        }
+        flat.append({from, to - from, merged});
+    }
+    return flat;
+}
+
 void TextViewport::appendHighlights(QList<QTextLayout::FormatRange> &formats,
                                     const QTextBlock &block) const
 {
@@ -4687,7 +4739,7 @@ void TextViewport::updatePolish()
                         formats.append(range);
                     }
                 }
-                line.layout->setFormats(formats);
+                line.layout->setFormats(flattenedFormats(formats));
 
                 line.layout->beginLayout();
                 textLine = line.layout->createLine();

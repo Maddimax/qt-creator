@@ -76,6 +76,7 @@
 #include <QApplication>
 #include <QStyleHints>
 #include <QWheelEvent>
+#include <QSet>
 #include <QTest>
 
 using namespace Utils;
@@ -3621,6 +3622,84 @@ private slots:
         viewport->setHighlights("Test.Highlights", {});
         QTRY_VERIFY(!backgrounds(2).contains(QColor(Qt::magenta)));
         QVERIFY(viewport->highlights("Test.Highlights").isEmpty());
+    }
+
+    void testASelectionEndingInsideAHighlightLeavesTheRestOfIt()
+    {
+        // Selecting up to the middle of a coloured token must not take the
+        // colour off the rest of it. The selection is one format range over
+        // the top of the highlighter's; the two overlap, and what the layout
+        // is given has to keep both.
+        TemporaryDirectory dir("qtc-viewport-select-highlight");
+        const FilePath file = writeLines(dir, "marked.txt", 20);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        QTextCharFormat wanted;
+        wanted.setForeground(QColor(Qt::magenta));
+
+        const QTextBlock third
+            = fixture.document.textDocument()->document()->findBlockByNumber(2);
+        const int from = third.position();
+
+        // Six characters of the third line coloured, which is more than the
+        // selection below will cover.
+        viewport->setHighlights("Test.Highlights", {{from, from + 6, wanted}});
+
+        // Which characters are magenta. Not which range says so: a boundary
+        // anywhere in the token splits it into several runs that all still say
+        // magenta, and that is not a difference the reader can see.
+        const auto magentaChars = [viewport] {
+            QSet<int> chars;
+            const QVariantList ranges = viewport->visibleLine(2).value("formats").toList();
+            for (const QVariant &range : ranges) {
+                const QVariantMap map = range.toMap();
+                if (map.value("foreground").value<QColor>() != QColor(Qt::magenta))
+                    continue;
+                const int start = map.value("start").toInt();
+                for (int i = 0; i < map.value("length").toInt(); ++i)
+                    chars.insert(start + i);
+            }
+            return chars;
+        };
+        const QSet<int> wholeToken = {0, 1, 2, 3, 4, 5};
+
+        QTRY_COMPARE(magentaChars(), wholeToken);
+
+        // Now select the first three characters of that line - ending inside
+        // the coloured token.
+        QTextCursor cursor(fixture.document.textDocument()->document());
+        cursor.setPosition(from);
+        cursor.setPosition(from + 3, QTextCursor::KeepAnchor);
+        viewport->setTextCursor(cursor);
+        QTRY_COMPARE(viewport->selectionEnd(), from + 3);
+
+        // The colour still covers the whole token, not just the selected part.
+        QCOMPARE(magentaChars(), wholeToken);
+
+        // And the ranges handed to the layout do not overlap. QTextLayout
+        // tolerates overlapping ones and QTextLayout::draw() merges them, but
+        // a QSGTextNode splits the text at every boundary and keeps only one
+        // format per run - so an overlap loses whatever the other range said,
+        // which is what took the colour off the unselected half of the token.
+        const auto overlapping = [viewport] {
+            QList<QPair<int, int>> spans;
+            const QVariantList ranges = viewport->visibleLine(2).value("formats").toList();
+            for (const QVariant &range : ranges) {
+                const QVariantMap map = range.toMap();
+                spans.append({map.value("start").toInt(), map.value("length").toInt()});
+            }
+            std::sort(spans.begin(), spans.end());
+            for (int i = 1; i < spans.size(); ++i) {
+                if (spans.at(i).first < spans.at(i - 1).first + spans.at(i - 1).second)
+                    return true;
+            }
+            return false;
+        };
+        QVERIFY2(!overlapping(), "the layout was given overlapping format ranges");
     }
 
     void testTheCaretMovesAWordAndAFileAtATime()

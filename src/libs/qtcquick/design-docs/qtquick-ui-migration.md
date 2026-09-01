@@ -24722,3 +24722,42 @@ not already there: two `TableAspect`s, four `ToggleAspect`s drawn as icon
 buttons, two `ActionAspect`s, a `StringAspect` for the filter, the row menus
 above, and a column-hiding proxy that is the plugin's own. It is the last thing
 the census names.
+
+## 2026-09-01 — A selection took the colour off the rest of the token
+
+Reported from the Qt Quick viewport, with a screenshot: a selection ending in
+the middle of `return` left `ret` coloured and `urn nullptr;` black.
+
+**The formats were right; handing them over was not.** A test on the seam -
+`visibleLine(row)["formats"]` is what `updatePolish()` built - showed the
+highlight still covering the whole token after the selection was made. So the
+truncation was downstream, in `QSGTextNode::addTextLayout()`.
+
+**`QTextLayout` tolerates overlapping format ranges and a `QSGTextNode` does
+not.** `QTextLayout::draw()` merges them, which is why the widget editor never
+had to care: the syntax range over the token and the selection range over part
+of it both apply. The scene graph splits the text at every boundary and keeps
+one format per run, so the run outside the overlap loses whatever the other
+range said. Every view built on `addTextLayout()` has this, not just this one.
+
+`flattenedFormats()` cuts the ranges at every boundary and merges what covers
+each run in order, so later ranges win property by property - which is what
+`draw()` would have done. Runs that come out saying the same thing are joined
+again, both to build fewer glyph runs and because the row-reuse check compares
+format lists.
+
+**The first assertion was the wrong shape.** "One run covers characters 0 to 6"
+passed before the fix and failed after it: flattening splits a token wherever
+any other range has a boundary, into several runs that all still say magenta.
+What the reader can see is *which characters are coloured*, so that is what the
+test compares - a set of character positions, not a list of runs.
+
+Negative controls: the ranges handed over unflattened, which is the bug as
+reported; and the merge taking the first covering format rather than the last,
+which loses the character where two ranges meet. Both bit.
+
+`TextViewportTest` 180 passed, exit 0. QuickUi 208 passed / 0 failed, exit 0.
+The whole `TextEditor` suite reports
+`QuickTextEditorTest::testRestingTheMouseAsksTheHoverHandlers` failing, which
+is the physical-pointer hover flake: that class alone is 44 passed, exit 0.
+`ninja all_qmllint` zero warnings.
