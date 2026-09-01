@@ -26221,3 +26221,64 @@ sweeps are the measurement, and each is its own control for the other.
    virtual-function proposal machinery is the real work.
 2. Then the switch: `setUsesQuickEditor(true)` in `CppEditorFactory` without the
    environment variable, and `QTC_WIDGET_CPP_EDITOR` as the way back.
+
+## 2026-09-02 — Follow symbol in either view, and the one thing left
+
+`followsymbol_switchmethoddecldef_test` is the larger of the two the sweep
+found, and it goes from **2 / 153** to **137 / 18** in the Quick editor. The
+widget path is 155 / 0, unchanged.
+
+**Most of what it wanted had moved already.** The caret is `setTextCursorOf()`;
+the rehighlight wait has a document overload; `switchDeclarationDefinition()`
+is a free function over an editor; the assist interface comes from
+`createAssistInterface(cursor, FollowSymbol, ...)`, which the document answers -
+and answers with the *base* `AssistInterface`, which is exactly what
+`CppEditorWidget` returned for that kind too. The final comparison wanted a
+`BaseTextEditor` for `document()`, `convertPosition()`, `currentLine()` and
+`currentColumn()`; the first two are the document's and the last two are
+`Core::IEditor`'s.
+
+One new dispatcher, the last of the family:
+
+```cpp
+TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,
+                                                 bool inNextSplit = false);
+```
+
+`TextViewport::followSymbolUnderCursor()` was already there; nothing had asked
+it from outside.
+
+**`enableTestMode()` and `proposalsReady` turned out not to matter**, and the
+plan was wrong to name them as work. `useClangd` in that test is
+`m_testKit` - whether a *test kit* is configured - not whether clangd is the
+code model. With no test kit that whole branch is dead here, and the two calls
+are left guarded on a `qobject_cast` to the widget rather than ported.
+
+**The 18 that remain are one feature, and it is a real gap.** Every one is
+`testFollowVirtualFunctionCall`: following a virtual call should offer the
+overrides, and `cppfollowsymbolundercursor.cpp:795` reads
+
+```cpp
+if (editorWidget && m_virtualFunctionAssistProvider->configure(params)) {
+    editorWidget->invokeTextEditorWidgetAssist(...);
+```
+
+`findCppLinkAt()` - the link finder registered for a view that is not a widget -
+passes `nullptr` there, so **in the Quick editor a virtual call follows to the
+declaration and never offers the overrides**, silently. The `Parameters` struct
+itself holds no widget; only the gate and the invocation do, and
+`invokeAssistIn()` already dispatches. That is the next batch.
+
+Negative controls, both bit hard. `followSymbolUnderCursorIn()` not reaching
+the viewport is 42 / 113 in the Quick editor and leaves the widget at 155 / 0.
+Not setting the caret is **10 / 145 on the widget path** - the conversion of
+`m_editor->setCursorPosition()` carries the whole test.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `FollowSymbolTest` 155 / 0 widget, 137 / 18 Quick.
+No new file, no `.qbs` edit.
+
+**Next:** the virtual-function proposal, which is the last thing the suite can
+see and the last thing on the gap-3 list that a reader would notice. After that
+`fileandtokenactions_test` - two cases that run here, ten skipped, so it is
+tidiness rather than coverage - and then the switch.

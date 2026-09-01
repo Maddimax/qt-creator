@@ -10234,6 +10234,21 @@ void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorM
         document->setRefactorMarkers(type, markers);
 }
 
+void followSymbolUnderCursorIn(Core::IEditor *editor, bool inNextSplit)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        if (inNextSplit)
+            widget->openLinkUnderCursorInNextSplit();
+        else
+            widget->openLinkUnderCursor();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->followSymbolUnderCursor(inNextSplit);
+}
+
 QObject *keyTargetOf(Core::IEditor *editor)
 {
     if (!editor)

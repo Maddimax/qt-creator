@@ -880,6 +880,11 @@ TEXTEDITOR_EXPORT Core::IEditor *editorForWidget(TextEditorWidget *widget);
 TEXTEDITOR_EXPORT void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type,
                                             const RefactorMarkers &markers);
 
+// Follow the symbol the caret is on, in whichever view \a editor has. The
+// language's link finder is what answers; this only decides who asks.
+TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,
+                                                 bool inNextSplit = false);
+
 // What a key press should be sent to for \a editor: the widget, or the Quick
 // item - not the QQuickWidget wrapping that item, which forwards nothing.
 TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);

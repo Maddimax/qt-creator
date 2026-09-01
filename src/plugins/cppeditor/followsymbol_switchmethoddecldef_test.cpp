@@ -3,6 +3,10 @@
 
 #include "followsymbol_switchmethoddecldef_test.h"
 
+#include <utils/textutils.h>
+
+#include "cpptoolsreuse.h"
+
 #include "clangdsettings.h"
 #include "cppcodemodelsettings.h"
 #include "cppeditordocument.h"
@@ -109,8 +113,10 @@ namespace CppEditor::Internal::Tests {
 class VirtualFunctionTestAssistProvider : public VirtualFunctionAssistProvider
 {
 public:
-    VirtualFunctionTestAssistProvider(CppEditorWidget *editorWidget)
-        : m_editorWidget(editorWidget)
+    // The editor, whichever view it is: what this needs is the assist
+    // interface, and the document builds that.
+    VirtualFunctionTestAssistProvider(Core::IEditor *editor)
+        : m_editor(editor)
     {}
 
     // Invoke the processor already here to calculate the proposals. Return false in order to
@@ -120,8 +126,9 @@ public:
     {
         VirtualFunctionAssistProvider::configure(params);
 
-        std::unique_ptr<AssistInterface> assistInterface
-            = m_editorWidget->createAssistInterface(FollowSymbol, ExplicitlyInvoked);
+        const auto document = qobject_cast<TextEditor::TextDocument *>(m_editor->document());
+        std::unique_ptr<AssistInterface> assistInterface = document->createAssistInterface(
+            TextEditor::textCursorOf(m_editor), FollowSymbol, ExplicitlyInvoked);
         const QScopedPointer<AsyncProcessor> processor(
             dynamic_cast<AsyncProcessor *>(createProcessor(assistInterface.get())));
         processor->setupAssistInterface(std::move(assistInterface));
@@ -168,7 +175,7 @@ public:
     OverrideItemList m_finalItems;
 
 private:
-    CppEditorWidget *m_editorWidget;
+    Core::IEditor *m_editor;
 };
 
 static QList<TestDocumentPtr> singleDocument(const QByteArray &source)
@@ -290,10 +297,9 @@ F2TestCase::F2TestCase(CppEditorAction action,
 
     // Open Files
    for (TestDocumentPtr testFile : testFiles) {
-        QVERIFY(openCppEditor(testFile->filePath(), &testFile->m_editor,
-                              &testFile->m_editorWidget));
+        QVERIFY(openCppEditorInAnyView(testFile->filePath(), &testFile->m_anyEditor));
         if (!useClangd) // Editors get closed when unloading project.
-            closeEditorAtEndOfTestCase(testFile->m_editor);
+            closeEditorAtEndOfTestCase(testFile->m_anyEditor);
 
         // Wait until the indexer processed the just opened file.
         // The file is "Full Checked" since it is in the working copy now,
@@ -311,13 +317,21 @@ F2TestCase::F2TestCase(CppEditorAction action,
 
         // Rehighlight
         if (!useClangd)
-            QVERIFY(waitForRehighlightedSemanticDocument(testFile->m_editorWidget));
+            QVERIFY(waitForRehighlightedSemanticDocument(
+                qobject_cast<CppEditorDocument *>(testFile->m_anyEditor->document())));
     }
 
     // Activate editor of initial test file
-    EditorManager::activateEditor(initialTestFile->m_editor);
+    EditorManager::activateEditor(initialTestFile->m_anyEditor);
 
-    initialTestFile->m_editor->setCursorPosition(initialTestFile->m_cursorPosition);
+    {
+        auto * const opened
+            = qobject_cast<TextEditor::TextDocument *>(initialTestFile->m_anyEditor->document());
+        QVERIFY(opened);
+        QTextCursor caret(opened->document());
+        caret.setPosition(initialTestFile->m_cursorPosition);
+        TextEditor::setTextCursorOf(initialTestFile->m_anyEditor, caret);
+    }
 //    qDebug() << "Initial line:" << initialTestFile->editor->currentLine();
 //    qDebug() << "Initial column:" << initialTestFile->editor->currentColumn();
 
@@ -327,10 +341,11 @@ F2TestCase::F2TestCase(CppEditorAction action,
     // Trigger the action
     switch (action) {
     case FollowSymbolUnderCursorAction: {
-        CppEditorWidget *widget = initialTestFile->m_editorWidget;
+        Core::IEditor * const editor = initialTestFile->m_anyEditor;
         if (useClangd) {
-            widget->enableTestMode();
-            widget->openLinkUnderCursor();
+            if (const auto widget = qobject_cast<CppEditorWidget *>(editor->widget()))
+                widget->enableTestMode();
+            TextEditor::followSymbolUnderCursorIn(editor);
             break;
         }
 
@@ -340,9 +355,9 @@ F2TestCase::F2TestCase(CppEditorAction action,
 
         // Set test provider, run and get results
         QSharedPointer<VirtualFunctionTestAssistProvider> testProvider(
-            new VirtualFunctionTestAssistProvider(widget));
+            new VirtualFunctionTestAssistProvider(editor));
         builtinFollowSymbol->setVirtualFunctionAssistProvider(testProvider);
-        widget->openLinkUnderCursor();
+        TextEditor::followSymbolUnderCursorIn(editor);
         immediateVirtualSymbolResults = testProvider->m_immediateItems;
         finalVirtualSymbolResults = testProvider->m_finalItems;
 
@@ -354,9 +369,10 @@ F2TestCase::F2TestCase(CppEditorAction action,
         // Some test cases were erroneously added as decl/def, but they are really
         // follow symbol functionality (in commit a0764603d0).
         if (useClangd && tag.endsWith("Var"))
-            initialTestFile->m_editorWidget->openLinkUnderCursor();
+            TextEditor::followSymbolUnderCursorIn(initialTestFile->m_anyEditor);
         else
-            initialTestFile->m_editorWidget->switchDeclarationDefinition(/*inNextSplit*/false);
+            CppEditor::switchDeclarationDefinition(initialTestFile->m_anyEditor,
+                                                   /*inNextSplit*/ false);
         break;
     default:
         QFAIL("Unknown test action");
@@ -374,7 +390,9 @@ F2TestCase::F2TestCase(CppEditorAction action,
             QObject::connect(&t, &QTimer::timeout, &l, &QEventLoop::quit);
             const IAssistProposal *immediateProposal = nullptr;
             const IAssistProposal *finalProposal = nullptr;
-            QObject::connect(initialTestFile->m_editorWidget, &CppEditorWidget::proposalsReady, &l,
+            QObject::connect(qobject_cast<CppEditorWidget *>(
+                                 initialTestFile->m_anyEditor->widget()),
+                             &CppEditorWidget::proposalsReady, &l,
                              [&](const IAssistProposal *i, const IAssistProposal *f) {
                 immediateProposal = i;
                 finalProposal = f;
@@ -395,8 +413,10 @@ F2TestCase::F2TestCase(CppEditorAction action,
 
     // Compare
     IEditor *currentEditor = EditorManager::currentEditor();
-    BaseTextEditor *currentTextEditor = dynamic_cast<BaseTextEditor*>(currentEditor);
-    QVERIFY(currentTextEditor);
+    QVERIFY(currentEditor);
+    auto * const currentDocument
+        = qobject_cast<TextEditor::TextDocument *>(currentEditor->document());
+    QVERIFY(currentDocument);
 
     if (useClangd) {
         QEXPECT_FAIL("matchFunctionSignatureFuzzy1Forward", "clangd returns decl loc", Abort);
@@ -404,15 +424,16 @@ F2TestCase::F2TestCase(CppEditorAction action,
         QEXPECT_FAIL("matchFunctionSignatureFuzzy1Backward", "clangd returns def loc", Abort);
         QEXPECT_FAIL("matchFunctionSignatureFuzzy2Backward", "clangd returns def loc", Abort);
     }
-    QCOMPARE(currentTextEditor->document()->filePath(), targetTestFile->filePath());
+    QCOMPARE(currentDocument->filePath(), targetTestFile->filePath());
     int expectedLine, expectedColumn;
     if (useClangd && expectedVirtualFunctionProposal.size() == 1) {
         expectedLine = expectedVirtualFunctionProposal.first().line;
         expectedColumn = -1;
         expectedVirtualFunctionProposal.clear();
     } else {
-        currentTextEditor->convertPosition(targetTestFile->m_targetCursorPosition,
-                                           &expectedLine, &expectedColumn);
+        Utils::Text::convertPosition(currentDocument->document(),
+                                     targetTestFile->m_targetCursorPosition,
+                                     &expectedLine, &expectedColumn);
         ++expectedColumn;
         if (useClangd && (tag == "classDestructor" || tag == "fromDestructorDefinitionSymbol"
                 || tag == "fromDestructorBody")) {
@@ -436,9 +457,9 @@ F2TestCase::F2TestCase(CppEditorAction action,
             "baseClassViaDecltype", "we cannot properly evaluate decltype at bind time", Abort);
     }
 
-    QCOMPARE(currentTextEditor->currentLine(), expectedLine);
+    QCOMPARE(currentEditor->currentLine(), expectedLine);
     if (expectedColumn != -1)
-        QCOMPARE(currentTextEditor->currentColumn(), expectedColumn);
+        QCOMPARE(currentEditor->currentColumn(), expectedColumn);
 
 //    qDebug() << immediateVirtualSymbolResults;
 //    qDebug() << finalVirtualSymbolResults;
