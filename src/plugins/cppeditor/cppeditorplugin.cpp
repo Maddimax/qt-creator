@@ -693,6 +693,7 @@ void CppEditorPlugin::registerTests()
     addTest<CompletionTest>();
     addTest<CppMcpSupportTest>();
     addTestCreator(createFindParentImplTest);
+    addTestCreator(createVirtualFunctionProposalTest);
     addTest<FunctionUtilsTest>();
     addTest<HeaderPathFilterTest>();
     addTestCreator(createCppCodeStyleAspectsTest);

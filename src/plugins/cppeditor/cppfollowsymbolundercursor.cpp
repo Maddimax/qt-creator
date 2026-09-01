@@ -35,6 +35,10 @@
 #include <QSet>
 
 #ifdef WITH_TESTS
+#include <QSignalSpy>
+#include <QScopeGuard>
+#include <utils/temporarydirectory.h>
+#include "clangdsettings.h"
 #include "cpptoolstestcase.h"
 #include <QEventLoop>
 #include <QTest>
@@ -1100,6 +1104,90 @@ class Derived4 : public Derived3 { void @3foo(int) override; }
 
     }
 };
+
+// Following a virtual call offers a choice of override. Working the choice out
+// is covered by FollowSymbolTest; *showing* it in a view that is not a widget
+// is not, because that test's provider computes the proposals and answers
+// false. This is the other half: the proposal reaches the form.
+class VirtualFunctionProposalTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheOverridesAreOfferedInAnyView()
+    {
+        using namespace CppEditor::Tests;
+
+        Utils::TemporaryDirectory dir("cpp-virtual-overrides-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("overrides.cpp");
+        const QByteArray source =
+            "struct Base { virtual void f(); };\n"
+            "struct Derived : Base { void f() override; };\n"
+            "void call(Base *b) { b->f(); }\n";
+        QVERIFY(file.writeFileContents(source));
+
+        // The built-in follow symbol is what offers this; clangd has its own.
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY(TestCase::waitForProcessedEditorDocument(file));
+        QVERIFY(TestCase::waitForRehighlightedSemanticDocument(document));
+
+        // The form is what draws a proposal, and it is told through the
+        // viewport - which is also what a key press is sent to. Spied on by
+        // name, because this plugin has no Qt Quick of its own to include
+        // TextViewport with.
+        QObject * const view = TextEditor::keyTargetOf(editor);
+        QVERIFY2(view, "the C++ file has no Quick viewport");
+        QSignalSpy offered(view, SIGNAL(quickFixesAvailable(QStringList)));
+        QVERIFY2(offered.isValid(), "the viewport offers no proposals to spy on");
+
+        // On the f of b->f(), which is the virtual call.
+        const int callPos = source.lastIndexOf("f(");
+        QVERIFY(callPos > 0);
+        QTextCursor caret(document->document());
+        caret.setPosition(callPos);
+        TextEditor::setTextCursorOf(editor, caret);
+
+        TextEditor::followSymbolUnderCursorIn(editor);
+
+        // The first proposal is the base declaration and a placeholder while
+        // the overrides are collected; the one worth asserting is the second,
+        // which names them. Waiting for the placeholder to go is what tells
+        // the two apart.
+        const auto latest = [&offered] {
+            return offered.isEmpty() ? QStringList() : offered.last().first().toStringList();
+        };
+        QTRY_VERIFY2(!latest().isEmpty(), "no proposal ever reached the form");
+        QTRY_VERIFY2(!latest().contains("collecting overrides..."),
+                     "the form was left with the placeholder");
+        const QStringList items = latest();
+        QVERIFY2(items.contains("Base::f") && items.contains("Derived::f"),
+                 qPrintable("the overrides were not offered; got: " + items.join(", ")));
+    }
+};
+
+QObject *createVirtualFunctionProposalTest() { return new VirtualFunctionProposalTest; }
 
 QObject *createFindParentImplTest() { return new FindParentImplTest; }
 

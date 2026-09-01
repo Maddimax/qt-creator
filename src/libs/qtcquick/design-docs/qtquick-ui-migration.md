@@ -26343,3 +26343,54 @@ difference left.**
    global rename as the fallback the widget itself uses - and the C++ toolbar
    extras (the outline combo, the parse-context and preprocessor buttons),
    which no test covers and which this document has never counted.
+
+## 2026-09-02 — The proposal reaches the form, and it is a test rather than a look
+
+The last entry said the *showing* of the override proposal in the Quick editor
+was written and unexercised, and that checking it by hand was the next thing.
+Checking it by hand would have proved it once; a test proves it every run, and
+it turned out to be no harder.
+
+`VirtualFunctionProposalTest`: a base with a virtual, a derived that overrides
+it, a call through a `Base *`, the caret on the call, and
+`followSymbolUnderCursorIn()`. What the form is told is
+`TextViewport::quickFixesAvailable`, so that is what is spied on.
+
+**Two things this taught.**
+
+`QSignalSpy` takes a `SIGNAL()` string as well as a pointer-to-member, and the
+string form needs no type - CppEditor cannot include `textviewport.h` at all,
+because it has no Qt Quick and the header opens with `QQuickItem`.
+`keyTargetOf()` already hands back that object as a `QObject *`, so the spy is
+`QSignalSpy(view, SIGNAL(quickFixesAvailable(QStringList)))` and the plugin
+boundary stays where it is.
+
+**The first assertion was nearly vacuous.** "At least two items" passed on the
+*immediate* proposal, which is `{"Base::f", "collecting overrides..."}` - the
+base declaration and a placeholder. The overrides arrive in a second emission.
+The test now waits for the placeholder to go and names both functions, which is
+the difference between "a proposal arrived" and "the proposal is right". See
+[[assert-the-diagnostic-not-the-outcome]].
+
+Negative controls, both bit on "no proposal ever reached the form": the
+`FollowSymbol` case in `invokeAssistIn()` not routing to the viewport, and the
+caret never being put on the call.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `FollowSymbolTest` 155 / 0 in both views,
+`FindParentImplTest` 7 / 0, `VirtualFunctionProposalTest` 3 / 0. No new file,
+no `.qbs` edit.
+
+**Next.** The plan is out of *known* gaps: every class the sweep measured agrees
+in both views, and the one thing that was written-but-unseen is now seen. What
+is left is not a gap but a decision:
+
+1. `fileandtokenactions_test` - tidiness; it is 2 / 0 in both and skips ten.
+2. **The switch.** `setUsesQuickEditor(true)` in `CppEditorFactory` without the
+   environment variable, `QTC_WIDGET_CPP_EDITOR` as the way back. Two things
+   are knowingly missing and neither is covered by any test:
+   `CppLocalRenaming` - the in-place rename, whose fallback is the global rename
+   `CppEditorWidget` itself uses when the mode cannot start - and the C++
+   toolbar extras: the outline combo, the parse-context button and the
+   preprocessor button. Those are what a reader would notice first after the
+   flip, and they are the honest content of "not finished" now.

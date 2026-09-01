@@ -47,7 +47,8 @@ private:
 };
 
 #ifdef WITH_TESTS
-namespace Internal { QObject *createFindParentImplTest(); }
+namespace Internal { QObject *createFindParentImplTest();
+QObject *createVirtualFunctionProposalTest(); }
 #endif
 
 } // namespace CppEditor
