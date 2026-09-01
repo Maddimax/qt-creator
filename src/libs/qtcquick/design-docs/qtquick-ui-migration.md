@@ -26105,3 +26105,49 @@ anything is left here at all; then the last two `openCppEditor()` callers,
 `followsymbol_switchmethoddecldef_test` and `fileandtokenactions_test`, which
 call widget methods that have all moved by now - those are conversions rather
 than discoveries, and they finish gap 1.
+
+## 2026-09-02 — The last use-selection case, and it was not a warm-up
+
+The last entry left `testUseSelections(local uses)` timing out and said to
+measure before assuming a bug. Measured: raising the wait from 2500 ms to
+**20 seconds** changed nothing, and instrumenting the response showed why -
+for that one case the highlight response **never arrives at all**, while every
+later case gets one.
+
+It is the *first* case in the table, and that is the whole of it.
+`Client::activateEditor()` asks for document highlights when a file is
+activated, and that ask sat **inside** `if (TextEditorWidget *widget = ...)`.
+So a file opened in any other view got no highlights until the caret moved -
+for good, since nothing asks again. The test opens the file, puts the caret on
+the symbol and waits, and never moves it afterwards; from the second case on,
+the caret *does* move relative to the previous editor's, so the
+`cursorPositionChanged` path covers it and everything passes.
+
+Moving one line above the widget branch makes `SelectionsTest` **14 / 0 in both
+views**. That is not a test fix: **the first file a reader opens in the Quick
+editor showed nothing under the caret until they moved it.**
+
+Two things worth keeping from how this was found. A twenty-second wait is not a
+fix and was never going to be one - it was the cheapest way to tell a slow
+answer from no answer, and it said "no answer" in one run. And the instrument
+that settled it printed *how many* highlights arrived and for which file, so the
+absent line was the evidence; a boolean "did it work" would have said nothing.
+
+Negative control: the ask back inside the widget branch, which is 13 / 1 in the
+Quick editor and 14 / 0 on the widget path - the state this batch started from,
+recovered by restoring the one line that caused it.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `LanguageClient` 0 failures. Both views now agree on every
+class this document has converted: `CompletionTest` 204 / 204,
+`DoxygenTest` 34 / 34, `SelectionsTest` 14 / 14; widget-only `FollowSymbolTest`
+155. No new file, no `.qbs` edit.
+
+**Next:** the last two `openCppEditor()` callers,
+`followsymbol_switchmethoddecldef_test` and `fileandtokenactions_test`. Both
+call widget methods that have all moved by now - `switchDeclarationDefinition()`
+is a free function, the assist interface comes from the document - so they are
+conversions rather than discoveries, and they finish gap 1. After that the
+question is no longer "what is missing" but "what does a run of the whole
+CppEditor suite in the Quick editor say", which is the thing to measure before
+the switch is flipped.
