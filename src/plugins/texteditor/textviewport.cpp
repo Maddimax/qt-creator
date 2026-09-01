@@ -3,6 +3,8 @@
 
 #include "textviewport.h"
 
+#include "quicktexteditor.h"
+
 #include "blockselection.h"
 #include "highlighterhelper.h"
 #include "symbolrequests.h"
@@ -3177,6 +3179,37 @@ void TextViewport::updateDocumentSelections()
         }
         setHighlights(kind, highlights);
     }
+}
+
+QVariantList TextViewport::refactorMarkers() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return {};
+    QVariantList markers;
+    const RefactorMarkers all = doc->refactorMarkers();
+    for (const RefactorMarker &marker : all) {
+        if (marker.cursor.isNull())
+            continue;
+        markers.append(QVariantMap{{"position", marker.cursor.selectionEnd()},
+                                   {"toolTip", marker.tooltip}});
+    }
+    return markers;
+}
+
+bool TextViewport::applyRefactorMarkerAt(int position)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return false;
+    const RefactorMarker marker = doc->refactorMarkerAt(position);
+    if (!marker.isValid() || !marker.callback)
+        return false;
+    // The editor rather than this item: what the marker does is the reader's
+    // action in a file, and the producer should not have to know which view
+    // they were looking at.
+    marker.callback(Internal::editorForViewport(this));
+    return true;
 }
 
 void TextViewport::updateParenthesesMatch()

@@ -7,6 +7,8 @@
 #include "cppeditorconstants.h"
 #include "cppeditortr.h"
 #include "cppeditorwidget.h"
+
+#include <coreplugin/editormanager/ieditor.h>
 #include "cpplocalsymbols.h"
 #include "cpptoolsreuse.h"
 #include "quickfixes/cppquickfixassistant.h"
@@ -321,8 +323,11 @@ void FunctionDeclDefLink::showMarker(CppEditorWidget *editor)
 
     marker.tooltip = message;
     marker.type = Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID;
-    marker.callback = [](TextEditor::TextEditorWidget *widget) {
-        if (auto cppEditor = qobject_cast<CppEditorWidget *>(widget))
+    // Applying the changes is still the widget's - it owns the link and the
+    // undo group the edit goes into - so this does nothing in a view that is
+    // not one, which is what the link itself still is.
+    marker.callback = [](Core::IEditor *editor) {
+        if (auto cppEditor = qobject_cast<CppEditorWidget *>(editor ? editor->widget() : nullptr))
             cppEditor->applyDeclDefLinkChanges(true);
     };
     markers += marker;

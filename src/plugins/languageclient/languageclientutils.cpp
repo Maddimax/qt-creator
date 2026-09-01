@@ -147,9 +147,9 @@ void updateCodeActionRefactoringMarker(Client *client,
         const auto it = markersAtBlock.find(cursor.blockNumber());
         if (it != markersAtBlock.end()) {
             it->tooltip = Tr::tr("Show available quick fixes");
-            it->callback = [cursor](TextEditorWidget *editor) {
-                editor->setTextCursor(cursor);
-                editor->invokeAssist(TextEditor::QuickFix);
+            it->callback = [cursor](Core::IEditor *editor) {
+                TextEditor::setTextCursorOf(editor, cursor);
+                TextEditor::invokeAssistIn(editor, TextEditor::QuickFix);
             };
             return;
         }
@@ -160,13 +160,13 @@ void updateCodeActionRefactoringMarker(Client *client,
             marker.tooltip = action.title();
         if (action.edit()) {
             marker.callback = [client = QPointer(client),
-                               edit = action.edit()](const TextEditorWidget *) {
+                               edit = action.edit()](Core::IEditor *) {
                 if (QTC_GUARD(client))
                     applyWorkspaceEdit(client, *edit);
             };
         } else if (action.command()) {
             marker.callback = [command = action.command(),
-                    client = QPointer(client)](const TextEditorWidget *) {
+                    client = QPointer(client)](Core::IEditor *) {
                 if (QTC_GUARD(client))
                     client->executeCommand(*command);
             };

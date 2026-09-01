@@ -623,6 +623,12 @@ public:
         bool operator==(const Highlight &other) const = default;
     };
 
+    // Something the file offers at a place in it - a quick fix waiting, a
+    // toolbar to open. The document holds them; this is how the form asks
+    // where they are and acts on one. Answers whether there was one to act on.
+    Q_INVOKABLE QVariantList refactorMarkers() const;
+    Q_INVOKABLE bool applyRefactorMarkerAt(int position);
+
     // Selecting by pointer rather than by caret: the word under a double
     // click, the line under a triple one.
     Q_INVOKABLE void selectWordAt(int position);

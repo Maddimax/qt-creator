@@ -104,7 +104,7 @@ void setRefactorMarker(
     TextEditor::RefactorMarker marker;
     marker.cursor = cursor;
     marker.icon = icon.icon();
-    marker.callback = [callback](TextEditorWidget *) {
+    marker.callback = [callback](Core::IEditor *) {
         Result<> res = Lua::void_safe_call(callback);
         QTC_CHECK_RESULT(res);
     };

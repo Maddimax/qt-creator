@@ -6923,7 +6923,7 @@ void TextEditorWidget::mousePressEvent(QMouseEvent *e)
             RefactorMarker refactorMarker = d->m_refactorOverlay.markerAt(e->pos());
             if (refactorMarker.isValid()) {
                 if (refactorMarker.callback) {
-                    refactorMarker.callback(this);
+                    refactorMarker.callback(editorForWidget(this));
                     return;
                 }
             } else {
@@ -9622,6 +9622,11 @@ void TextEditorWidget::setRefactorMarkers(const RefactorMarkers &markers)
 
 void TextEditorWidget::setRefactorMarkers(const RefactorMarkers &newMarkers, const Id &type)
 {
+    // Told to the document as well, so that a view which is not a
+    // TextEditorWidget can offer them too. Every producer keyed by type goes
+    // through here, so this is the one place that has to know.
+    d->m_document->setRefactorMarkers(type, newMarkers);
+
     RefactorMarkers markers = d->m_refactorOverlay.markers();
     auto first = std::partition(markers.begin(),
                                 markers.end(),
@@ -9640,6 +9645,8 @@ void TextEditorWidget::setRefactorMarkers(const RefactorMarkers &newMarkers, con
 
 void TextEditorWidget::clearRefactorMarkers(const Id &type)
 {
+    d->m_document->setRefactorMarkers(type, {});
+
     RefactorMarkers markers = d->m_refactorOverlay.markers();
     for (auto it = markers.begin(); it != markers.end();) {
         if (it->type == type) {
@@ -10185,6 +10192,21 @@ void TextEditorFactory::setCompletionAssistProvider(CompletionAssistProvider *pr
     d->m_completionAssistProvider.reset(provider);
 }
 
+// The editor \a widget is the view of. The reverse of the dispatchers below,
+// for the places that have a widget and owe somebody an editor.
+Core::IEditor *editorForWidget(TextEditorWidget *widget)
+{
+    if (!widget)
+        return nullptr;
+    const QList<BaseTextEditor *> editors
+        = BaseTextEditor::textEditorsForDocument(widget->textDocument());
+    for (BaseTextEditor * const editor : editors) {
+        if (editor->editorWidget() == widget)
+            return editor;
+    }
+    return nullptr;
+}
+
 QTextCursor textCursorOf(Core::IEditor *editor)
 {
     if (!editor)
@@ -10194,6 +10216,37 @@ QTextCursor textCursorOf(Core::IEditor *editor)
     if (TextViewport * const view = Internal::viewportForEditor(editor))
         return view->textCursor();
     return {};
+}
+
+void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor)
+{
+    if (!editor || cursor.isNull())
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setTextCursor(cursor);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->setTextCursor(cursor);
+}
+
+void invokeAssistIn(Core::IEditor *editor, AssistKind kind)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->invokeAssist(kind);
+        return;
+    }
+    TextViewport * const view = Internal::viewportForEditor(editor);
+    if (!view)
+        return;
+    switch (kind) {
+    case QuickFix: view->requestQuickFixes(); break;
+    case Completion: view->requestCompletions(); break;
+    case FunctionHint: view->requestFunctionHint(); break;
+    case FollowSymbol: break; // Not an assist the viewport offers on demand.
+    }
 }
 
 bool openLinkInEditor(Core::IEditor *editor, const Utils::Link &link, bool inNextSplit)

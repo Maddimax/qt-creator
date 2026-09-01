@@ -870,6 +870,13 @@ private:
 // caret, and only one of them is a QPlainTextEdit to ask for it. Null where
 // \a editor shows no text.
 TEXTEDITOR_EXPORT QTextCursor textCursorOf(Core::IEditor *editor);
+// The other direction, for code that has a widget and owes somebody an editor.
+TEXTEDITOR_EXPORT Core::IEditor *editorForWidget(TextEditorWidget *widget);
+
+// Put the caret in \a editor's view where \a cursor is, and ask its language
+// for \a kind. Both dispatch on the view the same way the pair above does.
+TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
+TEXTEDITOR_EXPORT void invokeAssistIn(Core::IEditor *editor, AssistKind kind);
 
 // Go to \a link the way \a editor's view would: a jump within the same file,
 // or the editor manager for anything else. Answers whether it went anywhere.

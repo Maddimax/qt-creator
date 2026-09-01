@@ -21,6 +21,10 @@ namespace Internal {
 // What the free functions handing out a view's relay objects dispatch on.
 TextViewport *viewportForEditor(Core::IEditor *editor);
 
+// The editor \a view is inside, the reverse of the above. What a view owes
+// whoever asked it to do something on the reader's behalf.
+Core::IEditor *editorForViewport(TextViewport *view);
+
 // A Qt Quick view of a document a TextEditorFactory has already built and
 // configured: the language's own TextDocument, carrying its indenter, its
 // highlighter and its completions. \a context is what the factory would have

@@ -41,6 +41,7 @@
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/dialogs/codecselector.h>
+#include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/editormanager/ieditorfactory.h>
@@ -960,6 +961,19 @@ public:
         setEditorCreator([] { return new QuickTextEditor; });
     }
 };
+
+Core::IEditor *editorForViewport(TextViewport *view)
+{
+    if (!view || !view->textDocument())
+        return nullptr;
+    const QList<Core::IEditor *> editors
+        = Core::DocumentModel::editorsForDocument(view->textDocument());
+    for (Core::IEditor * const editor : editors) {
+        if (viewportForEditor(editor) == view)
+            return editor;
+    }
+    return nullptr;
+}
 
 Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
                                      const Core::Context &context)
@@ -3534,6 +3548,105 @@ private slots:
         QVERIFY(PlainRefactoringFileFactory().file(file)->apply(change));
         QCOMPARE(document->document()->toPlainText(), QString("gamma\nalpha\n"));
         QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("gamma\nalpha\n"));
+    }
+
+    // Something the file offers at a place in it - a quick fix waiting, a
+    // toolbar to open. These were markers the widget editor drew, held in its
+    // overlay, and nothing else could see or act on them.
+    void testTheViewActsOnARefactorMarker()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-refactor-marker");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // At the end of the first line, which is where a producer puts one.
+        QTextCursor at(document->document());
+        at.movePosition(QTextCursor::EndOfLine);
+        const int markerPosition = at.position();
+
+        Core::IEditor *acted = nullptr;
+        RefactorMarker marker;
+        marker.cursor = at;
+        marker.tooltip = "Show available quick fixes";
+        marker.type = Utils::Id("QuickEditorMarkerTest");
+        marker.callback = [&acted](Core::IEditor *in) { acted = in; };
+        document->setRefactorMarkers(marker.type, {marker});
+
+        // The form is what draws them, so it has to be able to ask.
+        const QVariantList listed = view->refactorMarkers();
+        QCOMPARE(listed.size(), 1);
+        QCOMPARE(listed.first().toMap().value("position").toInt(), markerPosition);
+        QCOMPARE(listed.first().toMap().value("toolTip").toString(),
+                 QString("Show available quick fixes"));
+
+        // And acting on it hands the producer the editor the reader is in,
+        // rather than a widget it would have to be to have one.
+        QVERIFY2(view->applyRefactorMarkerAt(markerPosition), "the marker was not acted on");
+        QCOMPARE(acted, editor);
+
+        // Somewhere there is no marker does nothing, so what is asserted above
+        // is the marker rather than any click.
+        acted = nullptr;
+        QVERIFY2(!view->applyRefactorMarkerAt(document->document()->characterCount() - 1),
+                 "a place with no marker was acted on anyway");
+        QCOMPARE(acted, nullptr);
+
+        // And emptying the kind takes it away again.
+        document->setRefactorMarkers(marker.type, {});
+        QVERIFY(view->refactorMarkers().isEmpty());
+    }
+
+    // And the other direction: everything that produces one today does it
+    // through TextEditorWidget, so the widget has to tell the document or the
+    // other view never learns of any marker that exists in practice.
+    void testTheWidgetTellsTheDocumentAboutItsMarkers()
+    {
+        Utils::TemporaryDirectory dir("widget-editor-refactor-marker");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        QVERIFY2(widget, "the plain text editor is no longer a widget one");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        const Utils::Id kind("WidgetMarkerTest");
+        QVERIFY(document->refactorMarkers(kind).isEmpty());
+
+        QTextCursor at(document->document());
+        at.movePosition(QTextCursor::EndOfLine);
+        RefactorMarker marker;
+        marker.cursor = at;
+        marker.type = kind;
+        marker.callback = [](Core::IEditor *) {};
+        widget->setRefactorMarkers({marker}, kind);
+
+        QCOMPARE(document->refactorMarkers(kind).size(), 1);
+        QCOMPARE(document->refactorMarkerAt(at.position()).type, kind);
+
+        // Clearing has to reach it too, or a marker outlives what put it there.
+        widget->clearRefactorMarkers(kind);
+        QVERIFY2(document->refactorMarkers(kind).isEmpty(),
+                 "the document kept a marker the widget had cleared");
     }
 
     // The provider is on the document, and asking it is what turns that into

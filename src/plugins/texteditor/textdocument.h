@@ -7,6 +7,7 @@
 #include "codeassist/assistenums.h"
 #include "formatter.h"
 #include "indenter.h"
+#include "refactoroverlay.h"
 
 #include <coreplugin/textdocument.h>
 
@@ -87,6 +88,17 @@ public:
     // Every kind that has ever been set, including those since emptied, so
     // that a view can clear what it was drawing for one.
     QList<Utils::Id> extraSelectionKinds() const;
+
+    // Something offered at a place in the file - a quick fix waiting, a
+    // toolbar to open. A fact about the document like the selections above,
+    // so that a view which is not a TextEditorWidget can offer them too, and
+    // keyed by producer the same way.
+    void setRefactorMarkers(Utils::Id type, const RefactorMarkers &markers);
+    RefactorMarkers refactorMarkers(Utils::Id type) const;
+    // Every one there is, whoever put it there.
+    RefactorMarkers refactorMarkers() const;
+    // The one whose cursor covers \a position, or an invalid one.
+    RefactorMarker refactorMarkerAt(int position) const;
 
     // The tooltip carried by an annotation covering pos - a diagnostic, say.
     // Every kind that carries one is document-wide, so no view is needed to
@@ -219,6 +231,7 @@ signals:
     void tabSettingsChanged();
     void fontSettingsChanged();
     void extraSelectionsChanged();
+    void refactorMarkersChanged();
     void markRemoved(TextEditor::TextMark *mark);
 
 protected:

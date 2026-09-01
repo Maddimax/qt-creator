@@ -10,6 +10,10 @@
 #include <QTextCursor>
 #include <QIcon>
 
+#include <functional>
+
+namespace Core { class IEditor; }
+
 namespace TextEditor {
 class TextEditorWidget;
 
@@ -21,7 +25,9 @@ struct TEXTEDITOR_EXPORT RefactorMarker
     QString tooltip;
     QIcon icon;
     mutable QRect rect; // used to cache last drawing positin in document coordinates
-    std::function<void(TextEditor::TextEditorWidget *)> callback;
+    // The editor the reader acted in, not the widget: a marker belongs to the
+    // file, and which view it was clicked in is all this needs to say.
+    std::function<void(Core::IEditor *)> callback;
     Utils::Id type;
     QVariant data;
 };

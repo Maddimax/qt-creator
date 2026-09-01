@@ -323,7 +323,7 @@ void QmlJSEditorWidget::updateContextPane()
                             marker.cursor = tc;
                             marker.tooltip = Tr::tr("Show Qt Quick ToolBar");
                             marker.type = QT_QUICK_TOOLBAR_MARKER_ID;
-                            marker.callback = [this](TextEditorWidget *) {
+                            marker.callback = [this](Core::IEditor *) {
                                 showContextPane();
                             };
                             markers.append(marker);

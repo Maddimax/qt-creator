@@ -79,6 +79,7 @@ public:
     TypingSettingsData m_typingSettings;
     StorageSettingsData m_storageSettings;
     QMap<Utils::Id, QList<TextDocument::ExtraSelection>> m_extraSelections;
+    QMap<Utils::Id, RefactorMarkers> m_refactorMarkers;
     ICodeStylePreferences *m_codeStylePreferences = nullptr;
     TabSettingsData m_tabSettings;
     ExtraEncodingSettingsData m_extraEncodingSettings;
@@ -510,6 +511,48 @@ void TextDocument::setQuickFixAssistProvider(IAssistProvider *provider) const
 IAssistProvider *TextDocument::quickFixAssistProvider() const
 {
     return d->m_quickFixProvider;
+}
+
+void TextDocument::setRefactorMarkers(Utils::Id type, const RefactorMarkers &markers)
+{
+    if (markers.isEmpty()) {
+        if (d->m_refactorMarkers.remove(type) == 0)
+            return;
+    } else {
+        d->m_refactorMarkers.insert(type, markers);
+    }
+    emit refactorMarkersChanged();
+}
+
+RefactorMarkers TextDocument::refactorMarkers(Utils::Id type) const
+{
+    return d->m_refactorMarkers.value(type);
+}
+
+RefactorMarkers TextDocument::refactorMarkers() const
+{
+    RefactorMarkers all;
+    for (const RefactorMarkers &markers : std::as_const(d->m_refactorMarkers))
+        all += markers;
+    return all;
+}
+
+RefactorMarker TextDocument::refactorMarkerAt(int position) const
+{
+    // The cursor is where the marker is drawn, and a marker with nothing
+    // selected still covers the character it sits on: a click lands on one
+    // place, and asking for an exact position would find nothing.
+    for (const RefactorMarkers &markers : std::as_const(d->m_refactorMarkers)) {
+        for (const RefactorMarker &marker : markers) {
+            if (marker.cursor.isNull())
+                continue;
+            const int from = marker.cursor.selectionStart();
+            const int to = marker.cursor.selectionEnd();
+            if (position >= from && position <= to)
+                return marker;
+        }
+    }
+    return {};
 }
 
 std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(

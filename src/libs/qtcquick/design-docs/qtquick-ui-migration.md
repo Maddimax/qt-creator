@@ -25382,3 +25382,72 @@ thing on this list that genuinely belongs to a view: it may be right for the
 Quick editor to do without it and fall back to the global rename this batch
 just gave it, which is what `CppEditorWidget` already does when the mode
 cannot start.
+
+## 2026-09-01 — Refactor markers belong to the file
+
+Sixth of gap 3, and the prerequisite the last entry named: before
+`FunctionDeclDefLink` can move, the marker it draws has to be something a view
+other than `TextEditorWidget` can see and act on.
+
+**They were entirely the widget's.** `RefactorOverlay` is constructed with a
+`TextEditorWidget *`, holds the markers, paints them, and answers
+`markerAt(QPoint)`. Neither `TextDocument` nor `TextViewport` had ever heard of
+one. So `TextDocument` holds them now, keyed by producer the way the extra
+selections are, and `TextEditorWidget::setRefactorMarkers(markers, type)` and
+`clearRefactorMarkers(type)` tell it - the same bridge, in the same two lines,
+that `setExtraSelections()` already had. Every producer that keys by type goes
+through those two, so that is the one place that had to know.
+
+**The callback had to stop being a widget.** `std::function<void(TextEditorWidget *)>`
+is now `std::function<void(Core::IEditor *)>`. Six producers, and **four of them
+never used the argument at all** - the QML toolbar marker, the Lua binding and
+both of the language client's edit/command actions ignore it. Of the two that
+did, ClangTools wanted "put the caret here and ask for quick fixes", which is
+two more dispatchers of the shape this migration keeps needing:
+
+```cpp
+TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
+TEXTEDITOR_EXPORT void invokeAssistIn(Core::IEditor *editor, AssistKind kind);
+```
+
+and the language client's third callback wanted the same pair. The sixth is the
+decl/def link, which really does need `CppEditorWidget::applyDeclDefLinkChanges()` -
+it owns the link and the undo group the edit goes into - so it casts through
+`editor->widget()` and does nothing in a view that is not one. That is honest:
+the link itself has not moved yet, and this is the marker, not the link.
+
+`editorForWidget()` and `editorForViewport()` are the two directions of the same
+lookup, and there are now one of each: the widget hands its editor to the
+callback, and `TextViewport::applyRefactorMarkerAt()` hands its own. The
+CppEditor copy of `editorForWidget` from two batches ago is the same function;
+it stays where it is for now, since `cpptoolsreuse` is where CppEditor's own
+callers look.
+
+`TextViewport` gains `refactorMarkers()` - a `QVariantList` of position and
+tooltip, for the form to draw - and `applyRefactorMarkerAt(position)`. **Drawing
+them is not in this batch**: the form has the list and nothing renders it yet,
+so a marker in the Quick editor is reachable by position and invisible. Said
+here rather than implied.
+
+Negative controls, all three bit: the widget not telling the document, after
+which the document has no marker the widget drew; the viewport handing the
+callback `nullptr` instead of its editor, which is the whole point of the
+signature change; and `refactorMarkerAt()` demanding a position strictly inside
+the marker's range, which finds nothing at all - every marker a producer makes
+has an empty cursor, so `>=` rather than `>` is load-bearing and now says so.
+
+`TextEditor` 405 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `LanguageClient`, `QmlJSEditor`, `ClangTools` and `Lua` -
+the four plugins whose callbacks changed shape - 0 failures each.
+`CppEditor`: `SymbolJumpTest` 5, `QuickFixAssistTest` 4, `UseSelectionsTest` 3,
+`CppOutlineTest` 3, `CppTypeHierarchyTest` 3 - exit 0. No new file, no `.qbs`
+edit.
+
+**Next:** two things, and the first is small. **Draw the markers**: the form has
+`refactorMarkers()` and `applyRefactorMarkerAt()` and needs an icon at each
+position that calls the second - that finishes this batch's work and lights up
+ClangTools' fixits and the language client's code actions in the Quick editor,
+neither of which needs CppEditor at all. Then `FunctionDeclDefLink` itself,
+which is the last of gap 3 apart from `CppLocalRenaming` - and local renaming
+may be right to leave alone, since the Quick editor now has the global rename
+that `CppEditorWidget` already falls back to when the mode cannot start.

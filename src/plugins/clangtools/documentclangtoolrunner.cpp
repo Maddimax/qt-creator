@@ -303,9 +303,9 @@ void DocumentClangToolRunner::onDone(const AnalyzeOutputData &output)
             cursor.movePosition(QTextCursor::EndOfLine);
             marker.cursor = cursor;
             marker.type = Constants::CLANG_TOOL_FIXIT_AVAILABLE_MARKER_ID;
-            marker.callback = [marker](TextEditor::TextEditorWidget *editor) {
-                editor->setTextCursor(marker.cursor);
-                editor->invokeAssist(TextEditor::QuickFix);
+            marker.callback = [marker](Core::IEditor *editor) {
+                TextEditor::setTextCursorOf(editor, marker.cursor);
+                TextEditor::invokeAssistIn(editor, TextEditor::QuickFix);
             };
             markers << marker;
         }
