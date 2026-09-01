@@ -262,6 +262,46 @@ bool TestCase::openCppEditor(const FilePath &filePath, TextEditor::BaseTextEdito
     }
 }
 
+// What openCppEditor() waits for, asked of the document so that either view
+// answers it: the file is not ready to be tested until it has been read.
+static bool waitForHighlighting(TextEditor::TextDocument *document)
+{
+    return QTest::qWaitFor(
+        [document] {
+            TextEditor::SyntaxHighlighter * const highlighter = document->syntaxHighlighter();
+            return highlighter && highlighter->syntaxHighlighterUpToDate();
+        },
+        5000);
+}
+
+// The storage and tab settings openCppEditor() pins, so that what a test
+// types is not reformatted underneath it.
+static void pinSettings(TextEditor::TextDocument *document)
+{
+    TextEditor::StorageSettingsData storage = document->storageSettings();
+    storage.m_addFinalNewLine = false;
+    document->setStorageSettings(storage);
+    TextEditor::TabSettingsData tabs = TextEditor::globalCodeStyle().tabSettings();
+    tabs.m_autoDetect = false;
+    document->setTabSettings(tabs);
+}
+
+bool TestCase::openCppEditorInAnyView(const FilePath &filePath, Core::IEditor **editor)
+{
+    Core::IEditor * const opened = Core::EditorManager::openEditor(filePath);
+    if (!opened)
+        return false;
+    auto * const document = qobject_cast<TextEditor::TextDocument *>(opened->document());
+    if (!document)
+        return false;
+    pinSettings(document);
+    if (!waitForHighlighting(document))
+        return false;
+    if (editor)
+        *editor = opened;
+    return true;
+}
+
 CPlusPlus::Snapshot TestCase::globalSnapshot()
 {
     return CppModelManager::snapshot();

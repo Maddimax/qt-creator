@@ -126,6 +126,11 @@ public:
     bool succeededSoFar() const;
     static bool openCppEditor(const Utils::FilePath &filePath, TextEditor::BaseTextEditor **editor,
                               CppEditorWidget **editorWidget = nullptr);
+    // The same, for a test that needs the file open and does not care which
+    // view is showing it. openCppEditor() answers false in the Qt Quick
+    // editor, because there is no BaseTextEditor to hand back - which is why
+    // most of this suite says nothing about that editor.
+    static bool openCppEditorInAnyView(const Utils::FilePath &filePath, Core::IEditor **editor);
     void closeEditorAtEndOfTestCase(Core::IEditor *editor);
 
     static bool closeEditorWithoutGarbageCollectorInvocation(Core::IEditor *editor);

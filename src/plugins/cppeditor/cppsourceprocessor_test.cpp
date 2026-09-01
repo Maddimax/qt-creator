@@ -96,8 +96,8 @@ void SourceProcessorTest::testIncludesCyclic()
     testCase.parseFiles(sourceFiles);
 
     // Open editor
-    TextEditor::BaseTextEditor *editor;
-    QVERIFY(testCase.openCppEditor(filePath1, &editor));
+    Core::IEditor *editor = nullptr;
+    QVERIFY(testCase.openCppEditorInAnyView(filePath1, &editor));
     testCase.closeEditorAtEndOfTestCase(editor);
 
     // Check editor snapshot

@@ -25581,3 +25581,65 @@ feature this document has closed since is covered by a test written for it
 rather than by the suite that already existed. That is the next thing worth
 doing, and it is a bigger job than any single batch here: the harness has to
 drive either view, and each test that reaches for `CppEditorWidget` has to stop.
+
+## 2026-09-01 — The first slice of gap 1: three classes that now test both views
+
+The last entry said gap 1 was what is really left, and that it is bigger than a
+batch. This is the first slice of it, and unlike every batch since the seam was
+built it **adds no test of its own** - it lets tests that already exist say
+something about the Quick editor, and the evidence is the numbers.
+
+`TestCase::openCppEditor()` hands back a `TextEditor::BaseTextEditor *`, so it
+casts and answers false where there is none. Eleven callers, and **four of them
+never wanted the widget at all** - they open a file, wait for it to be read,
+and then test the code model. Those four get
+`openCppEditorInAnyView(filePath, Core::IEditor **)`, which does the same three
+things through the document: pin the storage and tab settings so nothing
+reformats underneath the test, wait for the highlighting, hand back the editor.
+
+Measured, with `QTC_QUICK_CPP_EDITOR=1`:
+
+| class | before | after | widget path |
+|---|---|---|---|
+| `ModelManagerTest` | 18 passed, 3 failed | **20 passed, 1 failed** | 20 passed, 1 failed |
+| `SourceProcessorTest` | 4 passed, 3 failed | **7 passed, 0 failed** | 7 passed, 0 failed |
+| `IncludeHierarchyTest` | 2 passed, 6 failed | **8 passed, 0 failed** | 8 passed, 0 failed |
+
+All three now give the same answer in either view, and `ModelManagerTest`'s
+remaining one is `testExtraeditorsupportUiFiles`, which is standing.
+
+**The other seven callers do want the widget**, and each for a different
+reason: `cppdoxygen_test` and `cpphighlighter` type into it,
+`cppuseselections_test` reads its extra selections,
+`followsymbol_switchmethoddecldef_test` and `fileandtokenactions_test` call its
+methods, `cppquickfix_test` builds a `CppQuickFixInterface` from it, and
+`layoutpreview` wants its viewport. Those are seven separate pieces of work,
+not one.
+
+**`CompletionTest` is 204 of the suite's cases and is not one of the eleven**:
+it opens with `EditorManager::openEditor()` itself and then builds a
+`CppCompletionAssistInterface(filePath, editorWidget, ...)`. That constructor
+taking a widget is the whole of it - the same shape as
+`CppQuickFixInterface` before the quick-fix batch, and probably the same fix.
+It is the largest single block of coverage left and worth doing next.
+
+**A control that bit, decisively.** Making the new opener cast to
+`BaseTextEditor` the way the old one does puts all three classes straight back:
+18/3, 4/3 and 2/6. That is the measurement above, run backwards.
+
+**A control that did not bite.** Removing the wait for the highlighting changed
+nothing in all three: none of them reads the file's colours or types into it.
+The wait is kept because it is what `openCppEditor()` does and the next caller
+to be converted - one that types - will need it, but it is unexercised and this
+says so rather than counting it.
+
+`TextEditor` 406 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `CppEditor` on the widget path: `FollowSymbolTest` 155
+(154/1 once, 155/0 twice after - the standing flake), `ModelManagerTest` 20/1,
+`IncludeHierarchyTest` 8, `SourceProcessorTest` 7, `DeclDefLinkTest` 3 - exit 0.
+No new file, no `.qbs` edit.
+
+**Next:** `CppCompletionAssistInterface` over a document rather than a widget,
+which is what unlocks `CompletionTest`. After that the remaining six callers,
+in whatever order suits - and `CppLocalRenaming`, if the answer there turns out
+not to be "leave it".

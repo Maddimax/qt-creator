@@ -72,8 +72,8 @@ public:
 
         // Open Editor
         const Utils::FilePath filePath = temporaryDir.filePath() / "file1.h";
-        TextEditor::BaseTextEditor *editor;
-        QVERIFY(openCppEditor(filePath, &editor));
+        Core::IEditor *editor = nullptr;
+        QVERIFY(openCppEditorInAnyView(filePath, &editor));
         closeEditorAtEndOfTestCase(editor);
 
         // Update Code Model
