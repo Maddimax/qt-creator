@@ -24864,3 +24864,88 @@ variable unset. No new file and no `.qbs` edit.
 **Next:** gap 1 - teach `TestCase::openCppEditor()` and the `CppEditorWidget`
 accessors to answer either view, so that turning the variable on is something a
 test run can measure rather than something only a person can see.
+
+## 2026-09-01 — A refactoring finds the document, not the widget
+
+Gap 2 from the last section, one layer lower than expected. Before
+`CppQuickFixInterface` can be taken off `CppEditorWidget`, the thing every
+refactoring is built on has to work without one: `TextEditor::RefactoringFile`
+held a `TextEditorWidget *` and used it for eight different things.
+
+**The bug is live today, not only after C++ is flipped.** A plain text file
+already opens in the Quick editor, and `RefactoringFile(const FilePath &)`
+looked for its editor with `TextEditorWidget::fromEditor()`. Finding none, it
+fell through to `mutableDocument()`, which **reads the file back from disk** -
+and then `apply()`, seeing no editor, **writes the result over the file**. So a
+refactoring applied to an open, unsaved file in the Quick editor silently threw
+the unsaved text away. Reachable users of exactly that path:
+`BaseFileFind::replaceAll()` (Replace All in Find in Files),
+`TextDocument::applyChangeSet()`, the language client's workspace edits, both
+MCP servers and ClangTools.
+
+**The split is document versus view.** Of the eight uses of the widget, six are
+really the document - `document()`, `isModified()`, `indenter()`,
+`tabSettings()`, what to save, and whether the file has to be written at all -
+and two are the view: the caret `apply()` edits through, and
+`ensureCursorVisible()`. So `RefactoringFile` now holds a `TextDocument *`
+beside the widget, the widget is kept only for those two, and the lookup asks
+the *editor's document*:
+
+```cpp
+IEditor * const editor = editors.first();
+auto * const document = qobject_cast<TextDocument *>(editor->document());
+if (!document || isReadOnly(document))
+    return;
+m_textDocument = document;
+m_editor = TextEditorWidget::fromEditor(editor);
+```
+
+`isReadOnly()` is the widget's own rule asked of the document -
+`isConflicted() || hasDecodingError()` is what `TextEditorWidget` sets itself
+read-only for - so a view that is not that widget answers it the same way
+rather than being treated as writable when it is not.
+
+**`openEditor()` had to stop returning the widget.** It was
+`m_editor = openEditor(...)`, which left `m_textDocument` null after a
+refactoring opened a file that came up in the Quick editor - the one place
+where the two members could disagree. It now sets both and returns nothing.
+
+**A control that did not bite, and why.** Reverting `apply()`'s
+"write the file" guard from `!m_textDocument` back to `!m_editor` changed
+nothing, because the second half of that condition -
+`m_textFileFormat.encoding().isValid()` - is only ever true when
+`mutableDocument()` read the file from disk, which only happens when there is
+no document. Two guards for one decision, so the predicate is right but
+unobservable. Said here rather than reported as a passing control. See
+[[negative-control-two-guards]].
+
+Controls that did bite: the widget-only lookup, which gave the refactoring
+`"alpha\n"` where the open document said `"alpha\nbeta\n"` - the stale copy,
+exactly as reported; and the auto-save decision asking for a widget again,
+which left the file on disk unchanged after a refactoring of an unmodified
+document.
+
+**A shell trap worth writing down.** Setting the working change aside with
+`cp` + `git show HEAD:` to take a baseline lost a file: `cp` is aliased to
+`cp -i` here, it prompted, the prompt was answered "no" - and the `git show`
+redirect on the next line overwrote the source anyway. Use `/bin/cp`. See
+[[zsh-shell-gotchas]].
+
+`TextEditor` 403 passed across 18 classes, 0 failed, exit 0, twice. One earlier
+run of the same binary died with `CodeAssistTests::cleanupTestCase()` hanging
+300 s and exit 134; that class alone is 3 passed in 400 ms and the two full
+re-runs were clean, so it is the standing whole-suite flake rather than this
+change. QuickUi 208 passed, exit 0 (one run before it reported
+`testTheListingCanBeReadBothWaysRound` failing; it is a sort-order flake).
+The widget path is unchanged: `FollowSymbolTest` 155, `DoxygenTest` 34,
+`SelectionsTest` 14, `GlobalRenamingTest` 4, `CodegenTest` 15,
+`GenerateGetterSetterTest` 58, `InsertQtPropertyMembersTest` 12,
+`CompleteSwitchStatementTest` 25 - all 0 failed, exit 0. No new file and no
+`.qbs` edit.
+
+**Next:** `CppQuickFixInterface`, now that the file layer under it no longer
+needs a widget. It wants `textCursor()`, `textDocument()`, `semanticInfo()` and
+`CppRefactoringChanges::file()`; the semantic info is the *document's*
+(`CppEditorDocument::semanticInfoUpdated`, `recalculateSemanticInfo()`), and
+`CppRefactoringChanges::file()` needs an overload that takes the document
+rather than the widget.

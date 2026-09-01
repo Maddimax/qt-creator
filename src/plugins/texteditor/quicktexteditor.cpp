@@ -24,6 +24,7 @@
 #include "typingsettings.h"
 #include "highlighterhelper.h"
 #include "textdocumentlayout.h"
+#include "refactoringchanges.h"
 #include "suggestionhost.h"
 #include "symbolrequests.h"
 #include "textsuggestion.h"
@@ -53,6 +54,7 @@
 #include <coreplugin/find/ifindsupport.h>
 
 #include <utils/aggregate.h>
+#include <utils/changeset.h>
 #include <utils/textutils.h>
 #include <utils/algorithm.h>
 #include <utils/theme/theme.h>
@@ -3449,6 +3451,84 @@ private slots:
                  "the Quick editor lost the context its own commands use");
         QVERIFY2(quickEditor->context().contains(languageContext()),
                  "the factory's language context does not reach the Quick editor");
+    }
+
+    // A refactoring edits the document that is open, not the file on disk.
+    // Which view shows it is the part that changed, and RefactoringFile looked
+    // for a TextEditorWidget - so a file open in the Quick editor was
+    // refactored as a stale copy read back from disk, throwing away whatever
+    // had not been saved and then writing the result over it.
+    void testARefactoringWorksOnTheOpenDocument()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-refactoring");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        // The premise, asserted rather than assumed: a text file opens in the
+        // Quick editor, so there is no widget for a refactoring to find.
+        QVERIFY2(viewportForEditor(editor), "a text file no longer opens in the Quick editor");
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QTextCursor typing(document->document());
+        typing.movePosition(QTextCursor::End);
+        typing.insertText("beta\n");
+        QVERIFY2(document->isModified(), "nothing was typed, so there is nothing to lose");
+
+        const RefactoringFilePtr refactoring = PlainRefactoringFileFactory().file(file);
+        QVERIFY2(refactoring->isValid(), "the refactoring found no file");
+        QVERIFY(refactoring->document());
+        QCOMPARE(refactoring->document()->toPlainText(), QString("alpha\nbeta\n"));
+
+        // And the change lands in the open document, which is what the user
+        // sees and can undo - not in the file behind their back.
+        Utils::ChangeSet change;
+        QVERIFY(change.insert(0, "gamma\n"));
+        QVERIFY(refactoring->apply(change));
+        QCOMPARE(document->document()->toPlainText(), QString("gamma\nalpha\nbeta\n"));
+        QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("alpha\n"));
+    }
+
+    // The other half of the same decision: a file nobody had edited is written
+    // out again after a refactoring, which is what "Auto-save files after
+    // refactoring" promises. That too asked whether there was a widget, so a
+    // file open in the Quick editor was left dirty instead.
+    void testARefactoringSavesAFileNobodyHadEdited()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-refactoring-save");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        // Read rather than set: the setting lives in coreplugin's Internal
+        // namespace, and it is on by default.
+        if (!Core::EditorManager::autoSaveAfterRefactoring())
+            QSKIP("auto-saving after a refactoring is turned off in these settings");
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(!document->isModified(), "the file was edited, so it would not be saved anyway");
+
+        Utils::ChangeSet change;
+        QVERIFY(change.insert(0, "gamma\n"));
+        QVERIFY(PlainRefactoringFileFactory().file(file)->apply(change));
+        QCOMPARE(document->document()->toPlainText(), QString("gamma\nalpha\n"));
+        QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("gamma\nalpha\n"));
     }
 
     // The provider is on the document, and asking it is what turns that into

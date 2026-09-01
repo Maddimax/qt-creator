@@ -81,12 +81,16 @@ private:
 
     void setupFormattingRanges(const QList<Utils::ChangeSet::EditOp> &replaceList);
 
-    TextEditorWidget *openEditor(bool activate, int line, int column);
+    void openEditor(bool activate, int line, int column);
     QTextDocument *mutableDocument() const;
 
     Utils::FilePath m_filePath;
     mutable Utils::TextFileFormat m_textFileFormat;
+    // The file read from disk, where it is not open in an editor. Owned.
     mutable QTextDocument *m_document = nullptr;
+    // The open document being edited, whichever view shows it, and the widget
+    // showing it where that view is one - which is only what moves a caret.
+    TextDocument *m_textDocument = nullptr;
     TextEditorWidget *m_editor = nullptr;
     Utils::ChangeSet m_changes;
 

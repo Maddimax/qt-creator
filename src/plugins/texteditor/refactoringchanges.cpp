@@ -36,22 +36,38 @@ RefactoringFile::RefactoringFile(QTextDocument *document, const FilePath &filePa
 
 RefactoringFile::RefactoringFile(TextEditorWidget *editor)
     : m_filePath(editor->textDocument()->filePath())
+    , m_textDocument(editor->textDocument())
     , m_editor(editor)
 { }
 
+// The two the widget editor turns itself read-only for, asked of the document
+// so that a view which is not that widget answers them the same way.
+static bool isReadOnly(TextDocument *document)
+{
+    return document->isConflicted() || document->hasDecodingError();
+}
+
 RefactoringFile::RefactoringFile(const FilePath &filePath) : m_filePath(filePath)
 {
-    QList<IEditor *> editors = DocumentModel::editorsForFilePath(filePath);
-    if (!editors.isEmpty()) {
-        auto editorWidget = TextEditorWidget::fromEditor(editors.first());
-        if (editorWidget && !editorWidget->isReadOnly())
-            m_editor = editorWidget;
-    }
+    const QList<IEditor *> editors = DocumentModel::editorsForFilePath(filePath);
+    if (editors.isEmpty())
+        return;
+
+    // The *document* is what an open file is edited through; which view shows
+    // it only decides whether there is a caret to move afterwards. Reading the
+    // file from disk instead would silently refactor a stale copy of anything
+    // the user has not saved.
+    IEditor * const editor = editors.first();
+    auto * const document = qobject_cast<TextDocument *>(editor->document());
+    if (!document || isReadOnly(document))
+        return;
+    m_textDocument = document;
+    m_editor = TextEditorWidget::fromEditor(editor);
 }
 
 bool RefactoringFile::create(const QString &contents, bool reindent, bool openInEditor)
 {
-    if (m_filePath.isEmpty() || m_filePath.exists() || m_editor || m_document)
+    if (m_filePath.isEmpty() || m_filePath.exists() || m_textDocument || m_document)
         return false;
 
     // Create a text document for the new file:
@@ -104,8 +120,8 @@ const QTextDocument *RefactoringFile::document() const
 
 QTextDocument *RefactoringFile::mutableDocument() const
 {
-    if (m_editor)
-        return m_editor->document();
+    if (m_textDocument)
+        return m_textDocument->document();
     if (!m_document) {
         TextFileFormat::ReadResult result;
         if (!m_filePath.isEmpty()) {
@@ -125,6 +141,8 @@ const QTextCursor RefactoringFile::cursor() const
 {
     if (m_editor)
         return m_editor->textCursor();
+    if (m_textDocument)
+        return QTextCursor(m_textDocument->document());
     if (!m_filePath.isEmpty()) {
         if (QTextDocument *doc = mutableDocument())
             return QTextCursor(doc);
@@ -227,13 +245,13 @@ bool RefactoringFile::apply()
             lineAndColumn(m_editorCursorPosition, &line, &column);
             ensureCursorVisible = true;
         }
-        m_editor = openEditor(m_activateEditor, line, column);
+        openEditor(m_activateEditor, line, column);
         m_openEditor = false;
         m_activateEditor = false;
         m_editorCursorPosition = -1;
     }
 
-    const bool withUnmodifiedEditor = m_editor && !m_editor->textDocument()->isModified();
+    const bool withUnmodifiedEditor = m_textDocument && !m_textDocument->isModified();
     bool result = true;
 
     // apply changes, if any
@@ -257,7 +275,7 @@ bool RefactoringFile::apply()
             c.endEditBlock();
 
             // if this document doesn't have an editor, write the result to a file
-            if (!m_editor && m_textFileFormat.encoding().isValid()) {
+            if (!m_textDocument && m_textFileFormat.encoding().isValid()) {
                 QTC_ASSERT(!m_filePath.isEmpty(), return false);
                 // suppress "file has changed" warnings if the file is open in a read-only editor
                 Core::FileChangeBlocker block(m_filePath);
@@ -272,7 +290,7 @@ bool RefactoringFile::apply()
 
             fileChanged();
             if (withUnmodifiedEditor && EditorManager::autoSaveAfterRefactoring())
-                DocumentManager::saveDocument(m_editor->textDocument(), m_filePath);
+                DocumentManager::saveDocument(m_textDocument, m_filePath);
         }
     }
 
@@ -291,7 +309,7 @@ bool RefactoringFile::apply(const Utils::ChangeSet &changeSet)
 
 void RefactoringFile::setupFormattingRanges(const QList<ChangeSet::EditOp> &replaceList)
 {
-    QTextDocument * const doc = m_editor ? m_editor->document() : m_document;
+    QTextDocument * const doc = m_textDocument ? m_textDocument->document() : m_document;
     QTC_ASSERT(doc, return);
 
     for (const ChangeSet::EditOp &op : replaceList) {
@@ -338,10 +356,10 @@ void RefactoringFile::doFormatting()
     Indenter *indenter = nullptr;
     std::unique_ptr<Indenter> indenterOwner;
     TabSettingsData tabSettings;
-    if (m_editor) {
-        document = m_editor->document();
-        indenter = m_editor->textDocument()->indenter();
-        tabSettings = m_editor->textDocument()->tabSettings();
+    if (m_textDocument) {
+        document = m_textDocument->document();
+        indenter = m_textDocument->indenter();
+        tabSettings = m_textDocument->tabSettings();
     } else {
         document = m_document;
         ICodeStylePreferencesFactory * const factory = codeStyleFactory(indenterId());
@@ -396,7 +414,7 @@ void RefactoringFile::doFormatting()
     }
 }
 
-TextEditorWidget *RefactoringFile::openEditor(bool activate, int line, int column)
+void RefactoringFile::openEditor(bool activate, int line, int column)
 {
     EditorManager::OpenEditorFlags flags = EditorManager::IgnoreNavigationHistory;
     if (activate)
@@ -409,7 +427,9 @@ TextEditorWidget *RefactoringFile::openEditor(bool activate, int line, int colum
     }
     IEditor *editor = EditorManager::openEditorAt(Link{m_filePath, line, column}, Id(), flags);
 
-    return TextEditorWidget::fromEditor(editor);
+    m_editor = TextEditorWidget::fromEditor(editor);
+    m_textDocument = m_editor ? m_editor->textDocument()
+                              : qobject_cast<TextDocument *>(editor ? editor->document() : nullptr);
 }
 
 RefactoringFileFactory::~RefactoringFileFactory() = default;
