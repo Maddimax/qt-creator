@@ -3,6 +3,10 @@
 
 #include "cppdoxygen_test.h"
 
+#include <texteditor/texteditor.h>
+
+#include "cppeditordocument.h"
+
 #include "cppeditorwidget.h"
 
 #include <coreplugin/editormanager/editormanager.h>
@@ -514,8 +518,8 @@ void DoxygenTest::runTest(const QByteArray &original,
     QVERIFY(TestCase::parseFiles({testDocument.filePath()}));
 
     // Open Editor
-    QVERIFY(TestCase::openCppEditor(testDocument.filePath(), &testDocument.m_editor,
-                                    &testDocument.m_editorWidget));
+    QVERIFY(TestCase::openCppEditorInAnyView(testDocument.filePath(),
+                                             &testDocument.m_anyEditor));
 
     // We want to test documents that start with a comment. By default, the
     // editor will fold the very first comment it encounters, assuming
@@ -524,14 +528,23 @@ void DoxygenTest::runTest(const QByteArray &original,
     // cursor movements are not as expected). For the time being, we just
     // prepend a declaration before the initial test comment.
     //    testDocument.m_editorWidget->unfoldAll();
-    testDocument.m_editor->setCursorPosition(testDocument.m_cursorPosition);
+    auto * const cppDocument
+        = qobject_cast<CppEditorDocument *>(testDocument.m_anyEditor->document());
+    QVERIFY(cppDocument);
+    QTextDocument * const text = cppDocument->document();
 
-    QVERIFY(TestCase::waitForRehighlightedSemanticDocument(testDocument.m_editorWidget));
+    QTextCursor caret(text);
+    caret.setPosition(testDocument.m_cursorPosition);
+    TextEditor::setTextCursorOf(testDocument.m_anyEditor, caret);
 
-    // Send 'ENTER' key press
+    QVERIFY(TestCase::waitForRehighlightedSemanticDocument(cppDocument));
+
+    // Send 'ENTER' key press, to whichever view is showing the file.
+    QObject * const target = TextEditor::keyTargetOf(testDocument.m_anyEditor);
+    QVERIFY(target);
     QKeyEvent event(QEvent::KeyPress, Qt::Key_Enter, Qt::NoModifier);
-    QCoreApplication::sendEvent(testDocument.m_editorWidget, &event);
-    const QByteArray result = testDocument.m_editorWidget->document()->toPlainText().toUtf8();
+    QCoreApplication::sendEvent(target, &event);
+    const QByteArray result = text->toPlainText().toUtf8();
 
     if (isClangFormatPresent()) {
         QEXPECT_FAIL("noContinuationForExpressionAndComment1",
@@ -546,8 +559,8 @@ void DoxygenTest::runTest(const QByteArray &original,
     }
     QCOMPARE(QLatin1String(result), QLatin1String(expected));
 
-    testDocument.m_editorWidget->undo();
-    const QString contentsAfterUndo = testDocument.m_editorWidget->document()->toPlainText();
+    text->undo();
+    const QString contentsAfterUndo = text->toPlainText();
     QCOMPARE(contentsAfterUndo, testDocument.m_source);
 }
 

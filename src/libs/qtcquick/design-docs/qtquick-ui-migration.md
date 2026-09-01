@@ -25895,3 +25895,59 @@ caret, where the loop takes the first editor's.
 its methods. Typing is the interesting one: `TextViewport` has its own key
 handling, so those two would be the first tests to drive the Quick editor as a
 *reader* does rather than through APIs.
+
+## 2026-09-01 — The first test that types, and what Enter does not do
+
+Fourth slice of gap 1, and the first test to drive the Quick editor **as a
+reader does** rather than through APIs: `DoxygenTest` puts the caret in a
+comment, sends one `Key_Enter`, and compares the whole file.
+
+The key had to go somewhere. A `TextViewport` is a `QQuickItem` and the
+`QQuickWidget` wrapping it forwards nothing ([[quickwidget-wrapper-forwards-no-input]]),
+so there is one more dispatcher:
+
+```cpp
+TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);
+```
+
+the widget where the view is one, the item otherwise. With it, `DoxygenTest` in
+the Quick editor is **32 passed / 2 failed**; without the viewport branch it is
+2 / 32, which is the control and which says the keystrokes really are arriving
+and being acted on. The widget path is 34 / 0, twice.
+
+**The two that differ are one missing seam.** Both are `testBasic(qt_style)`
+and `testBasic(qt_style_settings_override)`: Enter inside `/*!` should generate
+
+    /*!
+     * \brief a
+     */
+
+and in the Quick editor produces only the newline and the indent. The generator
+is `trySplitComment()`, a static in `cppeditorwidget.cpp` called from
+`CppEditorWidget::keyPressEvent()` - so **a language has no way to handle a key
+in the Quick editor at all**. That is a seam this migration has not needed
+until now, because everything before it was a command or a request; this is the
+first thing a language does in the middle of ordinary typing. The other 32 cases
+pass because leading-asterisk continuation is `TextViewport`'s own.
+
+**And a use-after-free that is now reachable.** With clangd's marks on the
+document, closing it is `heap-use-after-free` in
+`TextMark::setBaseTextDocument()` from `TextDocumentLayout::documentClosing()`,
+freed by `LanguageClient::Marks::~Marks()`. It is a teardown ordering problem
+between the language client and the layout, it is not this batch's, and it does
+not fire on the widget path in this test - but it aborts the Quick run, which is
+why that run's exit code is 134 and not 2. Worth its own look.
+
+Negative control: `keyTargetOf()` answering only the widget, which is 2 / 32 as
+above. The widget path is unchanged at 34 / 0.
+
+`TextEditor` 407 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `CppEditor,DoxygenTest` 34 / 0 on the widget path, twice.
+No new file, no `.qbs` edit.
+
+**Next**, and it is the first item in a while that is a *feature* rather than a
+harness or a bug: **a seam for a language to handle a key**. `trySplitComment()`
+wants the file path, the multi-cursor, the caret and a snapshot, and gives back
+an edited cursor - none of that is a widget. `TextDocument` is where it belongs,
+beside `createAssistInterface()`, with `TextViewport` asking before it inserts
+the newline itself. After that, the three remaining `openCppEditor()` callers.

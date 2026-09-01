@@ -10234,6 +10234,15 @@ void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorM
         document->setRefactorMarkers(type, markers);
 }
 
+QObject *keyTargetOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return nullptr;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget;
+    return Internal::viewportForEditor(editor);
+}
+
 void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor)
 {
     if (!editor || cursor.isNull())

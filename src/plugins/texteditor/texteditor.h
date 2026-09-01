@@ -880,6 +880,10 @@ TEXTEDITOR_EXPORT Core::IEditor *editorForWidget(TextEditorWidget *widget);
 TEXTEDITOR_EXPORT void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type,
                                             const RefactorMarkers &markers);
 
+// What a key press should be sent to for \a editor: the widget, or the Quick
+// item - not the QQuickWidget wrapping that item, which forwards nothing.
+TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);
+
 // Put the caret in \a editor's view where \a cursor is, and ask its language
 // for \a kind. Both dispatch on the view the same way the pair above does.
 TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
