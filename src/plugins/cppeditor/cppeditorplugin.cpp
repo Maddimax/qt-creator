@@ -12,6 +12,7 @@
 #include "cppeditordocument.h"
 #include "cppeditortr.h"
 #include "cppeditorwidget.h"
+#include "cppfunctiondecldeflink.h"
 #include "cppfilesettingspage.h"
 #include "cppheadersource.h"
 #include "cpphighlighter.h"
@@ -527,6 +528,18 @@ void CppEditorPlugin::addPerSymbolActions()
                         [editor](const QTextCursor &cursor) {
                             CppEditor::renameUsagesOf(editor, {}, cursor);
                         });
+
+                // A function whose declaration and definition have drifted
+                // apart, and the offer to bring the other one along.
+                // CppEditorWidget owns one of these itself.
+                auto * const declDefLink = new CppDeclDefLinkController(editor);
+                declDefLink->setParent(editor);
+                connect(editor, &IEditor::cursorPositionChanged, declDefLink,
+                        [declDefLink] { declDefLink->scheduleUpdate(); });
+                connect(document->document(), &QTextDocument::contentsChanged, declDefLink,
+                        [declDefLink] { declDefLink->scheduleUpdate(); });
+                connect(document, &CppEditorDocument::semanticInfoUpdated, declDefLink,
+                        [declDefLink] { declDefLink->scheduleUpdate(); });
             });
 
     addSymbolActionToMenus(TextEditor::Constants::OPEN_TYPE_HIERARCHY);
@@ -686,6 +699,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppHeaderSourceTest);
     addTestCreator(createSymbolJumpTest);
     addTestCreator(createUseSelectionsTest);
+    addTestCreator(createDeclDefLinkTest);
     addTestCreator(createIncludeGroupsTest);
     addTestCreator(createCppPreProcessorDialogTest);
     addTestCreator(createClangdSettingsTest);

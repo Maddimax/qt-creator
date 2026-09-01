@@ -10218,6 +10218,18 @@ QTextCursor textCursorOf(Core::IEditor *editor)
     return {};
 }
 
+void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setRefactorMarkers(markers, type);
+        return;
+    }
+    if (auto * const document = qobject_cast<TextDocument *>(editor->document()))
+        document->setRefactorMarkers(type, markers);
+}
+
 void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor)
 {
     if (!editor || cursor.isNull())

@@ -6,7 +6,9 @@
 #include "cppcodestylesettings.h"
 #include "cppeditorconstants.h"
 #include "cppeditortr.h"
+#include "cppeditordocument.h"
 #include "cppeditorwidget.h"
+#include "cpptoolsreuse.h"
 
 #include <coreplugin/editormanager/ieditor.h>
 #include "cpplocalsymbols.h"
@@ -24,11 +26,25 @@
 #include <cplusplus/TypeOfExpression.h>
 
 #include <texteditor/refactoroverlay.h>
+
+#ifdef WITH_TESTS
+#include "clangdsettings.h"
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#endif
 #include <texteditor/texteditorconstants.h>
 
 #include <utils/async.h>
 #include <utils/proxyaction.h>
 #include <utils/qtcassert.h>
+
+#include <coreplugin/editormanager/documentmodel.h>
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+#include <coreplugin/textdocument.h>
+
+#include <texteditor/texteditor.h>
 #include <utils/textutils.h>
 #include <utils/tooltip/tooltip.h>
 
@@ -256,9 +272,174 @@ static bool namesEqual(const Name *n1, const Name *n2)
     return n1 == n2 || (n1 && n2 && n1->match(n2));
 }
 
-void FunctionDeclDefLink::apply(CppEditorWidget *editor, bool jumpToMatch)
+namespace {
+enum { UpdateIntervalInMs = 200 };
+
+// Every controller there is, so that a marker's callback can find the one that
+// belongs to the editor the reader clicked in. Small - one per open C++ view.
+QList<CppDeclDefLinkController *> &controllers()
 {
-    Snapshot snapshot = editor->semanticInfo().snapshot;
+    static QList<CppDeclDefLinkController *> theControllers;
+    return theControllers;
+}
+} // namespace
+
+CppDeclDefLinkController::CppDeclDefLinkController(CppEditorWidget *widget)
+    : m_widget(widget)
+    , m_finder(new FunctionDeclDefLinkFinder(this))
+{
+    controllers().append(this);
+    connect(this, &QObject::destroyed, [this] { controllers().removeOne(this); });
+    connect(m_finder, &FunctionDeclDefLinkFinder::foundLink,
+            this, &CppDeclDefLinkController::onFound);
+    m_updateTimer.setSingleShot(true);
+    m_updateTimer.setInterval(UpdateIntervalInMs);
+    connect(&m_updateTimer, &QTimer::timeout, this, &CppDeclDefLinkController::updateNow);
+}
+
+CppDeclDefLinkController::CppDeclDefLinkController(Core::IEditor *editor)
+    : m_editor(editor)
+    , m_finder(new FunctionDeclDefLinkFinder(this))
+{
+    controllers().append(this);
+    connect(this, &QObject::destroyed, [this] { controllers().removeOne(this); });
+    connect(m_finder, &FunctionDeclDefLinkFinder::foundLink,
+            this, &CppDeclDefLinkController::onFound);
+    m_updateTimer.setSingleShot(true);
+    m_updateTimer.setInterval(UpdateIntervalInMs);
+    connect(&m_updateTimer, &QTimer::timeout, this, &CppDeclDefLinkController::updateNow);
+}
+
+Core::IEditor *CppDeclDefLinkController::editor() const
+{
+    return m_widget ? editorFor(m_widget) : m_editor.data();
+}
+
+void CppDeclDefLinkController::scheduleUpdate()
+{
+    Core::IEditor * const in = editor();
+    const QTextCursor caret = TextEditor::textCursorOf(in);
+    if (caret.isNull())
+        return;
+    const int pos = caret.selectionStart();
+
+    // A link the caret has left, or whose name has been changed into
+    // something else, describes nothing any more. Adding a prefix is the
+    // exception: the reader may be typing a return type.
+    if (m_link
+        && (pos < m_link->linkSelection.selectionStart()
+            || pos > m_link->linkSelection.selectionEnd()
+            || !m_link->nameSelection.selectedText().trimmed().endsWith(m_link->nameInitial))) {
+        abort();
+        return;
+    }
+
+    // Nothing to look for while a scan covering the caret is running.
+    const QTextCursor scanned = m_finder->scannedSelection();
+    if (!scanned.isNull() && scanned.selectionStart() <= pos && scanned.selectionEnd() >= pos)
+        return;
+
+    m_updateTimer.start();
+}
+
+void CppDeclDefLinkController::updateNow()
+{
+    Core::IEditor * const in = editor();
+    if (!in || in != Core::EditorManager::currentEditor())
+        return;
+    const auto document = qobject_cast<CppEditorDocument *>(in->document());
+    if (!document)
+        return;
+
+    const SemanticInfo info = m_widget ? m_widget->semanticInfo() : document->semanticInfo();
+    if (m_link) {
+        // The marker says whether there is anything left to apply.
+        if (m_link->changes(info.snapshot).isEmpty())
+            m_link->hideMarker(in);
+        else
+            m_link->showMarker(in);
+        return;
+    }
+
+    const bool valid = m_widget ? m_widget->isSemanticInfoValidExceptLocalUses()
+                                : document->isSemanticInfoValid();
+    if (!valid)
+        return;
+
+    Snapshot snapshot = CppModelManager::snapshot();
+    snapshot.insert(info.doc);
+    m_finder->startFindLinkAt(TextEditor::textCursorOf(in), info.doc, snapshot);
+}
+
+void CppDeclDefLinkController::onFound(std::shared_ptr<FunctionDeclDefLink> found)
+{
+    abort();
+    m_link = found;
+    Core::IEditor * const in = editor();
+    Core::IDocument * const target
+        = Core::DocumentModel::documentForFilePath(m_link->targetFile->filePath());
+    if (in && in->document() != target) {
+        if (auto * const text = qobject_cast<Core::BaseTextDocument *>(target)) {
+            connect(text, &Core::IDocument::contentsChanged,
+                    this, &CppDeclDefLinkController::abort);
+        }
+    }
+}
+
+void CppDeclDefLinkController::apply(bool jumpToMatch)
+{
+    if (!m_link)
+        return;
+    m_link->apply(editor(), jumpToMatch);
+    abort();
+    scheduleUpdate();
+}
+
+void CppDeclDefLinkController::abort()
+{
+    if (!m_link)
+        return;
+
+    Core::IEditor * const in = editor();
+    Core::IDocument * const target
+        = Core::DocumentModel::documentForFilePath(m_link->targetFile->filePath());
+    if (in && in->document() != target) {
+        if (auto * const text = qobject_cast<Core::BaseTextDocument *>(target))
+            disconnect(text, &Core::IDocument::contentsChanged, this, nullptr);
+    }
+
+    m_link->hideMarker(in);
+    m_link.reset();
+}
+
+void applyDeclDefLinkChangesIn(Core::IEditor *editor, bool jumpToMatch)
+{
+    if (!editor)
+        return;
+    for (CppDeclDefLinkController * const controller : controllers()) {
+        if (controller->editor() == editor) {
+            controller->apply(jumpToMatch);
+            return;
+        }
+    }
+}
+
+// The parse this link was worked out from. The widget keeps its own copy with
+// the local uses patched in; the document's is the same one otherwise.
+static Snapshot snapshotOf(Core::IEditor *editor)
+{
+    if (const auto widget = qobject_cast<CppEditorWidget *>(editor ? editor->widget() : nullptr))
+        return widget->semanticInfo().snapshot;
+    if (const auto document
+        = qobject_cast<CppEditorDocument *>(editor ? editor->document() : nullptr)) {
+        return document->semanticInfo().snapshot;
+    }
+    return {};
+}
+
+void FunctionDeclDefLink::apply(Core::IEditor *editor, bool jumpToMatch)
+{
+    Snapshot snapshot = snapshotOf(editor);
 
     // first verify the interesting region of the target file is unchanged
     CppRefactoringChanges refactoringChanges(snapshot);
@@ -278,23 +459,31 @@ void FunctionDeclDefLink::apply(CppEditorWidget *editor, bool jumpToMatch)
                 op.setFormat1(true);
         }
         newTargetFile->apply(changeSet);
-    } else {
-        ToolTip::show(editor->toolTipPosition(linkSelection),
+    } else if (const auto widget
+               = qobject_cast<CppEditorWidget *>(editor ? editor->widget() : nullptr)) {
+        // A tooltip is placed in screen coordinates from a widget's own; a
+        // view that is not one says nothing rather than saying it in the
+        // wrong place.
+        ToolTip::show(widget->toolTipPosition(linkSelection),
                       Tr::tr("Target file was changed, could not apply changes"));
     }
 }
 
-void FunctionDeclDefLink::hideMarker(CppEditorWidget *editor)
+void FunctionDeclDefLink::hideMarker(Core::IEditor *editor)
 {
     if (!hasMarker)
         return;
-    editor->clearRefactorMarkers(Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID);
+    TextEditor::setRefactorMarkersIn(editor, Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID, {});
     hasMarker = false;
 }
 
-void FunctionDeclDefLink::showMarker(CppEditorWidget *editor)
+void FunctionDeclDefLink::showMarker(Core::IEditor *editor)
 {
     if (hasMarker)
+        return;
+    const auto document
+        = qobject_cast<TextEditor::TextDocument *>(editor ? editor->document() : nullptr);
+    if (!document)
         return;
 
     RefactorMarkers markers;
@@ -302,7 +491,7 @@ void FunctionDeclDefLink::showMarker(CppEditorWidget *editor)
 
     // show the marker at the end of the linked area, with a special case
     // to avoid it overlapping with a trailing semicolon
-    marker.cursor = editor->textCursor();
+    marker.cursor = QTextCursor(document->document());
     marker.cursor.setPosition(linkSelection.selectionEnd());
     const int endBlockNr = marker.cursor.blockNumber();
     marker.cursor.setPosition(linkSelection.selectionEnd() + 1, QTextCursor::KeepAnchor);
@@ -323,15 +512,11 @@ void FunctionDeclDefLink::showMarker(CppEditorWidget *editor)
 
     marker.tooltip = message;
     marker.type = Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID;
-    // Applying the changes is still the widget's - it owns the link and the
-    // undo group the edit goes into - so this does nothing in a view that is
-    // not one, which is what the link itself still is.
-    marker.callback = [](Core::IEditor *editor) {
-        if (auto cppEditor = qobject_cast<CppEditorWidget *>(editor ? editor->widget() : nullptr))
-            cppEditor->applyDeclDefLinkChanges(true);
-    };
+    marker.callback = [](Core::IEditor *editor) { applyDeclDefLinkChangesIn(editor, true); };
     markers += marker;
-    editor->setRefactorMarkers(markers, Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID);
+    TextEditor::setRefactorMarkersIn(editor,
+                                     Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID,
+                                     markers);
 
     hasMarker = true;
 }
@@ -1050,4 +1235,100 @@ QString FunctionDeclDefLink::normalizedInitialName() const
     return n;
 }
 
+
+#ifdef WITH_TESTS
+
+// A function whose declaration and definition have drifted apart offers to
+// bring the other one along. Everything about it went through CppEditorWidget
+// - the caret it watches, the semantic info it reads, the marker it offers and
+// the change it applies - so a C++ file in the Qt Quick editor was never
+// offered anything.
+class DeclDefLinkTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheLinkIsOfferedAndAppliedInAnyView()
+    {
+        Utils::TemporaryDirectory dir("cpp-decl-def-link-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("c.cpp");
+        QVERIFY(file.writeFileContents(
+            "struct C {\n    void f(int a);\n};\n\nvoid C::f(int a)\n{\n}\n"));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Made by the plugin for this editor, because nothing else would.
+        auto * const controller = editor->findChild<CppDeclDefLinkController *>();
+        QVERIFY2(controller, "nobody made a decl/def link for an editor that is not a widget");
+
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // The link is established first, with the caret in the declaration:
+        // what it offers is the difference between the signature as it was
+        // when the reader arrived and the signature as it stands.
+        editor->gotoLine(2, 16);
+        controller->updateNow();
+        QTRY_VERIFY2(controller->link(), "no link was found for the signature under the caret");
+
+        // Now rename the declaration's parameter, so the two drift apart.
+        QTextCursor rename(document->document());
+        rename.setPosition(document->document()->findBlockByNumber(1).position()
+                           + QString("    void f(int ").size());
+        rename.setPosition(rename.position() + 1, QTextCursor::KeepAnchor);
+        QCOMPARE(rename.selectedText(), QString("a"));
+        rename.insertText("alpha");
+        controller->updateNow();
+
+        // And it is offered where any view can draw it.
+        QTRY_VERIFY2(!document->refactorMarkers(
+                          Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID).isEmpty(),
+                     "the link offered no marker on the document");
+
+        // Applying it brings the definition along, in the same file.
+        applyDeclDefLinkChangesIn(editor, false);
+        QTRY_VERIFY2(document->plainText().contains("void C::f(int alpha)"),
+                     qPrintable("the definition was left alone: " + document->plainText()));
+
+        // And the offer is withdrawn once there is nothing left to apply.
+        QTRY_VERIFY2(document->refactorMarkers(
+                         Constants::CPP_FUNCTION_DECL_DEF_LINK_MARKER_ID).isEmpty(),
+                     "the marker outlived the change it was offering");
+    }
+};
+
+QObject *createDeclDefLinkTest()
+{
+    return new DeclDefLinkTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace CppEditor::Internal
+
+#ifdef WITH_TESTS
+#include "cppfunctiondecldeflink.moc"
+#endif

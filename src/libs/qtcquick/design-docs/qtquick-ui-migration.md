@@ -25502,3 +25502,82 @@ owns the link and the undo group; the link is found by
 any view now has. After that, gap 3 is `CppLocalRenaming` alone, and the honest
 answer there may be that the Quick editor should do without it: it now has the
 global rename `CppEditorWidget` itself falls back to when the mode cannot start.
+
+## 2026-09-01 — The declaration/definition link, in any view
+
+Seventh of gap 3, and what the last two batches were clearing the way for. A
+function whose declaration and definition have drifted apart offers to bring
+the other one along; everything about it went through `CppEditorWidget` - the
+caret it watches, the semantic info it reads, the marker it offers and the
+change it applies - so a C++ file in the Quick editor was never offered
+anything, silently.
+
+**`FunctionDeclDefLink` takes an editor now.** Its three methods wanted four
+things from the widget, and three of them are the document: the snapshot
+(`semanticInfo()`, which the document answers since the quick-fix batch), a
+`QTextCursor` to build the marker on, and somewhere to put the marker. The
+fourth is real - `toolTipPosition()` places a failure message in screen
+coordinates from a widget's own - so that message is shown where there is a
+widget and not shown at all otherwise, rather than shown in the wrong place.
+
+Putting the marker somewhere is one more dispatcher,
+`TextEditor::setRefactorMarkersIn()`: **through the widget where the view is
+one**, because the widget paints its own overlay and would stop drawing the
+marker if the link wrote only to the document, and through the document
+otherwise.
+
+**The controller came out of the widget.** `updateFunctionDeclDefLink()`,
+`updateFunctionDeclDefLinkNow()`, `onFunctionDeclDefLinkFound()`,
+`abortDeclDefLink()` and `applyDeclDefLinkChanges()`, plus a finder, a timer
+and the link itself, were ~100 lines of `CppEditorWidget`. They are
+`CppDeclDefLinkController` now, over a widget or an editor, with the widget's
+five methods forwarding to one it owns - the same shape
+`CppUseSelectionsUpdater` took two batches ago, including the lazy
+`editorFor(widget)`, because the widget is built before the editor showing it.
+The plugin owns one for every C++ editor that is not a widget.
+
+The marker's callback is `applyDeclDefLinkChangesIn(editor, true)`, which finds
+the controller belonging to that editor in a small list of the open ones -
+because the callback is handed an editor and has to get back to the object
+holding the link.
+
+**The test had the order backwards, and that is the feature.** Renaming the
+parameter first and *then* asking for the link found one whose `changes()` were
+empty: the link is the difference between the signature as it was when the
+reader arrived and the signature as it stands, so it has to be established
+before the edit. Written the right way round it fails without the fix and
+passes with it.
+
+**A control that did not bite.** Taking the snapshot only from a widget changed
+nothing, because `apply()` uses it to look up the target file and
+`CppRefactoringChanges::cppFile()` prefers the open document over the snapshot
+since the quick-fix batch - so the empty snapshot is never consulted for a file
+that is open. The line is right and the test does not reach it; said here
+rather than counted. See [[negative-control-two-guards]].
+
+Controls that bit: the plugin not making a controller, which fails on the
+`findChild`; `setRefactorMarkersIn()` not reaching the document, after which
+the link offers nothing a view could draw; and the controller not applying,
+after which the definition is left alone.
+
+`TextEditor` 406 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `CppEditor`: `CompletionTest` 204, `FollowSymbolTest` 155,
+`SelectionsTest` 14, `SymbolJumpTest` 5, `GlobalRenamingTest` 4,
+`DeclDefLinkTest` 3, `UseSelectionsTest` 3 - all 0 failed, exit 0. No new file,
+no `.qbs` edit.
+
+**Gap 3 is down to `CppLocalRenaming`**, and the honest answer there may be to
+leave it: it is an editing mode - a set of linked selections the reader types
+into, with its own key handling - and it is the one thing on this list that
+really is a view's. The Quick editor has the global rename that
+`CppEditorWidget` itself falls back to when the mode cannot start, so a C++ file
+there can already be renamed; what it does without is the in-place variant.
+
+**What is actually left before the switch can flip** is no longer gap 3 but
+**gap 1**, which has never been touched: `TestCase::openCppEditor()` casts to
+`BaseTextEditor` and gives up, so 202 of `CompletionTest`'s 204 cases say
+nothing about the Quick editor, and the same is true of most of the suite. Every
+feature this document has closed since is covered by a test written for it
+rather than by the suite that already existed. That is the next thing worth
+doing, and it is a bigger job than any single batch here: the harness has to
+drive either view, and each test that reaches for `CppEditorWidget` has to stop.

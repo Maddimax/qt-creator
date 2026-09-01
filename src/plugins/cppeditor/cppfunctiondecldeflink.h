@@ -7,10 +7,15 @@
 
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <QPointer>
 #include <QString>
 #include <QTextCursor>
+#include <QTimer>
+
+namespace Core { class IEditor; }
 
 namespace CppEditor {
+class CppEditorDocument;
 class CppEditorWidget;
 
 namespace Internal {
@@ -37,6 +42,48 @@ private:
     QtTaskTree::QSingleTaskTreeRunner m_taskTreeRunner;
 };
 
+// Watching for a function whose declaration and definition have drifted
+// apart, offering to bring the other one along, and doing it when the reader
+// says so. One per view, because it follows a caret; a widget builds its own
+// and the plugin builds one for every other view.
+class CppDeclDefLinkController : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit CppDeclDefLinkController(CppEditorWidget *widget);
+    explicit CppDeclDefLinkController(Core::IEditor *editor);
+
+    std::shared_ptr<FunctionDeclDefLink> link() const { return m_link; }
+
+    // The caret moved or the text changed: look again, after a moment.
+    void scheduleUpdate();
+    // Look now.
+    void updateNow();
+    void apply(bool jumpToMatch);
+    void abort();
+
+    // The view this belongs to. Found rather than held for a widget, which is
+    // built before the editor that shows it.
+    Core::IEditor *editor() const;
+
+private:
+    void onFound(std::shared_ptr<FunctionDeclDefLink> link);
+
+    CppEditorWidget * const m_widget = nullptr;
+    const QPointer<Core::IEditor> m_editor;
+    FunctionDeclDefLinkFinder * const m_finder;
+    std::shared_ptr<FunctionDeclDefLink> m_link;
+    QTimer m_updateTimer;
+};
+
+// Apply what the link in \a editor offers, which is what its marker does.
+void applyDeclDefLinkChangesIn(Core::IEditor *editor, bool jumpToMatch);
+
+#ifdef WITH_TESTS
+QObject *createDeclDefLinkTest();
+#endif
+
 class FunctionDeclDefLink
 {
     Q_DISABLE_COPY(FunctionDeclDefLink)
@@ -45,9 +92,11 @@ public:
     bool isValid() const;
     bool isMarkerVisible() const;
 
-    void apply(CppEditorWidget *editor, bool jumpToMatch);
-    void hideMarker(CppEditorWidget *editor);
-    void showMarker(CppEditorWidget *editor);
+    // The editor rather than the widget: what these need is the document to
+    // change and somewhere to offer the marker, and any view has both.
+    void apply(Core::IEditor *editor, bool jumpToMatch);
+    void hideMarker(Core::IEditor *editor);
+    void showMarker(Core::IEditor *editor);
     Utils::ChangeSet changes(const CPlusPlus::Snapshot &snapshot, int targetOffset = -1);
 
     QTextCursor linkSelection;

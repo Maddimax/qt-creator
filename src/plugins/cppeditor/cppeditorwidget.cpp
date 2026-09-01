@@ -67,7 +67,6 @@
 #include <QToolButton>
 #include <QWidgetAction>
 
-enum { UPDATE_FUNCTION_DECL_DEF_LINK_INTERVAL = 200 };
 
 using namespace Core;
 using namespace CPlusPlus;
@@ -386,11 +385,10 @@ public:
     CppEditorDocument *m_cppEditorDocument;
     CppEditorOutline *m_cppEditorOutline = nullptr;
 
-    QTimer m_updateFunctionDeclDefLinkTimer;
+
     SemanticInfo m_lastSemanticInfo;
 
-    FunctionDeclDefLinkFinder *m_declDefLinkFinder;
-    std::shared_ptr<FunctionDeclDefLink> m_declDefLink;
+    CppDeclDefLinkController m_declDefLinkController;
 
     QAction *m_parseContextAction = nullptr;
     ParseContextWidget *m_parseContextWidget = nullptr;
@@ -405,7 +403,7 @@ public:
 
 CppEditorWidgetPrivate::CppEditorWidgetPrivate(CppEditorWidget *q)
     : m_cppEditorDocument(qobject_cast<CppEditorDocument *>(q->textDocument()))
-    , m_declDefLinkFinder(new FunctionDeclDefLinkFinder(q))
+    , m_declDefLinkController(q)
     , m_localRenaming(q)
     , m_paramRenamingHandler(*q, m_localRenaming)
     , m_useSelectionsUpdater(q)
@@ -445,9 +443,6 @@ void CppEditorWidget::finalizeInitialization()
     connect(d->m_cppEditorDocument, &CppEditorDocument::semanticInfoUpdated,
             this, [this](const SemanticInfo &info) { updateSemanticInfo(info); });
 
-    connect(d->m_declDefLinkFinder, &FunctionDeclDefLinkFinder::foundLink,
-            this, &CppEditorWidget::onFunctionDeclDefLinkFound);
-
     connect(&d->m_useSelectionsUpdater,
             &CppUseSelectionsUpdater::selectionsForVariableUnderCursorUpdated,
             &d->m_localRenaming,
@@ -479,10 +474,6 @@ void CppEditorWidget::finalizeInitialization()
     });
 
     // set up function declaration - definition link
-    d->m_updateFunctionDeclDefLinkTimer.setSingleShot(true);
-    d->m_updateFunctionDeclDefLinkTimer.setInterval(UPDATE_FUNCTION_DECL_DEF_LINK_INTERVAL);
-    connect(&d->m_updateFunctionDeclDefLinkTimer, &QTimer::timeout,
-            this, &CppEditorWidget::updateFunctionDeclDefLinkNow);
     connect(this, &PlainTextEdit::cursorPositionChanged, this, &CppEditorWidget::updateFunctionDeclDefLink);
     connect(this, &PlainTextEdit::textChanged, this, &CppEditorWidget::updateFunctionDeclDefLink);
 
@@ -1272,84 +1263,22 @@ std::unique_ptr<AssistInterface> CppEditorWidget::createAssistInterface(AssistKi
 
 std::shared_ptr<FunctionDeclDefLink> CppEditorWidget::declDefLink() const
 {
-    return d->m_declDefLink;
+    return d->m_declDefLinkController.link();
 }
 
 void CppEditorWidget::updateFunctionDeclDefLink()
 {
-    const int pos = textCursor().selectionStart();
-
-    // if there's already a link, abort it if the cursor is outside or the name changed
-    // (adding a prefix is an exception since the user might type a return type)
-    if (d->m_declDefLink
-        && (pos < d->m_declDefLink->linkSelection.selectionStart()
-            || pos > d->m_declDefLink->linkSelection.selectionEnd()
-            || !d->m_declDefLink->nameSelection.selectedText().trimmed().endsWith(
-                   d->m_declDefLink->nameInitial))) {
-        abortDeclDefLink();
-        return;
-    }
-
-    // don't start a new scan if there's one active and the cursor is already in the scanned area
-    const QTextCursor scannedSelection = d->m_declDefLinkFinder->scannedSelection();
-    if (!scannedSelection.isNull() && scannedSelection.selectionStart() <= pos
-        && scannedSelection.selectionEnd() >= pos) {
-        return;
-    }
-
-    d->m_updateFunctionDeclDefLinkTimer.start();
+    d->m_declDefLinkController.scheduleUpdate();
 }
 
 void CppEditorWidget::updateFunctionDeclDefLinkNow()
 {
-    IEditor *editor = EditorManager::currentEditor();
-    if (!editor || editor->widget() != this)
-        return;
-
-    const Snapshot semanticSnapshot = d->m_lastSemanticInfo.snapshot;
-    const Document::Ptr semanticDoc = d->m_lastSemanticInfo.doc;
-
-    if (d->m_declDefLink) {
-        // update the change marker
-        const Utils::ChangeSet changes = d->m_declDefLink->changes(semanticSnapshot);
-        if (changes.isEmpty())
-            d->m_declDefLink->hideMarker(this);
-        else
-            d->m_declDefLink->showMarker(this);
-        return;
-    }
-
-    if (!isSemanticInfoValidExceptLocalUses())
-        return;
-
-    Snapshot snapshot = CppModelManager::snapshot();
-    snapshot.insert(semanticDoc);
-
-    d->m_declDefLinkFinder->startFindLinkAt(textCursor(), semanticDoc, snapshot);
-}
-
-void CppEditorWidget::onFunctionDeclDefLinkFound(std::shared_ptr<FunctionDeclDefLink> link)
-{
-    abortDeclDefLink();
-    d->m_declDefLink = link;
-    IDocument *targetDocument = DocumentModel::documentForFilePath(
-        d->m_declDefLink->targetFile->filePath());
-    if (textDocument() != targetDocument) {
-        if (auto textDocument = qobject_cast<BaseTextDocument *>(targetDocument))
-            connect(textDocument,
-                    &IDocument::contentsChanged,
-                    this,
-                    &CppEditorWidget::abortDeclDefLink);
-    }
+    d->m_declDefLinkController.updateNow();
 }
 
 void CppEditorWidget::applyDeclDefLinkChanges(bool jumpToMatch)
 {
-    if (!d->m_declDefLink)
-        return;
-    d->m_declDefLink->apply(this, jumpToMatch);
-    abortDeclDefLink();
-    updateFunctionDeclDefLink();
+    d->m_declDefLinkController.apply(jumpToMatch);
 }
 
 void CppEditorWidget::encourageApply()
@@ -1362,22 +1291,9 @@ void CppEditorWidget::encourageApply()
 
 void CppEditorWidget::abortDeclDefLink()
 {
-    if (!d->m_declDefLink)
-        return;
-
-    IDocument *targetDocument = DocumentModel::documentForFilePath(
-        d->m_declDefLink->targetFile->filePath());
-    if (textDocument() != targetDocument) {
-        if (auto textDocument = qobject_cast<BaseTextDocument *>(targetDocument))
-            disconnect(textDocument,
-                       &IDocument::contentsChanged,
-                       this,
-                       &CppEditorWidget::abortDeclDefLink);
-    }
-
-    d->m_declDefLink->hideMarker(this);
-    d->m_declDefLink.reset();
+    d->m_declDefLinkController.abort();
 }
+
 
 void CppEditorWidget::showPreProcessorWidget()
 {

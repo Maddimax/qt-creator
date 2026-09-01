@@ -117,7 +117,6 @@ private:
     void updateFunctionDeclDefLink();
     void updateFunctionDeclDefLinkNow();
     void abortDeclDefLink();
-    void onFunctionDeclDefLinkFound(std::shared_ptr<Internal::FunctionDeclDefLink> link);
 
     void onCodeWarningsUpdated(unsigned revision,
                                const QList<QTextEdit::ExtraSelection> selections,

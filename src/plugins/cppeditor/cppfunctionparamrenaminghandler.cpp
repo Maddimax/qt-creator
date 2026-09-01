@@ -3,6 +3,8 @@
 
 #include "cppfunctionparamrenaminghandler.h"
 
+#include "cpptoolsreuse.h"
+
 #include "cppeditorwidget.h"
 #include "cpplocalrenaming.h"
 #include "cppfunctiondecldeflink.h"
@@ -78,7 +80,7 @@ void CppFunctionParamRenamingHandler::Private::handleRenamingStarted()
 void CppFunctionParamRenamingHandler::Private::handleRenamingFinished()
 {
     if (link) {
-        link->apply(&editorWidget, false);
+        link->apply(editorFor(&editorWidget), false);
         link.reset();
     }
 }

@@ -873,6 +873,13 @@ TEXTEDITOR_EXPORT QTextCursor textCursorOf(Core::IEditor *editor);
 // The other direction, for code that has a widget and owes somebody an editor.
 TEXTEDITOR_EXPORT Core::IEditor *editorForWidget(TextEditorWidget *widget);
 
+// What \a editor's view offers at places in the file, replacing whatever was
+// offered for \a type. Through the widget where the view is one, so that it
+// keeps painting its own overlay; through the document otherwise, which is
+// where TextViewport reads them.
+TEXTEDITOR_EXPORT void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type,
+                                            const RefactorMarkers &markers);
+
 // Put the caret in \a editor's view where \a cursor is, and ask its language
 // for \a kind. Both dispatch on the view the same way the pair above does.
 TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
