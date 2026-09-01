@@ -132,6 +132,8 @@ public:
     bool m_fileIsBeingReloaded = false;
     bool m_isObjCEnabled = false;
 
+    SemanticInfo m_semanticInfo;
+
     // Caching contents
     mutable QMutex m_cachedContentsLock;
     mutable QByteArray m_cachedContents;
@@ -285,7 +287,32 @@ SemanticInfo CppEditorDocument::recalculateSemanticInfo()
 {
     BaseEditorDocumentProcessor *p = d->processor();
     QTC_ASSERT(p, return SemanticInfo());
-    return p->recalculateSemanticInfo();
+    d->m_semanticInfo = p->recalculateSemanticInfo();
+    return d->m_semanticInfo;
+}
+
+SemanticInfo CppEditorDocument::semanticInfo() const
+{
+    return d->m_semanticInfo;
+}
+
+bool CppEditorDocument::isSemanticInfoValid() const
+{
+    return d->m_semanticInfo.doc && d->m_semanticInfo.revision == unsigned(document()->revision())
+           && !d->m_semanticInfo.snapshot.isEmpty();
+}
+
+std::unique_ptr<TextEditor::AssistInterface> CppEditorDocument::createAssistInterface(
+    const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason) const
+{
+    // Only quick fixes need more than the base interface offers, and only when
+    // there is something for them to work from: CppQuickFixInterface walks the
+    // AST, so an unparsed document would take it apart.
+    if (kind == TextEditor::QuickFix && isSemanticInfoValid()) {
+        return std::make_unique<Internal::CppQuickFixInterface>(
+            const_cast<CppEditorDocument *>(this), cursor, reason);
+    }
+    return TextDocument::createAssistInterface(cursor, kind, reason);
 }
 
 QByteArray CppEditorDocument::Private::contentsText() const
@@ -694,7 +721,10 @@ BaseEditorDocumentProcessor *CppEditorDocument::Private::processor()
 
         });
         connect(m_processor.data(), &BaseEditorDocumentProcessor::semanticInfoUpdated,
-                q, &CppEditorDocument::semanticInfoUpdated);
+                q, [this](const SemanticInfo &info) {
+                    m_semanticInfo = info;
+                    emit q->semanticInfoUpdated(info);
+                });
     }
 
     return m_processor.data();

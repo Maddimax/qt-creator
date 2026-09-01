@@ -299,8 +299,8 @@ void TextViewport::requestCompletions()
     if (m_completionProcessor)
         m_completionProcessor->cancel();
 
-    auto interface = std::make_unique<AssistInterface>(cursor, doc->filePath(),
-                                                       ExplicitlyInvoked);
+    std::unique_ptr<AssistInterface> interface
+        = doc->createAssistInterface(cursor, Completion, ExplicitlyInvoked);
     m_completionProcessor.reset(provider->createProcessor(interface.get()));
     if (!m_completionProcessor) {
         emit completionsAvailable({}, {});
@@ -331,8 +331,10 @@ void TextViewport::requestQuickFixes(IAssistProvider *asked)
     if (m_quickFixProcessor)
         m_quickFixProcessor->cancel();
 
-    auto interface = std::make_unique<AssistInterface>(cursor, doc->filePath(),
-                                                       ExplicitlyInvoked);
+    // Asked of the document: a C++ quick fix needs the semantic info, and
+    // only the document can hand it over without being a particular view.
+    std::unique_ptr<AssistInterface> interface
+        = doc->createAssistInterface(cursor, QuickFix, ExplicitlyInvoked);
     m_quickFixProcessor.reset(provider->createProcessor(interface.get()));
     if (!m_quickFixProcessor) {
         emit quickFixesAvailable({});
@@ -398,8 +400,8 @@ void TextViewport::requestFunctionHint()
     if (m_functionHintProcessor)
         m_functionHintProcessor->cancel();
 
-    auto interface = std::make_unique<AssistInterface>(cursor, doc->filePath(),
-                                                       ExplicitlyInvoked);
+    std::unique_ptr<AssistInterface> interface
+        = doc->createAssistInterface(cursor, FunctionHint, ExplicitlyInvoked);
     m_functionHintProcessor.reset(provider->createProcessor(interface.get()));
     if (!m_functionHintProcessor) {
         emit functionHintAvailable({}, -1);

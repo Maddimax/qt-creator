@@ -145,7 +145,8 @@ public:
                 c.setPosition(targetPos);
                 c.movePosition(QTextCursor::Down);
                 c.movePosition(QTextCursor::EndOfLine);
-                op->editor()->setTextCursor(c);
+                if (op->editor())
+                    op->editor()->setTextCursor(c);
             }
         } else {
             // make target lookup context
@@ -240,7 +241,7 @@ public:
                 if (defPos == DefPosImplementationFile) {
                     if (targetFile->editor())
                         targetFile->editor()->setTextCursor(c);
-                } else {
+                } else if (op->editor()) {
                     op->editor()->setTextCursor(c);
                 }
             }

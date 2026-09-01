@@ -470,7 +470,7 @@ private:
     {
         CppRefactoringFilePtr file = interface.currentFile();
 
-        if (!interface.editor()->cppEditorDocument()->isObjCEnabled())
+        if (!interface.cppEditorDocument()->isObjCEnabled())
             return;
 
         StringLiteralType type = TypeNone;

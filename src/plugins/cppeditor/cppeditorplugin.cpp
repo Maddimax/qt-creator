@@ -650,6 +650,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppPreProcessorDialogTest);
     addTestCreator(createClangdSettingsTest);
     addTestCreator(createCppQuickFixSettingsTest);
+    addTestCreator(createQuickFixAssistTest);
     addTest<LocalSymbolsTest>();
     addTest<LocatorFilterTest>();
     addTest<ModelManagerTest>();

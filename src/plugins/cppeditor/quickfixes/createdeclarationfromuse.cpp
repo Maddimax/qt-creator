@@ -5,6 +5,7 @@
 
 #include "../cppcodestylesettings.h"
 #include "../cppeditortr.h"
+#include "../cppeditordocument.h"
 #include "../cppeditorwidget.h"
 #include "../cpprefactoringchanges.h"
 #include "../insertionpointlocator.h"
@@ -352,7 +353,7 @@ class AddDeclarationForUndeclaredIdentifier : public CppQuickFixFactory
 
         // Is this name declared somewhere already?
         const CursorInEditor cursorInEditor(interface.cursor(), interface.filePath(),
-                                            interface.editor(), interface.editor()->textDocument());
+                                            interface.editor(), interface.cppEditorDocument());
         const auto followSymbolFallback = [&](const Link &link) {
             if (!link.hasValidTarget())
                 collectOperations(interface, result);

@@ -24949,3 +24949,96 @@ needs a widget. It wants `textCursor()`, `textDocument()`, `semanticInfo()` and
 (`CppEditorDocument::semanticInfoUpdated`, `recalculateSemanticInfo()`), and
 `CppRefactoringChanges::file()` needs an overload that takes the document
 rather than the widget.
+
+## 2026-09-01 — Quick fixes come from the document
+
+Gap 2 closed. A C++ file open in the Quick editor is now offered the C++ quick
+fixes; before this it was offered nothing at all, and nothing said so.
+
+**The interface was the wall, and it was built by the wrong object.** A quick
+fix needs more than a cursor and a path - `CppQuickFixInterface` carries the
+semantic info, the snapshot, the lookup context and the AST path under the
+caret. It was built by `CppEditorWidget::createAssistInterface()`, a virtual on
+the *view*, so `TextViewport` - which made a plain `AssistInterface` - handed
+the C++ processor something it could not use, and
+`quickFixOperations()` returned `{}` after a `dynamic_cast` failed.
+
+**So the hook moves to the document**, which is the same for both views:
+
+```cpp
+virtual std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(
+    const QTextCursor &cursor, AssistKind kind, AssistReason reason) const;
+```
+
+`TextViewport` asks the document for all three of completion, quick fixes and
+the function hint. `CppEditorDocument` overrides it for `QuickFix`.
+
+**Which needed the semantic info to be the document's.** It already was - the
+processor emits `semanticInfoUpdated` and `CppEditorDocument` forwarded the
+signal - but only `CppEditorWidget` *kept* it, in `m_lastSemanticInfo`. The
+document now caches what it forwards and answers `semanticInfo()` and
+`isSemanticInfoValid()`. The widget keeps its own copy on purpose: it patches
+the local uses into it as the caret moves, and the fix that renames a local
+reads them. So the widget constructor of `CppQuickFixInterface` still uses the
+widget's info, and only the document constructor uses the document's.
+
+**And the file being changed.** `CppRefactoringChanges::file()` took a
+`TextEditorWidget *`; there is now an overload over `TextEditor::TextDocument *`,
+`RefactoringFile` gained the matching constructor (which still finds the widget
+where there is one, because that is what moves the caret afterwards) and
+exposes `textDocument()`. `cppFile()` - the by-path lookup whose comment says it
+prefers editors "as these are already parsed and up to date with regards to
+unsaved changes" - now falls back to the open `CppEditorDocument` before falling
+back to the model manager's snapshot, which is the file as last *saved*.
+
+**`editor()` can now be null, and seven places assumed it could not.** Six were
+asking the widget for something the document has - `cppEditorDocument()`,
+`textDocument()` - and are straight substitutions. The seventh is real:
+`ApplyDeclDefLinkChanges` reads `editor()->declDefLink()`, which is a marker the
+widget draws, so that one fix returns early in the Quick editor and says why.
+`insertfunctiondefinition` moves the caret after inserting, which simply does
+not happen without a view. `quickFixOperations()`' own
+`QTC_ASSERT(cppInterface->editor(), ...)` existed only to log the revision -
+it now asks the document, which is what it wanted.
+
+Measured: `CppEditor,ModelManagerTest` with `QTC_QUICK_CPP_EDITOR=1` is
+**18 passed / 3 failed**, up from 17 / 4 last batch (20 / 1 on the widget path;
+the one is standing).
+
+**A control that did not bite, then did.** Removing the `cppFile()` fallback
+changed nothing at first, because `CppQuickFixInterface`'s document constructor
+calls `CppRefactoringChanges::file(document, doc)` directly and never goes
+through the by-path lookup. The fallback was therefore untested, not
+load-bearing-by-accident: a second test reaches it, with unsaved text so that
+the snapshot's parse and the document's differ and the lookup has to choose.
+With the fallback removed it compares two different `Document::Ptr`s and fails.
+Same shape as [[negative-control-masked-by-fixture]] - the assertion was not on
+the path the fixture drove.
+
+Controls that bit: the document answering the base interface, which failed on
+the `dynamic_cast`; the document caching no semantic info, which failed on
+`isSemanticInfoValid()`; and the `cppFile()` fallback as described.
+
+**Found on the way, not fixed:** opening a C++ file in the Quick editor trips
+`QTC_ASSERT(editorWidget, return nullptr)` in
+`LanguageClientOutlineWidgetFactory::createWidget()`
+(`languageclientoutline.cpp:472`). The outline is a
+`TextEditor::IOutlineWidget` factory keyed on `TextEditorWidget`, and it is one
+of the things listed under gap 3.
+
+`TextEditor` 403 passed across 18 classes, 0 failed, exit 0. QuickUi 208 passed,
+0 failed, exit 0. The widget path is unchanged across thirteen CppEditor
+classes, every one that covers a quick fix this touched: `CompletionTest` 204,
+`FollowSymbolTest` 155, `InsertDefFromDeclTest` 79, `GenerateGetterSetterTest`
+58, `DoxygenTest` 34, `CompleteSwitchStatementTest` 25,
+`AddDeclarationForUndeclaredIdentifierTest` 22, `CodegenTest` 15,
+`SelectionsTest` 14, `EscapeStringLiteralTest` 13, `InsertDeclFromDefTest` 12,
+`InsertQtPropertyMembersTest` 12, `ConvertToCamelCaseTest` 10,
+`WrapStringLiteralTest` 8, `InsertDefsFromDeclsTest` 6,
+`GlobalRenamingTest` 4, `SynchronizeMemberFunctionOrderTest` 2,
+`MoveClassToOwnFileTest` 2 - all 0 failed, exit 0. No new file, no `.qbs` edit.
+
+**Next:** gap 3, the rest of what is keyed on `CppEditorWidget` - the uses of
+the symbol under the cursor, the declaration/definition link, rename, type
+hierarchy, the outline (including the language client's, above) and find
+usages. The outline is the cheapest of them and the one that already asserts.

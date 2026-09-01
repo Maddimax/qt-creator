@@ -40,6 +40,18 @@ RefactoringFile::RefactoringFile(TextEditorWidget *editor)
     , m_editor(editor)
 { }
 
+RefactoringFile::RefactoringFile(TextDocument *textDocument)
+    : m_filePath(textDocument->filePath())
+    , m_textDocument(textDocument)
+{
+    // Still worth finding the widget where there is one: it is what moves the
+    // caret to what the refactoring did.
+    for (IEditor * const editor : DocumentModel::editorsForDocument(textDocument)) {
+        if ((m_editor = TextEditorWidget::fromEditor(editor)))
+            break;
+    }
+}
+
 // The two the widget editor turns itself read-only for, asked of the document
 // so that a view which is not that widget answers them the same way.
 static bool isReadOnly(TextDocument *document)
@@ -154,6 +166,11 @@ const QTextCursor RefactoringFile::cursor() const
 FilePath RefactoringFile::filePath() const
 {
     return m_filePath;
+}
+
+TextDocument *RefactoringFile::textDocument() const
+{
+    return m_textDocument;
 }
 
 TextEditorWidget *RefactoringFile::editor() const

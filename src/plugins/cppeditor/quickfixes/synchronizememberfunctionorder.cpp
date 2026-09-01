@@ -89,7 +89,7 @@ private:
                 cursor,
                 decl->filePath(),
                 qobject_cast<CppEditorWidget *>(currentFile()->editor()),
-                currentFile()->editor()->textDocument(),
+                currentFile()->textDocument(),
                 currentFile()->cppDocument());
 
             const auto callback = [decl, declPos, doc = cursor.document(), state = m_state](

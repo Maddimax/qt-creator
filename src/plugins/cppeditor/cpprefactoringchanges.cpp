@@ -4,6 +4,7 @@
 #include "cpprefactoringchanges.h"
 
 #include "cppeditorconstants.h"
+#include "cppeditordocument.h"
 #include "cppeditorwidget.h"
 #include "cppsemanticinfo.h"
 #include "cppworkingcopy.h"
@@ -55,6 +56,18 @@ CppRefactoringFilePtr CppRefactoringChanges::file(
 }
 
 CppRefactoringFilePtr CppRefactoringChanges::file(
+    TextEditor::TextDocument *textDocument, const Document::Ptr &document)
+{
+    CppRefactoringFilePtr result(new CppRefactoringFile(textDocument));
+    result->setCppDocument(document);
+    if (const auto cppDocument = qobject_cast<CppEditorDocument *>(textDocument)) {
+        result->m_data = QSharedPointer<CppRefactoringChangesData>::create(
+            cppDocument->semanticInfo().snapshot);
+    }
+    return result;
+}
+
+CppRefactoringFilePtr CppRefactoringChanges::file(
     QTextDocument *document, const FilePath &filePath, const Document::Ptr &cppDocument)
 {
     CppRefactoringFilePtr result(new CppRefactoringFile(document, filePath));
@@ -73,12 +86,16 @@ CppRefactoringFilePtr CppRefactoringChanges::cppFile(const Utils::FilePath &file
     // unsaved changes.
     const QList<IEditor *> editors = DocumentModel::editorsForFilePath(filePath);
     for (IEditor *editor : editors) {
+        // The widget first, where there is one: its semantic info carries the
+        // local uses that the document's does not.
         if (const auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor)) {
             if (const auto editorWidget = qobject_cast<CppEditorWidget *>(
                     textEditor->editorWidget())) {
                 return file(editorWidget, editorWidget->semanticInfo().doc);
             }
         }
+        if (const auto document = qobject_cast<CppEditorDocument *>(editor->document()))
+            return file(document, document->semanticInfo().doc);
     }
 
     return CppRefactoringFilePtr(new CppRefactoringFile(filePath, m_data));
@@ -114,6 +131,11 @@ CppRefactoringFile::CppRefactoringFile(QTextDocument *document, const FilePath &
 
 CppRefactoringFile::CppRefactoringFile(TextEditor::TextEditorWidget *editor)
     : RefactoringFile(editor)
+{
+}
+
+CppRefactoringFile::CppRefactoringFile(TextEditor::TextDocument *textDocument)
+    : RefactoringFile(textDocument)
 {
 }
 

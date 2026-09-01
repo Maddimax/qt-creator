@@ -5,6 +5,7 @@
 
 #include <coreplugin/editormanager/ieditor.h>
 
+#include "codeassist/assistinterface.h"
 #include "extraencodingsettings.h"
 #include "fontsettings.h"
 #include "icodestylepreferences.h"
@@ -509,6 +510,13 @@ void TextDocument::setQuickFixAssistProvider(IAssistProvider *provider) const
 IAssistProvider *TextDocument::quickFixAssistProvider() const
 {
     return d->m_quickFixProvider;
+}
+
+std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(
+    const QTextCursor &cursor, AssistKind kind, AssistReason reason) const
+{
+    Q_UNUSED(kind)
+    return std::make_unique<AssistInterface>(cursor, filePath(), reason);
 }
 
 void TextDocument::setCodeStyle(ICodeStylePreferences *preferences)

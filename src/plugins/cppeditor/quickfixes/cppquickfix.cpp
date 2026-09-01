@@ -5,6 +5,7 @@
 
 #include "../baseeditordocumentprocessor.h"
 #include "../cppeditortr.h"
+#include "../cppeditordocument.h"
 #include "../cppeditorwidget.h"
 #include "../cppfunctiondecldeflink.h"
 #include "../cpprefactoringchanges.h"
@@ -85,6 +86,10 @@ class ApplyDeclDefLinkChanges: public CppQuickFixFactory
 public:
     void doMatch(const CppQuickFixInterface &interface, TextEditor::QuickFixOperations &result) override
     {
+        // The link is what the widget is drawing a marker for, so this fix has
+        // nothing to offer a view that is not one.
+        if (!interface.editor())
+            return;
         std::shared_ptr<FunctionDeclDefLink> link = interface.editor()->declDefLink();
         if (!link || !link->isMarkerVisible())
             return;
@@ -172,7 +177,7 @@ void CppQuickFixFactory::match(const Internal::CppQuickFixInterface &interface,
 {
     if (m_clangdReplacement) {
         if (const auto clangdVersion = CppModelManager::usesClangd(
-                interface.currentFile()->editor()->textDocument());
+                interface.cppEditorDocument());
             clangdVersion && clangdVersion >= m_clangdReplacement) {
             return;
         }

@@ -44,6 +44,20 @@ public:
     void recalculateSemanticInfoDetached();
     SemanticInfo recalculateSemanticInfo(); // TODO: Remove me
 
+    // The last one the processor worked out, kept here rather than only on
+    // CppEditorWidget: it belongs to the file, not to a view of it, and it is
+    // what a quick fix needs. The widget still keeps its own copy, because it
+    // patches the local uses into it as the caret moves.
+    SemanticInfo semanticInfo() const;
+    // Whether it still describes what the document says. Local uses are not
+    // part of the question here, for the same reason.
+    bool isSemanticInfoValid() const;
+
+    std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
+        const QTextCursor &cursor,
+        TextEditor::AssistKind kind,
+        TextEditor::AssistReason reason) const override;
+
     void setPreferredParseContext(const QString &parseContextId);
     void updateSoftPreferredParseContext(const ProjectExplorer::Node *currentNode);
     void setExtraPreprocessorDirectives(const QByteArray &directives);

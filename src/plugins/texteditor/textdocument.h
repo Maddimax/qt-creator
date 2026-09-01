@@ -4,6 +4,7 @@
 #pragma once
 
 #include "texteditor_global.h"
+#include "codeassist/assistenums.h"
 #include "formatter.h"
 #include "indenter.h"
 
@@ -19,6 +20,7 @@
 #include <QSharedPointer>
 
 #include <functional>
+#include <memory>
 
 QT_BEGIN_NAMESPACE
 class QAction;
@@ -30,6 +32,7 @@ namespace Core { class IEditor; }
 
 namespace TextEditor {
 
+class AssistInterface;
 class CompletionAssistProvider;
 class ExtraEncodingSettingsData;
 class FontSettingsData;
@@ -189,6 +192,13 @@ public:
     virtual CompletionAssistProvider *functionHintAssistProvider() const;
     void setQuickFixAssistProvider(IAssistProvider *provider) const;
     virtual IAssistProvider *quickFixAssistProvider() const;
+
+    // What the provider above is asked with. A language whose assist needs
+    // more than a cursor and a path - C++ quick fixes want the semantic info -
+    // answers here rather than on an editor, so that any view showing this
+    // document offers the same assist.
+    virtual std::unique_ptr<AssistInterface> createAssistInterface(
+        const QTextCursor &cursor, AssistKind kind, AssistReason reason) const;
 
     void setCodeStyle(ICodeStylePreferences *preferences);
     ICodeStylePreferences *codeStyle() const;

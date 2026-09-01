@@ -13,6 +13,8 @@
 
 #include <optional>
 
+namespace TextEditor { class TextDocument; }
+
 namespace CppEditor {
 class CppRefactoringChanges;
 class CppRefactoringFile;
@@ -59,6 +61,7 @@ private:
                        const QSharedPointer<Internal::CppRefactoringChangesData> &data);
     CppRefactoringFile(QTextDocument *document, const Utils::FilePath &filePath);
     explicit CppRefactoringFile(TextEditor::TextEditorWidget *editor);
+    explicit CppRefactoringFile(TextEditor::TextDocument *textDocument);
 
     void fileChanged() override;
     Utils::Id indenterId() const override;
@@ -78,6 +81,10 @@ public:
     explicit CppRefactoringChanges(const CPlusPlus::Snapshot &snapshot);
 
     static CppRefactoringFilePtr file(TextEditor::TextEditorWidget *editor,
+                                      const CPlusPlus::Document::Ptr &document);
+    // Over the open document rather than the widget showing it, which is what
+    // a view that is not a TextEditorWidget has.
+    static CppRefactoringFilePtr file(TextEditor::TextDocument *textDocument,
                                       const CPlusPlus::Document::Ptr &document);
     // Over a plain document rather than an editor, for code that is not open in
     // one - a settings page's preview. Takes ownership of \a document, as

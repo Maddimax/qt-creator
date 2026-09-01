@@ -45,6 +45,10 @@ public:
     const QTextDocument *document() const;
     const QTextCursor cursor() const; // mustn't use the cursor to change the document
     Utils::FilePath filePath() const;
+    // The open document being changed, or nullptr where the file is not open.
+    TextDocument *textDocument() const;
+    // The widget showing it, where the view is one - so callers that only
+    // want the document should ask for the document.
     TextEditorWidget *editor() const;
 
     // converts 1-based line and column into 0-based source offset
@@ -70,6 +74,8 @@ protected:
     RefactoringFile(QTextDocument *document, const Utils::FilePath &filePath);
 
     RefactoringFile(TextEditorWidget *editor);
+    // The open document, whichever view shows it.
+    RefactoringFile(TextDocument *textDocument);
     RefactoringFile(const Utils::FilePath &filePath);
 
     void invalidate() { m_filePath.clear(); }
