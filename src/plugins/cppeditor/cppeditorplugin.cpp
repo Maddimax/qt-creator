@@ -10,6 +10,7 @@
 #include "cppeditorconstants.h"
 #include "cpppreprocessordialog.h"
 #include "cppeditordocument.h"
+#include "cppeditoroutline.h"
 #include "cppeditortr.h"
 #include "cppeditorwidget.h"
 #include "cppfunctiondecldeflink.h"
@@ -529,6 +530,15 @@ void CppEditorPlugin::addPerSymbolActions()
                             CppEditor::renameUsagesOf(editor, {}, cursor);
                         });
 
+                // Which function the caret is in, which is what the toolbar
+                // combo says. CppEditorWidget owns one of these itself; the
+                // combo it fills is still a widget, so in a view that is not
+                // one the outline is kept up to date and not yet drawn.
+                auto * const outline = new CppEditorOutline(editor, document);
+                outline->setParent(editor);
+                connect(editor, &IEditor::cursorPositionChanged, outline,
+                        [outline] { outline->updateIndex(); });
+
                 // A function whose declaration and definition have drifted
                 // apart, and the offer to bring the other one along.
                 // CppEditorWidget owns one of these itself.
@@ -710,6 +720,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppQuickFixSettingsTest);
     addTestCreator(createQuickFixAssistTest);
     addTestCreator(createCppOutlineTest);
+    addTestCreator(createCppEditorOutlineTest);
     addTestCreator(createCppTypeHierarchyTest);
     addTest<LocalSymbolsTest>();
     addTest<LocatorFilterTest>();

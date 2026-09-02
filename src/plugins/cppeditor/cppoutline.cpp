@@ -7,6 +7,7 @@
 #include "cppeditoroutline.h"
 #include "cppeditortr.h"
 #include "clangdsettings.h"
+#include <QComboBox>
 #include "cppmodelmanager.h"
 #include "cppoutlinemodel.h"
 
@@ -373,6 +374,60 @@ private slots:
         QTRY_COMPARE(editor->currentLine(), 3);
     }
 };
+
+// Which function the caret is in, as the toolbar combo says it. The combo is
+// still a widget, so what a view that is not one gets is the answer kept up to
+// date; drawing it is what is left.
+class CppEditorOutlineTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheToolBarOutlineFollowsTheCaretInAnyView()
+    {
+        Utils::TemporaryDirectory dir("cpp-toolbar-outline-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("void alpha() {}\n\nvoid beta()\n{\n}\n"));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        // Made by the plugin for this editor, because nothing else would.
+        auto * const outline = editor->findChild<CppEditorOutline *>();
+        QVERIFY2(outline, "nobody made a toolbar outline for an editor that is not a widget");
+        auto * const combo = qobject_cast<QComboBox *>(outline->widget());
+        QVERIFY(combo);
+
+        // Into beta(), and the outline has to say so. gotoLine is 1-based.
+        editor->gotoLine(3, 6);
+        QTRY_COMPARE(combo->currentText(), QString("beta(): void"));
+
+        // And back, so that what is asserted is the outline following rather
+        // than one entry happening to be current.
+        editor->gotoLine(1, 6);
+        QTRY_COMPARE(combo->currentText(), QString("alpha(): void"));
+    }
+};
+
+QObject *createCppEditorOutlineTest() { return new CppEditorOutlineTest; }
 
 QObject *createCppOutlineTest()
 {

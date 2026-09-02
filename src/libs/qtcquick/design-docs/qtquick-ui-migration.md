@@ -26452,3 +26452,45 @@ an action, or `ParseContextModel` needs to be what is handed over. The
 **outline combo** is a tree combo over `OutlineModel` and is the one a reader
 actually looks at; `QtcQuick` has tree delegates already. After those,
 `CppLocalRenaming` is the last thing on the list, and then the switch.
+
+## 2026-09-02 — The toolbar outline knows where the caret is
+
+Second of the three toolbar extras, and it stops half way on purpose.
+
+`CppEditorOutline` - the combo that says which function the caret is in - wanted
+the widget for four things, and they are the same four `CppOutlineWidget`
+wanted before that batch converted it: the document's revision,
+`updateOutline()`, where the caret is, and how to move it. It takes a
+`Core::IEditor *` now, with the widget constructor kept and the editor found
+lazily, because the widget is built before the editor showing it. The plugin
+makes one for every C++ editor that is not a widget.
+
+**What it does not do is draw.** The combo is a `Utils::TreeViewComboBox`, and a
+tree in a combo is the one thing in this migration that has no Qt Quick
+equivalent to hand. So in the Quick editor the outline is **kept up to date and
+not shown**: the answer is right and nothing displays it. That is worse than a
+gap in one way - it costs work for nothing today - and better in another: the
+drawing is now the only thing left, and it is a form rather than a controller.
+
+The test says exactly that much. It asks the controller's combo what it says,
+which is the answer a form would draw, and asserts it follows the caret in both
+directions. It does not claim the reader can see it.
+
+Negative controls, both bit: the plugin not making a controller, which fails on
+the `findChild`; and the caret taken from the widget again, which leaves the
+combo on whatever it was.
+
+`TextEditor` 408 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. Widget path: `FollowSymbolTest` 155, `CompletionTest` 204,
+`DoxygenTest` 34, `CppOutlineTest` 3, `CppEditorOutlineTest` 3,
+`LanguageToolBarTest` 3 - exit 0. No new file, no `.qbs` edit.
+
+**Next**, and the list is short:
+
+1. **Draw the outline** - a combo in `EditorToolBar.qml` over `OutlineModel`,
+   which is a tree. `QtcQuick`'s `TreeDelegate` draws a tree in a page; a tree
+   in a popup is what this needs, and nothing has wanted one yet.
+2. The parse-context combo, which is flat and therefore easier, and which
+   nobody sees unless a file belongs to several project parts.
+3. `CppLocalRenaming`, whose fallback the Quick editor already has.
+4. The switch.

@@ -3,6 +3,12 @@
 
 #include "cppeditoroutline.h"
 
+#include "cpptoolsreuse.h"
+
+#include <utils/textutils.h>
+
+#include <coreplugin/editormanager/ieditor.h>
+
 #include "cppeditorconstants.h"
 #include "cppeditordocument.h"
 #include "cppeditortr.h"
@@ -79,12 +85,39 @@ static void setSortedEditorDocumentOutline(bool sorted)
                                            kSortEditorDocumentOutlineDefault);
 }
 
-CppEditorOutline::CppEditorOutline(CppEditorWidget *editorWidget)
-    : QObject(editorWidget)
-    , m_editorWidget(editorWidget)
+CppEditorOutline::CppEditorOutline(CppEditorWidget *widget)
+    : QObject(widget)
+    , m_widget(widget)
     , m_combo(new TreeViewComboBox)
 {
-    m_model = &editorWidget->cppEditorDocument()->outlineModel();
+    m_model = &document()->outlineModel();
+    build();
+}
+
+CppEditorOutline::CppEditorOutline(Core::IEditor *editor, CppEditorDocument *document)
+    : QObject(editor)
+    , m_editor(editor)
+    , m_document(document)
+    , m_combo(new TreeViewComboBox)
+{
+    m_model = &document->outlineModel();
+    build();
+}
+
+Core::IEditor *CppEditorOutline::editor() const
+{
+    return m_widget ? editorFor(m_widget) : m_editor;
+}
+
+CppEditorDocument *CppEditorOutline::document() const
+{
+    if (m_document)
+        return m_document;
+    return m_widget ? m_widget->cppEditorDocument() : nullptr;
+}
+
+void CppEditorOutline::build()
+{
     m_proxyModel = new OutlineProxyModel(*m_model, this);
     m_proxyModel->setSourceModel(m_model);
 
@@ -148,15 +181,22 @@ void CppEditorOutline::updateIndex()
 
 void CppEditorOutline::updateIndexNow()
 {
-    if (m_model->editorRevision() != m_editorWidget->document()->revision()) {
-        m_editorWidget->cppEditorDocument()->updateOutline();
+    CppEditorDocument * const doc = document();
+    if (!doc)
+        return;
+    if (m_model->editorRevision() != doc->document()->revision()) {
+        doc->updateOutline();
         return;
     }
 
     m_updateIndexTimer->stop();
 
-    if (QModelIndex comboIndex = m_model->indexForPosition(m_editorWidget->lineColumn());
-        comboIndex.isValid()) {
+    // IEditor counts both from one; Text::Position counts the column from zero.
+    Core::IEditor * const in = editor();
+    if (!in)
+        return;
+    const Utils::Text::Position caret{in->currentLine(), in->currentColumn() - 1};
+    if (QModelIndex comboIndex = m_model->indexForPosition(caret); comboIndex.isValid()) {
         QSignalBlocker blocker(m_combo);
         m_combo->setCurrentIndex(m_proxyModel->mapFromSource(comboIndex));
         updateToolTip();
@@ -179,8 +219,11 @@ void CppEditorOutline::gotoSymbolInEditor()
 
     EditorManager::cutForwardNavigationHistory();
     EditorManager::addCurrentPositionToNavigationHistory();
-    m_editorWidget->gotoLine(link.target.line, link.target.column, true, true);
-    emit m_editorWidget->activateEditor();
+    Core::IEditor * const in = editor();
+    if (!in)
+        return;
+    in->gotoLine(link.target.line, link.target.column, true);
+    EditorManager::activateEditor(in);
 }
 
 } // namespace CppEditor::Internal

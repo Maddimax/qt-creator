@@ -15,6 +15,7 @@ void setupCppOutline();
 
 #ifdef WITH_TESTS
 QObject *createCppOutlineTest();
+QObject *createCppEditorOutlineTest();
 #endif
 
 } // CppEditor::Internal
