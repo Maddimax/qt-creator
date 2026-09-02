@@ -28022,3 +28022,77 @@ With 1 and 2 both needing something this machine does not have, and 3 predating
 the migration, **the Qt Quick editor side of this work has run out of things
 that can be finished here.** The next batch should say so rather than invent
 one.
+
+## 2026-09-02 — Testing the claim that there is nothing left to do
+
+The last entry said this work had run out of things that can be finished here.
+Before accepting that, this batch went after the assumption underneath it -
+"the kit-requiring tests cannot be run on this machine" - because a whole batch
+several entries ago **shipped four ported test classes without ever running
+them**, and that debt was still outstanding.
+
+**A kit-requiring test can be started here.** Qt Creator takes
+`-settingspath <dir>`, and `-test` otherwise uses a clean settings path of its
+own, which is why those tests always skipped. With a throwaway settings
+directory and `~/Qt/6.11.1/macos/bin` on `PATH`, a Qt is detected, a kit exists,
+and `QSKIP("The test requires at least one valid kit...")` stops firing. That
+part of the plan's claim was simply wrong.
+
+**The four ported classes behave identically in both views**, which is what
+that batch could not check and what this migration is actually answerable for:
+
+| class | default | `QTC_WIDGET_CPP_EDITOR=1` |
+|---|---|---|
+| SynchronizeMemberFunctionOrder | 1 passed / 1 failed, exit 134 | the same |
+| MoveClassToOwnFile | 1 passed / 1 failed, exit 134 | the same |
+| AddModuleFromInclude | 1 passed / 1 failed, exit 134 | the same |
+| BringIdentifierIntoScope | 43 passed / 1 failed, exit 134 | the same |
+
+Not one row differs. The ports are vindicated; the failures are not the Qt
+Quick editor's.
+
+**But they cannot be made to pass here, and the reason is sharper than "no
+kit".** A run that exits cleanly writes `qtversion.xml` with two Qt versions
+and **no `toolchains.xml` at all** - so the kit has a Qt and no compiler. The
+tests get as far as opening a project and then hang until the 300-second
+watchdog kills them, which QtTest reports as "Received a fatal error". So the
+correct statement is: **they need a kit with a toolchain**; a Qt alone gets far
+enough to start and then hang.
+
+**One thing tried and reverted.** `SynchronizeMemberFunctionOrderTest` calls
+`operations.first()->perform()` with no check that anything was offered - the
+other three guard it with a `QCOMPARE` on the size. Taking the front of an
+empty `QList` is undefined behaviour, so it looked like the crash. It is not:
+guarding it changed nothing, because the test hangs long before reaching that
+line. The change was reverted rather than shipped as a fix for something it
+does not fix. The line is still wrong and is written down here for whoever has
+a toolchain.
+
+`TextEditor` 419 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 264 passed exit
+0. **No code change in this batch** - the deliverable is the measurement.
+
+### So: what is actually left
+
+- **Nothing on the Qt Quick editor side that can be finished on this machine.**
+  Every gap the switch exposed and that is reachable from here has been closed:
+  the factory seam, completion, quick fixes, follow symbol, refactoring, the
+  outline, the parse-context chooser, renaming in place, the optional-action
+  mask, folding, the MCP quick-fix tool, the inspector, Designer's Go To Slot,
+  the CurrentDocument variables, typing over, first refusal on keys, and
+  FakeVim end to end.
+- **Needs a machine with a kit and a toolchain**: the four classes above on
+  their merits, the clangd override proposal, `ClangdClient::adjustedCursor()`,
+  and `FollowSymbolTest`'s clangd rows - which are `useClangd = m_testKit` and
+  have never run here.
+- **Needs a person at a screen**: vim's mode line, the FakeVim selection
+  highlight, and the caret's shape per mode. Everything else about FakeVim in
+  this view is under test.
+- **Older than this migration, and still open**: the whitespace-on-save
+  revision race, the CppEditor whole-suite heap-use-after-free, and the
+  Profiler abort.
+
+A batch that cannot do any of those should say so rather than invent one. The
+next useful thing is not more code from here - it is somebody running
+`-test CppEditor` and `-test FakeVim` on a configured machine, and opening a
+C++ file to look at it.
