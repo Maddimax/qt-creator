@@ -458,8 +458,6 @@ void CppEditorWidget::finalizeInitialization()
     connect(&d->m_localRenaming, &CppLocalRenaming::finished, this, [this] {
         cppEditorDocument()->recalculateSemanticInfoDetached();
     });
-    connect(&d->m_localRenaming, &CppLocalRenaming::processKeyPressNormally,
-            this, &CppEditorWidget::processKeyNormally);
     connect(this, &PlainTextEdit::cursorPositionChanged, this, [this] {
         if (d->m_cppEditorOutline)
             d->m_cppEditorOutline->updateIndex();
@@ -766,18 +764,18 @@ QTextCharFormat occurrencesTextCharFormat()
     return globalFontSettings().data().toTextCharFormat(TextEditor::C_OCCURRENCES);
 }
 
-QList<QTextEdit::ExtraSelection> sourceLocationsToExtraSelections(
+QList<TextEditor::TextDocument::ExtraSelection> sourceLocationsToExtraSelections(
     const Links &sourceLocations,
     uint selectionLength,
     CppEditorWidget *cppEditorWidget)
 {
     const auto textCharFormat = occurrencesTextCharFormat();
 
-    QList<QTextEdit::ExtraSelection> selections;
+    QList<TextEditor::TextDocument::ExtraSelection> selections;
     selections.reserve(int(sourceLocations.size()));
 
     auto sourceLocationToExtraSelection = [&](const Link &sourceLocation) {
-        QTextEdit::ExtraSelection selection;
+        TextEditor::TextDocument::ExtraSelection selection;
 
         selection.cursor = selectAt(cppEditorWidget->textCursor(),
                                     sourceLocation.target.line,
@@ -820,11 +818,13 @@ void CppEditorWidget::renameSymbolUnderCursor()
             if (revision != document()->revision())
                 return;
             if (!links.isEmpty()) {
-                QList<QTextEdit::ExtraSelection> selections
+                const QList<TextEditor::TextDocument::ExtraSelection> selections
                     = sourceLocationsToExtraSelections(links,
                                                        static_cast<uint>(symbolName.size()),
                                                        cppEditorWidget);
-                setExtraSelections(TextEditor::TextEditorWidget::CodeSemanticsSelection, selections);
+                TextEditor::setViewSelections(editorFor(cppEditorWidget),
+                                              TextEditor::TextEditorWidget::CodeSemanticsSelection,
+                                              selections);
                 d->m_localRenaming.stop();
                 d->m_localRenaming.updateSelectionsForVariableUnderCursor(selections);
             }
@@ -1149,7 +1149,7 @@ void CppEditorWidget::contextMenuEvent(QContextMenuEvent *e)
 
 void CppEditorWidget::keyPressEvent(QKeyEvent *e)
 {
-    if (d->m_localRenaming.handleKeyPressEvent(e))
+    if (d->m_localRenaming.handleKeyPress(e, [this, e] { processKeyNormally(e); }))
         return;
 
     if (handleStringSplitting(e))

@@ -164,9 +164,11 @@ void BuiltinModelManagerSupport::startLocalRenaming(const CursorInEditor &data,
                                                     const ProjectPart *,
                                                     RenameCallback &&renameSymbolsCallback)
 {
-    CppEditorWidget *editorWidget = data.editorWidget();
-    QTC_ASSERT(editorWidget, renameSymbolsCallback(QString(), {}, 0); return;);
-    editorWidget->updateSemanticInfo();
+    // A widget brings what it knows about the file up to date here. A view
+    // that is not one has done it already: it has to reach its own use
+    // selections to do it at all, and this has no way to.
+    if (CppEditorWidget * const editorWidget = data.editorWidget())
+        editorWidget->updateSemanticInfo();
     // Call empty callback
     renameSymbolsCallback(QString(), {}, data.cursor().document()->revision());
 }

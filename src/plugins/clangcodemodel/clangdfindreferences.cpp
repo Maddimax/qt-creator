@@ -685,9 +685,9 @@ ClangdFindReferences::CheckUnusedData::~CheckUnusedData()
 class ClangdFindLocalReferences::Private
 {
 public:
-    Private(ClangdFindLocalReferences *q, CppEditorWidget *editorWidget, const QTextCursor &cursor,
+    Private(ClangdFindLocalReferences *q, TextDocument *document, const QTextCursor &cursor,
             const RenameCallback &callback)
-        : q(q), editorWidget(editorWidget), document(editorWidget->textDocument()), cursor(cursor),
+        : q(q), document(document), cursor(cursor),
           callback(callback), uri(client()->hostPathToServerUri(document->filePath())),
           revision(document->document()->revision())
     {}
@@ -700,7 +700,6 @@ public:
     void finish();
 
     ClangdFindLocalReferences * const q;
-    const QPointer<CppEditorWidget> editorWidget;
     const QPointer<TextDocument> document;
     const QTextCursor cursor;
     RenameCallback callback;
@@ -710,9 +709,9 @@ public:
 };
 
 ClangdFindLocalReferences::ClangdFindLocalReferences(
-    ClangdClient *client, CppEditorWidget *editorWidget, const QTextCursor &cursor,
+    ClangdClient *client, TextDocument *document, const QTextCursor &cursor,
     const RenameCallback &callback)
-    : QObject(client), d(new Private(this, editorWidget, cursor, callback))
+    : QObject(client), d(new Private(this, document, cursor, callback))
 {
     d->findDefinition();
 }
@@ -810,7 +809,7 @@ void ClangdFindLocalReferences::Private::handleReferences(const QList<Location> 
         const Range r = references.first().range();
         const Position pos = r.start();
         symbol = QString(r.end().character() - pos.character(), 'x');
-        if (editorWidget && document) {
+        if (document) {
             const QTextCursor cursor = pos.toTextCursor(document->document());
             const QList<Text::Range> occurrencesInComments
                 = symbolOccurrencesInDeclarationComments(

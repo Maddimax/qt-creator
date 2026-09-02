@@ -252,6 +252,9 @@ public:
         // is meaningless, so the hosting widget is what it maps through.
         if (TextViewport * const view = viewport()) {
             view->setTooltipHost(widget->quickWidget());
+            // So that the view can reach what a language parents to the editor
+            // rather than to the document - see TextEditor::KeyHandler.
+            view->setEditor(this);
             // Whoever follows the caret - the outline, the type hierarchy -
             // listens to the editor rather than to a widget.
             connect(view, &TextViewport::cursorPositionChanged,
@@ -3596,6 +3599,137 @@ private slots:
         QVERIFY(PlainRefactoringFileFactory().file(file)->apply(change));
         QCOMPARE(document->document()->toPlainText(), QString("gamma\nalpha\n"));
         QCOMPARE(file.fileContents().value_or(QByteArray()), QByteArray("gamma\nalpha\n"));
+    }
+
+    // What a language does with an edit in this view before the view does it
+    // itself: typing inside an in-place rename goes to every use of the name
+    // at once, and so do the clipboard and Select All while it lasts.
+    void testTheViewAsksTheLanguageBeforeItEdits()
+    {
+        enum What { Take, Wrap, Decline };
+
+        class TestHandler final : public EditHandler
+        {
+        public:
+            using EditHandler::EditHandler;
+
+            bool handleKeyPress(QKeyEvent *event, const std::function<void()> &processNormally)
+                override
+            {
+                Q_UNUSED(event)
+                ++m_keys;
+                if (what == Decline)
+                    return false;
+                if (what == Wrap)
+                    processNormally();
+                return true;
+            }
+            bool handlePaste() override { ++m_pastes; return what != Decline; }
+            bool handleCut() override { ++m_cuts; return what != Decline; }
+            bool handleSelectAll() override { ++m_selectAlls; return what != Decline; }
+            bool handleRename() override { ++m_renames; return what != Decline; }
+
+            What what = Take;
+            int m_keys = 0;
+            int m_pastes = 0;
+            int m_cuts = 0;
+            int m_selectAlls = 0;
+            int m_renames = 0;
+        };
+
+        Utils::TemporaryDirectory dir("quick-editor-edit-handler");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QTextDocument * const text = document->document();
+
+        // Parented to the editor, which is where the view looks: a language
+        // has nothing to say about a file until it has been read, so the
+        // handler is put there after the editor was built.
+        auto * const handler = new TestHandler(editor);
+
+        QTextCursor caret(text);
+        caret.movePosition(QTextCursor::EndOfLine);
+        view->setTextCursor(caret);
+
+        // A handler that takes the key is the only one that acts on it.
+        QKeyEvent typed(QEvent::KeyPress, Qt::Key_X, Qt::ShiftModifier, "X");
+        QCoreApplication::sendEvent(view, &typed);
+        QCOMPARE(handler->m_keys, 1);
+        QCOMPARE(text->toPlainText(), QString("alpha\n"));
+
+        // One that wraps it lets the view do the edit, in the middle of
+        // whatever else it is doing - which is what an in-place rename needs.
+        handler->what = Wrap;
+        QCoreApplication::sendEvent(view, &typed);
+        QCOMPARE(handler->m_keys, 2);
+        QCOMPARE(text->toPlainText(), QString("alphaX\n"));
+
+        // And one that declines leaves the view to it entirely.
+        handler->what = Decline;
+        QCoreApplication::sendEvent(view, &typed);
+        QCOMPARE(handler->m_keys, 3);
+        QCOMPARE(text->toPlainText(), QString("alphaXX\n"));
+
+        // The clipboard is asked the same way. A paste during a rename
+        // replaces the name in every place it is used, not only here.
+        QGuiApplication::clipboard()->setText("pasted");
+        handler->what = Take;
+        view->paste();
+        QCOMPARE(handler->m_pastes, 1);
+        QCOMPARE(text->toPlainText(), QString("alphaXX\n"));
+        handler->what = Decline;
+        view->paste();
+        QCOMPARE(handler->m_pastes, 2);
+        QCOMPARE(text->toPlainText(), QString("alphaXXpasted\n"));
+
+        // Cut, which is the same edit backwards.
+        caret = view->textCursor();
+        caret.movePosition(QTextCursor::StartOfLine);
+        caret.movePosition(QTextCursor::EndOfLine, QTextCursor::KeepAnchor);
+        view->setTextCursor(caret);
+        handler->what = Take;
+        view->cut();
+        QCOMPARE(handler->m_cuts, 1);
+        QCOMPARE(text->toPlainText(), QString("alphaXXpasted\n"));
+        handler->what = Decline;
+        view->cut();
+        QCOMPARE(handler->m_cuts, 2);
+        QCOMPARE(text->toPlainText(), QString("\n"));
+
+        // Select All, which during a rename means the name rather than the
+        // file.
+        handler->what = Take;
+        view->selectAll();
+        QCOMPARE(handler->m_selectAlls, 1);
+        QVERIFY2(!view->textCursor().hasSelection(),
+                 "the view selected the file although the language took the command");
+        handler->what = Decline;
+        view->selectAll();
+        QCOMPARE(handler->m_selectAlls, 2);
+        QVERIFY(view->textCursor().hasSelection());
+
+        // And renaming, where a handler that can do it here and now saves the
+        // search that would otherwise be asked for.
+        QSignalSpy searched(view->symbolRequests(), SIGNAL(requestRename(QTextCursor)));
+        handler->what = Take;
+        view->renameSymbolUnderCursor();
+        QCOMPARE(handler->m_renames, 1);
+        QCOMPARE(searched.count(), 0);
+        handler->what = Decline;
+        view->renameSymbolUnderCursor();
+        QCOMPARE(handler->m_renames, 2);
+        QCOMPARE(searched.count(), 1);
     }
 
     // Something the file offers at a place in it - a quick fix waiting, a

@@ -7,7 +7,10 @@
 
 #include <coreplugin/editormanager/ieditor.h>
 
+#include <texteditor/fontsettings.h>
 #include <texteditor/texteditor.h>
+
+#include <utils/algorithm.h>
 
 #include "cppeditordocument.h"
 
@@ -322,6 +325,72 @@ void SelectionsTest::testSelectionFiltering()
         QCOMPARE(actualSelection.cursor.position(), expectedSelection.cursor.position());
         QCOMPARE(actualSelection.cursor.anchor(), expectedSelection.cursor.anchor());
     }
+}
+
+// Renaming a name that is only used inside one function is done in the view:
+// the name is editable in every place it is used at once, and typing changes
+// all of them. Which view that is makes no difference - the widget editor has
+// always done this, and a Qt Quick view asks the same handler for the key.
+void SelectionsTest::testRenamingALocalNameHappensInPlace()
+{
+    CppTestDocument testFile("file.cpp", R"(void f()
+{
+    int local@Var = 1;
+    localVar = localVar + 2;
+}
+)");
+    QVERIFY(testFile.hasCursorMarker());
+    testFile.m_source.remove(testFile.m_cursorPosition, 1);
+
+    CppEditor::Tests::TestCase test;
+    QVERIFY(test.succeededSoFar());
+
+    CppEditor::Tests::TemporaryDir temporaryDir;
+    QVERIFY(temporaryDir.isValid());
+    testFile.setBaseDirectory(temporaryDir.path());
+    QVERIFY(testFile.writeToDisk());
+
+    Core::IEditor *editor = nullptr;
+    QVERIFY(CppEditor::Tests::TestCase::openCppEditorInAnyView(testFile.filePath(), &editor));
+    test.closeEditorAtEndOfTestCase(editor);
+    auto * const cppDocument = qobject_cast<CppEditorDocument *>(editor->document());
+    QVERIFY(cppDocument);
+    QTextDocument * const text = cppDocument->document();
+    QTextCursor caret(text);
+    caret.setPosition(testFile.m_cursorPosition);
+    TextEditor::setTextCursorOf(editor, caret);
+    QVERIFY(CppEditor::Tests::TestCase::waitForRehighlightedSemanticDocument(cppDocument));
+
+    // A rename that has started is drawn: the use being renamed is marked
+    // differently from the others. Which is also the only thing to wait for -
+    // whoever finds the local uses may take a round trip to do it.
+    const TextEditor::FontSettingsData &fonts = cppDocument->fontSettings();
+    const QTextCharFormat renameFormat = fonts.toTextCharFormat(TextEditor::C_OCCURRENCES_RENAME);
+    const QTextCharFormat useFormat = fonts.toTextCharFormat(TextEditor::C_OCCURRENCES);
+    QVERIFY2(renameFormat != useFormat,
+             "a use being renamed is drawn like any other, so this cannot tell them apart");
+    const auto renameStarted = [&] {
+        const QList<TextEditor::TextDocument::ExtraSelection> drawn = TextEditor::viewSelections(
+            editor, TextEditor::TextEditorWidget::CodeSemanticsSelection);
+        return Utils::anyOf(drawn, [&](const TextEditor::TextDocument::ExtraSelection &selection) {
+            return selection.format == renameFormat;
+        });
+    };
+
+    TextEditor::renameSymbolUnderCursorIn(editor);
+    QTRY_VERIFY2(renameStarted(), "no use of the name was marked as being renamed");
+
+    // Typing where the caret is, which is in the middle of one of the three
+    // uses. All three are the same name, so all three change.
+    QObject * const target = TextEditor::keyTargetOf(editor);
+    QVERIFY(target);
+    QKeyEvent typed(QEvent::KeyPress, Qt::Key_X, Qt::ShiftModifier, "X");
+    QCoreApplication::sendEvent(target, &typed);
+
+    const QString renamed = text->toPlainText();
+    QCOMPARE(renamed.count("localXVar"), 3);
+    QVERIFY2(!renamed.contains(QLatin1String("localVar")),
+             "a use of the name was left as it was, so the rename was not in place");
 }
 
 } // namespace CppEditor::Internal::Tests

@@ -79,7 +79,7 @@ public:
             const Utils::LinkHandler &callback);
     void switchHeaderSource(const Utils::FilePath &filePath, bool inNextSplit);
 
-    void findLocalUsages(CppEditor::CppEditorWidget *editorWidget, const QTextCursor &cursor,
+    void findLocalUsages(TextEditor::TextDocument *document, const QTextCursor &cursor,
                          CppEditor::RenameCallback &&callback);
 
     void gatherHelpItemForTooltip(

@@ -1116,11 +1116,10 @@ void ClangdClient::switchHeaderSource(const Utils::FilePath &filePath, bool inNe
     sendMessage(req);
 }
 
-void ClangdClient::findLocalUsages(CppEditor::CppEditorWidget *editorWidget,
+void ClangdClient::findLocalUsages(TextDocument *document,
                                    const QTextCursor &cursor, CppEditor::RenameCallback &&callback)
 {
-    QTC_ASSERT(editorWidget, return);
-    TextDocument * const document = editorWidget->textDocument();
+    QTC_ASSERT(document, return);
     QTC_ASSERT(documentOpen(document), openDocument(document));
 
     qCDebug(clangdLog) << "local references requested" << document->filePath()
@@ -1138,7 +1137,7 @@ void ClangdClient::findLocalUsages(CppEditor::CppEditorWidget *editorWidget,
         return;
     }
 
-    d->findLocalRefs = new ClangdFindLocalReferences(this, editorWidget, cursor, callback);
+    d->findLocalRefs = new ClangdFindLocalReferences(this, document, cursor, callback);
     connect(d->findLocalRefs, &ClangdFindLocalReferences::done, this, [this] {
         d->findLocalRefs->deleteLater();
         d->findLocalRefs = nullptr;

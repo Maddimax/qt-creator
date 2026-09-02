@@ -10249,6 +10249,18 @@ void followSymbolUnderCursorIn(Core::IEditor *editor, bool inNextSplit)
         view->followSymbolUnderCursor(inNextSplit);
 }
 
+void renameSymbolUnderCursorIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->renameSymbolUnderCursor();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->renameSymbolUnderCursor();
+}
+
 QObject *keyTargetOf(Core::IEditor *editor)
 {
     if (!editor)
@@ -10256,6 +10268,30 @@ QObject *keyTargetOf(Core::IEditor *editor)
     if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
         return widget;
     return Internal::viewportForEditor(editor);
+}
+
+void pasteIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->TextEditorWidget::paste();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->pasteNormally();
+}
+
+void cutIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->TextEditorWidget::cut();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->cutNormally();
 }
 
 void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor)

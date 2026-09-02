@@ -22,6 +22,7 @@
 #include "cppoutline.h"
 #include "cppprojectupdater.h"
 #include "cpptoolsreuse.h"
+#include "cpplocalrenaming.h"
 #include "cppuseselectionsupdater.h"
 #include "cpptoolssettings.h"
 #include "cpptypehierarchy.h"
@@ -505,6 +506,21 @@ void CppEditorPlugin::addPerSymbolActions()
                     return;
                 auto * const updater = new CppUseSelectionsUpdater(editor);
                 updater->setParent(editor);
+
+                // Renaming a local name happens in the view, and only what is
+                // not local goes on to a search - the same order the widget
+                // editor takes them in. The view finds this parented to the
+                // editor and asks it first, so which backend answers the
+                // searches makes no difference to it.
+                auto * const renaming = new CppLocalRenaming(editor);
+                renaming->setUseSelectionsUpdater(updater);
+                connect(updater,
+                        &CppUseSelectionsUpdater::selectionsForVariableUnderCursorUpdated,
+                        renaming, &CppLocalRenaming::updateSelectionsForVariableUnderCursor);
+                connect(document->document(), &QTextDocument::contentsChange, renaming,
+                        &CppLocalRenaming::onContentsChangeOfEditorWidgetDocument);
+                connect(renaming, &CppLocalRenaming::finished, document,
+                        [document] { document->recalculateSemanticInfoDetached(); });
                 connect(editor, &IEditor::cursorPositionChanged, updater,
                         [updater] { updater->scheduleUpdate(); });
                 // And when the file has been read again: the ranges are

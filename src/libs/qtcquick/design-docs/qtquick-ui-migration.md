@@ -26590,3 +26590,92 @@ left before the switch is `CppLocalRenaming` - the in-place rename, whose
 global fallback the Quick editor already has - and then the switch itself:
 `setUsesQuickEditor(true)` in `CppEditorFactory` with no env var, and
 `QTC_WIDGET_CPP_EDITOR` as the way back.
+
+## 2026-09-02 — Renaming a local name in place, and a seam for the edits
+
+The plan's second-to-last item. Renaming in the widget editor is two things
+wearing one command: a name used only inside one function is edited **in the
+view**, at every use at once, and anything else goes to a search across the
+project. The Quick editor only ever did the second, so renaming a loop variable
+opened a search panel.
+
+**`TextEditor::EditHandler`** is the seam: what a language does with an edit in
+one view before the view does it itself. `handleKeyPress(event,
+processNormally)`, plus `handlePaste()`, `handleCut()`, `handleSelectAll()` and
+`handleRename()`. Parented to the editor, the way `ToolBarOutline` is - what it
+wraps is a caret and the ranges around it, and two views of one file have two.
+
+`processNormally` is a callback rather than a signal, which is what the widget
+used. A handler wraps the ordinary edit - in an undo block - rather than
+replacing it, so it has to be able to call it from the middle of its own work.
+The callback also removes the connection the widget needed, and it is what made
+`TextViewport::keyPressEvent` split into the part that asks and
+`processKeyNormally()`. Paste and cut split the same way, because a handler that
+takes a paste then asks the view to paste anyway - straight back into itself
+otherwise.
+
+**`CppLocalRenaming` no longer knows what a `TextEditorWidget` is.** Ten uses,
+all of them either a cursor (`textCursorOf` / `setTextCursorOf`), the clipboard
+(new `pasteIn` / `cutIn` - the *view's* paste, with no language in between),
+the drawn ranges (`setViewSelections`) or the document. Its selections are
+`TextDocument::ExtraSelection` now, which deleted a conversion in
+`CppUseSelectionsUpdater` that existed only because "the local renaming this
+feeds is the widget's, and so is its type".
+
+The widget builds its renaming before the editor that wraps it exists, so the
+widget-owned one looks its editor up the first time it needs one. That is the
+only two-mode thing left in the class.
+
+**The last mile was in clangd, not here.** `ClangdClient::findLocalUsages()`
+took a `CppEditorWidget *` and used it for one thing: `->textDocument()`. Same
+for `ClangdFindLocalReferences`. Widened to the document, and the whole in-place
+rename works under clangd in a view that is not a widget - which is what the
+test in this environment actually exercises, clangd being what answers here.
+`BuiltinModelManagerSupport::startLocalRenaming` asserted on the widget for one
+call; it now refreshes where there is one and trusts the caller where there is
+not.
+
+Where the *rename command* is answered moved too. It was a `SymbolRequests`
+relay connection guarded by `!usesClangd`; the in-place half now happens in the
+view, before the relay, because renaming a local name searches for nothing and
+so has no backend question to answer. The relay still carries what is left.
+
+Tests, the usual two halves: CppEditor asserts a local name is renamed in place
+in whichever view - waiting on the one thing that says a rename started, the
+use under the caret being drawn differently from the others - and TextEditor
+asserts the view asks its handler for a key, a paste, a cut, a Select All and a
+rename, and that a handler which wraps rather than takes gets the view to do
+the edit.
+
+Negative controls, all four bit: the view not asking for keys, the view not
+asking for a paste, the C++ handler declining the rename, and the view never
+being told which editor it is inside.
+
+`TextEditor` 411 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. Both views:
+`SelectionsTest` 15 passed each. Widget path: `DoxygenTest` 34,
+`InsertDefFromDeclTest` 79, `AssignToLocalVariableTest` 20,
+`ConvertToCamelCaseTest` 10, `MoveDeclarationOutOfIfTest` 5, `CppOutlineTest`
+3, `CppEditorOutlineTest` 3, `LanguageToolBarTest` 3, `DeclDefLinkTest` 3 - all
+exit 0. `ClangdTestLocalReferences` skips here for want of a kit. No new file,
+no `.qbs` edit.
+
+**Found on the way, and not fixed here: a quick fix crashes on a document with
+no widget.** `CppQuickFixInterface::editor()` has been nullable since
+`27a4b5571f3 CppEditor: Offer quick fixes on the document, not the widget`, and
+its own header says "a fix that needs a widget must check". Fifteen call sites
+across seven files do not check. `ExtractLiteralAsParameterTest` aborts with
+`SEGV in PlainTextEdit::setTextCursor` at every run, on unmodified sources -
+which is very likely what the whole `-test CppEditor` suite's occasional exit
+134 has been.
+
+**Next**, in order:
+
+1. **Quick fixes that act on the view.** The fifteen `editor()->` call sites:
+   two want a rename, the rest want the caret moved. Both now have a dispatcher
+   (`renameSymbolUnderCursorIn`, `setTextCursorOf`), so what is missing is the
+   editor in `CppQuickFixInterface` - `invokeAssistIn()` knows it and drops it
+   on the way to `TextDocument::createAssistInterface()`. Fixing that stops a
+   crash *and* closes the gap; the guard alone would only stop the crash.
+2. **The switch**: `setUsesQuickEditor(true)` in `CppEditorFactory` with no env
+   var, and `QTC_WIDGET_CPP_EDITOR` as the way back.

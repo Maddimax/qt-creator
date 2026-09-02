@@ -935,10 +935,53 @@ signals:
     void changed();
 };
 
+// What a language does with an edit in one view before the view does anything
+// with it - typing inside an in-place rename, where the same edit is made at
+// every use of the name at once.
+//
+// Parented to the editor, the way ToolBarOutline is: what it wraps is a caret
+// and the ranges around it, and two views of one file have two of each. A view
+// asks the one it finds there.
+class TEXTEDITOR_EXPORT EditHandler : public QObject
+{
+    Q_OBJECT
+
+public:
+    using QObject::QObject;
+
+    // Answer true to have taken the edit. \a processNormally is what the view
+    // would have done with the key, for a handler that wraps the ordinary edit
+    // - in an undo block, say - rather than replacing it.
+    virtual bool handleKeyPress(QKeyEvent *event,
+                                const std::function<void()> &processNormally) = 0;
+    // The clipboard and Select All, which a handler spanning several places at
+    // once has to take as well: a paste replaces the name everywhere, not only
+    // where the caret happens to be.
+    virtual bool handlePaste() { return false; }
+    virtual bool handleCut() { return false; }
+    virtual bool handleSelectAll() { return false; }
+    // Renaming the symbol under the caret, where the handler is the one that
+    // can do it here and now - every use of a local name is on the screen, so
+    // there is nothing to search for.
+    virtual bool handleRename() { return false; }
+};
+
+// Paste into / cut from \a editor's view the way the view itself would, with
+// nothing the language does with the clipboard in between. What an EditHandler
+// calls when it is the one deciding that a paste happens at all - going back
+// through the language would come straight back here.
+TEXTEDITOR_EXPORT void pasteIn(Core::IEditor *editor);
+TEXTEDITOR_EXPORT void cutIn(Core::IEditor *editor);
+
 // Follow the symbol the caret is on, in whichever view \a editor has. The
 // language's link finder is what answers; this only decides who asks.
 TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,
                                                  bool inNextSplit = false);
+
+// Rename the symbol the caret is on, in whichever view \a editor has. Which
+// rename that is - every use of a local name at once in the view, or a search
+// across the project - is the language's to decide.
+TEXTEDITOR_EXPORT void renameSymbolUnderCursorIn(Core::IEditor *editor);
 
 // What a key press should be sent to for \a editor: the widget, or the Quick
 // item - not the QQuickWidget wrapping that item, which forwards nothing.

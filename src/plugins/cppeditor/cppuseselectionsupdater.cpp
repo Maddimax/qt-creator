@@ -176,12 +176,7 @@ void CppUseSelectionsUpdater::processResults(const CursorInfo &result)
                 localVariableSelections = selections;
         }
         updateUnusedSelections(result.unusedVariablesRanges);
-        // The local renaming this feeds is the widget's, and so is its type.
-        QList<QTextEdit::ExtraSelection> forRenaming;
-        forRenaming.reserve(localVariableSelections.size());
-        for (const TextEditor::TextDocument::ExtraSelection &selection : localVariableSelections)
-            forRenaming.append({selection.cursor, selection.format});
-        emit selectionsForVariableUnderCursorUpdated(forRenaming);
+        emit selectionsForVariableUnderCursorUpdated(localVariableSelections);
     }
     emit finished(result.localUses, true);
 }

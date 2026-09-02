@@ -638,11 +638,6 @@ void ClangdTestLocalReferences::test()
 
     TextEditor::TextDocument * const doc = document("references.cpp");
     QVERIFY(doc);
-    const QList<BaseTextEditor *> editors = BaseTextEditor::textEditorsForDocument(doc);
-    QCOMPARE(editors.size(), 1);
-    const auto editorWidget = qobject_cast<CppEditor::CppEditorWidget *>(
-        editors.first()->editorWidget());
-    QVERIFY(editorWidget);
 
     QTimer timer;
     timer.setSingleShot(true);
@@ -658,7 +653,7 @@ void ClangdTestLocalReferences::test()
     QTextCursor cursor(doc->document());
     const int pos = Text::positionInText(doc->document(), sourceLine, sourceColumn - 1);
     cursor.setPosition(pos);
-    client()->findLocalUsages(editorWidget, cursor, std::move(handler));
+    client()->findLocalUsages(doc, cursor, std::move(handler));
     timer.start(10000);
     loop.exec();
     QVERIFY(timer.isActive());

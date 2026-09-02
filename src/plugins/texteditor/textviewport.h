@@ -45,6 +45,7 @@ namespace Core { class IEditor; }
 namespace TextEditor {
 
 class AutoCompleter;
+class EditHandler;
 class HoverHandlerRunner;
 class IAssistProcessor;
 class AssistProposalItemInterface;
@@ -512,6 +513,21 @@ public:
     // knows the language.
     Q_INVOKABLE void followTypeUnderCursor(bool inNextSplit = false);
     SymbolRequests *symbolRequests() const;
+
+    // The editor this view is the inside of, where there is one: what
+    // editorForWidget() answers for the widget editor. A view built on its own
+    // - by a test, or by a form that is not an editor - has none, and anything
+    // a language parents to an editor is then out of reach.
+    Core::IEditor *editor() const;
+    void setEditor(Core::IEditor *editor);
+
+    // Do the edit the way this view would with no language in the way. What a
+    // TextEditor::EditHandler calls when what it does wraps the ordinary edit
+    // rather than replacing it - and what the paste and cut above come down to
+    // once the handler has had its say.
+    void processKeyNormally(QKeyEvent *event);
+    void pasteNormally();
+    void cutNormally();
     // Moving what is shown without moving the caret, which is what the View
     // commands are for.
     Q_INVOKABLE void scrollByRows(int rows);
@@ -1074,6 +1090,8 @@ private:
     // Unset until the view is told: the setting answers until then.
     std::optional<bool> m_visualizeWhitespace;
 
+    EditHandler *editHandler() const;
+
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one
     // across a reopen.
@@ -1094,6 +1112,7 @@ private:
     // was taken for.
     QTextCursor m_selectBlockAnchor;
     SymbolRequests *m_symbolRequests = nullptr;
+    QPointer<Core::IEditor> m_editor;
     // The line a suggestion is being shown on, so that it can be taken away
     // again when the caret leaves it.
     QTextBlock m_suggestionBlock;

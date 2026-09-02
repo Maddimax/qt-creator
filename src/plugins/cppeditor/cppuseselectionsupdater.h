@@ -42,7 +42,8 @@ public:
 
 signals:
     void finished(SemanticInfo::LocalUseMap localUses, bool success);
-    void selectionsForVariableUnderCursorUpdated(const QList<QTextEdit::ExtraSelection> &);
+    void selectionsForVariableUnderCursorUpdated(
+        const QList<TextEditor::TextDocument::ExtraSelection> &);
 
 private:
     CppUseSelectionsUpdater();

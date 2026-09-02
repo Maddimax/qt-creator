@@ -1826,14 +1826,30 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // What the language does with the key, before this does anything with it:
     // Enter inside a doxygen comment writes the block rather than a newline.
     // Asked only with one caret, because that is what these edit around.
-
-    // What the language does with the key, before this does anything with it:
-    // Enter inside a doxygen comment writes the block rather than a newline.
-    // Asked only with one caret, because that is what these edit around.
     TextDocument * const language = m_document ? m_document->textDocument() : nullptr;
     if (language && !multiTextCursor().hasMultipleCursors()
         && language->handleKeyPress(event, cursor)) {
         return event->accept();
+    }
+
+    // And what it does with the key in *this* view, where it is in the middle
+    // of something that spans several places at once - an in-place rename.
+    // After the document above, which answers for the file rather than for a
+    // caret, and before anything this view would do on its own.
+    if (EditHandler * const handler = editHandler()) {
+        if (handler->handleKeyPress(event, [this, event] { processKeyNormally(event); }))
+            return;
+    }
+
+    processKeyNormally(event);
+}
+
+void TextViewport::processKeyNormally(QKeyEvent *event)
+{
+    QTextCursor cursor = textCursor();
+    if (cursor.isNull()) {
+        QQuickItem::keyPressEvent(event);
+        return;
     }
 
     const QTextCursor::MoveMode mode = event->modifiers().testFlag(Qt::ShiftModifier)
@@ -2558,8 +2574,15 @@ void TextViewport::rewrapParagraph()
     setTextCursor(cursor);
 }
 
+EditHandler *TextViewport::editHandler() const
+{
+    return m_editor ? m_editor->findChild<EditHandler *>() : nullptr;
+}
+
 void TextViewport::selectAll()
 {
+    if (EditHandler * const handler = editHandler(); handler && handler->handleSelectAll())
+        return;
     // Reading a file means being able to select all of it, so no edit check.
     QTextCursor cursor = textCursor();
     if (cursor.isNull())
@@ -2577,6 +2600,13 @@ void TextViewport::copy()
 
 void TextViewport::cut()
 {
+    if (EditHandler * const handler = editHandler(); handler && handler->handleCut())
+        return;
+    cutNormally();
+}
+
+void TextViewport::cutNormally()
+{
     if (!canEdit())
         return;
     QTextCursor cursor = textCursor();
@@ -2588,6 +2618,13 @@ void TextViewport::cut()
 }
 
 void TextViewport::paste()
+{
+    if (EditHandler * const handler = editHandler(); handler && handler->handlePaste())
+        return;
+    pasteNormally();
+}
+
+void TextViewport::pasteNormally()
 {
     if (!canEdit())
         return;
@@ -2762,6 +2799,16 @@ bool TextViewport::selectBlockDown()
     return true;
 }
 
+Core::IEditor *TextViewport::editor() const
+{
+    return m_editor;
+}
+
+void TextViewport::setEditor(Core::IEditor *editor)
+{
+    m_editor = editor;
+}
+
 SymbolRequests *TextViewport::symbolRequests() const
 {
     if (!m_symbolRequests)
@@ -2780,8 +2827,14 @@ void TextViewport::findUsages()
 void TextViewport::renameSymbolUnderCursor()
 {
     const QTextCursor cursor = textCursor();
-    if (!cursor.isNull())
-        symbolRequests()->askForRename(cursor);
+    if (cursor.isNull())
+        return;
+    // A name used in one function only is renamed here, without asking anyone:
+    // every use of it is in this view. Anything else is a search, which is
+    // what the relay is for.
+    if (EditHandler * const handler = editHandler(); handler && handler->handleRename())
+        return;
+    symbolRequests()->askForRename(cursor);
 }
 
 void TextViewport::followTypeUnderCursor(bool inNextSplit)

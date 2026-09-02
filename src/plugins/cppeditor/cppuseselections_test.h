@@ -17,6 +17,8 @@ private slots:
 
     void testSelectionFiltering_data();
     void testSelectionFiltering();
+
+    void testRenamingALocalNameHappensInPlace();
 };
 
 } // namespace CppEditor::Internal::Tests
