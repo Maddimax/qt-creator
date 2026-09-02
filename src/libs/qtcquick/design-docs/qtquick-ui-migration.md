@@ -28151,3 +28151,68 @@ habits that caught them: ask the running program rather than its settings, and
   highlight, the caret shape per mode.
 - Older than this migration: the whitespace-on-save revision race, the
   CppEditor whole-suite heap-use-after-free, the Profiler abort.
+
+## 2026-09-02 — The whole-suite use-after-free, found by asking rather than guessing
+
+Three entries ago this was diagnosed, a fix was written, and the fix was
+**reverted because its test would not reproduce the bug**. That was the right
+call then and the wrong conclusion: the mechanism was correct all along and the
+test was constructed wrongly. This entry closes it, and the method is the point.
+
+**Instrumentation instead of a hypothesis.** A temporary invariant - every value
+in `m_entryByFixedPath` must still be in `m_entries` - checked after
+`removeDocument()` and on every lookup. One run of `-test CppEditor` and it
+named the offender exactly:
+
+    PROBE stale path index at removeDocument
+      key "/private/var/folders/.../qtcreator-tests-FERbiS/file.h"
+
+**The mechanism.** The map is keyed by `filePathKey(path, ResolveLinks)`.
+Removal recomputed that key from the entry - and resolving a path whose file has
+since been *deleted* cannot resolve anything, so it answers the path unchanged.
+On macOS every temporary file lives under `/var`, which resolves to
+`/private/var`, so the recomputed key never matches the one it was filed under
+and the entry stays in the map while it is freed. `BaseQuickFixTestCase` deletes
+its files and *then* closes their editors, which is exactly the order needed.
+
+Removal is by identity now - walk the map and erase what points at the entry -
+which cannot miss whatever the path does.
+
+**Why the earlier test failed to reproduce it**, since that is the reusable
+part: it looked the entry up by a path it computed *after* the deletion, which
+resolves differently and therefore missed the stale key, so it passed for the
+wrong reason. The key has to be taken **while the file still exists**, and
+nothing may spin the event loop between deleting and closing - a reload check in
+between notices the file is gone and re-files the entry, hiding it. Both
+mistakes made the bug invisible while leaving the test green.
+
+**The payoff.** `-test CppEditor` used to abort partway with exit 134 and a
+heap-use-after-free. Three consecutive runs now:
+
+    83 classes / 1603 passed / 10 failed   exit 10   no ASan report
+    83 classes / 1606 passed /  7 failed   exit  7   no ASan report
+    83 classes / 1597 passed / 16 failed   exit 16   no ASan report
+
+Every class runs. The failure count still moves between runs - that is the
+order-dependence this document already describes, and per-class remains the
+instrument - but the suite no longer dies, so a whole-suite run is at last worth
+looking at.
+
+Negative control, it bit: putting the recompute-the-key removal back fails the
+new test with "the model still has an entry for the closed file, and it is freed
+memory".
+
+`TextEditor` 419 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. `Core,DocumentManagerTest`
+10 passed. No new file, no `.qbs` edit.
+
+**Still left**:
+
+- Needs a working project: the four kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
+  the caret shape per mode.
+- Older than this migration and still open: the whitespace-on-save revision
+  race, and the Profiler abort. Worth trying the same instrument-don't-guess
+  approach on both - it has now worked twice.

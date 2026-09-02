@@ -35,6 +35,7 @@ public:
 
     DocumentModel::Entry *addEntry(DocumentModel::Entry *entry);
     DocumentModel::Entry *removeDocument(int idx);
+    void forgetFixedPathsFor(DocumentModel::Entry *entry);
 
     std::optional<int> indexOfFilePath(const Utils::FilePath &filePath) const;
     std::optional<int> indexOfDocument(IDocument *document) const;

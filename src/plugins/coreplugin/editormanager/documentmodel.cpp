@@ -260,6 +260,25 @@ std::optional<int> DocumentModelPrivate::indexOfFilePath(const Utils::FilePath &
 /*!
     Returns the entry to be deleted. The caller has to take responsibility of that.
 */
+// Every key \a entry is filed under, whatever path it reports now.
+//
+// Removing by the path recomputed from the entry is not enough. The key was
+// made with filePathKey(..., ResolveLinks), and resolving a path whose file
+// has since been deleted cannot resolve anything and answers the path
+// unchanged - so on a system where the two differ, which on macOS is every
+// path under /var, the recomputed key misses and the map is left pointing at
+// an entry that is about to be freed. A test that deletes its files and then
+// closes their editors does exactly that.
+void DocumentModelPrivate::forgetFixedPathsFor(DocumentModel::Entry *entry)
+{
+    for (auto it = m_entryByFixedPath.begin(); it != m_entryByFixedPath.end(); ) {
+        if (it.value() == entry)
+            it = m_entryByFixedPath.erase(it);
+        else
+            ++it;
+    }
+}
+
 DocumentModel::Entry *DocumentModelPrivate::removeDocument(int idx)
 {
     if (idx < 0)
@@ -270,10 +289,7 @@ DocumentModel::Entry *DocumentModelPrivate::removeDocument(int idx)
     DocumentModel::Entry *entry = m_entries.takeAt(idx);
     endRemoveRows();
 
-    const FilePath fixedPath = DocumentManager::filePathKey(entry->filePath(),
-                                                            DocumentManager::ResolveLinks);
-    if (!fixedPath.isEmpty())
-        m_entryByFixedPath.remove(fixedPath);
+    forgetFixedPathsFor(entry);
     disconnect(entry->document, &IDocument::changed, this, nullptr);
     disambiguateDisplayNames(entry);
     return entry;
@@ -517,15 +533,14 @@ void DocumentModelPrivate::removeAllSuspendedEntries(PinnedFileRemovalPolicy pin
         if (pinnedFileRemovalPolicy == DoNotRemovePinnedFiles && entry->pinned)
             continue;
 
-        const FilePath fixedPath = DocumentManager::filePathKey(entry->filePath(),
-                                                                DocumentManager::ResolveLinks);
         int row = i + 1/*<no document>*/;
         d->beginRemoveRows(QModelIndex(), row, row);
-        delete d->m_entries.takeAt(i);
+        DocumentModel::Entry * const removed = d->m_entries.takeAt(i);
+        // Out of the lookup before it is freed, and by identity: see
+        // forgetFixedPathsFor().
+        d->forgetFixedPathsFor(removed);
+        delete removed;
         d->endRemoveRows();
-
-        if (!fixedPath.isEmpty())
-            d->m_entryByFixedPath.remove(fixedPath);
     }
     QSet<QString> displayNames;
     for (DocumentModel::Entry *entry : std::as_const(d->m_entries)) {

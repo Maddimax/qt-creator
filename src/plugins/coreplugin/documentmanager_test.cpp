@@ -15,6 +15,7 @@
 #include <utils/temporarydirectory.h>
 
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QScopeGuard>
 #include <QTest>
@@ -67,6 +68,7 @@ private slots:
     void testAlwaysAskFlagsEveryChangedFile();
     void testSaveAsRestoresRemovedFile();
     void testBinaryFileClosesOnExternalRemoval();
+    void testClosingAnEditorForgetsADeletedFilesPath();
 
 private:
     // Behave as if the file-system watcher reported the paths and run the reload
@@ -133,6 +135,54 @@ void DocumentManagerTest::testReloadUnmodifiedOnExternalChange()
 
     QCOMPARE(document->contents(), QByteArray("line1\naddedLine\n"));
     QVERIFY(!document->isModified());
+}
+
+// The document model files an entry under the file's *resolved* path, and used
+// to forget it by resolving that path again when the editor closed. Resolving a
+// path whose file has been deleted cannot resolve anything and answers the path
+// unchanged, so wherever the two differ the key missed and the model was left
+// holding a pointer to an entry it went on to free.
+//
+// Deleting a file while its editor is open is ordinary - a branch switch, a
+// regenerated file, a test tidying up - and on macOS every path under /var
+// resolves to a different one, which is where this was found.
+void DocumentManagerTest::testClosingAnEditorForgetsADeletedFilesPath()
+{
+    setReloadSetting(IDocument::AlwaysAsk);
+
+    TemporaryDirectory tempDir("qtc-documentmodel-XXXXXX");
+    QVERIFY(tempDir.isValid());
+    const QScopeGuard closeEditors([] { EditorManager::closeAllEditors(false); });
+
+    // A directory reached through a link, so that the path the editor is opened
+    // with and the path it is filed under are not the same string.
+    const FilePath realDir = tempDir.filePath("real");
+    QVERIFY(QDir().mkpath(realDir.path()));
+    const FilePath linkedDir = tempDir.filePath("link");
+    QVERIFY(QFile::link(realDir.path(), linkedDir.path()));
+
+    const FilePath throughLink = linkedDir.pathAppended("gone.txt");
+    QVERIFY(throughLink.writeFileContents("line1\n"));
+
+    IEditor * const editor = EditorManager::openEditor(throughLink);
+    QVERIFY(editor);
+
+    // The key it was filed under, taken while the file still exists - which is
+    // the only time it can be worked out.
+    const FilePath key = DocumentManager::filePathKey(throughLink,
+                                                      DocumentManager::ResolveLinks);
+    QVERIFY2(DocumentModel::entryForFilePath(key),
+             "the open file was not filed under its resolved path, so this tests nothing");
+
+    // Deleted and closed with nothing in between: a reload check here would
+    // notice the file is gone and re-file the entry, which is what hides this.
+    QVERIFY(throughLink.removeFile());
+    QVERIFY(EditorManager::closeEditors({editor}, false));
+
+    // A pointer comparison and nothing read through it: with the entry still
+    // filed, whatever this answers has been freed.
+    QVERIFY2(!DocumentModel::entryForFilePath(key),
+             "the model still has an entry for the closed file, and it is freed memory");
 }
 
 void DocumentManagerTest::testAutoCloseOnExternalRemoval()
