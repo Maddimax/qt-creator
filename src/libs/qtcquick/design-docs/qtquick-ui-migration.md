@@ -26546,3 +26546,47 @@ the editor never finding the outline parented to it.
    chooser is the third shape, and it is the only one left.
 2. `CppLocalRenaming`, whose fallback the Quick editor already has.
 3. The switch.
+
+## 2026-09-02 — The parse-context chooser, and a seam owned by the document
+
+The toolbar's third and last shape. Actions are things to do, an outline is
+where the caret is, and a chooser is one of several ways to read the file - for
+C++, which of the project parts including it the parser should follow.
+
+**`TextEditor::ToolBarChoice`** is the seam: a `model`, a `currentIndex`, a
+`toolTip`, an `available` flag, and `choose(index)` / `clearChoice()`. Unlike
+`ToolBarOutline` it hangs off the **document**, not the editor. Which project
+part a file belongs to is a fact about the file, so two views of one file agree
+about it; only the row the caret is in differs between them. `TextDocument`
+answers `nullptr`, `CppEditorDocument` wraps its existing `ParseContextModel`.
+
+**`available` is the whole visibility rule.** The widget combo hides itself
+unless several parse contexts exist, and almost no file has more than one - so
+the drawn control is invisible nearly always, and a test that only asserts it
+exists asserts nothing. Both halves check the hidden case first and then make
+it available.
+
+**A ComboBox writes its own `currentIndex`.** Bound to `choice.currentIndex`,
+the binding dies the first time the model is refilled, which for a parse
+context is every reparse. Set it instead - `onModelChanged`, plus a
+`Connections` on `changed()`. Same trap as `editText`, already in these notes;
+this is the second control it has bitten.
+
+The usual two halves: CppEditor asserts the document offers a choice, that it
+is the same object each time, and that a file in no project says nothing is
+available; TextEditor asserts the form draws it, keeps it hidden with nothing
+to choose between, shows it when there is, and passes an activation through.
+
+Negative controls, all three bit: the combo always visible (the hidden
+assertion failed), `onActivated` dropped (the language was never told), and
+`CppEditorDocument::toolBarChoice()` returning `nullptr`.
+
+`TextEditor` 410 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. `LanguageToolBarTest`
+3 passed. No new file, no `.qbs` edit.
+
+**Next.** The toolbar seam is complete: actions, outline, chooser. What is
+left before the switch is `CppLocalRenaming` - the in-place rename, whose
+global fallback the Quick editor already has - and then the switch itself:
+`setUsesQuickEditor(true)` in `CppEditorFactory` with no env var, and
+`QTC_WIDGET_CPP_EDITOR` as the way back.

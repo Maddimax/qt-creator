@@ -906,6 +906,35 @@ signals:
     void currentIndexChanged();
 };
 
+// A choice the language offers in the toolbar: which of several ways this file
+// is being parsed, say. Kept by the *document*, unlike the outline above -
+// which of several project parts a file belongs to is a fact about the file,
+// and only the row the caret is in follows a view.
+class TEXTEDITOR_EXPORT ToolBarChoice : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QAbstractItemModel *model READ model CONSTANT)
+    Q_PROPERTY(int currentIndex READ currentIndex NOTIFY changed)
+    Q_PROPERTY(QString toolTip READ toolTip NOTIFY changed)
+    // False where there is nothing to choose between, which is the usual case
+    // and is why the widget editor hides its combo.
+    Q_PROPERTY(bool available READ isAvailable NOTIFY changed)
+
+public:
+    using QObject::QObject;
+
+    virtual QAbstractItemModel *model() const = 0;
+    virtual int currentIndex() const = 0;
+    virtual QString toolTip() const = 0;
+    virtual bool isAvailable() const = 0;
+    Q_INVOKABLE virtual void choose(int index) = 0;
+    // Forget the choice and go back to what the code model would pick.
+    Q_INVOKABLE virtual void clearChoice() = 0;
+
+signals:
+    void changed();
+};
+
 // Follow the symbol the caret is on, in whichever view \a editor has. The
 // language's link finder is what answers; this only decides who asks.
 TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,

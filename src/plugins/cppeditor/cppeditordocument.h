@@ -68,6 +68,7 @@ public:
     void showPreProcessorDialog();
 
     QList<QAction *> toolBarActions() const override;
+    TextEditor::ToolBarChoice *toolBarChoice() const override;
 
     // the blocks list must be sorted
     void setIfdefedOutBlocks(const QList<TextEditor::BlockRange> &blocks);

@@ -567,6 +567,11 @@ QList<QAction *> TextDocument::toolBarActions() const
     return {};
 }
 
+ToolBarChoice *TextDocument::toolBarChoice() const
+{
+    return nullptr;
+}
+
 bool TextDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)
 {
     Q_UNUSED(event)

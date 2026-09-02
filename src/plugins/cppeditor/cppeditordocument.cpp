@@ -139,6 +139,7 @@ public:
     SemanticInfo m_semanticInfo;
     // The toolbar's, made on demand and owned by the document.
     QAction *m_preprocessorAction = nullptr;
+    TextEditor::ToolBarChoice *m_parseContextChoice = nullptr;
 
     // Caching contents
     mutable QMutex m_cachedContentsLock;
@@ -315,6 +316,43 @@ void CppEditorDocument::showPreProcessorDialog()
         return;
     setExtraPreprocessorDirectives(dialog.extraPreprocessorDirectives().toUtf8());
     scheduleProcessDocument();
+}
+
+namespace {
+// Which of several project parts this file is being parsed as. The model is
+// the document's already; this is the shape a view can draw it in.
+class ParseContextChoice final : public TextEditor::ToolBarChoice
+{
+public:
+    ParseContextChoice(Internal::ParseContextModel &model, CppEditorDocument *document)
+        : ToolBarChoice(document)
+        , m_model(model)
+    {
+        connect(&m_model, &Internal::ParseContextModel::updated,
+                this, &ToolBarChoice::changed);
+    }
+
+    QAbstractItemModel *model() const override { return &m_model; }
+    int currentIndex() const override { return m_model.currentIndex(); }
+    QString toolTip() const override { return m_model.currentToolTip(); }
+    bool isAvailable() const override { return m_model.areMultipleAvailable(); }
+    void choose(int index) override { m_model.setPreferred(index); }
+    void clearChoice() override { m_model.clearPreferred(); }
+
+private:
+    Internal::ParseContextModel &m_model;
+};
+} // namespace
+
+TextEditor::ToolBarChoice *CppEditorDocument::toolBarChoice() const
+{
+    // Made once and kept, for the same reason the toolbar action is: a view
+    // is rebuilt and would otherwise lose what is connected to it.
+    if (!d->m_parseContextChoice) {
+        auto * const self = const_cast<CppEditorDocument *>(this);
+        d->m_parseContextChoice = new ParseContextChoice(self->parseContextModel(), self);
+    }
+    return d->m_parseContextChoice;
 }
 
 QList<QAction *> CppEditorDocument::toolBarActions() const

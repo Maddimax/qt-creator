@@ -27,8 +27,37 @@ Row {
     // Typed as var: ToolBarOutline is a plain QObject rather than a QML type,
     // and QML reaches its properties through the meta-object either way.
     required property var outline
+    // Which of several ways the file is being parsed, where there is more than
+    // one. Null where the language offers no such choice, which is all of them
+    // but C++.
+    required property var choice
 
     spacing: Spacing.GapHM
+
+    // Which of several project parts the file belongs to. Hidden unless there
+    // is more than one, which is what the widget editor does with it too.
+    ComboBox {
+        id: choiceCombo
+
+        objectName: "parseContextCombo"
+        anchors.verticalCenter: parent.verticalCenter
+        visible: root.choice !== null && root.choice.available
+        model: root.choice ? root.choice.model : null
+        // Set rather than bound: a ComboBox writes its own currentIndex when
+        // the model changes, so a binding would be broken by the first refill.
+        // See the same trap with editText in the migration notes.
+        onModelChanged: choiceCombo.currentIndex = root.choice ? root.choice.currentIndex : -1
+        ToolTip.text: root.choice ? root.choice.toolTip : ""
+        ToolTip.visible: hovered && ToolTip.text !== ""
+        onActivated: (index) => root.choice.choose(index)
+
+        Connections {
+            target: root.choice
+            function onChanged(): void {
+                choiceCombo.currentIndex = root.choice.currentIndex
+            }
+        }
+    }
 
     // Which function the caret is in, and a way to go to another. A button
     // rather than a ComboBox, because what it opens is a tree and a combo's

@@ -693,7 +693,8 @@ public:
         bar->quickWidget()->setInitialProperties(
             {{"viewport", QVariant::fromValue(view)},
              {"languageActions", QVariant::fromValue(&m_toolBarActions)},
-             {"outline", QVariant::fromValue(outline)}});
+             {"outline", QVariant::fromValue(outline)},
+             {"choice", QVariant::fromValue(m_document->toolBarChoice())}});
         bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
         m_toolBar = bar;
         return m_toolBar;
@@ -3929,6 +3930,92 @@ private slots:
         // It says where the caret is, so it has to follow it.
         outline->showRow(1);
         QTRY_COMPARE(drawn->property("text").toString(), QString("beta()"));
+    }
+
+    // A choice the language offers in the toolbar - which of several ways the
+    // file is parsed. Hidden where there is nothing to choose between, which
+    // is what the widget editor does with it too.
+    void testTheFormDrawsTheLanguagesChoice()
+    {
+        class TestChoice final : public ToolBarChoice
+        {
+        public:
+            explicit TestChoice(QObject *parent)
+                : ToolBarChoice(parent)
+            {
+                m_model.appendRow(new QStandardItem("Debug"));
+                m_model.appendRow(new QStandardItem("Release"));
+            }
+            QAbstractItemModel *model() const override
+            {
+                return const_cast<QStandardItemModel *>(&m_model);
+            }
+            int currentIndex() const override { return m_current; }
+            QString toolTip() const override { return "How this file is parsed"; }
+            bool isAvailable() const override { return m_available; }
+            void choose(int index) override
+            {
+                m_chosen = index;
+                m_current = index;
+                emit changed();
+            }
+            void clearChoice() override { m_current = 0; emit changed(); }
+            void offer(bool available) { m_available = available; emit changed(); }
+
+            QStandardItemModel m_model;
+            int m_current = 0;
+            int m_chosen = -1;
+            bool m_available = false;
+        };
+
+        class ChoiceDocument final : public TextDocument
+        {
+        public:
+            ChoiceDocument()
+                : TextDocument("QuickEditorChoiceTest")
+                , m_choice(new TestChoice(this))
+            {}
+            ToolBarChoice *toolBarChoice() const override { return m_choice; }
+            TestChoice * const m_choice;
+        };
+
+        class ChoiceFactory final : public TextEditorFactory
+        {
+        public:
+            ChoiceFactory()
+            {
+                setId("QuickEditorChoiceTest");
+                setDisplayName("Quick Editor Choice Test");
+                setDocumentCreator([] { return new ChoiceDocument; });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        ChoiceFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = static_cast<ChoiceDocument *>(editor->document());
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "parseContextCombo")),
+                     "the toolbar drew nothing for the language's choice");
+        // Nothing to choose between yet, so nothing to show.
+        QVERIFY2(!drawn->isVisible(), "the combo was shown with nothing to choose between");
+
+        document->m_choice->offer(true);
+        QTRY_VERIFY2(drawn->isVisible(), "the combo stayed hidden with a choice to make");
+        QCOMPARE(drawn->property("currentIndex").toInt(), 0);
+
+        // And picking one is what the language is told.
+        QMetaObject::invokeMethod(drawn, "activated", Q_ARG(int, 1));
+        QTRY_COMPARE(document->m_choice->m_chosen, 1);
+        QTRY_COMPARE(drawn->property("currentIndex").toInt(), 1);
     }
 
     // The provider is on the document, and asking it is what turns that into

@@ -44,6 +44,7 @@ class SyntaxHighlighter;
 class TabSettingsData;
 class TextDocumentPrivate;
 class TextMark;
+class ToolBarChoice;
 class TextSuggestion;
 class TypingSettingsData;
 
@@ -231,6 +232,9 @@ public:
     // file, say. Actions rather than widgets, so that whichever view is
     // drawing decides how, the same way the context menu is described.
     virtual QList<QAction *> toolBarActions() const;
+    // The choice the language offers in the toolbar, or nullptr where it
+    // offers none. Owned by the document.
+    virtual ToolBarChoice *toolBarChoice() const;
 
     void setCodeStyle(ICodeStylePreferences *preferences);
     ICodeStylePreferences *codeStyle() const;
