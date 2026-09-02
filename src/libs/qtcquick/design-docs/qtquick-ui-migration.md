@@ -28051,13 +28051,11 @@ that batch could not check and what this migration is actually answerable for:
 Not one row differs. The ports are vindicated; the failures are not the Qt
 Quick editor's.
 
-**But they cannot be made to pass here, and the reason is sharper than "no
-kit".** A run that exits cleanly writes `qtversion.xml` with two Qt versions
-and **no `toolchains.xml` at all** - so the kit has a Qt and no compiler. The
-tests get as far as opening a project and then hang until the 300-second
-watchdog kills them, which QtTest reports as "Received a fatal error". So the
-correct statement is: **they need a kit with a toolchain**; a Qt alone gets far
-enough to start and then hang.
+**They still cannot be made to pass here.** They get as far as opening a
+project and then hang until the 300-second watchdog kills them, which QtTest
+reports as "Received a fatal error". The reason is diagnosed in the entry
+below - the first explanation given here, that the kit had no compiler, was
+wrong.
 
 **One thing tried and reverted.** `SynchronizeMemberFunctionOrderTest` calls
 `operations.first()->perform()` with no check that anything was offered - the
@@ -28096,3 +28094,60 @@ A batch that cannot do any of those should say so rather than invent one. The
 next useful thing is not more code from here - it is somebody running
 `-test CppEditor` and `-test FakeVim` on a configured machine, and opening a
 C++ file to look at it.
+
+## 2026-09-02 — Correcting the previous entry, and where the hang really is
+
+The entry above concluded that the kit-requiring tests hang because the
+synthesized kit "has a Qt and no compiler", on the evidence that no
+`toolchains.xml` was written. **That was wrong**, and the wrong version has been
+edited out of it rather than left to mislead.
+
+`toolchains.xml` holds *manually registered* toolchains; auto-detected ones are
+found afresh at each start and never written there. The kit itself says so -
+`profiles.xml` carries
+
+    <valuemap key="PE.Profile.ToolChainsV3">
+      <value key="C">{575c2159-...}</value>
+      <value key="Cxx">{7979708a-...}</value>
+
+so the kit has a Qt **and** both toolchains. Checking a file for the absence of
+something is not the same as asking the object whether it has it.
+
+**Where the hang actually is**, from `sample` on the stuck process rather than
+from reasoning:
+
+    SynchronizeMemberFunctionOrderTest::test()
+      ProjectOpenerAndCloser::open(FilePath, Kit *)
+        TestCase::waitUntilProjectIsFullyOpened(Project *, int)
+          QTest::qWaitFor(...)
+
+The qmake project never finishes opening. Note that this wait is *bounded* - 30
+seconds by default - so a hang of 300 seconds is not a missing timeout: either
+the open path waits several times over, or something inside event processing
+does not come back. `BringIdentifierIntoScopeTest` fits that: its 43
+project-less cases pass and only the project-opening one fails.
+
+So the honest state of it is: **a kit is available here; opening a qmake
+project under it is not.** Whether that is this machine, this Qt, or a real
+defect needs somebody who can open one of
+`tests/.../reorder-member-impls/*.pro` by hand and watch it parse.
+
+`TextEditor` 419 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. No code change: the
+deliverable is the correction.
+
+**A note on method, since this is the second entry in a row about it.** Both
+wrong turns had the same shape - a conclusion drawn from what a file did *not*
+contain, and a fix aimed at a line that merely looked guilty. The two cheap
+habits that caught them: ask the running program rather than its settings, and
+`sample` the process rather than reason about where it might be stuck.
+
+**Still left**, unchanged apart from the correction above:
+
+- Nothing on the Qt Quick editor side that can be finished on this machine.
+- Needs a working project: the four classes on their merits, the clangd
+  override proposal, `adjustedCursor()`, and `FollowSymbolTest`'s clangd rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.
+- Older than this migration: the whitespace-on-save revision race, the
+  CppEditor whole-suite heap-use-after-free, the Profiler abort.
