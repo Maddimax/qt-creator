@@ -12,6 +12,7 @@
 #include <profiler/qmlprofilertool.h>
 #include <profiler/qmlprofilertracebackend.h>
 
+#include <utils/hostosinfo.h>
 #include <utils/url.h>
 #include <utils/temporaryfile.h>
 
@@ -82,7 +83,12 @@ void LocalQmlProfilerRunnerTest::testRunner()
     QTRY_COMPARE_WITH_TIMEOUT(startCount, 1, 30000);
     QTRY_VERIFY_WITH_TIMEOUT(!started, 30000);
     QCOMPARE(stopCount, 1);
-    QCOMPARE(runCount, 0);
+    // A local run on macOS is wrapped in the disclaim helper, which starts and
+    // only then exec()s the target - so a command line that cannot be launched
+    // still produces a started process there, and only the exit code says
+    // otherwise.
+    const int startsWithoutAnExecutable = HostOsInfo::isMacHost() ? 1 : 0;
+    QCOMPARE(runCount, startsWithoutAnExecutable);
     QVERIFY(runControl->isStopped());
 
     // comma is used to specify a test function. In this case, an invalid one.
@@ -98,7 +104,7 @@ void LocalQmlProfilerRunnerTest::testRunner()
     QTRY_COMPARE_WITH_TIMEOUT(stopCount, 2, 30000);
     QVERIFY(!running);
     QCOMPARE(startCount, 2);
-    QCOMPARE(runCount, 1);
+    QCOMPARE(runCount, 1 + startsWithoutAnExecutable);
     QVERIFY(runControl->isStopped());
 
     runControl.reset(new RunControl(ProjectExplorer::Constants::QML_PROFILER_RUN_MODE));
@@ -114,7 +120,7 @@ void LocalQmlProfilerRunnerTest::testRunner()
     QVERIFY(!running);
     QCOMPARE(startCount, 3);
     QCOMPARE(stopCount, 3);
-    QCOMPARE(runCount, 2);
+    QCOMPARE(runCount, 2 + startsWithoutAnExecutable);
     QVERIFY(runControl->isStopped());
 
     runControl.reset(new RunControl(ProjectExplorer::Constants::QML_PROFILER_RUN_MODE));
@@ -127,7 +133,7 @@ void LocalQmlProfilerRunnerTest::testRunner()
     QTRY_COMPARE_WITH_TIMEOUT(stopCount, 4, 30000);
     QVERIFY(!running);
     QCOMPARE(startCount, 4);
-    QCOMPARE(runCount, 3);
+    QCOMPARE(runCount, 3 + startsWithoutAnExecutable);
     QVERIFY(runControl->isStopped());
 }
 

@@ -28470,3 +28470,126 @@ Neither is an abort, so neither blocks the suite any more.
   the caret shape per mode.
 - The two Profiler failures above, which are ordinary test bugs now that the
   suite runs to the end.
+
+
+## 2026-09-02 — The last two Profiler failures, and a lesson about flaky rates
+
+The plan's only unblocked item. Three bugs in the end, and the third one taught
+me more than the other two.
+
+### The colour test restated arithmetic that had moved
+
+`DebugMessagesModelTest::testColor` asserted
+`QColor::fromHsl(hue, 150, 166).rgb()`. The implementation is
+`TimelineModel::colorByHue()`, whose table `098d54b43a3` made theme-aware:
+saturation is **130**, and lightness is **115 or 175** depending on
+`Utils::creatorTheme()->colorScheme()`. The test was a copy of the old
+arithmetic and nothing kept the copy honest.
+
+The value is a theme's business, so the test should not name it. What the
+*model* is responsible for is that the colour follows the message type: it
+repeats every `QtInfoMsg + 1` events, and the types within one cycle differ.
+That is what it checks now, and it survives a re-theme.
+
+Both halves bite: making `color()` constant fails the distinctness check
+(1 != 5), and colouring by `index` instead of the type keeps 5 distinct
+colours but breaks the repetition (`4281904706 != 4289607736`).
+
+### `started` fires for an executable that does not exist, on macOS
+
+`LocalQmlProfilerRunnerTest::testRunner` gives a `RunControl` the command line
+`\-/|\-/` and expects `runCount == 0` - nothing runnable, so nothing starts.
+It got 1.
+
+**My first hypothesis was wrong, and testing it is the only reason I know.**
+`localQmlProfilerRecipe` gates `qmlProfilerRecipe` on `Process::started` with
+`WorkflowPolicy::StopOnSuccessOrError`, where `RunControl::processRecipe` uses
+the default `StopOnError` - so the obvious story was that the policy lets the
+`Do` branch run on failure. Changing it to the default changed nothing: still
+1, 3/3. The story was wrong.
+
+What the probes said instead:
+
+    PROBE Process::started 63866
+          running ".../libexec/disclaim '\-/|\-/' -qmljsdebugger=..."
+    PROBE Process::done err 5 "" result 1
+
+`err 5` is `UnknownError` - there was no launch error, because **the process
+that launched is `disclaim`**. `runcontrol.cpp` wraps every local run on macOS
+in that helper, and `disclaim` uses `POSIX_SPAWN_SETEXEC` to replace itself
+with the target after clearing TCC attribution. So it starts (its own pid),
+`Process::started` fires honestly, and only then does the exec fail - visible
+in the exit code and in its "Failed to launch" line, but not at `started`.
+
+The test's premise is therefore true off macOS and false on it. It says so now,
+with one named constant carrying the platform fact, and the three later
+`runCount` expectations offset by it - so all four scenarios still assert on
+every platform rather than the case being skipped.
+
+Worth noting as a *product* observation rather than a test one: on macOS a user
+running a command that cannot be launched sees the run start and then fail,
+where every other platform reports a failure to start. Making the wrapper's
+exec failure distinguishable would touch every macOS run in Qt Creator, so it
+does not belong in a test-fixing batch - but it is real, and it is why this
+test disagreed with itself across platforms.
+
+### Leaked singleton state - and why my first measurement of it was wrong
+
+With those two fixed, the whole suite exposed a failure the old code never
+reached, because the run used to stop at the assertion above:
+
+    FAIL!  : LocalQmlProfilerRunnerTest::testRunner() Connection failed
+       Loc: [.../tests/qmlprofilertool_test.cpp(47)]
+
+The `Loc` is in **another test class's file**.
+`QmlProfilerToolTest::testAttachToWaitingApplication` does three things to
+`QmlProfilerTool::instance()->clientManager()` - a process-lifetime singleton -
+and undoes none: `setRetryInterval(10)`, `setMaximumRetries(10)`, and a
+context-free `connect(...)` whose slot is `QFAIL("Connection failed")`. The
+defaults are **5000ms** and 10, so every later connection in the process got
+~100ms to succeed instead of ~50 seconds, and when one lost that race the
+leaked `QFAIL` failed whichever test happened to be running.
+
+**The methodological part, which cost the most time.** I measured the original
+as failing 3/3 and wrote "deterministic" in my head. It is not - reverting the
+fix and running again gave **pass, pass, fail**. Three runs had simply gone the
+same way. Worse, neither leak alone reproduced anything: restoring the retries
+while leaving the connection is green, and restoring the connection while
+leaving the retries is green, because with either one repaired the race
+resolves. A control that does not bite meant "not the whole cause" here, not
+"not a cause".
+
+What made it tractable was building a *rate* instrument rather than a verdict
+one: `-test Profiler,QmlProfilerToolTest,LocalQmlProfilerRunnerTest` reproduces
+the interaction in about two seconds instead of forty.
+
+    original:  6 of 8 runs failed
+    fixed:    0 of 10 runs failed
+
+At a 75% base rate, ten green runs is worth something (1.5e-5 if it were
+unfixed); three would have been worth almost nothing (0.25^3, about 1 in 64 -
+which is roughly the confidence my first "3/3" deserved). **For a flaky
+failure, decide how many runs the base rate demands before running any.**
+
+### Result
+
+    -test Profiler -load all: 23 classes, 476 passed, 0 failed, 1 skipped,
+    exit 0 - five consecutive runs
+
+Two batches ago this aborted with exit 134 partway through. `-test TextEditor`
+419 passed, 0 failed, exit 0. QuickUi 207 passed / 1 skipped, exit 0. No new
+file, no `.qbs` edit, no QML.
+
+**Still left**, and this is now the whole list:
+
+- Needs a working project: the four kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
+  the caret shape per mode.
+
+Everything that could be closed from this machine, without a kit and without
+eyes on a window, is closed. A batch that starts here should say so rather than
+invent work: the useful next moves are either to get a project opening in this
+environment (which unblocks the first group and is the larger prize), or to
+take the macOS `disclaim` observation above to whoever owns process launching.

@@ -22,6 +22,7 @@
 #include <utils/qtcsettings.h>
 #include <utils/url.h>
 
+#include <QScopeGuard>
 #include <QTcpServer>
 #include <QTest>
 
@@ -45,15 +46,34 @@ void QmlProfilerToolTest::testAttachToWaitingApplication()
 
     // The run opens the trace it records into, and with it the client manager,
     // just before connecting; this is the point at which it can be configured.
+    //
+    // The tool and its client manager outlive this test, so what is set on
+    // them here has to be put back. A 10ms retry interval left behind turns a
+    // later test's connection into a race, and a connection left behind fails
+    // whichever test is running when it next fires.
     QmlProfilerClientManager *clientManager = nullptr;
+    int retryInterval = 0;
+    int maximumRetries = 0;
+    QMetaObject::Connection failureConnection;
+    const QScopeGuard restoreClientManager([&] {
+        if (!clientManager)
+            return;
+        disconnect(failureConnection);
+        clientManager->setRetryInterval(retryInterval);
+        clientManager->setMaximumRetries(maximumRetries);
+    });
+
     connect(&profilerTool, &QmlProfilerTool::liveBackendChanged,
-            this, [&clientManager](QmlProfilerTraceBackend *backend) {
+            this, [&](QmlProfilerTraceBackend *backend) {
         clientManager = backend->clientManager();
+        retryInterval = clientManager->retryInterval();
+        maximumRetries = clientManager->maximumRetries();
         clientManager->setRetryInterval(10);
         clientManager->setMaximumRetries(10);
-        connect(clientManager, &QmlProfilerClientManager::connectionFailed, [] {
-            QFAIL("Connection failed");
-        });
+        failureConnection
+            = connect(clientManager, &QmlProfilerClientManager::connectionFailed, this, [] {
+                  QFAIL("Connection failed");
+              });
     });
 
     QTcpServer server;

@@ -7,6 +7,7 @@
 #include <tracing/timelineformatdata.h>
 #include <tracing/timelinemodel.h>
 
+#include <QSet>
 #include <QTest>
 
 using namespace QmlDebug;
@@ -42,13 +43,17 @@ void DebugMessagesModelTest::testTypeId()
 
 void DebugMessagesModelTest::testColor()
 {
-    // TimelineModel::colorBySelectionId ...
-    const int lightness = Timeline::defaultColorLightness();
-    for (int i = 0; i < 10; ++i) {
-        QCOMPARE(model.color(i),
-                 QColor::fromHsl((i % (QtMsgType::QtInfoMsg + 1) * 25) % Timeline::kHueRange,
-                                 Timeline::kDefaultSaturation, lightness).rgb());
-    }
+    // The colour comes from the message type, so it repeats with the types and
+    // differs within one cycle. What the colour *is* belongs to TimelineModel
+    // and depends on the theme, so it is not restated here.
+    const int types = QtMsgType::QtInfoMsg + 1;
+    QSet<QRgb> cycle;
+    for (int i = 0; i < types; ++i)
+        cycle.insert(model.color(i));
+    QCOMPARE(cycle.size(), qsizetype(types));
+
+    for (int i = 0; i < 10; ++i)
+        QCOMPARE(model.color(i), model.color(i % types));
 }
 
 static const char *messageTypes[] = {
