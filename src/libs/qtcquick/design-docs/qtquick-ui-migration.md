@@ -27389,3 +27389,86 @@ filter - rather than against a document.
 4. `cppcodemodelinspectordialog.cpp:1676`,
    `designer/qtcreatorintegration.cpp:902`.
 5. The whitespace-on-save revision race and the whole-suite use-after-free.
+
+## 2026-09-02 — The cross-plugin sweep the switch should have had
+
+The measurement the previous entry asked for. Every plugin that registers
+tests, run twice - default against `QTC_WIDGET_CPP_EDITOR=1` - and compared.
+**67 plugins. 63 identical. Four differ**, and only two of those are real:
+
+| plugin | default | with the way back |
+|---|---|---|
+| FakeVim | 0 passed, SEGV | 258 passed, exit 0 |
+| Designer | 2 passed / 6 failed | 8 passed, exit 0 |
+| CppEditor | aborts | aborts |
+| Profiler | aborts | aborts |
+
+CppEditor whole-suite aborts in both views - the heap corruption this document
+has carried for several entries - so its numbers are not an instrument; the
+per-class sweep two entries ago is the one that says CppEditor agrees. Profiler
+aborts in both too, and repeating it gives 1, 385 and 9 passed on successive
+runs, which is the nondeterministic abort already known for that suite. Neither
+is a view difference.
+
+### FakeVim
+
+`FakeVimPlugin::editorOpened()` installs a handler only when the editor's widget
+aggregates a `QTextEdit`, `QPlainTextEdit` or `Utils::PlainTextEdit`. A Quick
+editor's widget is none of those, so FakeVim is inert there - and its own
+`setupTest()` opened `test.cpp`, got no handler, and dereferenced null.
+
+**The production question is untouched here**: FakeVim genuinely does not work
+in the Quick editor, and making it work means teaching `FakeVimHandler` - which
+is written against `QPlainTextEdit`'s cursor, viewport, scrollbars and event
+filter - to work through a document instead. What this batch fixes is that its
+**247 tests stopped running and nobody could see it**. `setupTest()` now asks
+the factory for the widget editor for the length of the test, because that is
+what a `FakeVimHandler` needs, and testing it anywhere else tests nothing.
+
+Note on the guard added beside it: `QTC_ASSERT(*handler, return)` stops the
+dereference at `setupWidget()`, but the tester then uses the handler itself, so
+that guard alone does not make a handler-less run safe. Forcing the widget
+editor is what does; the assert only moves the failure to a describable place.
+
+### Designer: Go To Slot was broken, not just its test
+
+This one is a real user-visible regression, and it took two layers.
+
+The test cast each of its three opened files to `BaseTextEditor`; two are C++,
+so it failed at the first `QVERIFY`. Porting that to `Core::IEditor` exposed
+the actual bug underneath: **Go To Slot landed on the header instead of the
+source and inserted no slot at all.**
+
+`editorAt()` - open a file, put the caret somewhere, hand it back - returned
+`BaseTextEditor *`. For a C++ file that is now null, and all three callers
+simply skipped the work they were about to do: inserting the declaration,
+inserting the definition, and adding the `connect()` call. It returns
+`Core::IEditor *` now and the callers take the document.
+
+The widget rename path in the same file went the same way:
+`renameUiWidget()` asked for a `BaseTextEditor` over a temporary header and
+`QTC_ASSERT`ed out, so renaming a widget in Designer stopped updating the C++
+side. It uses the document and calls `CppModelManager::globalRename()` directly,
+which is what `CppEditorWidget::renameUsages()` was doing for it.
+
+Negative controls, both bit: FakeVim's test not forcing the widget editor is
+back to a crash, and `editorAt()` asking for a `BaseTextEditor` again is back
+to 2 passed / 6 failed.
+
+`TextEditor` 413 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 258 passed and
+Designer 8 passed, both exit 0, **and now identical in both views**. No new
+file, no `.qbs` edit.
+
+**Next**:
+
+1. **FakeVim in the Quick editor** - the production question above. It is the
+   largest single thing this migration has left.
+2. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+3. `cppcodemodelinspectordialog.cpp:1676`, the last of the widget-cast survey.
+4. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.
+5. Re-run this cross-plugin sweep after any further change to what the factory
+   builds. The script is worth keeping: it found in one pass what six batches
+   of CppEditor-only sweeping had missed.

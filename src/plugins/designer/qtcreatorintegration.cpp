@@ -12,7 +12,7 @@
 #include <widgethost.h>
 #include <designer/cpp/formclasswizardpage.h>
 
-#include <cppeditor/cppeditorwidget.h>
+#include <cppeditor/cursorineditor.h>
 #include <cppeditor/cppmodelmanager.h>
 #include <cppeditor/cpptoolsreuse.h>
 #include <cppeditor/cppworkingcopy.h>
@@ -312,12 +312,20 @@ static Function *findDeclaration(const Class *cl, const QString &functionName)
     return nullptr;
 }
 
-static BaseTextEditor *editorAt(const FilePath &filePath, int line, int column)
+// The editor showing \a filePath with its caret put at \a line and \a column,
+// whichever view that is. This asked for a BaseTextEditor, so it answered
+// nothing for a C++ file once those opened in the Qt Quick view - and every
+// caller simply skipped the work it was about to do.
+static Core::IEditor *editorAt(const FilePath &filePath, int line, int column)
 {
-    return qobject_cast<BaseTextEditor *>(
-        Core::EditorManager::openEditorAt({filePath, line, column},
-                                          Utils::Id(),
-                                          Core::EditorManager::DoNotMakeVisible));
+    return Core::EditorManager::openEditorAt({filePath, line, column},
+                                             Utils::Id(),
+                                             Core::EditorManager::DoNotMakeVisible);
+}
+
+static TextEditor::TextDocument *textDocumentOf(Core::IEditor *editor)
+{
+    return editor ? qobject_cast<TextEditor::TextDocument *>(editor->document()) : nullptr;
 }
 
 static void addDeclaration(const Snapshot &snapshot,
@@ -336,13 +344,16 @@ static void addDeclaration(const Snapshot &snapshot,
     //! \todo change this to use the Refactoring changes.
     //
 
-    if (BaseTextEditor *editor = editorAt(filePath, loc.line(), loc.column() - 1)) {
-        QTextCursor tc = editor->textCursor();
+    if (TextEditor::TextDocument * const document
+            = textDocumentOf(editorAt(filePath, loc.line(), loc.column() - 1))) {
+        QTextCursor tc = TextEditor::textCursorOf(Core::EditorManager::currentEditor());
+        if (tc.isNull() || tc.document() != document->document())
+            tc = QTextCursor(document->document());
         int pos = tc.position();
         tc.beginEditBlock();
         tc.insertText(loc.prefix() + declaration + loc.suffix());
         tc.setPosition(pos, QTextCursor::KeepAnchor);
-        editor->textDocument()->autoIndent(tc);
+        document->autoIndent(tc);
         tc.endEditBlock();
     }
 }
@@ -576,11 +587,12 @@ static bool insertPointerToMemberConnection(const Snapshot &snapshot, const Clas
         if (!def)
             def = ctor; // possibly an inline definition
         const FilePath ctorFile = FilePath::fromString(QString::fromUtf8(def->fileName()));
-        BaseTextEditor *editor = editorAt(ctorFile, def->line(), def->column());
-        if (!editor)
+        TextEditor::TextDocument * const ctorDocument
+            = textDocumentOf(editorAt(ctorFile, def->line(), def->column()));
+        if (!ctorDocument)
             continue;
 
-        QTextDocument *doc = editor->textDocument()->document();
+        QTextDocument *doc = ctorDocument->document();
         const QString text = doc->toPlainText();
         const int ctorPos = Utils::Text::positionInText(doc, def->line(), def->column());
         const int setupUiPos = text.indexOf("setupUi", ctorPos);
@@ -614,7 +626,7 @@ static bool insertPointerToMemberConnection(const Snapshot &snapshot, const Clas
               + QString("connect(%1%2, &%3::%4, this, &%5::%6);")
                     .arg(prefix, objectName, widgetClass, signalName, className, slotBaseName);
 
-        QTextCursor tc = editor->textCursor();
+        QTextCursor tc(doc);
         tc.setPosition(semiPos + 1);
         tc.insertText(connectStatement);
         return true;
@@ -777,8 +789,9 @@ bool QtCreatorIntegration::navigateToSlot(const QString &objectName,
     const CppEditor::InsertionLocation location = CppEditor::insertLocationForMethodDefinition
             (fun, false, CppEditor::NamespaceHandling::CreateMissing, refactoring, implFilePath);
 
-    if (BaseTextEditor *editor = editorAt(location.filePath(),
-                                          location.line(), location.column())) {
+    if (TextEditor::TextDocument * const document
+            = textDocumentOf(editorAt(location.filePath(),
+                                      location.line(), location.column()))) {
         Overview o;
         const QString className = o.prettyName(cl->name());
         const QString definition = location.prefix() + "void " + className + "::"
@@ -789,9 +802,9 @@ bool QtCreatorIntegration::navigateToSlot(const QString &objectName,
             = Utils::Text::positionInText(file->document(), location.line(), location.column() - 1);
         file->apply(ChangeSet::makeInsert(insertionPos, definition));
         const int indentationPos = file->document()->toPlainText().indexOf('}', insertionPos) - 1;
-        QTextCursor cursor(editor->textDocument()->document());
+        QTextCursor cursor(document->document());
         cursor.setPosition(indentationPos);
-        editor->textDocument()->autoIndent(cursor);
+        document->autoIndent(cursor);
         const int openPos = file->document()->toPlainText().indexOf('}', indentationPos) - 1;
         int line, column;
         Utils::Text::convertPosition(file->document(), openPos, &line, &column);
@@ -857,7 +870,7 @@ void QtCreatorIntegration::handleSymbolRenameStage2(
     class ResourceHandler {
     public:
         ResourceHandler(ExtraCompiler *ec) : m_ec(ec) {}
-        void setEditor(BaseTextEditor *editorToClose) { m_editorToClose = editorToClose; }
+        void setEditor(Core::IEditor *editorToClose) { m_editorToClose = editorToClose; }
         void setTempFile(std::unique_ptr<TemporaryFile> &&tempFile) {
             m_tempFile = std::move(tempFile);
         }
@@ -870,7 +883,7 @@ void QtCreatorIntegration::handleSymbolRenameStage2(
         }
     private:
         const QPointer<ExtraCompiler> m_ec;
-        QPointer<BaseTextEditor> m_editorToClose;
+        QPointer<Core::IEditor> m_editorToClose;
         std::unique_ptr<TemporaryFile> m_tempFile;
     };
     const auto resourceHandler = std::make_shared<ResourceHandler>(ec);
@@ -893,27 +906,30 @@ void QtCreatorIntegration::handleSymbolRenameStage2(
             = std::make_unique<TemporaryFile>("XXXXXX" + uiHeader.fileName());
     QTC_ASSERT(tempFile->open(), return);
     qCDebug(log) << '\t' << tempFile->filePath();
-    const auto editor = qobject_cast<BaseTextEditor *>(
-                Core::EditorManager::openEditor(tempFile->filePath(), {}, openFlags));
+    // Whichever view the factory builds for a header: everything below wants
+    // the document, and asking for a BaseTextEditor gave up on the spot once
+    // C++ opened in the Qt Quick view - so renaming a widget stopped reaching
+    // the code at all.
+    Core::IEditor * const editor
+        = Core::EditorManager::openEditor(tempFile->filePath(), {}, openFlags);
     QTC_ASSERT(editor, return);
     resourceHandler->setTempFile(std::move(tempFile));
     resourceHandler->setEditor(editor);
 
-    const auto editorWidget = qobject_cast<CppEditor::CppEditorWidget *>(editor->editorWidget());
-    QTC_ASSERT(editorWidget && editorWidget->textDocument(), return);
+    const auto document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    QTC_ASSERT(document, return);
 
     // Parse temp file with built-in code model. Pretend it's the real ui header.
     // In the case of clangd, this entails doing a "virtual rename" on the TextDocument,
     // as the LanguageClient cannot be forced into taking a document and assuming a different
     // file path.
-    const bool usesClangd
-        = CppEditor::CppModelManager::usesClangd(editorWidget->textDocument()).has_value();
+    const bool usesClangd = CppEditor::CppModelManager::usesClangd(document).has_value();
     if (usesClangd)
-        editorWidget->textDocument()->setFilePath(uiHeader);
-    editorWidget->textDocument()->setPlainText(QString::fromUtf8(virtualContent));
+        document->setFilePath(uiHeader);
+    document->setPlainText(QString::fromUtf8(virtualContent));
     Snapshot snapshot = CppEditor::CppModelManager::snapshot();
     snapshot.remove(uiHeader);
-    snapshot.remove(editor->textDocument()->filePath());
+    snapshot.remove(document->filePath());
     const Document::Ptr cppDoc = snapshot.preprocessedDocument(virtualContent, uiHeader);
     cppDoc->check();
     QTC_ASSERT(cppDoc && cppDoc->isParsed(), return);
@@ -934,9 +950,9 @@ void QtCreatorIntegration::handleSymbolRenameStage2(
             qCDebug(log) << '\t' << Overview().prettyName(symbol->name());
             if (!symbol->name()->match(&oldIdentifier))
                 continue;
-            QTextCursor cursor(editorWidget->textCursor());
+            QTextCursor cursor(document->document());
             cursor.setPosition(cppDoc->translationUnit()->getTokenPositionInDocument(
-                                   symbol->sourceLocation(), editorWidget->document()));
+                                   symbol->sourceLocation(), document->document()));
             qCDebug(log) << '\t' << cursor.position() << cursor.blockNumber()
                          << cursor.positionInBlock();
 
@@ -947,7 +963,9 @@ void QtCreatorIntegration::handleSymbolRenameStage2(
             const auto callback = [resourceHandler] { };
             if (usesClangd) {
                 qCDebug(log) << "renaming with clangd";
-                editorWidget->renameUsages(uiHeader, newName, cursor, callback);
+                CppEditor::CppModelManager::globalRename(
+                    CppEditor::CursorInEditor{cursor, uiHeader, nullptr, document},
+                    newName, callback);
             } else {
                 qCDebug(log) << "renaming with built-in code model";
                 snapshot.insert(cppDoc);

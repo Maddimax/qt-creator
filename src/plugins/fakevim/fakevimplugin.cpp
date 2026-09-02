@@ -72,6 +72,8 @@
 #include <utils/pathchooser.h>
 #include <utils/qtcprocess.h>
 #include <utils/qtcassert.h>
+
+#include <QScopeGuard>
 #include <utils/stylehelper.h>
 
 #include <cppeditor/cppeditorconstants.h>
@@ -1425,10 +1427,30 @@ bool FakeVimUserCommandsModel::setData(const QModelIndex &index, const QVariant 
 static void setupTest(QString *title, FakeVimHandler **handler, QWidget **edit)
 {
     *title = QString::fromLatin1("test.cpp");
+
+    // FakeVim attaches to a QPlainTextEdit, and the Qt Quick editor is not
+    // one - see editorOpened(). So these tests, which drive a FakeVimHandler
+    // over such a widget, ask for the widget editor rather than opening
+    // whatever the factory offers and finding no handler at all. Whether
+    // FakeVim should work in the Quick editor is a separate question; while
+    // the answer is no, testing it there tests nothing.
+    TextEditorFactory * const factory
+        = TextEditorFactory::preferredFactoryFor(FilePath::fromString(*title));
+    const bool wasQuick = factory && factory->usesQuickEditor();
+    const QScopeGuard restoreFactory([factory, wasQuick] {
+        if (factory)
+            factory->setUsesQuickEditor(wasQuick);
+    });
+    if (factory)
+        factory->setUsesQuickEditor(false);
+
     IEditor *iedit = EditorManager::openEditorWithContents(Id(), title);
     EditorManager::activateEditor(iedit);
     *edit = iedit->widget();
     *handler = dd->m_editorToHandler.value(iedit, {}).handler;
+    // Rather than dereferencing null: without a handler there is nothing to
+    // test, and a crash here takes every later test in the plugin with it.
+    QTC_ASSERT(*handler, return);
     (*handler)->setupWidget();
     (*handler)->handleCommand("set startofline");
 

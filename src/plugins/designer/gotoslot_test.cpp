@@ -138,13 +138,15 @@ public:
             designerSettings().generatePointerToMemberConnections.setValue(savedPmf);
         });
 
-        QList<TextEditor::BaseTextEditor *> editors;
+        // Whichever view each file opens in: what this checks afterwards is
+        // the parse and the text, both of which belong to the document. Two of
+        // the three files are C++ and so open in the Qt Quick view.
+        QList<IEditor *> editors;
         for (const FilePath &file : files) {
             IEditor *editor = EditorManager::openEditor(file);
-            TextEditor::BaseTextEditor *e = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-            QVERIFY(e);
+            QVERIFY(editor);
             closeEditorAtEndOfTestCase(editor);
-            editors << e;
+            editors << editor;
         }
 
         const FilePath cppFile = files.at(0);
@@ -162,7 +164,7 @@ public:
         QVERIFY(EditorManager::currentDocument()->isModified());
 
         // Wait for updated documents
-        for (TextEditor::BaseTextEditor *editor : std::as_const(editors)) {
+        for (IEditor *editor : std::as_const(editors)) {
             QElapsedTimer t;
             t.start();
             const FilePath filePath = editor->document()->filePath();
@@ -189,7 +191,10 @@ public:
         const Document::Ptr hDocument = hDocumentParser->document();
         QVERIFY(checkDiagsnosticMessages(hDocument));
 
-        const QString cppText = editors.at(0)->textDocument()->plainText();
+        const auto cppTextDocument
+            = qobject_cast<TextEditor::TextDocument *>(editors.at(0)->document());
+        QVERIFY(cppTextDocument);
+        const QString cppText = cppTextDocument->plainText();
         if (pointerToMember) {
             // New default: camelCase slot + explicit pointer-to-member connect().
             QVERIFY(documentContainsFunctionDefinition(cppDocument, "Form::onPushButtonClicked"));
