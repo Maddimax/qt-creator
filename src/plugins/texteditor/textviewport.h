@@ -1118,7 +1118,10 @@ private:
     // Unset until the view is told: the setting answers until then.
     std::optional<bool> m_visualizeWhitespace;
 
-    EditHandler *editHandler() const;
+    // Every language driving this view, not just the first one found: a C++
+    // file with a modal editing mode on has two, and findChild() would answer
+    // whichever happened to be constructed first.
+    QList<EditHandler *> editHandlers() const;
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one

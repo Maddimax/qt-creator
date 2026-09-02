@@ -30803,6 +30803,17 @@ void FakeVimHandler::updateGlobalMarksFilenames(const QString &oldFileName, cons
     }
 }
 
+bool FakeVimHandler::wantsKeyBeforeShortcuts(QKeyEvent *ev)
+{
+    if (d->wantsOverride(ev))
+        return true;
+    // Not ours, so a Qt Creator shortcut is about to run: make the visual
+    // selection inclusive first, because the shortcut reads it synchronously
+    // (QTCREATORBUG-27442). The same thing the filter does on this branch.
+    d->fixExternalCursor(false);
+    return false;
+}
+
 bool FakeVimHandler::eventFilter(QObject *ob, QEvent *ev)
 {
 #ifndef FAKEVIM_STANDALONE

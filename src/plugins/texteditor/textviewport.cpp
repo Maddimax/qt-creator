@@ -1858,7 +1858,7 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // of something that spans several places at once - an in-place rename.
     // After the document above, which answers for the file rather than for a
     // caret, and before anything this view would do on its own.
-    if (EditHandler * const handler = editHandler()) {
+    for (EditHandler * const handler : editHandlers()) {
         if (handler->handleKeyPress(event, [this, event] { processKeyNormally(event); }))
             return;
     }
@@ -1870,9 +1870,9 @@ bool TextViewport::wantsKeyBeforeShortcuts(QKeyEvent *event)
 {
     // The language first: a modal editing mode wants keys that are bound to
     // commands, and only it knows which.
-    if (EditHandler * const handler = editHandler();
-        handler && handler->wantsKeyBeforeShortcuts(event)) {
-        return true;
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->wantsKeyBeforeShortcuts(event))
+            return true;
     }
 
     // Escape belongs to the view while it has something to dismiss with it.
@@ -2639,15 +2639,17 @@ void TextViewport::rewrapParagraph()
     setTextCursor(cursor);
 }
 
-EditHandler *TextViewport::editHandler() const
+QList<EditHandler *> TextViewport::editHandlers() const
 {
-    return m_editor ? m_editor->findChild<EditHandler *>() : nullptr;
+    return m_editor ? m_editor->findChildren<EditHandler *>() : QList<EditHandler *>();
 }
 
 void TextViewport::selectAll()
 {
-    if (EditHandler * const handler = editHandler(); handler && handler->handleSelectAll())
-        return;
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->handleSelectAll())
+            return;
+    }
     // Reading a file means being able to select all of it, so no edit check.
     QTextCursor cursor = textCursor();
     if (cursor.isNull())
@@ -2665,8 +2667,10 @@ void TextViewport::copy()
 
 void TextViewport::cut()
 {
-    if (EditHandler * const handler = editHandler(); handler && handler->handleCut())
-        return;
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->handleCut())
+            return;
+    }
     cutNormally();
 }
 
@@ -2684,8 +2688,10 @@ void TextViewport::cutNormally()
 
 void TextViewport::paste()
 {
-    if (EditHandler * const handler = editHandler(); handler && handler->handlePaste())
-        return;
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->handlePaste())
+            return;
+    }
     pasteNormally();
 }
 
@@ -2953,8 +2959,10 @@ void TextViewport::renameSymbolUnderCursor()
     // A name used in one function only is renamed here, without asking anyone:
     // every use of it is in this view. Anything else is a search, which is
     // what the relay is for.
-    if (EditHandler * const handler = editHandler(); handler && handler->handleRename())
-        return;
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->handleRename())
+            return;
+    }
     symbolRequests()->askForRename(cursor);
 }
 

@@ -2027,6 +2027,31 @@ static QString vimFileType(const IDocument *document)
     return mimeToFileType.value(mimeName);
 }
 
+// A key bound to a command has to be claimed before the shortcut system runs,
+// and the only offer of that comes as a QEvent::ShortcutOverride to the focus
+// *widget*. An item never sees it, so FakeVim's own filter cannot answer for
+// the Qt Quick editor. This carries the same answer to the view, which is
+// asked at the right moment.
+class QuickEditorKeyClaim final : public TextEditor::EditHandler
+{
+public:
+    QuickEditorKeyClaim(Core::IEditor *editor, FakeVimHandler *handler)
+        : TextEditor::EditHandler(editor), m_handler(handler)
+    {}
+
+    // Only the claim: the keys themselves still arrive through the event
+    // filter FakeVim installs, which runs before the view sees them.
+    bool handleKeyPress(QKeyEvent *, const std::function<void()> &) override { return false; }
+
+    bool wantsKeyBeforeShortcuts(QKeyEvent *event) override
+    {
+        return m_handler && settings().useFakeVim() && m_handler->wantsKeyBeforeShortcuts(event);
+    }
+
+private:
+    const QPointer<FakeVimHandler> m_handler;
+};
+
 // Driving the Qt Quick editor. Everything below is what a TextViewport
 // answers of FakeVimEditorAdapter; the interesting one is keyTarget(), which
 // is the item rather than the widget, because that is where key events arrive.
@@ -2166,6 +2191,86 @@ private slots:
         send(Qt::Key_D, "d");
         QCOMPARE(document->document()->toPlainText(), QString("world\n"));
     }
+
+    // A key Creator binds elsewhere has to reach vim instead of firing the
+    // shortcut, and the only moment to say so is the ShortcutOverride Qt
+    // offers the focus widget. An item never sees that, so this is carried to
+    // the view instead - which is asked at the right moment.
+    void testAKeyBoundToACommandIsClaimedForVim()
+    {
+        const bool wasOn = settings().useFakeVim();
+        const QScopeGuard restore([wasOn] { settings().useFakeVim.setValue(wasOn); });
+        settings().useFakeVim.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-claims-a-key");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("hello\n"));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        // By name rather than by type: QQuickWidget lives in a module this
+        // plugin has no reason to link, and all this needs is the widget Qt
+        // offers the override to.
+        QWidget *host = nullptr;
+        for (QWidget * const candidate : editor->widget()->findChildren<QWidget *>()) {
+            if (candidate->inherits("QQuickWidget")) {
+                host = candidate;
+                break;
+            }
+        }
+        QVERIFY2(host, "the Quick editor has no widget to be offered a shortcut override");
+
+        // The offer as Qt makes it, to the widget that has the focus.
+        // With the text a real keystroke carries: vim matches a mapping on the
+        // input, and Ctrl+W arrives as the control character.
+        const auto offer = [host](int key, Qt::KeyboardModifiers mods, const QString &written) {
+            QKeyEvent event(QEvent::ShortcutOverride, key, mods, written);
+            event.ignore();
+            QCoreApplication::sendEvent(host, &event);
+            return event.isAccepted();
+        };
+
+        // A C++ editor already carries an EditHandler of its own for renaming.
+        // Both have to be asked, or whichever was built first would answer for
+        // the other.
+        const QList<TextEditor::EditHandler *> handlers
+            = editor->findChildren<TextEditor::EditHandler *>();
+        QVERIFY2(handlers.size() >= 2,
+                 qPrintable(QString("expected the language's handler and vim's, found %1")
+                                .arg(handlers.size())));
+
+        QVERIFY2(dd->m_editorToHandler.value(editor, {}).handler,
+                 "no FakeVim handler was installed on the Quick editor");
+
+        // Vim's Ctrl, which on a Mac is the key Qt calls Meta.
+        const Qt::KeyboardModifiers vimControl = Utils::HostOsInfo::controlModifier();
+        const QString written(QChar(0x17));
+
+        // Vim wants nearly every Ctrl combination, and Creator binds plenty of
+        // them - this is the whole reason the claim exists.
+        const bool wasPassing = settings().passControlKey();
+        const QScopeGuard restorePassing(
+            [wasPassing] { settings().passControlKey.setValue(wasPassing); });
+        settings().passControlKey.setValue(false);
+        QVERIFY2(offer(Qt::Key_W, vimControl, written),
+                 "Ctrl+W was left to the shortcut system instead of reaching vim");
+
+        // Unless the reader has asked for control keys to be passed through,
+        // which is what that setting is for.
+        settings().passControlKey.setValue(true);
+        QVERIFY2(!offer(Qt::Key_W, vimControl, written),
+                 "vim claimed Ctrl+W although control keys are set to pass through");
+        settings().passControlKey.setValue(false);
+
+        // And with FakeVim switched off it is Creator's again.
+        settings().useFakeVim.setValue(false);
+        QVERIFY2(!offer(Qt::Key_W, vimControl, written),
+                 "vim claimed a key while switched off");
+    }
 };
 
 QObject *createFakeVimInQuickEditorTest()
@@ -2224,8 +2329,13 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
     //qDebug() << "OPENING: " << editor << editor->widget()
     //    << "MODE: " << theFakeVimSetting(ConfigUseFakeVim)->value();
 
+    const bool drivesAnItem = bool(adapter);
     auto handler = adapter ? new FakeVimHandler(std::move(adapter), nullptr)
                            : new FakeVimHandler(widget, nullptr);
+    if (drivesAnItem) {
+        // Parented to the editor, which is where the view looks for it.
+        new QuickEditorKeyClaim(editor, handler);
+    }
     // the handler might have triggered the deletion of the editor:
     // make sure that it can return before being deleted itself
     new DeferredDeleter(widget, handler);

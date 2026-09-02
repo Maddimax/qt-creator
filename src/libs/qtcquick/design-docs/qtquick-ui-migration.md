@@ -27814,3 +27814,63 @@ shortcuts will still go to the shortcut.
    kit.
 3. The whitespace-on-save revision race, the CppEditor whole-suite
    use-after-free, and the Profiler abort - all older than this migration.
+
+## 2026-09-02 — Keys that collide with shortcuts reach vim
+
+The last entry's caveat, closed. `Ctrl+W` and its neighbours now reach FakeVim
+in the Qt Quick editor instead of firing whatever Creator binds them to.
+
+**One EditHandler was not enough.** `TextViewport::editHandler()` was
+`m_editor->findChild<EditHandler *>()`, and a C++ file already carries one -
+`CppLocalRenaming`, parented to the editor since the in-place rename batch. Add
+FakeVim's and `findChild()` answers whichever was constructed first, silently
+disabling the other. So the view asks **all** of them now: the first to take a
+key press, a paste, a cut, a Select All or a rename wins, and *any* of them
+wanting a key before the shortcuts is enough. Same first-wins trap as
+`aspect<T>()`, and worth remembering that a per-editor singleton stops being a
+singleton the moment a second plugin wants one.
+
+**The claim itself** is a small `EditHandler` FakeVim parents to the editor,
+forwarding to a new public `FakeVimHandler::wantsKeyBeforeShortcuts()` - which
+is the `wantsOverride()` branch of the event filter, plus the
+`fixExternalCursor(false)` the filter does when it decides *not* to claim
+(QTCREATORBUG-27442). It answers only the claim; the keys themselves still
+arrive through the event filter, which runs before the view sees them.
+
+**Two things the test taught me, both about the test rather than the code:**
+
+- Vim's Ctrl is `Utils::HostOsInfo::controlModifier()`, which on a Mac is
+  `Qt::MetaModifier` - Qt swaps Control and Command there. Sending
+  `Qt::ControlModifier` asks about Command, and `isOnlyControlModifier()`
+  rightly says no. The test would have passed on Linux and failed here for a
+  reason that has nothing to do with the feature.
+- My first version mapped a key with `nmap <C-w> dd` and expected that to be
+  what made vim want it. It is not: `wantsOverride()` claims nearly every Ctrl
+  combination outright, unless the reader has set "Pass control keys". Testing
+  the setting is both simpler and closer to what a user changes.
+
+Negative controls, all three bit, each taking the suite from 262 to 261 with
+one failure: FakeVim registering no claim, the view asking only the first
+handler again, and the claim ignoring whether FakeVim is switched on.
+
+`TextEditor` 416 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 262 passed exit
+0 twice, standalone `tst_fakevim` 7 passed exit 0. CppEditor spot checks, which
+share an editor with FakeVim's handler now: `Selections` 15, `QuickFixAssist` 9,
+`FoldComments` 4. No new file, no `.qbs` edit.
+
+**What is left of FakeVim.** Suggestions are still a widget's, so Tab in insert
+mode is vim's alone in this view and `blockSuggestions()`/`clearSuggestion()`
+are skipped. The mini buffer, relative line numbers and the "FakeVim selection"
+highlight go through `setViewSelections()` and should be checked by eye in a
+running Creator; none of them is covered by a test on either side.
+
+**Next**:
+
+1. **Look at FakeVim in a running Creator.** Everything above is tested through
+   sent events; nobody has actually used vim in the Quick editor. The mini
+   buffer and relative line numbers are the two most likely to be wrong.
+2. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+3. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.

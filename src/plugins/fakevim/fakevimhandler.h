@@ -236,6 +236,12 @@ public:
 
     bool inFakeVimMode();
 
+    // Whether \a ev has to reach vim rather than firing whatever shortcut is
+    // bound to it - a mapped key, or Escape while there is something to leave.
+    // What the ShortcutOverride branch of eventFilter() asks, for a view that
+    // is not offered that event because it is not a widget.
+    bool wantsKeyBeforeShortcuts(QKeyEvent *ev);
+
     bool eventFilter(QObject *ob, QEvent *ev) override;
 
     Callback<void(const QString &msg, int cursorPos, int anchorPos, int messageLevel)>
