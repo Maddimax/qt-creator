@@ -387,16 +387,17 @@ bool CppEditorDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &curs
 }
 
 std::unique_ptr<TextEditor::AssistInterface> CppEditorDocument::createAssistInterface(
-    const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason) const
+    const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
+    Core::IEditor *editor) const
 {
     // Only quick fixes need more than the base interface offers, and only when
     // there is something for them to work from: CppQuickFixInterface walks the
     // AST, so an unparsed document would take it apart.
     if (kind == TextEditor::QuickFix && isSemanticInfoValid()) {
         return std::make_unique<Internal::CppQuickFixInterface>(
-            const_cast<CppEditorDocument *>(this), cursor, reason);
+            const_cast<CppEditorDocument *>(this), cursor, reason, editor);
     }
-    return TextDocument::createAssistInterface(cursor, kind, reason);
+    return TextDocument::createAssistInterface(cursor, kind, reason, editor);
 }
 
 QByteArray CppEditorDocument::Private::contentsText() const

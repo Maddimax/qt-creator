@@ -77,6 +77,10 @@ private:
     QTimer m_updateTimer;
 };
 
+// The one \a editor has, wherever it keeps it: a widget owns its controller,
+// and a view that is not one has it parented to the editor.
+CppDeclDefLinkController *declDefLinkControllerFor(Core::IEditor *editor);
+
 // Apply what the link in \a editor offers, which is what its marker does.
 void applyDeclDefLinkChangesIn(Core::IEditor *editor, bool jumpToMatch);
 

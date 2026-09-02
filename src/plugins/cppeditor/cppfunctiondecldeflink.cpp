@@ -315,6 +315,17 @@ Core::IEditor *CppDeclDefLinkController::editor() const
     return m_widget ? editorFor(m_widget) : m_editor.data();
 }
 
+CppDeclDefLinkController *declDefLinkControllerFor(Core::IEditor *editor)
+{
+    if (!editor)
+        return nullptr;
+    if (auto * const widget = qobject_cast<CppEditorWidget *>(
+            TextEditor::TextEditorWidget::fromEditor(editor))) {
+        return widget->declDefLinkController();
+    }
+    return editor->findChild<CppDeclDefLinkController *>();
+}
+
 void CppDeclDefLinkController::scheduleUpdate()
 {
     Core::IEditor * const in = editor();

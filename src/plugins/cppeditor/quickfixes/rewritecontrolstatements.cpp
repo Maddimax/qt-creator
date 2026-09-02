@@ -465,10 +465,10 @@ public:
         if (renamePos != -1) {
             QTextCursor c = file->cursor();
             c.setPosition(renamePos);
-            editor()->setTextCursor(c);
-            editor()->renameSymbolUnderCursor();
+            TextEditor::setTextCursorOf(editor(), c);
+            TextEditor::renameSymbolUnderCursorIn(editor());
             c.select(QTextCursor::WordUnderCursor);
-            editor()->setTextCursor(c);
+            TextEditor::setTextCursorOf(editor(), c);
         }
     }
 

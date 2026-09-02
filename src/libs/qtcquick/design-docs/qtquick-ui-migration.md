@@ -26679,3 +26679,81 @@ which is very likely what the whole `-test CppEditor` suite's occasional exit
    crash *and* closes the gap; the guard alone would only stop the crash.
 2. **The switch**: `setUsesQuickEditor(true)` in `CppEditorFactory` with no env
    var, and `QTC_WIDGET_CPP_EDITOR` as the way back.
+
+## 2026-09-02 — Quick fixes act on a view, and two of them stop crashing
+
+Last entry's find, fixed. `CppQuickFixInterface::editor()` was a
+`CppEditorWidget *`, null for the interface built on a document - which is the
+only kind a Qt Quick view can build. Fifteen call sites across seven files
+dereferenced it without asking.
+
+**`editor()` is a `Core::IEditor *` now**, and both interfaces have one: the
+document-based one is handed the view that asked, and the widget-based one
+looks its editor up. `TextDocument::createAssistInterface()` grew the
+parameter - `TextViewport` knows its editor since the last batch, so it had one
+to pass. A proposal is offered on the document, which is right, and acted on in
+a view, which is what was missing.
+
+The fifteen came down to four kinds: the caret moves (`setTextCursorOf`), two
+renames (`renameSymbolUnderCursorIn`, `renameUsagesOf`), the decl/def link, and
+one `editor()->textDocument()` that always meant the document.
+
+**The decl/def link** needed a way in: a widget owns its controller as a value
+member, a view that is not one has it parented to the editor.
+`declDefLinkControllerFor(editor)` answers either, and the two fixes talk to
+the controller rather than to `CppEditorWidget`'s two forwarding methods.
+
+**Another file's view** is what `InsertDefFromDecl` wants when it writes the
+definition into the implementation file. `RefactoringFile::editor()` is a
+widget, so a new `TextEditor::editorForDocument()` answers the editor showing a
+document - the current one where that is one of them, so "where the user can
+see this" means the view being looked at rather than an arbitrary split.
+
+**Two crashing test classes.** Baselined by reverting the batch and running
+them: `ExtractLiteralAsParameterTest` and `MoveFunctionCommentsTest` both exit
+134 at the previous commit, the second with `SEGV rewritecomment.cpp:244`,
+which is one of the fifteen. They now pass, 27 and 10. Note that what stops the
+crash is routing through the dispatchers, which tolerate a null editor - not
+the test harness handing its editor in, which is a separate improvement that
+makes the quick-fix tests exercise the caret move a user gets.
+
+The test asserts what the fix is *for*: Assign to Local Variable writes a name
+and leaves the caret on it, selected, ready to be typed over. Run in both
+views, because the interface reaches its editor by a different route in each.
+
+Negative controls, three bit: the Quick view not handing its editor in (the
+quick row only), the widget interface never finding its editor (the widget row
+only), and the fix not moving the caret (both rows). A fourth did not: putting
+the harness back to handing no editor in leaves `ExtractLiteralAsParameterTest`
+at 27 passed, because that suite only compares text - so the harness line is
+not covered by a control, and is in for faithfulness rather than for a red
+test.
+
+`TextEditor` 411 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. CppEditor, per class:
+`QuickFixAssistTest` 6, `ExtractLiteralAsParameter` 27, `AssignToLocalVariable`
+20, `ConvertToCamelCase` 10, `MoveDeclarationOutOfIf` 5, `...OutOfWhile` 4,
+`InsertDefFromDecl` 79, `MoveFunctionComments` 10, `InsertDeclFromDef` 12,
+`AddDeclarationForUndeclaredIdentifier` 22, `DeclDefLinkTest` 3,
+`SelectionsTest` 15 in each view - all exit 0. No new file, no `.qbs` edit.
+
+**The suite's exit 134 was not the crash I guessed it was.** `-test CppEditor`
+whole still aborts, now on a heap-use-after-free in
+`Core::DocumentModel::documentForFilePath()` reached from
+`MoveFunctionCommentsOp` - a path that only became reachable once the SEGV
+above stopped happening first, and which passes standalone. And
+`ConvertFromAndToPointerTest` fails 19 of 27 standalone **at the previous
+commit as well**: the uses of the converted variable are not rewritten, which
+looks like the local uses the document-based interface does not carry. Both are
+pre-existing and neither is this batch's.
+
+**Next**, and the list is short now:
+
+1. `ConvertFromAndToPointerTest`, 19 failures, standing. The widget interface
+   takes the *widget's* semantic info because "the widget patches the local
+   uses into it as the caret moves"; the document's does not have them. That is
+   a real gap for any fix that reads `semanticInfo().localUses`, and the Quick
+   editor has no other source.
+2. The whole-suite use-after-free above.
+3. **The switch**: `setUsesQuickEditor(true)` in `CppEditorFactory` with no env
+   var, and `QTC_WIDGET_CPP_EDITOR` as the way back.

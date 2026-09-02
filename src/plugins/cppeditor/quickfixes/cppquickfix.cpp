@@ -59,8 +59,9 @@ public:
 
     void perform() override
     {
-        if (editor()->declDefLink() == m_link)
-            editor()->applyDeclDefLinkChanges(/*don't jump*/false);
+        CppDeclDefLinkController * const controller = declDefLinkControllerFor(editor());
+        if (controller && controller->link() == m_link)
+            controller->apply(/*jumpToMatch*/ false);
     }
 
 private:
@@ -86,11 +87,13 @@ class ApplyDeclDefLinkChanges: public CppQuickFixFactory
 public:
     void doMatch(const CppQuickFixInterface &interface, TextEditor::QuickFixOperations &result) override
     {
-        // The link is what the widget is drawing a marker for, so this fix has
-        // nothing to offer a view that is not one.
-        if (!interface.editor())
+        // The link is what the view draws a marker for, so this fix has nothing
+        // to offer where nobody is looking.
+        CppDeclDefLinkController * const controller
+            = declDefLinkControllerFor(interface.editor());
+        if (!controller)
             return;
-        std::shared_ptr<FunctionDeclDefLink> link = interface.editor()->declDefLink();
+        const std::shared_ptr<FunctionDeclDefLink> link = controller->link();
         if (!link || !link->isMarkerVisible())
             return;
 

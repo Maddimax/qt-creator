@@ -302,7 +302,7 @@ void TextViewport::requestCompletions()
         m_completionProcessor->cancel();
 
     std::unique_ptr<AssistInterface> interface
-        = doc->createAssistInterface(cursor, Completion, ExplicitlyInvoked);
+        = doc->createAssistInterface(cursor, Completion, ExplicitlyInvoked, m_editor);
     m_completionProcessor.reset(provider->createProcessor(interface.get()));
     if (!m_completionProcessor) {
         emit completionsAvailable({}, {});
@@ -336,7 +336,7 @@ void TextViewport::requestQuickFixes(IAssistProvider *asked)
     // Asked of the document: a C++ quick fix needs the semantic info, and
     // only the document can hand it over without being a particular view.
     std::unique_ptr<AssistInterface> interface
-        = doc->createAssistInterface(cursor, QuickFix, ExplicitlyInvoked);
+        = doc->createAssistInterface(cursor, QuickFix, ExplicitlyInvoked, m_editor);
     m_quickFixProcessor.reset(provider->createProcessor(interface.get()));
     if (!m_quickFixProcessor) {
         emit quickFixesAvailable({});
@@ -403,7 +403,7 @@ void TextViewport::requestFunctionHint()
         m_functionHintProcessor->cancel();
 
     std::unique_ptr<AssistInterface> interface
-        = doc->createAssistInterface(cursor, FunctionHint, ExplicitlyInvoked);
+        = doc->createAssistInterface(cursor, FunctionHint, ExplicitlyInvoked, m_editor);
     m_functionHintProcessor.reset(provider->createProcessor(interface.get()));
     if (!m_functionHintProcessor) {
         emit functionHintAvailable({}, -1);

@@ -1259,6 +1259,11 @@ std::unique_ptr<AssistInterface> CppEditorWidget::createAssistInterface(AssistKi
     return TextEditorWidget::createAssistInterface(kind, reason);
 }
 
+CppDeclDefLinkController *CppEditorWidget::declDefLinkController() const
+{
+    return &d->m_declDefLinkController;
+}
+
 std::shared_ptr<FunctionDeclDefLink> CppEditorWidget::declDefLink() const
 {
     return d->m_declDefLinkController.link();

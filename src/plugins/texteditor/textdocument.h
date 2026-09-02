@@ -211,8 +211,13 @@ public:
     // more than a cursor and a path - C++ quick fixes want the semantic info -
     // answers here rather than on an editor, so that any view showing this
     // document offers the same assist.
+    //
+    // \a editor is the view that asked, which a proposal may act on once it
+    // is accepted: a fix that renames what it just wrote moves a caret, and a
+    // caret belongs to a view. Null where nobody in particular asked.
     virtual std::unique_ptr<AssistInterface> createAssistInterface(
-        const QTextCursor &cursor, AssistKind kind, AssistReason reason) const;
+        const QTextCursor &cursor, AssistKind kind, AssistReason reason,
+        Core::IEditor *editor = nullptr) const;
 
     // What this language does with \a event before the view acts on it, with
     // the caret at \a cursor. Answers whether it did anything, in which case

@@ -54,7 +54,7 @@ private:
         if (m_test)
             currentFile()->apply(ChangeSet::makeReplace(currentFile()->range(m_nameAst), newName));
         else
-            editor()->renameUsages(newName);
+            CppEditor::renameUsagesOf(editor(), newName, currentFile()->cursor());
     }
 
     const QString m_name;

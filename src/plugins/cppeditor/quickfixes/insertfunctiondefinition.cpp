@@ -145,8 +145,7 @@ public:
                 c.setPosition(targetPos);
                 c.movePosition(QTextCursor::Down);
                 c.movePosition(QTextCursor::EndOfLine);
-                if (op->editor())
-                    op->editor()->setTextCursor(c);
+                TextEditor::setTextCursorOf(op->editor(), c);
             }
         } else {
             // make target lookup context
@@ -239,10 +238,12 @@ public:
                                loc.prefix().count(QLatin1String("\n")) + 2);
                 c.movePosition(QTextCursor::EndOfLine);
                 if (defPos == DefPosImplementationFile) {
-                    if (targetFile->editor())
-                        targetFile->editor()->setTextCursor(c);
-                } else if (op->editor()) {
-                    op->editor()->setTextCursor(c);
+                    // Another file, so another view: the one showing it, if
+                    // any is open at all.
+                    TextEditor::setTextCursorOf(
+                        TextEditor::editorForDocument(targetFile->textDocument()), c);
+                } else {
+                    TextEditor::setTextCursorOf(op->editor(), c);
                 }
             }
         }

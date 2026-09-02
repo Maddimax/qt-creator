@@ -11,6 +11,10 @@
 
 #include <cplusplus/LookupContext.h>
 
+#include <QPointer>
+
+namespace Core { class IEditor; }
+
 namespace CppEditor {
 class CppEditorDocument;
 class CppEditorWidget;
@@ -23,19 +27,22 @@ class CppQuickFixInterface : public TextEditor::AssistInterface
 {
 public:
     // Over the document, which is where the semantic info and the file being
-    // changed both live. editor() is null here: a fix that needs a widget -
-    // one that reads what the caret is doing - has to say so and step aside.
+    // changed both live. \a editor is the view that asked, which a fix acts on
+    // when what it does ends in a caret - null where nobody in particular did.
     CppQuickFixInterface(CppEditorDocument *document,
                          const QTextCursor &cursor,
-                         TextEditor::AssistReason reason);
-    CppQuickFixInterface(CppEditorWidget *editor, TextEditor::AssistReason reason);
+                         TextEditor::AssistReason reason,
+                         Core::IEditor *editor = nullptr);
+    CppQuickFixInterface(CppEditorWidget *editorWidget, TextEditor::AssistReason reason);
 
     const QList<CPlusPlus::AST *> &path() const;
     CPlusPlus::Snapshot snapshot() const;
     SemanticInfo semanticInfo() const;
     const CPlusPlus::LookupContext &context() const;
-    // The view, where there is one. A fix that needs it must check.
-    CppEditorWidget *editor() const;
+    // The view that asked, where one did. A fix that needs it must check: a
+    // proposal can outlive the view, and a fix can be run by a test with no
+    // view at all.
+    Core::IEditor *editor() const;
     // The file being changed, which there always is.
     CppEditorDocument *cppEditorDocument() const;
 
@@ -48,7 +55,7 @@ public:
 private:
     QTextCursor adjustedCursor();
 
-    CppEditorWidget *m_editor = nullptr;
+    QPointer<Core::IEditor> m_editor;
     CppEditorDocument *m_document;
     SemanticInfo m_semanticInfo;
     CPlusPlus::Snapshot m_snapshot;

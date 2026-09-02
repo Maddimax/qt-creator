@@ -57,7 +57,7 @@ private:
         QTextCursor c = m_file->cursor();
         c.setPosition(m_insertPos + insertString.size() - varName.size() - 3);
         c.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-        editor()->setTextCursor(c);
+        TextEditor::setTextCursorOf(editor(), c);
     }
 
     QString deduceType() const

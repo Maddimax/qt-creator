@@ -6,6 +6,7 @@
 #include "../cppeditordocument.h"
 #include "../cppeditorwidget.h"
 #include "../cppmodelmanager.h"
+#include "../cpptoolsreuse.h"
 #include "../cpprefactoringchanges.h"
 #include "cppquickfix.h"
 
@@ -64,8 +65,10 @@ IAssistProvider &cppQuickFixAssistProvider()
 
 CppQuickFixInterface::CppQuickFixInterface(CppEditorDocument *document,
                                            const QTextCursor &cursor,
-                                           AssistReason reason)
+                                           AssistReason reason,
+                                           Core::IEditor *editor)
     : AssistInterface(cursor, document->filePath(), reason)
+    , m_editor(editor)
     , m_document(document)
     , m_semanticInfo(document->semanticInfo())
     , m_snapshot(CppModelManager::snapshot())
@@ -82,13 +85,13 @@ CppQuickFixInterface::CppQuickFixInterface(CppEditorDocument *document,
 // The widget's own semantic info rather than the document's: the widget
 // patches the local uses into it as the caret moves, and a fix that renames a
 // local reads them.
-CppQuickFixInterface::CppQuickFixInterface(CppEditorWidget *editor, AssistReason reason)
-    : AssistInterface(editor->textCursor(), editor->textDocument()->filePath(), reason)
-    , m_editor(editor)
-    , m_document(editor->cppEditorDocument())
-    , m_semanticInfo(editor->semanticInfo())
+CppQuickFixInterface::CppQuickFixInterface(CppEditorWidget *editorWidget, AssistReason reason)
+    : AssistInterface(editorWidget->textCursor(), editorWidget->textDocument()->filePath(), reason)
+    , m_editor(editorFor(editorWidget))
+    , m_document(editorWidget->cppEditorDocument())
+    , m_semanticInfo(editorWidget->semanticInfo())
     , m_snapshot(CppModelManager::snapshot())
-    , m_currentFile(CppRefactoringChanges::file(editor, m_semanticInfo.doc))
+    , m_currentFile(CppRefactoringChanges::file(editorWidget, m_semanticInfo.doc))
     , m_context(m_semanticInfo.doc, m_snapshot)
 {
     QTC_CHECK(m_semanticInfo.doc);
@@ -118,7 +121,7 @@ const LookupContext &CppQuickFixInterface::context() const
     return m_context;
 }
 
-CppEditorWidget *CppQuickFixInterface::editor() const
+Core::IEditor *CppQuickFixInterface::editor() const
 {
     return m_editor;
 }
@@ -271,6 +274,89 @@ private slots:
         QVERIFY2(offered.contains("Convert to Pointer"),
                  qPrintable("the caret is on 'alpha' and nothing offered to change it; got: "
                             + offered.join(", ")));
+    }
+
+    // A fix that ends in a caret - the name it has just written, ready to be
+    // typed over - has to put that caret in the view that asked. The interface
+    // is built on the document, which has no caret of its own, so the view has
+    // to come with the question.
+    void testAFixMovesTheCaretInTheViewThatAsked_data()
+    {
+        QTest::addColumn<bool>("quick");
+        // Both views, because the interface reaches its editor by a different
+        // route in each: a widget is built before the editor showing it, so it
+        // has to look that editor up.
+        QTest::newRow("quick view") << true;
+        QTest::newRow("widget view") << false;
+    }
+
+    void testAFixMovesTheCaretInTheViewThatAsked()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("cpp-quickfix-moves-the-caret");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int computeValue();\n"
+                                       "int main()\n"
+                                       "{\n"
+                                       "    computeValue();\n"
+                                       "    return 0;\n"
+                                       "}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const editorWidget = qobject_cast<CppEditorWidget *>(
+            TextEditor::TextEditorWidget::fromEditor(editor));
+        QCOMPARE(editorWidget == nullptr, quick);
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // On the call whose result nothing uses.
+        QTextCursor cursor(document->document());
+        cursor.setPosition(document->document()->findBlockByNumber(3).position()
+                           + QString("    compute").size());
+        TextEditor::setTextCursorOf(editor, cursor);
+
+        // Each view asks the way it asks: a widget builds the interface over
+        // itself, and the Quick view over the document, handing its editor in.
+        const std::unique_ptr<TextEditor::AssistInterface> interface
+            = editorWidget
+                  ? std::unique_ptr<TextEditor::AssistInterface>(
+                        new CppQuickFixInterface(editorWidget, TextEditor::ExplicitlyInvoked))
+                  : document->createAssistInterface(cursor, TextEditor::QuickFix,
+                                                    TextEditor::ExplicitlyInvoked, editor);
+        QVERIFY(interface);
+
+        TextEditor::QuickFixOperation::Ptr assign;
+        for (const TextEditor::QuickFixOperation::Ptr &operation :
+             quickFixOperations(interface.get())) {
+            if (operation->description() == "Assign to Local Variable")
+                assign = operation;
+        }
+        QVERIFY2(assign, "nothing offered to assign the call's result to a variable");
+
+        assign->perform();
+
+        // The fix wrote the name; the caret has to be on it, selected, which is
+        // what makes it something to type over.
+        QCOMPARE(document->document()->toPlainText().count("localComputeValue"), 1);
+        const QTextCursor caret = TextEditor::textCursorOf(editor);
+        QVERIFY2(!caret.isNull(), "the view has no caret at all");
+        QCOMPARE(caret.selectedText(), QString("localComputeValue"));
     }
 
     // The file a refactoring changes is looked up by path, and that lookup

@@ -209,8 +209,8 @@ public:
         currentFile()->apply(changes);
         QTextCursor c = currentFile()->cursor();
         c.setPosition(c.position() - parameterName().size());
-        editor()->setTextCursor(c);
-        editor()->renameSymbolUnderCursor();
+        TextEditor::setTextCursorOf(editor(), c);
+        TextEditor::renameSymbolUnderCursorIn(editor());
     }
 
 private:

@@ -3,6 +3,7 @@
 
 #include "rewritecomment.h"
 
+#include "../cppeditordocument.h"
 #include "../cppeditortr.h"
 #include "../cppeditorwidget.h"
 #include "../cpprefactoringchanges.h"
@@ -240,8 +241,8 @@ private:
             m_symbol->sourceLocation(), textDoc);
         QTextCursor cursor(textDoc);
         cursor.setPosition(pos);
-        const CursorInEditor cursorInEditor(cursor, file->filePath(), editor(),
-                                            editor()->textDocument());
+        const CursorInEditor cursorInEditor(cursor, file->filePath(), nullptr,
+                                            cppEditorDocument());
         const auto callback = [symbolLoc = m_symbol->toLink(), comments = m_commentTokens, file]
             (const Link &link) {
                 moveComments(file, link, symbolLoc, comments);

@@ -556,9 +556,11 @@ RefactorMarker TextDocument::refactorMarkerAt(int position) const
 }
 
 std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(
-    const QTextCursor &cursor, AssistKind kind, AssistReason reason) const
+    const QTextCursor &cursor, AssistKind kind, AssistReason reason,
+    Core::IEditor *editor) const
 {
     Q_UNUSED(kind)
+    Q_UNUSED(editor)
     return std::make_unique<AssistInterface>(cursor, filePath(), reason);
 }
 

@@ -352,8 +352,8 @@ class AddDeclarationForUndeclaredIdentifier : public CppQuickFixFactory
             return;
 
         // Is this name declared somewhere already?
-        const CursorInEditor cursorInEditor(interface.cursor(), interface.filePath(),
-                                            interface.editor(), interface.cppEditorDocument());
+        const CursorInEditor cursorInEditor(interface.cursor(), interface.filePath(), nullptr,
+                                            interface.cppEditorDocument());
         const auto followSymbolFallback = [&](const Link &link) {
             if (!link.hasValidTarget())
                 collectOperations(interface, result);

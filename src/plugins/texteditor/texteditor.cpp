@@ -10249,6 +10249,18 @@ void followSymbolUnderCursorIn(Core::IEditor *editor, bool inNextSplit)
         view->followSymbolUnderCursor(inNextSplit);
 }
 
+Core::IEditor *editorForDocument(TextDocument *document)
+{
+    if (!document)
+        return nullptr;
+    const QList<Core::IEditor *> open = Core::DocumentModel::editorsForDocument(document);
+    if (open.isEmpty())
+        return nullptr;
+    if (open.contains(Core::EditorManager::currentEditor()))
+        return Core::EditorManager::currentEditor();
+    return open.first();
+}
+
 void renameSymbolUnderCursorIn(Core::IEditor *editor)
 {
     if (!editor)

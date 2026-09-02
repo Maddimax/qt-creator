@@ -978,6 +978,11 @@ TEXTEDITOR_EXPORT void cutIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,
                                                  bool inNextSplit = false);
 
+// An editor showing \a document, where one is open - the current editor when
+// that is one of them, so that a caller meaning "where the user can see this"
+// gets the view being looked at rather than an arbitrary split.
+TEXTEDITOR_EXPORT Core::IEditor *editorForDocument(TextDocument *document);
+
 // Rename the symbol the caret is on, in whichever view \a editor has. Which
 // rename that is - every use of a local name at once in the view, or a search
 // across the project - is the language's to decide.

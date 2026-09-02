@@ -160,7 +160,9 @@ std::unique_ptr<CppQuickFixInterface> BaseQuickFixTestCase::interfaceForMarkedDo
     const QTextCursor caret = TextEditor::textCursorOf(m_documentWithMarker->m_anyEditor);
     if (caret.isNull())
         return {};
-    return std::make_unique<CppQuickFixInterface>(document, caret, ExplicitlyInvoked);
+    // With the view that asked, which is what a fix ending in a caret acts on.
+    return std::make_unique<CppQuickFixInterface>(document, caret, ExplicitlyInvoked,
+                                                  m_documentWithMarker->m_anyEditor);
 }
 
 QuickFixOfferedOperationsTest::QuickFixOfferedOperationsTest(

@@ -26,6 +26,7 @@ class ProjectPart;
 class SemanticInfo;
 
 namespace Internal {
+class CppDeclDefLinkController;
 class CppEditorOutline;
 class CppEditorWidgetPrivate;
 class FunctionDeclDefLink;
@@ -56,6 +57,7 @@ public:
     bool isRenaming() const;
 
     std::shared_ptr<Internal::FunctionDeclDefLink> declDefLink() const;
+    Internal::CppDeclDefLinkController *declDefLinkController() const;
     void applyDeclDefLinkChanges(bool jumpToMatch);
 
     std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(

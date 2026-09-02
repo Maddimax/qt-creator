@@ -58,7 +58,8 @@ public:
     std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
         const QTextCursor &cursor,
         TextEditor::AssistKind kind,
-        TextEditor::AssistReason reason) const override;
+        TextEditor::AssistReason reason,
+        Core::IEditor *editor = nullptr) const override;
 
     void setPreferredParseContext(const QString &parseContextId);
     void updateSoftPreferredParseContext(const ProjectExplorer::Node *currentNode);
