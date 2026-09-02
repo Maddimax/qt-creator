@@ -529,6 +529,10 @@ public:
     // rather than replacing it - and what the paste and cut above come down to
     // once the handler has had its say.
     void processKeyNormally(QKeyEvent *event);
+    // Whether \a event has to reach this view rather than firing a shortcut.
+    // The host widget asks this when Qt offers it a ShortcutOverride; see
+    // TextEditor::EditHandler::wantsKeyBeforeShortcuts().
+    bool wantsKeyBeforeShortcuts(QKeyEvent *event);
     void pasteNormally();
     void cutNormally();
     // Moving what is shown without moving the caret, which is what the View

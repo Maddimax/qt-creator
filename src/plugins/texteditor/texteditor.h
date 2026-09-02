@@ -964,6 +964,14 @@ public:
     // can do it here and now - every use of a local name is on the screen, so
     // there is nothing to search for.
     virtual bool handleRename() { return false; }
+
+    // Whether \a event should reach the view at all, rather than triggering
+    // whatever shortcut is bound to it. Asked before Qt's shortcut system
+    // runs, which is the only moment at which a key can still be claimed: by
+    // the time handleKeyPress() is called the shortcut has already had it.
+    // This is what a modal editing mode needs in order to see keys like
+    // Ctrl+W that Creator binds elsewhere.
+    virtual bool wantsKeyBeforeShortcuts(QKeyEvent *event) { Q_UNUSED(event) return false; }
 };
 
 // Paste into / cut from \a editor's view the way the view itself would, with

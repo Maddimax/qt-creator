@@ -27541,3 +27541,67 @@ widget for the semantic info drops the semantic-info section alone.
    kit.
 4. The whitespace-on-save revision race, the CppEditor whole-suite
    use-after-free, and the Profiler abort - all older than this migration.
+
+## 2026-09-02 — First refusal on a key
+
+The seam the last entry said FakeVim needs, and which the Quick editor was
+missing for its own sake as well.
+
+**How a key gets claimed.** Before firing a shortcut, Qt offers the focus
+widget a `QEvent::ShortcutOverride`; accepting it cancels the shortcut and the
+key arrives as an ordinary key press. That offer is the *only* moment at which
+a key bound to a command can still be taken by the editor -
+`EditHandler::handleKeyPress()` is far too late, because by then the shortcut
+has already had it.
+
+`TextEditorWidget::event()` answers the offer. The Quick editor never did, and
+the offer never reached it: the focus widget is the `QQuickWidget`, and the item
+inside it is not offered anything. So the wrapper passes it on, and
+`TextViewport::wantsKeyBeforeShortcuts()` answers.
+
+The answer has three parts, in order:
+
+1. **The language first** - new `EditHandler::wantsKeyBeforeShortcuts()`. This
+   is the part FakeVim needs: a modal editing mode is the only thing that knows
+   it wants `Ctrl+W`, and nothing else can know for it.
+2. **Escape, while there is something to dismiss** - a second caret, a
+   suggestion. The widget editor reserves it for the same reasons plus its
+   snippet overlay and embedded widgets, which this view does not have.
+3. **Ordinary typing** - no modifier, Shift or keypad, below `Key_Escape`. The
+   same rule as `QInputControl::isCommonTextEditShortcut()`, which the widget
+   editor copies with a bug number attached (QTCREATORBUG-22854).
+
+Points 2 and 3 are not FakeVim's problem, they are this editor's: without them
+a plugin binding a plain or shifted key takes it out of the editor's mouth, and
+Escape cannot be reserved for closing what is open.
+
+The test sends the offer the way Qt does - a `ShortcutOverride` to the focus
+widget - and checks what comes back accepted: a letter yes, Shift+letter yes,
+`Ctrl+S` no, Escape no until a second caret is up and yes afterwards, and
+`Ctrl+W` no until a handler asks for it and yes after. Negative controls, all
+three bit, each on its own assertion: the wrapper not passing the offer on, the
+language not being asked first, and Escape claimed unconditionally.
+
+`TextEditor` 414 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 258, Designer 8,
+Macros 12, and the CppEditor spot checks - all exit 0. No new file, no `.qbs`
+edit.
+
+**Next**:
+
+1. **FakeVim over `TextViewport`.** Both halves it needs now exist:
+   `EditHandler::handleKeyPress()` for the key itself and
+   `wantsKeyBeforeShortcuts()` for claiming it first. The work is turning the
+   `EDITOR(s)` macro into an interface - about nineteen operations - and
+   writing the viewport backend. `editorOpened()` then accepts an editor whose
+   view is a `TextViewport` instead of only one aggregating a
+   `QPlainTextEdit`.
+2. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+3. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.
+
+**Worth checking when someone has a Linux or Windows box**: whether the
+`QQuickWidget` is always the focus widget that Qt offers the override to. It is
+here, and the test asserts against the widget it finds, but focus proxies
+differ between platforms.

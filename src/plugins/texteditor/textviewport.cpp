@@ -1852,6 +1852,27 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     processKeyNormally(event);
 }
 
+bool TextViewport::wantsKeyBeforeShortcuts(QKeyEvent *event)
+{
+    // The language first: a modal editing mode wants keys that are bound to
+    // commands, and only it knows which.
+    if (EditHandler * const handler = editHandler();
+        handler && handler->wantsKeyBeforeShortcuts(event)) {
+        return true;
+    }
+
+    // Escape belongs to the view while it has something to dismiss with it.
+    if (event->key() == Qt::Key_Escape)
+        return multiTextCursor().hasMultipleCursors() || currentSuggestion();
+
+    // Otherwise the same rule the widget editor uses: ordinary typing is the
+    // view's, and anything with a real modifier is a shortcut's. Mirrors
+    // QInputControl::isCommonTextEditShortcut().
+    return (event->modifiers() == Qt::NoModifier || event->modifiers() == Qt::ShiftModifier
+            || event->modifiers() == Qt::KeypadModifier)
+           && event->key() < Qt::Key_Escape;
+}
+
 void TextViewport::processKeyNormally(QKeyEvent *event)
 {
     QTextCursor cursor = textCursor();

@@ -253,6 +253,12 @@ public:
         // A tooltip is a widget and has to be placed in screen coordinates.
         // The item is in a QQuickWidget's offscreen window, whose own position
         // is meaningless, so the hosting widget is what it maps through.
+        // Qt offers the focus widget a ShortcutOverride before it fires a
+        // shortcut, and that offer is the only moment at which a key can still
+        // be claimed for the editor. The QQuickWidget is the focus widget; the
+        // item inside it never sees the offer, so the wrapper passes it on.
+        widget->quickWidget()->installEventFilter(this);
+
         if (TextViewport * const view = viewport()) {
             view->setTooltipHost(widget->quickWidget());
             // So that the view can reach what a language parents to the editor
@@ -697,6 +703,21 @@ public:
             updateOptionalActions();
         });
         updateOptionalActions();
+    }
+
+    // See the ShortcutOverride note in the constructor: accepting the offer is
+    // what stops the shortcut and lets the key arrive as an ordinary key press.
+    bool eventFilter(QObject *watched, QEvent *event) final
+    {
+        if (event->type() == QEvent::ShortcutOverride) {
+            if (TextViewport * const view = viewport()) {
+                if (view->wantsKeyBeforeShortcuts(static_cast<QKeyEvent *>(event))) {
+                    event->accept();
+                    return true;
+                }
+            }
+        }
+        return Core::IEditor::eventFilter(watched, event);
     }
 
     Core::IDocument *document() const final { return m_document.get(); }
@@ -4195,6 +4216,76 @@ private slots:
                  QString::number(view->visibleLineCount()));
         QVERIFY2(expander->expand(QString("%{CurrentDocument:RowCount}")) != "0",
                  "the number of visible lines is still reported as none");
+    }
+
+    // Qt offers the focus widget a ShortcutOverride before firing a shortcut,
+    // and accepting it is the only way a key bound to a command can still
+    // reach the editor. The widget editor answers that offer; this one did
+    // not, so ordinary typing was a shortcut's for the taking, Escape could
+    // not be reserved for dismissing a suggestion, and a modal editing mode
+    // had no way to ask for a key at all.
+    void testTheViewIsOfferedAKeyBeforeTheShortcutSystem()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-shortcut-override");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+        auto * const host = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(host);
+
+        // The offer as Qt makes it, to the widget that has the focus.
+        const auto offer = [host](int key, Qt::KeyboardModifiers mods) {
+            QKeyEvent event(QEvent::ShortcutOverride, key, mods);
+            event.ignore();
+            QCoreApplication::sendEvent(host, &event);
+            return event.isAccepted();
+        };
+
+        // Ordinary typing is the editor's, whatever a plugin has bound to it.
+        QVERIFY2(offer(Qt::Key_A, Qt::NoModifier), "a plain letter was left to the shortcut system");
+        QVERIFY2(offer(Qt::Key_A, Qt::ShiftModifier), "a shifted letter was left to the shortcuts");
+        // And a real shortcut is not.
+        QVERIFY2(!offer(Qt::Key_S, Qt::ControlModifier), "the editor claimed Ctrl+S");
+
+        // Escape only while there is something to dismiss with it.
+        QVERIFY2(!offer(Qt::Key_Escape, Qt::NoModifier),
+                 "the editor claimed Escape with nothing to dismiss");
+        Utils::MultiTextCursor several = view->multiTextCursor();
+        QTextCursor second(view->textDocument()->document());
+        second.setPosition(2);
+        several.addCursor(second);
+        view->setMultiTextCursor(several);
+        QVERIFY(view->multiTextCursor().hasMultipleCursors());
+        QVERIFY2(offer(Qt::Key_Escape, Qt::NoModifier),
+                 "Escape was left to the shortcut system while a second caret was up");
+
+        // And a language can claim whatever it likes - which is what a modal
+        // editing mode needs, and the reason this seam exists.
+        class GreedyHandler final : public EditHandler
+        {
+        public:
+            using EditHandler::EditHandler;
+            bool handleKeyPress(QKeyEvent *, const std::function<void()> &) override
+            {
+                return false;
+            }
+            bool wantsKeyBeforeShortcuts(QKeyEvent *event) override
+            {
+                return event->key() == Qt::Key_W && event->modifiers() == Qt::ControlModifier;
+            }
+        };
+        QVERIFY2(!offer(Qt::Key_W, Qt::ControlModifier),
+                 "Ctrl+W was claimed before any language asked for it");
+        new GreedyHandler(editor);
+        QVERIFY2(offer(Qt::Key_W, Qt::ControlModifier),
+                 "the language asked for Ctrl+W and did not get it");
     }
 
     // Commands only some languages can answer. A factory says which of them
