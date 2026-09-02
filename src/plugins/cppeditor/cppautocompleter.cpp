@@ -181,22 +181,26 @@ static QChar closingChar(QChar c)
     return QChar();
 }
 
-static TextEditor::BaseTextEditor *creteCppEditor(const QString &text)
+// Whichever view the C++ factory builds: what these tests exercise is the
+// auto-completer, which works on a cursor and knows nothing about either.
+static Core::IEditor *creteCppEditor(const QString &text)
 {
     QString name(QLatin1String("auto_complete_test"));
-    Core::IEditor *editor =  Core::EditorManager::openEditorWithContents(
+    return Core::EditorManager::openEditorWithContents(
         Constants::CPPEDITOR_ID, &name, text.toLocal8Bit());
-
-    return qobject_cast<TextEditor::BaseTextEditor *>(editor);
 }
 
-static QTextCursor openEditor(TextEditor::BaseTextEditor *cppEditor)
+static TextEditor::TextDocument *documentOf(Core::IEditor *cppEditor)
 {
-    QTextCursor tc;
+    return cppEditor ? qobject_cast<TextEditor::TextDocument *>(cppEditor->document()) : nullptr;
+}
 
-    if (cppEditor == 0)
+static QTextCursor openEditor(Core::IEditor *cppEditor)
+{
+    QTextCursor tc = TextEditor::textCursorOf(cppEditor);
+
+    if (tc.isNull())
         return tc;
-    tc = cppEditor->editorWidget()->textCursor();
     tc.movePosition(QTextCursor::Start);
     tc = tc.document()->find(QLatin1String("|"), tc);
     if (tc.isNull())
@@ -208,7 +212,7 @@ static QTextCursor openEditor(TextEditor::BaseTextEditor *cppEditor)
         tc.removeSelectedText();
         tc.setPosition(position, QTextCursor::KeepAnchor);
     } else {
-        tc = cppEditor->editorWidget()->textCursor();
+        tc = TextEditor::textCursorOf(cppEditor);
         tc.setPosition(position);
     }
     return tc;
@@ -273,11 +277,13 @@ void AutoCompleterTest::testAutoComplete()
 
     const QScopeGuard cleanup([] { Core::EditorManager::closeAllEditors(false); });
 
-    TextEditor::BaseTextEditor *cppEditor = creteCppEditor(text);
+    Core::IEditor * const cppEditor = creteCppEditor(text);
     QVERIFY(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    TextEditor::TextDocument * const document = documentOf(cppEditor);
+    QVERIFY(document);
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
     QTextCursor tc = openEditor(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
 
     QVERIFY(!tc.isNull());
 
@@ -336,11 +342,13 @@ void AutoCompleterTest::testSurroundWithSelection()
     QVERIFY(text.count(QLatin1Char('|')) == 2);
 
     const QScopeGuard cleanup([] { Core::EditorManager::closeAllEditors(false); });
-    TextEditor::BaseTextEditor *cppEditor = creteCppEditor(text);
+    Core::IEditor * const cppEditor = creteCppEditor(text);
     QVERIFY(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    TextEditor::TextDocument * const document = documentOf(cppEditor);
+    QVERIFY(document);
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
     QTextCursor tc = openEditor(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
 
     QVERIFY(!tc.isNull());
 
@@ -373,11 +381,13 @@ void AutoCompleterTest::testAutoBackspace()
     QVERIFY(text.contains(QLatin1Char('|')));
 
     const QScopeGuard cleanup([] { Core::EditorManager::closeAllEditors(false); });
-    TextEditor::BaseTextEditor *cppEditor = creteCppEditor(text);
+    Core::IEditor * const cppEditor = creteCppEditor(text);
     QVERIFY(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    TextEditor::TextDocument * const document = documentOf(cppEditor);
+    QVERIFY(document);
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
     QTextCursor tc = openEditor(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
 
     QVERIFY(!tc.isNull());
 
@@ -417,11 +427,13 @@ void AutoCompleterTest::testInsertParagraph()
     QVERIFY(text.contains(QLatin1Char('|')));
 
     const QScopeGuard cleanup([] { Core::EditorManager::closeAllEditors(false); });
-    TextEditor::BaseTextEditor *cppEditor = creteCppEditor(text);
+    Core::IEditor * const cppEditor = creteCppEditor(text);
     QVERIFY(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    TextEditor::TextDocument * const document = documentOf(cppEditor);
+    QVERIFY(document);
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
     QTextCursor tc = openEditor(cppEditor);
-    QTRY_VERIFY(cppEditor->textDocument()->syntaxHighlighter()->syntaxHighlighterUpToDate());
+    QTRY_VERIFY(document->syntaxHighlighter()->syntaxHighlighterUpToDate());
 
     QVERIFY(!tc.isNull());
 

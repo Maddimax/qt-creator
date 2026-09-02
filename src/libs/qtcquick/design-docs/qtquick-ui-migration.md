@@ -26810,3 +26810,74 @@ view - all exit 0. No new file, no `.qbs` edit.
 2. **The switch**: `setUsesQuickEditor(true)` in `CppEditorFactory` with no env
    var, and `QTC_WIDGET_CPP_EDITOR` as the way back. Nothing in the plan stands
    between here and it any more.
+
+## 2026-09-02 — The pre-switch sweep, and why the plan could not see it
+
+The last entry said nothing stood between here and the switch. That was wrong,
+and wrong in an instructive way: every batch had measured the classes it
+touched, and nobody had ever run the whole CppEditor suite in the Quick view.
+Doing that produced **110 failures against the widget view's 5**.
+
+**All of them were the test suite, not the editor**, and one cause dominated.
+`AutoCompleterTest` opens a file with `openEditorWithContents()` and casts the
+result to `BaseTextEditor`; in the Quick view that is null, so 67 cases failed
+at the first `QVERIFY`. Worse, the early return left the editors it had opened
+behind, so `TestCase`'s constructor - which insists the global snapshot is
+empty - failed for every class that came after. That is where
+`GenerateConstructorTest`'s 80 and `RemoveUsingNamespaceTest`'s 48 came from:
+they never ran at all.
+
+Four classes reached for a widget where the document would do, and all four are
+now view-agnostic: `AutoCompleterTest` (the completer works on a cursor and
+knows nothing about either view), `FindParentImplTest`, `CodeFoldingTest` -
+which *skipped* in the widget view and *failed* in the Quick one, so it looked
+like a difference and was not - and `LayoutPreviewTest`.
+
+**A whole-suite run is not the instrument to measure this with.** Two runs put
+the classes in different orders, so a class that passes early can fail late;
+`FollowSymbolTest` failed 129 times in one Quick run and passes 155/155 on its
+own. And the run aborts, intermittently, on a heap-use-after-free (below). So
+the sweep is per class instead - each of the 81 run twice, once per view:
+
+**81 classes. 1601 passed / 1 failed / 58 skipped, identical in both views. No
+class disagrees.** The one failure is
+`ModelManagerTest::testExtraeditorsupportUiFiles`, which fails the same way in
+both and has been a standing environment flake for this checkout throughout.
+
+Negative controls, three bit, each in its own file: the auto-completer tests
+asking for a widget editor again (67 failures in the Quick view), the folding
+test asking (1), and the parent-impl test asking (5). All three still pass in
+the widget view after the change, which is the other half of the claim.
+
+`TextEditor` 411 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. No new file, no `.qbs`
+edit.
+
+**The crash, diagnosed but not fixed.** `-test CppEditor` as a whole aborts
+perhaps one run in two, in either view, on a heap-use-after-free:
+`DocumentModel::entryForFilePath()` returns an `Entry *` that
+`qDeleteAll(entriesToDelete)` in `EditorManagerPrivate::closeEditors()` has
+already freed, so `m_entryByFixedPath` outlives what it points at. The obvious
+mechanism is that both removal sites forget the entry by *recomputing* its key -
+and `FilePath::canonicalPath()` cannot resolve a file that has been deleted, so
+it answers the path unchanged and the key no longer matches the one the entry
+was filed under. Tests delete their files while editors are open, so that fits.
+
+It does not reproduce. A test that opens a file through a symbolic link,
+deletes it and closes the editor - which makes the two keys provably differ -
+passes with the by-path removal in place, so something else (probably
+`itemChanged()` re-keying on `IDocument::changed`) already covers that route.
+Removing by identity instead of by key is strictly safer and was written, but
+shipping a crash fix whose control does not bite is worse than not shipping
+one, so it is out. What is left for whoever picks it up: the free stack above
+is real, and the missing piece is which entry is still filed and under what.
+
+**Next**:
+
+1. **The switch.** `setUsesQuickEditor(true)` in `CppEditorFactory` with no env
+   var, and `QTC_WIDGET_CPP_EDITOR` as the way back. The sweep above is the
+   evidence it was waiting for, and it is worth re-running after the flip,
+   because the flip changes which view `openCppEditorInAnyView()` gives every
+   test that does not force one.
+2. The use-after-free, which is not a Quick-editor gap and blocks nothing but
+   whole-suite runs.

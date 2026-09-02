@@ -15,6 +15,7 @@
 
 #ifdef WITH_TESTS
 #include "../cpptoolstestcase.h"
+#include "../cppeditordocument.h"
 #include "../cppeditorwidget.h"
 
 #include <coreplugin/editormanager/editormanager.h>
@@ -1012,18 +1013,19 @@ private slots:
         // Update Code Model
         QVERIFY(CppEditor::Tests::TestCase::parseFiles({doc.filePath()}));
 
-        // Open Editor
-        CppEditorWidget *editorWidget = nullptr;
-        TextEditor::BaseTextEditor *editor = nullptr;
-
-        QVERIFY(CppEditor::Tests::TestCase::openCppEditor(doc.filePath(), &editor,
-                                        &editorWidget));
-        QVERIFY(editorWidget);
-        editor->setCursorPosition(doc.m_cursorPosition);
-        QVERIFY(CppEditor::Tests::TestCase::waitForRehighlightedSemanticDocument(editorWidget));
+        // Open Editor, in whichever view the C++ factory builds: what this
+        // asks of it is the parse, which is the document's.
+        Core::IEditor *editor = nullptr;
+        QVERIFY(CppEditor::Tests::TestCase::openCppEditorInAnyView(doc.filePath(), &editor));
+        auto * const cppDocument = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(cppDocument);
+        QTextCursor caret(cppDocument->document());
+        caret.setPosition(doc.m_cursorPosition);
+        TextEditor::setTextCursorOf(editor, caret);
+        QVERIFY(CppEditor::Tests::TestCase::waitForRehighlightedSemanticDocument(cppDocument));
 
         // Check syntax.
-        CppQuickFixInterface quickFixInterface(editorWidget, ExplicitlyInvoked);
+        CppQuickFixInterface quickFixInterface(cppDocument, caret, ExplicitlyInvoked, editor);
         const auto diagnostics = quickFixInterface.semanticInfo().doc->diagnosticMessages();
         QVERIFY(diagnostics.isEmpty());
 

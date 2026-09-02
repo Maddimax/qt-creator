@@ -1062,14 +1062,15 @@ class Derived4 : public Derived3 { void @3foo(int) override; }
         QVERIFY(doc->writeToDisk());
         TestCase testCase;
         QVERIFY(testCase.succeededSoFar());
-        QVERIFY(testCase.openCppEditor(doc->filePath(), &doc->m_editor, &doc->m_editorWidget));
-        testCase.closeEditorAtEndOfTestCase(doc->m_editor);
-        TextDocument * const textDoc = doc->m_editorWidget->cppEditorDocument();
+        QVERIFY(TestCase::openCppEditorInAnyView(doc->filePath(), &doc->m_anyEditor));
+        testCase.closeEditorAtEndOfTestCase(doc->m_anyEditor);
+        auto * const textDoc = qobject_cast<CppEditorDocument *>(doc->m_anyEditor->document());
+        QVERIFY(textDoc);
         BaseEditorDocumentProcessor * const processor = CppModelManager::cppEditorDocumentProcessor(
             doc->filePath());
         QVERIFY(processor);
         QVERIFY(TestCase::waitForProcessedEditorDocument(doc->filePath()));
-        TestCase::waitForRehighlightedSemanticDocument(doc->m_editorWidget);
+        TestCase::waitForRehighlightedSemanticDocument(textDoc);
         Snapshot snapshot = processor->snapshot();
         QCOMPARE(snapshot.size(), 2); // Configuration file included
 
@@ -1092,7 +1093,7 @@ class Derived4 : public Derived3 { void @3foo(int) override; }
         cursor.setPosition(doc->m_cursorPosition);
         QTimer::singleShot(0, [&] {
             CppModelManager::followFunctionToParentImpl(
-                {cursor, doc->filePath(), doc->m_editorWidget, textDoc}, handler);
+                {cursor, doc->filePath(), nullptr, textDoc}, handler);
         });
         timer.setSingleShot(true);
         connect(&timer, &QTimer::timeout, [&loop] { loop.exit(1); });

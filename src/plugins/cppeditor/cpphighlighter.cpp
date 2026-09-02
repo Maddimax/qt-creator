@@ -985,8 +985,11 @@ int main() {                              // 1,0
         testDocument.setBaseDirectory(temporaryDir.path());
         QVERIFY(testDocument.writeToDisk());
 
-        QVERIFY(TestCase::openCppEditor(testDocument.filePath(), &testDocument.m_editor,
-                                        &testDocument.m_editorWidget));
+        QVERIFY(TestCase::openCppEditorInAnyView(testDocument.filePath(),
+                                                 &testDocument.m_anyEditor));
+        auto * const cppDocument
+            = qobject_cast<CppEditorDocument *>(testDocument.m_anyEditor->document());
+        QVERIFY(cppDocument);
 
         QEventLoop loop;
         QTimer t;
@@ -1000,8 +1003,7 @@ int main() {                              // 1,0
                 QEventLoop &loop;
             } loopHandler(loop);
 
-            if (qobject_cast<TextDocument *>(testDocument.m_editor->document())
-                    ->isFoldingIndentExternallyProvided()) {
+            if (cppDocument->isFoldingIndentExternallyProvided()) {
                 QSKIP("folding is done via clangd");
             }
 
@@ -1023,7 +1025,7 @@ int main() {                              // 1,0
                 const int foldingIndent = TextBlockUserData::foldingIndent(block);
                 return std::make_pair(braceDepth, foldingIndent);
             };
-            TextDocument * const doc = testDocument.m_editorWidget->textDocument();
+            TextDocument * const doc = cppDocument;
             const QTextBlock lastBlock = doc->document()->lastBlock();
             for (QTextBlock b = doc->document()->firstBlock(); b.isValid() && b != lastBlock;
                  b = b.next()) {
@@ -1035,11 +1037,9 @@ int main() {                              // 1,0
             }
         };
 
-        if (testDocument.m_editorWidget->cppEditorDocument()->ifdefedOutBlocks().isEmpty()) {
+        if (cppDocument->ifdefedOutBlocks().isEmpty()) {
             QObject guard;
-            connect(testDocument.m_editorWidget->cppEditorDocument(),
-                    &CppEditorDocument::ifdefedOutBlocksApplied,
-                    &guard, check);
+            connect(cppDocument, &CppEditorDocument::ifdefedOutBlocksApplied, &guard, check);
             t.start(5000);
             QCOMPARE(loop.exec(), 0);
         } else {
