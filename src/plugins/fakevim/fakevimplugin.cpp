@@ -1734,6 +1734,20 @@ void FakeVimPlugin::createRelativeNumberWidget(IEditor *editor)
         connect(&settings().useFakeVim, &FvBaseAspect::changed,
                 relativeNumbers, &QObject::deleteLater);
         relativeNumbers->show();
+        return;
+    }
+
+    // A view that numbers its own gutter is told to count from the caret,
+    // rather than having a column of numbers laid over the top of it.
+    if (const auto view = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor))) {
+        view->setRelativeLineNumbers(true);
+        const auto follow = [view] {
+            view->setRelativeLineNumbers(settings().useFakeVim()
+                                         && settings().relativeNumber());
+        };
+        connect(&settings().relativeNumber, &FvBaseAspect::changed, view, follow);
+        connect(&settings().useFakeVim, &FvBaseAspect::changed, view, follow);
     }
 }
 
@@ -2190,6 +2204,50 @@ private slots:
         send(Qt::Key_D, "d");
         send(Qt::Key_D, "d");
         QCOMPARE(document->document()->toPlainText(), QString("world\n"));
+    }
+
+    // "relativenumber". The widget editor lays a column of numbers over its
+    // own gutter, which needs a widget to lay it on; a view that draws its own
+    // gutter is told to number it from the caret instead.
+    void testRelativeNumbersReachTheQuickEditorsGutter()
+    {
+        const bool wasOn = settings().useFakeVim();
+        const bool wasRelative = settings().relativeNumber();
+        const QScopeGuard restore([wasOn, wasRelative] {
+            settings().useFakeVim.setValue(wasOn);
+            settings().relativeNumber.setValue(wasRelative);
+        });
+        settings().useFakeVim.setValue(true);
+        settings().relativeNumber.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-relative-numbers");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int a;\nint b;\nint c;\n"));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        const auto view = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor));
+        QVERIFY(view);
+        QVERIFY2(view->relativeLineNumbers(),
+                 "the gutter was left numbering from the top of the file");
+
+        // Turning the setting off puts it back.
+        settings().relativeNumber.setValue(false);
+        QVERIFY2(!view->relativeLineNumbers(),
+                 "the gutter kept counting from the caret after the setting went off");
+        settings().relativeNumber.setValue(true);
+        QVERIFY(view->relativeLineNumbers());
+
+        // As does switching FakeVim off altogether.
+        settings().useFakeVim.setValue(false);
+        QVERIFY2(!view->relativeLineNumbers(),
+                 "the gutter kept counting from the caret after FakeVim went off");
     }
 
     // A key Creator binds elsewhere has to reach vim instead of firing the

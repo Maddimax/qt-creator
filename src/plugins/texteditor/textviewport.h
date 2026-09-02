@@ -229,6 +229,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // Insert key turns it on and off, as it does in the widget editor.
     Q_PROPERTY(bool overwriteMode READ overwriteMode WRITE setOverwriteMode
                    NOTIFY overwriteModeChanged)
+    // Number the gutter by distance from the caret rather than from the top of
+    // the file - vim's "relativenumber". The caret's own line keeps its real
+    // number, which is what the widget editor's overlay leaves showing.
+    Q_PROPERTY(bool relativeLineNumbers READ relativeLineNumbers
+                   WRITE setRelativeLineNumbers NOTIFY relativeLineNumbersChanged)
     // Whether a line too long for the width is broken across rows.
     //
     // Off by default, and off is the cheap path: with every line exactly one
@@ -845,6 +850,8 @@ public:
     void setReadOnly(bool readOnly);
     bool overwriteMode() const;
     void setOverwriteMode(bool overwrite);
+    bool relativeLineNumbers() const;
+    void setRelativeLineNumbers(bool relative);
     // A cursor at an item coordinate, which is positionAt() as the widget
     // editors spell it.
     QTextCursor cursorForPosition(const QPoint &point) const;
@@ -889,6 +896,7 @@ signals:
     void cursorRectangleChanged();
     void readOnlyChanged();
     void overwriteModeChanged();
+    void relativeLineNumbersChanged();
     void fileFormatChanged();
     // A character to pulse where it stands: the bracket that matches the one
     // the caret just arrived beside, once per arrival.
@@ -1114,6 +1122,7 @@ private:
     QPointer<Utils::TextEditorLayout> m_editorLayout;
     bool m_wrapping = false;
     bool m_overwriteMode = false;
+    bool m_relativeLineNumbers = false;
     bool m_centerOnScroll = false;
     // Unset until the view is told: the setting answers until then.
     std::optional<bool> m_visualizeWhitespace;
@@ -1122,6 +1131,7 @@ private:
     // file with a modal editing mode on has two, and findChild() would answer
     // whichever happened to be constructed first.
     QList<EditHandler *> editHandlers() const;
+    void updateRelativeOrigin();
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one

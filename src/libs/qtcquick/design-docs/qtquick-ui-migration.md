@@ -27874,3 +27874,59 @@ running Creator; none of them is covered by a test on either side.
    kit.
 3. The whitespace-on-save revision race, the CppEditor whole-suite
    use-after-free, and the Profiler abort - all older than this migration.
+
+## 2026-09-02 — Relative line numbers, and the mini buffer read rather than guessed
+
+The plan said to look at FakeVim in a running Creator and named the mini buffer
+and relative line numbers. Both turned out to be answerable by reading, which
+is cheaper and more precise than driving a GUI, so that is what this batch did.
+
+**The mini buffer is fine by default, and this is worth writing down rather
+than "fixing".** The in-editor command line - `attachEditorMiniBuffer()` - takes
+a `TextEditorWidget` and is released when there is not one, so in the Quick
+editor it shows nothing. But `commandLineInEditor` **defaults to false**, and
+the default path is the status-bar `MiniBuffer`, which is driven by
+`handler->commandBufferChanged` and knows nothing about views. So `:` works out
+of the box; only a reader who has turned that setting on loses it. Left alone
+deliberately: hosting it would need the view to reserve a strip at its bottom,
+which is `setEditorTextMargin()` on the widget side and does not exist here.
+
+**Relative line numbers were a real gap, and are now a viewport feature.**
+`createRelativeNumberWidget()` did nothing without a widget, so vim's
+`relativenumber` was silently ignored. The widget editor lays a
+`RelativeNumbersColumn` *over* its own gutter; a view that draws its own gutter
+should simply number it differently, so:
+
+- `TextViewport` gained a `relativeLineNumbers` property;
+- the row model gained a **`displayNumber`** role - what the gutter should
+  print - which is the line number normally, and the distance from the caret
+  when counting relatively, with the caret's own line keeping its real number.
+  That last part is not invention: it is what the widget's overlay leaves
+  showing, because it skips `n == 0`;
+- the gutter prints `displayNumber` instead of `lineNumber`.
+
+Putting the arithmetic in the model rather than in QML is what makes it
+testable in C++ - the test reads the role straight out of the model for eight
+rows, moves the caret, and reads them again. The origin is pushed to the model
+on cursor movement rather than baked into each row, because the caret moves far
+more often than the rows are rebuilt.
+
+Negative controls, all three bit: the display number ignoring the origin, the
+origin not following the caret, and FakeVim not telling a non-widget view.
+
+`TextEditor` 417 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 263 passed exit
+0, standalone `tst_fakevim` 7 passed exit 0. No new file, no `.qbs` edit.
+
+**Next**:
+
+1. **Still nobody has used vim in the Quick editor by hand.** Everything is
+   tested through sent events and read properties. The gutter change in
+   particular is asserted at the model and not on screen - `qmllint` is clean
+   and the binding is one word, but that is not the same as looking at it.
+2. Suggestions are still a widget's: Tab in insert mode is vim's alone in this
+   view, and `blockSuggestions()`/`clearSuggestion()` are skipped.
+3. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+4. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.

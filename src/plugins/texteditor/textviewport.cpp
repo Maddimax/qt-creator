@@ -689,6 +689,7 @@ public:
         YRole = Qt::UserRole,
         WidthRole,
         LineNumberRole,
+        DisplayNumberRole,
         FirstRowOfLineRole,
         ChangedRole,
         IndentGuidesRole,
@@ -710,6 +711,7 @@ public:
         return {{YRole, "y"},
                 {WidthRole, "width"},
                 {LineNumberRole, "lineNumber"},
+                {DisplayNumberRole, "displayNumber"},
                 {FirstRowOfLineRole, "firstRowOfLine"},
                 {ChangedRole, "changed"},
                 {IndentGuidesRole, "indentGuides"},
@@ -738,6 +740,14 @@ public:
         case YRole: return row.y;
         case WidthRole: return row.width;
         case LineNumberRole: return row.lineNumber;
+        case DisplayNumberRole:
+            // What the gutter prints. The same as the line number, except
+            // while numbering relative to a line - vim's "relativenumber" -
+            // where every other line says how far away it is and the line
+            // itself keeps its own number.
+            if (m_relativeOrigin <= 0 || row.lineNumber == m_relativeOrigin)
+                return row.lineNumber;
+            return qAbs(row.lineNumber - m_relativeOrigin);
         case FirstRowOfLineRole: return row.firstRowOfLine;
         case ChangedRole: return row.changed;
         case IndentGuidesRole: return row.indentGuides;
@@ -752,6 +762,20 @@ public:
         case WhitespaceRole: return row.whitespace;
         }
         return {};
+    }
+
+    // The line the numbers are counted from, or 0 for none. Kept here rather
+    // than in each row so that moving the caret is one signal and not a
+    // rebuild of every row.
+    void setRelativeOrigin(int line)
+    {
+        if (m_relativeOrigin == line)
+            return;
+        m_relativeOrigin = line;
+        if (!m_rows.empty()) {
+            emit dataChanged(index(0), index(int(m_rows.size()) - 1),
+                             {DisplayNumberRole});
+        }
     }
 
     void setRows(QList<RowView> rows)
@@ -839,6 +863,7 @@ private:
     }
 
     QList<RowView> m_rows;
+    int m_relativeOrigin = 0;
 };
 
 QAbstractItemModel *TextViewport::visibleRows() const
@@ -2293,6 +2318,8 @@ void TextViewport::setCursorPosition(int position)
     if (m_functionHintProposal)
         updateFunctionHint();
     updateSuggestion();
+    // Numbering counted from the caret has to follow it.
+    updateRelativeOrigin();
     emit cursorPositionChanged();
     emit cursorRectangleChanged();
 }
@@ -2868,6 +2895,28 @@ bool TextViewport::selectBlockDown()
     setTextCursor(cursor);
     updateParenthesesMatch();
     return true;
+}
+
+bool TextViewport::relativeLineNumbers() const
+{
+    return m_relativeLineNumbers;
+}
+
+void TextViewport::setRelativeLineNumbers(bool relative)
+{
+    if (m_relativeLineNumbers == relative)
+        return;
+    m_relativeLineNumbers = relative;
+    updateRelativeOrigin();
+    emit relativeLineNumbersChanged();
+}
+
+// The line the gutter counts from, pushed to the model rather than baked into
+// each row: the caret moves far more often than the rows are rebuilt.
+void TextViewport::updateRelativeOrigin()
+{
+    if (m_visibleRows)
+        m_visibleRows->setRelativeOrigin(m_relativeLineNumbers ? cursorLine() : 0);
 }
 
 bool TextViewport::overwriteMode() const

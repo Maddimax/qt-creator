@@ -4428,6 +4428,76 @@ private slots:
                                 .arg(scrolledToMiddle).arg(scrolledToEdge)));
     }
 
+    // Numbering the gutter by distance from the caret - vim's
+    // "relativenumber". The widget editor lays a column of numbers over its
+    // own; a view that draws its own gutter is told to number it differently,
+    // which is what the model answers.
+    void testTheGutterCanNumberFromTheCaret()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-relative-numbers");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QString content;
+        for (int i = 1; i <= 40; ++i)
+            content += QString("line %1\n").arg(i);
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+        QTRY_VERIFY(view->visibleLineCount() > 5);
+
+        QAbstractItemModel * const rows = view->visibleRows();
+        QVERIFY(rows);
+        const int displayRole = rows->roleNames().key("displayNumber", -1);
+        const int lineRole = rows->roleNames().key("lineNumber", -1);
+        QVERIFY2(displayRole >= 0, "the row model does not say what to print");
+        QVERIFY(lineRole >= 0);
+        const auto numberOfRow = [rows, displayRole](int row) {
+            return rows->data(rows->index(row, 0), displayRole).toInt();
+        };
+        const auto lineOfRow = [rows, lineRole](int row) {
+            return rows->data(rows->index(row, 0), lineRole).toInt();
+        };
+
+        // Put the caret on the fifth line.
+        QTextCursor caret(view->textDocument()->document());
+        caret.setPosition(view->textDocument()->document()->findBlockByNumber(4).position());
+        view->setTextCursor(caret);
+        QCOMPARE(view->cursorLine(), 5);
+
+        // Counting from the top, which is what it does until told otherwise.
+        QVERIFY2(!view->relativeLineNumbers(), "the gutter started out counting from the caret");
+        for (int row = 0; row < 5; ++row)
+            QCOMPARE(numberOfRow(row), lineOfRow(row));
+
+        view->setRelativeLineNumbers(true);
+        // The caret's own line keeps its number; the others say how far away
+        // they are, in both directions.
+        for (int row = 0; row < 8; ++row) {
+            const int line = lineOfRow(row);
+            const int expected = line == 5 ? 5 : qAbs(line - 5);
+            QCOMPARE(numberOfRow(row), expected);
+        }
+
+        // And the numbers follow the caret rather than being fixed once.
+        caret.setPosition(view->textDocument()->document()->findBlockByNumber(6).position());
+        view->setTextCursor(caret);
+        QCOMPARE(view->cursorLine(), 7);
+        for (int row = 0; row < 8; ++row) {
+            const int line = lineOfRow(row);
+            const int expected = line == 7 ? 7 : qAbs(line - 7);
+            QCOMPARE(numberOfRow(row), expected);
+        }
+
+        view->setRelativeLineNumbers(false);
+        for (int row = 0; row < 5; ++row)
+            QCOMPARE(numberOfRow(row), lineOfRow(row));
+    }
+
     // Commands only some languages can answer. A factory says which of them
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.

@@ -121,7 +121,7 @@ Item {
             // the continuation rows belong to the same line, and numbering
             // them again would be counting rows rather than lines.
             text: number.model.firstRowOfLine
-                      ? String(number.model.lineNumber)
+                      ? String(number.model.displayNumber)
                       : ""
             font: root.viewport.font
             color: Tokens.textMuted
