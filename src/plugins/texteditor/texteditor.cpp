@@ -10106,7 +10106,7 @@ void TextEditorFactory::setEditorCreator(const EditorCreator &creator)
         if (d->m_usesQuickEditor) {
             Context context(id());
             context.add(d->m_editorContexts);
-            return Internal::createQuickTextEditor(doc, context);
+            return Internal::createQuickTextEditor(doc, context, d->m_optionalActionMask);
         }
 
         return d->createEditorHelper(doc);

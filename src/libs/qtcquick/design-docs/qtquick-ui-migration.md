@@ -26945,3 +26945,78 @@ edit.
 4. Deleting `CppEditorWidget` is not close: it is still what
    `QTC_WIDGET_CPP_EDITOR` builds, and still where a good deal of behaviour
    lives that the Quick side reaches through seams rather than owns.
+
+## 2026-09-02 — The optional-action mask
+
+The gap the last entry left open, and the one the instructions have named all
+along. `TextEditorFactory` carries an `OptionalActions` mask saying which of
+the commands only some languages can answer this one does, and the widget
+editor greys out the rest in `updateOptionalActions()`. The Quick editor did
+not read it: every editor registered all ten enabled, so a plain text file was
+offered Rename Symbol, Find Usages and Follow Symbol, and answering them meant
+asking a relay nobody was listening to.
+
+`createQuickTextEditor()` takes the mask beside the document and the context,
+and the registrations gate on it. Registered either way, disabled where the
+language cannot answer - so the menu entry keeps its place and its shortcut and
+only stops pretending. That is what the widget editor does, and it matters for
+the two entries that are also keyboard shortcuts.
+
+**Two of the ten also depend on being allowed to write.** Format and
+Un/Comment Selection edit, so the widget asks `isReadOnly()` about them in
+`updateActions()` rather than only at construction. The Quick editor
+re-evaluates on `TextViewport::readOnlyChanged` and on the document's
+`changed()`, which is what makes the answer follow a file turning read-only
+rather than being fixed when the editor was built.
+
+**The plain text Quick editor had no mask at all**, being an `IEditorFactory`
+rather than a `TextEditorFactory`. It now grants the same three
+`PlainTextEditorFactory` does - `Format | UnCommentSelection | UnCollapseAll` -
+which is the whole point: a text file can be formatted, commented and unfolded,
+and has no symbols to follow or rename.
+
+Nothing else changes: C++ is the only language whose factory asks for the Quick
+editor, and its mask grants all ten, so the switch keeps everything it had.
+Every other language still builds a widget editor and its mask is still applied
+where it always was.
+
+An existing test needed adjusting rather than fixing, which is worth saying
+plainly: `testTheSymbolCommandsAskThroughTheRelay` opens a *plain text* file
+and used to trigger Find Usages straight off the action. That action is now
+correctly disabled, so the test asserts that first and enables it before
+triggering - the relay is what that test is about, and the action reaching it
+is what the new test covers.
+
+Negative controls, three bit, each on its own assertion: the gate enabling
+everything whatever the mask says ("a plain text file is offered Find Usages",
+and "a language that answers no symbol question is offered Rename Symbol"), the
+factory's mask never reaching the Quick editor ("the language asked for Rename
+Symbol and did not get it"), and an edit command ignoring writability ("a
+read-only file is still offered to be commented").
+
+`TextEditor` 412 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. CppEditor per class:
+`FollowSymbolTest` 155, `SelectionsTest` 15, `QuickFixAssistTest` 8,
+`QuickEditorHighlighterTest` 4, `LanguageToolBarTest` 3 - all exit 0. No new
+file, no `.qbs` edit.
+
+The whole CppEditor suite as a smoke run is 79 classes, 1568 passed, 10 failed:
+seven `LocatorFilterTest`, two `GlobalRenamingTest`, one
+`MoveFunctionCommentsTest`, one `ModelManagerTest`. All four classes pass on
+their own - 15, 4, 10, and the standing flake - so those are the order and the
+heap corruption this document has been describing for three entries, not this
+change. A whole-suite run stays the wrong instrument; the per-class numbers
+above are the claim.
+
+**Next**:
+
+1. **`SynchronizeMemberFunctionOrderTest`** asserts `QVERIFY(editorWidget)`. It
+   skips here for want of a kit, so no sweep has ever seen it; it will fail on
+   a machine that has one.
+2. The whole-suite heap-use-after-free, still not reproduced. The previous
+   entries carry the free stack and the mechanism that turned out not to be it.
+3. Deleting `CppEditorWidget`, which is not close: it is still what
+   `QTC_WIDGET_CPP_EDITOR` builds, and still where a good deal of behaviour
+   lives that the Quick side reaches through seams rather than owns. Whether
+   that is worth doing at all is a question for whoever owns the widget
+   editor's other users, not for this plan.

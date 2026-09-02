@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "texteditor.h"
 #include "textdocument.h"
 
 #include <coreplugin/icontext.h>
@@ -33,8 +34,13 @@ Core::IEditor *editorForViewport(TextViewport *view);
 //
 // This is how a factory offers the Quick editor of the language it configures
 // instead of a TextEditorWidget. See TextEditorFactory::setUsesQuickEditor().
+// \a optionalActions is the factory's OptionalActions mask: which of the
+// commands that only some languages can answer this one does. What the mask
+// does not name is registered disabled, the way the widget editor greys it out
+// - a plain text file has no symbol to rename.
 Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
-                                     const Core::Context &context);
+                                     const Core::Context &context,
+                                     uint optionalActions = OptionalActions::None);
 
 // The Qt Quick code editor. What a plain text file opens in; a language whose
 // factory has not said setUsesQuickEditor() still opens in the widget one.

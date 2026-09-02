@@ -210,9 +210,11 @@ public:
 
     // A split view is two editors on one document, so duplicating shares it
     // rather than opening the file again.
-    explicit QuickTextEditor(TextDocumentPtr document)
+    explicit QuickTextEditor(TextDocumentPtr document,
+                             uint optionalActions = OptionalActions::None)
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
+        , m_optionalActions(optionalActions)
     {
         // duplicate() answers, so say so: the editor manager asks this rather
         // than trying, and an editor it thinks cannot be duplicated is moved
@@ -345,13 +347,15 @@ public:
         // Follow Symbol. The action is global and its shortcut is the user's;
         // what it does here is ask the file's language where the symbol is,
         // which is what the widget editor's findLinkAt() override used to be.
-        const auto followSymbol = [this](Utils::Id id, bool inNextSplit) {
-            Core::ActionBuilder(this, id)
-                .setContext(Core::Context(m_editorContext))
-                .addOnTriggered(this, [this, inNextSplit] {
-                    if (TextViewport * const view = viewport())
-                        view->followSymbolUnderCursor(view->opensInNextSplit(inNextSplit));
-                });
+        const auto followSymbol = [this](Utils::Id id, bool inNextSplit, uint needs) {
+            gate(Core::ActionBuilder(this, id)
+                     .setContext(Core::Context(m_editorContext))
+                     .addOnTriggered(this, [this, inNextSplit] {
+                         if (TextViewport * const view = viewport())
+                             view->followSymbolUnderCursor(view->opensInNextSplit(inNextSplit));
+                     })
+                     .contextAction(),
+                 needs);
         };
         // The same action the widget editor answers; which editor is current
         // decides who does. Without this the menu entry is dead whenever a
@@ -406,13 +410,16 @@ public:
         // The line commands. Each is the widget editor's menu entry answered
         // in this editor's context, so that it stops being dead when a Quick
         // editor is the current one.
-        const auto command = [this](Utils::Id id, void (TextViewport::*run)()) {
-            Core::ActionBuilder(this, id)
-                .setContext(Core::Context(m_editorContext))
-                .addOnTriggered(this, [this, run] {
-                    if (TextViewport * const view = viewport())
-                        (view->*run)();
-                });
+        const auto command = [this](Utils::Id id, void (TextViewport::*run)(),
+                                    uint needs = OptionalActions::None) {
+            gate(Core::ActionBuilder(this, id)
+                     .setContext(Core::Context(m_editorContext))
+                     .addOnTriggered(this, [this, run] {
+                         if (TextViewport * const view = viewport())
+                             (view->*run)();
+                     })
+                     .contextAction(),
+                 needs);
         };
         command(Constants::UPPERCASE_SELECTION, &TextViewport::uppercaseSelection);
         command(Constants::LOWERCASE_SELECTION, &TextViewport::lowercaseSelection);
@@ -420,7 +427,8 @@ public:
         command(Constants::INSERT_LINE_BELOW, &TextViewport::insertLineBelow);
         command(Constants::DUPLICATE_SELECTION, &TextViewport::duplicateSelection);
         command(Constants::SORT_LINES, &TextViewport::sortLines);
-        command(Constants::UN_COMMENT_SELECTION, &TextViewport::unCommentSelection);
+        command(Constants::UN_COMMENT_SELECTION, &TextViewport::unCommentSelection,
+                OptionalActions::UnCommentSelection);
         command(Constants::DUPLICATE_SELECTION_AND_COMMENT,
                 &TextViewport::duplicateSelectionAndComment);
         command(Constants::DELETE_LINE, &TextViewport::deleteLine);
@@ -446,8 +454,10 @@ public:
 
         command(Constants::INDENT, &TextViewport::indent);
         command(Constants::UNINDENT, &TextViewport::unindent);
-        command(Constants::AUTO_INDENT_SELECTION, &TextViewport::autoIndent);
-        command(Constants::AUTO_FORMAT_SELECTION, &TextViewport::autoFormat);
+        command(Constants::AUTO_INDENT_SELECTION, &TextViewport::autoIndent,
+                OptionalActions::Format);
+        command(Constants::AUTO_FORMAT_SELECTION, &TextViewport::autoFormat,
+                OptionalActions::Format);
 
         command(Core::Constants::ZOOM_IN, &TextViewport::increaseFontZoom);
         command(Core::Constants::ZOOM_OUT, &TextViewport::decreaseFontZoom);
@@ -476,7 +486,8 @@ public:
         folding(Constants::UNFOLD, true, false);
         folding(Constants::FOLD_RECURSIVELY, false, true);
         folding(Constants::UNFOLD_RECURSIVELY, true, true);
-        command(Constants::UNFOLD_ALL, &TextViewport::toggleFoldAll);
+        command(Constants::UNFOLD_ALL, &TextViewport::toggleFoldAll,
+                OptionalActions::UnCollapseAll);
 
         command(Constants::SELECT_WORD_UNDER_CURSOR, &TextViewport::selectWordUnderCursor);
         command(Constants::CLEAR_SELECTION, &TextViewport::clearSelection);
@@ -625,26 +636,35 @@ public:
             });
         command(Constants::FUNCTION_HINT, &TextViewport::requestFunctionHint);
 
-        command(Constants::FIND_USAGES, &TextViewport::findUsages);
-        command(Constants::RENAME_SYMBOL, &TextViewport::renameSymbolUnderCursor);
-        command(Constants::OPEN_CALL_HIERARCHY, &TextViewport::openCallHierarchy);
+        command(Constants::FIND_USAGES, &TextViewport::findUsages,
+                OptionalActions::FindUsage);
+        command(Constants::RENAME_SYMBOL, &TextViewport::renameSymbolUnderCursor,
+                OptionalActions::RenameSymbol);
+        command(Constants::OPEN_CALL_HIERARCHY, &TextViewport::openCallHierarchy,
+                OptionalActions::CallHierarchy);
 
-        followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);
-        followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true);
+        followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false,
+                     OptionalActions::FollowSymbolUnderCursor);
+        followSymbol(Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true,
+                     OptionalActions::FollowSymbolUnderCursor);
         // The same operation the widget editor gives two entries: following a
         // symbol and jumping to the file under the cursor are one question
         // asked by two shortcuts.
-        followSymbol(Constants::JUMP_TO_FILE_UNDER_CURSOR, false);
-        followSymbol(Constants::JUMP_TO_FILE_UNDER_CURSOR_IN_NEXT_SPLIT, true);
+        followSymbol(Constants::JUMP_TO_FILE_UNDER_CURSOR, false,
+                     OptionalActions::JumpToFileUnderCursor);
+        followSymbol(Constants::JUMP_TO_FILE_UNDER_CURSOR_IN_NEXT_SPLIT, true,
+                     OptionalActions::JumpToFileUnderCursor);
 
         // Where the type of the symbol is, which is a different question.
         const auto followType = [this](Utils::Id id, bool inNextSplit) {
-            Core::ActionBuilder(this, id)
-                .setContext(Core::Context(m_editorContext))
-                .addOnTriggered(this, [this, inNextSplit] {
-                    if (TextViewport * const view = viewport())
-                        view->followTypeUnderCursor(view->opensInNextSplit(inNextSplit));
-                });
+            gate(Core::ActionBuilder(this, id)
+                     .setContext(Core::Context(m_editorContext))
+                     .addOnTriggered(this, [this, inNextSplit] {
+                         if (TextViewport * const view = viewport())
+                             view->followTypeUnderCursor(view->opensInNextSplit(inNextSplit));
+                     })
+                     .contextAction(),
+                 OptionalActions::FollowTypeUnderCursor);
         };
         followType(Constants::FOLLOW_SYMBOL_TO_TYPE, false);
         followType(Constants::FOLLOW_SYMBOL_TO_TYPE_IN_NEXT_SPLIT, true);
@@ -652,20 +672,56 @@ public:
         // Not a question for the view at all - it opens a pane and tells it
         // to look at whatever is current - but it is registered per editor,
         // so it is dead here until this editor registers it too.
-        Core::ActionBuilder(this, Constants::OPEN_TYPE_HIERARCHY)
-            .setContext(Core::Context(m_editorContext))
-            .addOnTriggered(this, [] {
-                updateTypeHierarchy(Core::NavigationWidget::activateSubWidget(
-                    Constants::TYPE_HIERARCHY_FACTORY_ID, Core::Side::Left));
-            });
+        gate(Core::ActionBuilder(this, Constants::OPEN_TYPE_HIERARCHY)
+                 .setContext(Core::Context(m_editorContext))
+                 .addOnTriggered(this, [] {
+                     updateTypeHierarchy(Core::NavigationWidget::activateSubWidget(
+                         Constants::TYPE_HIERARCHY_FACTORY_ID, Core::Side::Left));
+                 })
+                 .contextAction(),
+             OptionalActions::TypeHierarchy);
 
         // Ctrl+F reaches an editor by asking its widget for an IFindSupport,
         // so this has to hang off the widget rather than off the editor.
-        if (TextViewport * const view = viewport())
+        if (TextViewport * const view = viewport()) {
             Utils::Aggregation::aggregate({widget, new QuickTextFind(view, widget)});
+            // Two of the gated commands edit, so being allowed to is part of
+            // whether they are offered - the widget editor asks the same
+            // question in updateActions().
+            connect(view, &TextViewport::readOnlyChanged, this, [this] {
+                updateOptionalActions();
+            });
+        }
+        connect(m_document.get(), &Core::IDocument::changed, this, [this] {
+            updateOptionalActions();
+        });
+        updateOptionalActions();
     }
 
     Core::IDocument *document() const final { return m_document.get(); }
+
+    // A command only some languages can answer, and the bit of the factory's
+    // mask that says whether this one does. Registered either way, so that the
+    // menu entry keeps its place and its shortcut; disabled where the language
+    // has nothing to answer with, which is what the widget editor does.
+    void gate(QAction *action, uint needs)
+    {
+        if (needs != OptionalActions::None)
+            m_gatedActions.append({action, needs});
+    }
+
+    void updateOptionalActions()
+    {
+        TextViewport * const view = viewport();
+        const bool writable = view && view->canEdit();
+        for (const auto &[action, needs] : std::as_const(m_gatedActions)) {
+            if (!action)
+                continue;
+            const bool edits = needs & (OptionalActions::Format
+                                        | OptionalActions::UnCommentSelection);
+            action->setEnabled((m_optionalActions & needs) && (!edits || writable));
+        }
+    }
 
     // The editor's own part of the toolbar row. Built on demand and once: the
     // editor manager asks whenever this editor becomes current, and a new one
@@ -972,6 +1028,9 @@ public:
     QPointer<QAction> m_wrapAction;
     // Enabled only while there is a suggestion to take.
     QList<QPointer<QAction>> m_suggestionActions;
+    struct GatedAction { QPointer<QAction> action; uint needs; };
+    QList<GatedAction> m_gatedActions;
+    const uint m_optionalActions = OptionalActions::None;
     QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
@@ -992,7 +1051,15 @@ public:
         // mime type's parents, so source files come here too.
         addMimeType(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT));
         addMimeType(QLatin1String("text/css")); // freedesktop calls css text/x-csrc
-        setEditorCreator([] { return new QuickTextEditor; });
+        // The same three the widget plain text editor grants: a text file can
+        // be formatted, commented and unfolded, and has no symbols to follow
+        // or rename. See PlainTextEditorFactory.
+        setEditorCreator([] {
+            return new QuickTextEditor(TextDocumentPtr(new TextDocument(QUICK_TEXT_EDITOR_ID)),
+                                       OptionalActions::Format
+                                           | OptionalActions::UnCommentSelection
+                                           | OptionalActions::UnCollapseAll);
+        });
     }
 };
 
@@ -1010,9 +1077,10 @@ Core::IEditor *editorForViewport(TextViewport *view)
 }
 
 Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
-                                     const Core::Context &context)
+                                     const Core::Context &context,
+                                     uint optionalActions)
 {
-    auto * const editor = new QuickTextEditor(document);
+    auto * const editor = new QuickTextEditor(document, optionalActions);
     // Added rather than set: the editor gave itself the two contexts every
     // Quick editor needs - the shared one and its own - in the constructor,
     // and replacing them would take the per-editor actions with them.
@@ -1272,6 +1340,12 @@ private slots:
         };
         QAction * const findUsages = inContext(Constants::FIND_USAGES);
         QVERIFY2(findUsages, "Find Usages is not registered in the editor's context");
+        // Registered, and disabled: this is a plain text file, whose factory
+        // asks for no symbol command at all. Enabling it is what makes it
+        // reach the relay - see testTheOptionalCommandsFollowTheFactorysMask.
+        QVERIFY2(!findUsages->isEnabled(),
+                 "a plain text file is offered Find Usages");
+        findUsages->setEnabled(true);
         findUsages->trigger();
         QCOMPARE(usages.size(), 2);
 
@@ -1280,6 +1354,7 @@ private slots:
         QSignalSpy typeAsked(requests, &TextEditor::SymbolRequests::requestTypeAt);
         QAction * const toType = inContext(Constants::FOLLOW_SYMBOL_TO_TYPE);
         QVERIFY2(toType, "Follow Symbol to Type is not registered in the editor's context");
+        toType->setEnabled(true);
         toType->trigger();
         QCOMPARE(typeAsked.size(), 1);
         QVERIFY2(qvariant_cast<Utils::LinkHandler>(typeAsked.at(0).at(1)) != nullptr,
@@ -4064,6 +4139,78 @@ private slots:
         // It says where the caret is, so it has to follow it.
         outline->showRow(1);
         QTRY_COMPARE(drawn->property("text").toString(), QString("beta()"));
+    }
+
+    // Commands only some languages can answer. A factory says which of them
+    // its language does with an OptionalActions mask, and the widget editor
+    // greys out the rest - so a plain text file is not offered Rename Symbol.
+    // The Quick editor registered all of them enabled whatever the mask said.
+    void testTheOptionalCommandsFollowTheFactorysMask()
+    {
+        class MaskedFactory final : public TextEditorFactory
+        {
+        public:
+            MaskedFactory(const Utils::Id &id, uint mask)
+            {
+                setId(id);
+                setDisplayName(id.toString());
+                setDocumentCreator([id] { return new TextDocument(id); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+                setOptionalActionMask(mask);
+            }
+        };
+
+        // What a language answers is the point, so ask for two of the ten and
+        // nothing else.
+        MaskedFactory some("QuickEditorMaskTestSome",
+                           OptionalActions::RenameSymbol | OptionalActions::UnCommentSelection);
+        MaskedFactory none("QuickEditorMaskTestNone", OptionalActions::None);
+
+        const std::unique_ptr<Core::IEditor> withSome(some.createEditor());
+        const std::unique_ptr<Core::IEditor> withNone(none.createEditor());
+        QVERIFY(withSome && withNone);
+
+        const auto actionFor = [](Core::IEditor *editor, const Utils::Id &id) -> QAction * {
+            Core::Command * const cmd = Core::ActionManager::command(id);
+            if (!cmd)
+                return nullptr;
+            for (const Utils::Id &each : editor->context()) {
+                if (QAction * const a = cmd->actionForContext(each))
+                    return a;
+            }
+            return nullptr;
+        };
+
+        // Registered either way: the entry keeps its place and its shortcut,
+        // and only says whether the language can answer it.
+        QAction * const renameHere = actionFor(withSome.get(), Constants::RENAME_SYMBOL);
+        QVERIFY2(renameHere, "Rename Symbol is not registered in the editor's context at all");
+        QVERIFY2(renameHere->isEnabled(),
+                 "the language asked for Rename Symbol and did not get it");
+
+        QAction * const renameThere = actionFor(withNone.get(), Constants::RENAME_SYMBOL);
+        QVERIFY2(renameThere, "Rename Symbol is not registered for the second editor");
+        QVERIFY2(!renameThere->isEnabled(),
+                 "a language that answers no symbol question is offered Rename Symbol");
+
+        // One the first factory did not ask for either.
+        QAction * const usages = actionFor(withSome.get(), Constants::FIND_USAGES);
+        QVERIFY(usages);
+        QVERIFY2(!usages->isEnabled(),
+                 "Find Usages is offered to a language that did not ask for it");
+
+        // And one that edits: being allowed to write is part of the answer,
+        // which is what the widget editor asks in updateActions().
+        TextViewport * const view = viewportForEditor(withSome.get());
+        QVERIFY(view);
+        QAction * const comment = actionFor(withSome.get(), Constants::UN_COMMENT_SELECTION);
+        QVERIFY(comment);
+        QVERIFY2(comment->isEnabled(), "the language asked to comment and did not get it");
+        view->setReadOnly(true);
+        QVERIFY2(!comment->isEnabled(), "a read-only file is still offered to be commented");
+        view->setReadOnly(false);
+        QVERIFY(comment->isEnabled());
     }
 
     // A choice the language offers in the toolbar - which of several ways the
