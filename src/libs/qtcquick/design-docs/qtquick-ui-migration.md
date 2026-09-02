@@ -27605,3 +27605,76 @@ edit.
 `QQuickWidget` is always the focus widget that Qt offers the override to. It is
 here, and the test asserts against the widget it finds, but focus proxies
 differ between platforms.
+
+## 2026-09-02 — FakeVim's view surface, made explicit
+
+The first half of the plan's next step, and only the first half: this batch
+changes no behaviour. What it does is turn the thing FakeVim needs from a view
+into something with a name, so that writing a `TextViewport` backend becomes
+possible rather than archaeological.
+
+`FakeVimHandler::Private` held three widget pointers - `QTextEdit`,
+`QPlainTextEdit`, `Utils::PlainTextEdit` - and reached them through
+
+    #define EDITOR(s) (m_textedit ? m_textedit->s : m_plaintextedit ? ... )
+
+plus about ten places that spelled the three-way choice out by hand. That is
+now one `std::unique_ptr<FakeVimEditorAdapter>` and
+
+    #define EDITOR(s) (m_adapter->s)
+
+so the 31 `EDITOR(...)` uses did not change at all. The three widgets share an
+API without sharing a base class that has it, so the implementation is a
+template over the widget type, with a small subclass for the two that know
+about `centerOnScroll`.
+
+**The interface is the deliverable.** Twenty-one operations, and reading them
+is what tells you what a Quick backend has to answer: the document, the cursor,
+`cursorRect`, `cursorForPosition`, `ensureCursorVisible`, the viewport's width
+and height, font, palette, read-only, tab stop distance, overwrite mode, undo
+and redo, centre-on-scroll, and a cursor-position signal. `TextViewport`
+already has about two thirds of those; **`cursorForPosition`, overwrite mode,
+`setTabStopDistance` and centre-on-scroll are the four it does not**, and they
+are real features rather than plumbing - overwrite mode is what vim's `R` needs
+and it changes both insertion and the shape of the caret.
+
+Two things changed shape rather than moving:
+
+- `EDITOR(viewport()->height())` became `EDITOR(viewportHeight())`. Reaching
+  through one accessor to call another only works when the view has a
+  `viewport()` widget, and a view drawn by an item does not.
+- `installEventFilter` goes to a new `keyTarget()` rather than to the widget,
+  because for an item-drawn view the object that receives keys is not the
+  widget that owns it. That accessor is the one the Quick backend will need
+  most - it is where `EditHandler` will be wired in.
+
+**Negative controls, all three bit - but in two different suites, which is the
+thing worth remembering.** Reporting `centerOnScroll` as always false and never
+making the cursor-position connection both fail the plugin's suite (257/1 and
+256/2 of 258). Answering the viewport's *width* where its height was asked for
+fails nothing there at all - it is the standalone `tests/auto/fakevim` binary,
+which is the one with the scrolling tests, that catches it
+(`ctrlYScrollsPastScrollOff`). Either suite alone would have called one of
+these changes uncovered.
+
+`TextEditor` 414 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 258 passed exit
+0, and the standalone `tst_fakevim` 7 passed exit 0 - that one matters because
+it compiles this file with `FAKEVIM_STANDALONE` and no Qt Creator, which is why
+the adapter is plain Qt with no TextEditor types in it. No new file, no `.qbs`
+edit.
+
+**Next**:
+
+1. **The four missing viewport capabilities**, which are the real remaining
+   work and are features, not plumbing: `cursorForPosition`, overwrite mode,
+   `setTabStopDistance`, centre-on-scroll. Overwrite mode is the substantial
+   one.
+2. **The viewport backend and the wiring**: a `FakeVimEditorAdapter` over
+   `TextViewport` whose `keyTarget()` is the item, and
+   `FakeVimPlugin::editorOpened()` accepting an editor whose view is a
+   `TextViewport` rather than only one aggregating a `QPlainTextEdit`.
+3. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+4. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.
