@@ -986,6 +986,14 @@ TEXTEDITOR_EXPORT void cutIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,
                                                  bool inNextSplit = false);
 
+// The suggestion \a editor is showing, if any, and a way to hold them off.
+// While the token returned lives, nothing is offered in that editor - what a
+// modal editing mode holds outside insert mode. Letting go of it lifts the
+// block; nothing suppressed meanwhile is offered again afterwards.
+TEXTEDITOR_EXPORT TextSuggestion *currentSuggestionIn(Core::IEditor *editor);
+TEXTEDITOR_EXPORT std::shared_ptr<void> blockSuggestionsIn(Core::IEditor *editor);
+TEXTEDITOR_EXPORT void clearSuggestionIn(Core::IEditor *editor);
+
 // How much of the file \a editor is showing: whole lines down, and columns of
 // its own font across. Zero where \a editor is not a text editor at all.
 TEXTEDITOR_EXPORT int visibleRowCountOf(Core::IEditor *editor);

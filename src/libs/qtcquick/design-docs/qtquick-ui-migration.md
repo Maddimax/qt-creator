@@ -27973,3 +27973,52 @@ model-level tests behind them. `itemsNamed()` is now there for the next one.
    kit.
 4. The whitespace-on-save revision race, the CppEditor whole-suite
    use-after-free, and the Profiler abort - all older than this migration.
+
+## 2026-09-02 — Holding suggestions off
+
+The plan's next item, and the last of the things FakeVim was skipping. Vim hides
+inline suggestions outside insert mode; that hold was a widget's, so in the Qt
+Quick editor a suggestion could sit on top of command mode and Tab was vim's
+alone.
+
+**Most of it was already there.** `TextViewport` answers `currentSuggestion()`,
+`insertSuggestion()` and `clearSuggestion()`; only the *hold* was missing. It is
+a `std::shared_ptr<void>` whose `use_count() > 1` means blocked - the token is
+the block, so letting go of it lifts it - and the viewport now hands one out the
+same way the widget does, refusing a suggestion offered while it is held and
+clearing whatever was up when it is taken.
+
+Three dispatchers go with it - `currentSuggestionIn()`, `blockSuggestionsIn()`,
+`clearSuggestionIn()` - so FakeVim stopped branching on whether it has a widget
+at all. Its `suggestionBlocker` member was typed
+`TextEditorWidget::SuggestionBlocker`; it is a plain `shared_ptr<void>` now,
+because it is no longer a widget's.
+
+Tested at both ends: the view refuses and resumes on its own, and vim's
+`Escape`/`i`/`Escape` turns the hold on, off and on again in a C++ file.
+
+Negative controls, all three bit on their own assertion: showing a suggestion
+while held off, not clearing what was up when the block is taken, and FakeVim
+never taking the block in a non-widget view.
+
+`TextEditor` 419 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 264 passed exit
+0, standalone `tst_fakevim` 7 passed exit 0. No new file, no `.qbs` edit.
+
+**Next**:
+
+1. **Somebody should use vim in a running Creator.** This is the only item that
+   has been on the list for three batches without moving, because it is the one
+   thing that cannot be done from here. What is covered by tests now: the keys,
+   the claim on shortcut keys, the gutter's drawn numbers, typing over, and the
+   suggestion hold. What is not: the mode line, the FakeVim selection
+   highlight, and the caret's shape in each mode.
+2. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+3. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.
+
+With 1 and 2 both needing something this machine does not have, and 3 predating
+the migration, **the Qt Quick editor side of this work has run out of things
+that can be finished here.** The next batch should say so rather than invent
+one.

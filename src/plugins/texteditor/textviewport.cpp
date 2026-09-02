@@ -3841,9 +3841,31 @@ private:
     TextViewport *m_view = nullptr;
 };
 
+TextViewport::SuggestionBlocker TextViewport::blockSuggestions()
+{
+    if (!m_suggestionBlocker) {
+        // A token nobody else holds yet. The deleter does nothing: what is
+        // being counted is the holders, not a resource.
+        m_suggestionBlocker = std::shared_ptr<void>(this, [](void *) {});
+    }
+    if (!suggestionsBlocked())
+        clearSuggestion();
+    return m_suggestionBlocker;
+}
+
+bool TextViewport::suggestionsBlocked() const
+{
+    return m_suggestionBlocker.use_count() > 1;
+}
+
 void TextViewport::insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion)
 {
     clearSuggestion();
+    // Asked for while somebody is holding them off - a modal editing mode
+    // outside insert mode, say. Dropped rather than queued, which is what the
+    // widget editor does with it.
+    if (suggestionsBlocked())
+        return;
     const QTextCursor cursor = textCursor();
     if (cursor.isNull())
         return;

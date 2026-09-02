@@ -625,6 +625,13 @@ public:
     // Takes away the one being shown, if any: it describes something that can
     // no longer happen.
     void clearSuggestion();
+    // While anyone holds one of these, no suggestion is shown: a modal editing
+    // mode hides them outside insert mode. The token is what keeps the block
+    // in force, so letting go of it lifts it. Same shape as the widget
+    // editor's, so that a caller need not know which view it has.
+    using SuggestionBlocker = std::shared_ptr<void>;
+    SuggestionBlocker blockSuggestions();
+    bool suggestionsBlocked() const;
     // Gives a suggestion just put on \a block the look and the tab stops of
     // this view, and asks for a layout so that it appears.
     void prepareSuggestion(const QTextBlock &block);
@@ -1123,6 +1130,7 @@ private:
     bool m_wrapping = false;
     bool m_overwriteMode = false;
     bool m_relativeLineNumbers = false;
+    std::shared_ptr<void> m_suggestionBlocker;
     bool m_centerOnScroll = false;
     // Unset until the view is told: the setting answers until then.
     std::optional<bool> m_visualizeWhitespace;

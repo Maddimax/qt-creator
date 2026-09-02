@@ -47,6 +47,7 @@
 #include <texteditor/tabsettings.h>
 #include <texteditor/textdocumentlayout.h>
 #include <texteditor/texteditor.h>
+#include <texteditor/textsuggestion.h>
 #include <texteditor/textviewport.h>
 #include <texteditor/texteditorconstants.h>
 
@@ -483,7 +484,9 @@ public:
         {}
 #endif
         FakeVimHandler *handler{nullptr};
-        TextEditorWidget::SuggestionBlocker suggestionBlocker;
+        // Whichever view is showing the file hands one of these out; the
+        // type is the same either way.
+        std::shared_ptr<void> suggestionBlocker;
         bool entered = false; // whether the buffer has been given to FakeVim
     };
 
@@ -2206,6 +2209,51 @@ private slots:
         QCOMPARE(document->document()->toPlainText(), QString("world\n"));
     }
 
+    // Suggestions are held off outside insert mode. That took a widget, so in
+    // the Qt Quick editor it was skipped and a suggestion could sit on top of
+    // vim's command mode.
+    void testSuggestionsAreHeldOffOutsideInsertMode()
+    {
+        const bool wasOn = settings().useFakeVim();
+        const QScopeGuard restore([wasOn] { settings().useFakeVim.setValue(wasOn); });
+        settings().useFakeVim.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-suggestions-in-the-quick-editor");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int a;\nint b;\n"));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        const auto view = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor));
+        QVERIFY(view);
+        QObject * const keyTarget = view;
+
+        const auto send = [keyTarget](int key, const QString &text) {
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+            QCoreApplication::sendEvent(keyTarget, &press);
+        };
+
+        // Command mode: nothing should be offered.
+        send(Qt::Key_Escape, {});
+        QTRY_VERIFY2(view->suggestionsBlocked(),
+                     "suggestions were left on offer in command mode");
+
+        // Insert mode releases them.
+        send(Qt::Key_I, "i");
+        QTRY_VERIFY2(!view->suggestionsBlocked(),
+                     "suggestions were still held off in insert mode");
+
+        // And leaving it takes them away again.
+        send(Qt::Key_Escape, {});
+        QTRY_VERIFY2(view->suggestionsBlocked(),
+                     "suggestions were left on offer after leaving insert mode");
+    }
+
     // "relativenumber". The widget editor lays a column of numbers over its
     // own gutter, which needs a widget to lay it on; a view that draws its own
     // gutter is told to number it from the caret instead.
@@ -2457,13 +2505,8 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         TextEditor::setViewSelections(alive, TextEditorWidget::FakeVimSelection, forView);
     });
 
-    handler->tabPressedInInsertMode.set([tew]() {
-        // A view that is not a widget shows no suggestions yet, so Tab is
-        // nobody else's and the handler should treat it as its own.
-        if (!tew)
-            return true;
-        auto suggestion = tew->currentSuggestion();
-        if (suggestion) {
+    handler->tabPressedInInsertMode.set([alive = QPointer<IEditor>(editor)]() {
+        if (TextSuggestion * const suggestion = TextEditor::currentSuggestionIn(alive)) {
             suggestion->apply();
             return false;
         }
@@ -2483,14 +2526,13 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         if (!settings().useFakeVim())
             return;
 
-        if (!tew)
-            return;
-
         // We don't want to show suggestions unless we are in insert mode.
-        if (insertMode != (handlerAndData.suggestionBlocker == nullptr))
-            handlerAndData.suggestionBlocker = insertMode ? nullptr : tew->blockSuggestions();
+        if (insertMode != (handlerAndData.suggestionBlocker == nullptr)) {
+            handlerAndData.suggestionBlocker
+                = insertMode ? nullptr : TextEditor::blockSuggestionsIn(editor);
+        }
 
-        tew->clearSuggestion();
+        TextEditor::clearSuggestionIn(editor);
     });
 
     handler->highlightMatches.set([this](const QString &needle) {

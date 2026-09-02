@@ -4581,6 +4581,56 @@ private slots:
                      (QStringList{"1", "2", "3", "4", "5", "6", "7"}));
     }
 
+    // Holding suggestions off. A modal editing mode does this outside insert
+    // mode, and the view had no way to be told - so FakeVim skipped it and a
+    // suggestion could appear over vim's command mode.
+    void testSuggestionsCanBeHeldOff()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-suggestion-blocker");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+        QTextDocument * const text = view->textDocument()->document();
+
+        const auto offerOne = [view, text] {
+            TextSuggestion::Data data;
+            data.position = Utils::Text::Position{1, 0};
+            data.range = {Utils::Text::Position{1, 0}, Utils::Text::Position{1, 0}};
+            data.text = "alphabet\nbeta\n";
+            view->insertSuggestion(std::make_unique<TextSuggestion>(data, text));
+        };
+
+        view->setCursorPosition(0);
+        QVERIFY2(!view->suggestionsBlocked(), "the view started out holding suggestions off");
+        offerOne();
+        QVERIFY2(view->currentSuggestion(), "a suggestion was not shown when nothing held it off");
+
+        // Taking the token clears what is shown and refuses what comes next.
+        {
+            const TextViewport::SuggestionBlocker blocker = view->blockSuggestions();
+            QVERIFY(view->suggestionsBlocked());
+            QVERIFY2(!view->currentSuggestion(),
+                     "taking the block left the suggestion that was already up");
+            offerOne();
+            QVERIFY2(!view->currentSuggestion(), "a suggestion was shown while held off");
+        }
+
+        // And letting go lifts it. Nothing refused meanwhile comes back - the
+        // next one offered is what shows.
+        QVERIFY2(!view->suggestionsBlocked(), "letting the token go left the block in force");
+        QVERIFY(!view->currentSuggestion());
+        offerOne();
+        QVERIFY2(view->currentSuggestion(), "suggestions were still held off after the token went");
+    }
+
     // Commands only some languages can answer. A factory says which of them
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.

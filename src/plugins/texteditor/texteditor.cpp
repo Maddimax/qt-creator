@@ -10235,6 +10235,40 @@ void followSymbolUnderCursorIn(Core::IEditor *editor, bool inNextSplit)
         view->followSymbolUnderCursor(inNextSplit);
 }
 
+TextSuggestion *currentSuggestionIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return nullptr;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->currentSuggestion();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->currentSuggestion();
+    return nullptr;
+}
+
+std::shared_ptr<void> blockSuggestionsIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return {};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->blockSuggestions();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->blockSuggestions();
+    return {};
+}
+
+void clearSuggestionIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->clearSuggestion();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->clearSuggestion();
+}
+
 int visibleRowCountOf(Core::IEditor *editor)
 {
     if (!editor)
