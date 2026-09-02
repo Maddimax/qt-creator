@@ -472,6 +472,76 @@ private slots:
                  qPrintable("the argument was left dereferenced:\n" + rewritten));
     }
 
+    // Four kit-requiring tests swapped CppQuickFixInterface(widget, reason) for
+    // the document-based one. They skip on a machine with no kit, so this
+    // asserts the substitution itself instead: built over the same file at the
+    // same caret, the two interfaces have to offer the same fixes. If they
+    // ever diverge, those four are wrong in a way nothing else here would say.
+    void testTheTwoInterfacesOfferTheSameFixes()
+    {
+        Utils::TemporaryDirectory dir("cpp-quickfix-interface-equivalence");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("struct S { void clear(); };\n"
+                                       "int computeValue();\n"
+                                       "void foo()\n"
+                                       "{\n"
+                                       "    S *thing = new S;\n"
+                                       "    thing->clear();\n"
+                                       "    computeValue();\n"
+                                       "}\n"));
+
+        // The widget view, because the widget-based interface is the thing
+        // being compared against and only that view can build one.
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(false);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const editorWidget = qobject_cast<CppEditorWidget *>(
+            TextEditor::TextEditorWidget::fromEditor(editor));
+        QVERIFY2(editorWidget, "the file did not open in a widget editor, so this compares nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // On the pointer's declaration, where several fixes match - a list of
+        // one would say much less than a list of five.
+        QTextCursor caret(document->document());
+        caret.setPosition(document->document()->findBlockByNumber(4).position()
+                          + QString("    S *th").size());
+        editorWidget->setTextCursor(caret);
+
+        const auto offeredBy = [](const CppQuickFixInterface &interface) {
+            QStringList descriptions;
+            for (const TextEditor::QuickFixOperation::Ptr &operation :
+                 quickFixOperations(&interface)) {
+                descriptions << operation->description();
+            }
+            descriptions.sort();
+            return descriptions;
+        };
+
+        const QStringList fromWidget
+            = offeredBy(CppQuickFixInterface(editorWidget, TextEditor::ExplicitlyInvoked));
+        const QStringList fromDocument = offeredBy(
+            CppQuickFixInterface(document, caret, TextEditor::ExplicitlyInvoked, editor));
+
+        // Named, so that two empty lists cannot agree their way to a pass.
+        QVERIFY2(fromWidget.contains("Convert to Stack Variable"),
+                 qPrintable("the caret is not where a fix applies; got: " + fromWidget.join(", ")));
+        QCOMPARE(fromDocument, fromWidget);
+    }
+
     // The file a refactoring changes is looked up by path, and that lookup
     // preferred an editor "as these are already parsed and up to date with
     // regards to unsaved changes". It asked for a CppEditorWidget, so a file

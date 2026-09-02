@@ -4,6 +4,7 @@
 #include "addmodulefrominclude.h"
 
 #include "../cppeditortr.h"
+#include "../cppeditordocument.h"
 #include "../cppeditorwidget.h"
 #include "../cpprefactoringchanges.h"
 #include "cppquickfix.h"
@@ -106,21 +107,20 @@ private slots:
         // Open source file and locate the include directive.
         const FilePath sourceFilePath = projectDir->absolutePath("main.cpp");
         QVERIFY2(sourceFilePath.exists(), qPrintable(sourceFilePath.toUserOutput()));
-        const auto editor = qobject_cast<BaseTextEditor *>(
-            EditorManager::openEditor(sourceFilePath));
+        Core::IEditor * const editor = EditorManager::openEditor(sourceFilePath);
         QVERIFY(editor);
-        const auto doc = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        const auto doc = qobject_cast<CppEditorDocument *>(editor->document());
         QVERIFY(doc);
         QTextCursor classCursor = doc->document()->find("#include");
         QVERIFY(!classCursor.isNull());
-        editor->setCursorPosition(classCursor.position());
-        const auto editorWidget = qobject_cast<CppEditorWidget *>(editor->editorWidget());
-        QVERIFY(editorWidget);
-        QVERIFY(TestCase::waitForRehighlightedSemanticDocument(editorWidget));
+        QTextCursor caret(doc->document());
+        caret.setPosition(classCursor.position());
+        TextEditor::setTextCursorOf(editor, caret);
+        QVERIFY(TestCase::waitForRehighlightedSemanticDocument(doc));
 
         // Query factory.
         AddModuleFromInclude factory;
-        CppQuickFixInterface quickFixInterface(editorWidget, ExplicitlyInvoked);
+        CppQuickFixInterface quickFixInterface(doc, caret, ExplicitlyInvoked, editor);
         QuickFixOperations operations;
         factory.match(quickFixInterface, operations);
         QCOMPARE(operations.size(), qsizetype(1));

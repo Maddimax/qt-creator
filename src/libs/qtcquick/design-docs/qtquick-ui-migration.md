@@ -27020,3 +27020,69 @@ above are the claim.
    lives that the Quick side reaches through seams rather than owns. Whether
    that is worth doing at all is a question for whoever owns the widget
    editor's other users, not for this plan.
+
+## 2026-09-02 — The kit-requiring tests, and a test for a test
+
+The plan's next item named `SynchronizeMemberFunctionOrderTest`, which asserts
+`QVERIFY(editorWidget)` and would fail on a machine with a kit. There are
+**five** of that shape, not one - grep `QVERIFY(editorWidget)`. Every sweep in
+this document missed all of them for the same reason: they need a kit with a
+Qt, this checkout has none, so they skip and their numbers look clean.
+
+Four are the identical eleven lines - open the file, `find()` a string, set the
+caret, cast to `CppEditorWidget`, build the interface over it - and all four
+are ported: `SynchronizeMemberFunctionOrder`, `MoveClassToOwnFile`,
+`AddModuleFromInclude`, `BringIdentifierIntoScope`.
+
+**Two details the port had to get right.** `doc->document()->find()` returns a
+cursor *with a selection*, and `setCursorPosition()` collapsed it - so the
+caret handed to the interface is built explicitly rather than passed on, since
+`CppQuickFixInterface::adjustedCursor()` branches on `hasSelection()`. And
+`waitForRehighlightedSemanticDocument()` has two overloads: the widget's also
+waits for local uses, the document's does not. That swap is only safe because
+of the local-uses batch two entries ago - the interface works those out itself
+now, so nothing is waiting for a view to do its bookkeeping.
+
+**These four cannot be run here.** So the batch asserts the substitution
+instead: `testTheTwoInterfacesOfferTheSameFixes` builds both interfaces over
+one file at one caret in a widget editor and compares what they offer. That
+runs without a kit, and it is the actual claim the four ports rest on.
+
+**A control that did not bite, and what that means.** Giving *only* the
+document-based interface the uncollapsed `find()` selection changes nothing -
+`adjustedCursor()` lands on the same token either way. So the caret collapse is
+faithful to what `setCursorPosition()` did, but it is not load-bearing for
+which fixes are offered, and no test here would catch getting it wrong. It
+could still matter to an operation's `perform()`. Worth knowing before trusting
+the four ports further than the equivalence test reaches.
+
+(The first attempt at that control moved *both* carets and so compared a
+selection against a selection - it proved nothing, and the corrected version is
+the one above. A control that changes both sides of an equality is not a
+control.)
+
+**The fifth is not a port.** `fileandtokenactions_test.cpp` is built on
+`AbstractAction::run(CppEditorWidget *)` - the widget is its framework, not an
+incidental cast. Rewriting it is a different piece of work, its ten cases skip
+here too, and the plan has always called it tidiness.
+
+Negative controls: the document interface built at a different caret - "Compared
+lists have different sizes", the equivalence is caret-sensitive. The selection
+control above did not bite, reported rather than quietly dropped.
+
+`TextEditor` 412 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. The four ported classes,
+each run twice - default and `QTC_WIDGET_CPP_EDITOR=1` - are identical in both:
+`SynchronizeMemberFunctionOrder` 2/0/4, `MoveClassToOwnFile` 2/0/9,
+`AddModuleFromInclude` 2/0/1, `BringIdentifierIntoScope` 44/0/1,
+`QuickFixAssistTest` 9/0/0. No new file, no `.qbs` edit.
+
+**Next**:
+
+1. **`QTest::qWait(1000)` in `SynchronizeMemberFunctionOrderTest`**, which
+   CLAUDE.md forbids outright. Left alone deliberately: changing a wall-clock
+   wait in a test that cannot be run here is how a green test becomes a flaky
+   one somewhere else. It wants a machine with a kit.
+2. The whole-suite heap-use-after-free, still not reproduced.
+3. Deleting `CppEditorWidget` - not close, and a question for whoever owns its
+   other users rather than for this plan.
