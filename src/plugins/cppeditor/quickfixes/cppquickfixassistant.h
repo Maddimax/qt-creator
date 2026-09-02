@@ -54,6 +54,7 @@ public:
 
 private:
     QTextCursor adjustedCursor();
+    void findLocalUses(const QTextCursor &cursor);
 
     QPointer<Core::IEditor> m_editor;
     CppEditorDocument *m_document;

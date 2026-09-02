@@ -5,6 +5,7 @@
 
 #include "../cppeditordocument.h"
 #include "../cppeditorwidget.h"
+#include "../builtincursorinfo.h"
 #include "../cppmodelmanager.h"
 #include "../cpptoolsreuse.h"
 #include "../cpprefactoringchanges.h"
@@ -17,6 +18,7 @@
 #include <cplusplus/ASTPath.h>
 
 #include <utils/qtcassert.h>
+#include <utils/textutils.h>
 
 #include <QLoggingCategory>
 
@@ -78,13 +80,14 @@ CppQuickFixInterface::CppQuickFixInterface(CppEditorDocument *document,
     QTC_CHECK(m_semanticInfo.doc);
     QTC_CHECK(m_semanticInfo.doc->translationUnit());
     QTC_CHECK(m_semanticInfo.doc->translationUnit()->ast());
+    findLocalUses(cursor);
     ASTPath astPath(m_semanticInfo.doc);
     m_path = astPath(adjustedCursor());
 }
 
 // The widget's own semantic info rather than the document's: the widget
-// patches the local uses into it as the caret moves, and a fix that renames a
-// local reads them.
+// patches the local uses into it as the caret moves, so they are already
+// there.
 CppQuickFixInterface::CppQuickFixInterface(CppEditorWidget *editorWidget, AssistReason reason)
     : AssistInterface(editorWidget->textCursor(), editorWidget->textDocument()->filePath(), reason)
     , m_editor(editorFor(editorWidget))
@@ -97,8 +100,30 @@ CppQuickFixInterface::CppQuickFixInterface(CppEditorWidget *editorWidget, Assist
     QTC_CHECK(m_semanticInfo.doc);
     QTC_CHECK(m_semanticInfo.doc->translationUnit());
     QTC_CHECK(m_semanticInfo.doc->translationUnit()->ast());
+    findLocalUses(editorWidget->textCursor());
     ASTPath astPath(m_semanticInfo.doc);
     m_path = astPath(adjustedCursor());
+}
+
+// Every place a local name is used in the function the caret is in. A fix that
+// rewrites a variable - changing it from a pointer, renaming it - has to touch
+// all of them, and reads them from here.
+//
+// Worked out here rather than taken from whatever a view happened to have:
+// SemanticInfo::localUsesUpdated says a use-selections run has finished, not
+// that what it found is about this caret, and only the widget has one of those
+// running at all. It is one function's worth of AST, and only a quick fix
+// actually being asked for pays for it.
+void CppQuickFixInterface::findLocalUses(const QTextCursor &cursor)
+{
+    if (!m_semanticInfo.doc || cursor.isNull())
+        return;
+    int line = 0;
+    int column = 0;
+    Utils::Text::convertPosition(cursor.document(), cursor.position(), &line, &column);
+    m_semanticInfo.localUses = BuiltinCursorInfo::findLocalUses(
+        m_semanticInfo.doc, cursor.document()->toPlainText(), line, column);
+    m_semanticInfo.localUsesUpdated = true;
 }
 
 const QList<AST *> &CppQuickFixInterface::path() const
@@ -357,6 +382,94 @@ private slots:
         const QTextCursor caret = TextEditor::textCursorOf(editor);
         QVERIFY2(!caret.isNull(), "the view has no caret at all");
         QCOMPARE(caret.selectedText(), QString("localComputeValue"));
+    }
+
+    // A fix that rewrites a variable has to touch every use of it, and reads
+    // those from the semantic info. The widget patches them in as the caret
+    // moves; nothing else does, so a file in the Qt Quick view had a
+    // declaration changed and its uses left as they were - which does not
+    // compile.
+    void testAFixRewritesEveryUseOfALocalName_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("quick view") << true;
+        QTest::newRow("widget view") << false;
+    }
+
+    void testAFixRewritesEveryUseOfALocalName()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("cpp-quickfix-local-uses");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("struct S { void clear(); bool isEmpty(); };\n"
+                                       "void f1(S);\n"
+                                       "void foo()\n"
+                                       "{\n"
+                                       "    S *str = new S;\n"
+                                       "    if (!str->isEmpty())\n"
+                                       "        str->clear();\n"
+                                       "    f1(*str);\n"
+                                       "}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const editorWidget = qobject_cast<CppEditorWidget *>(
+            TextEditor::TextEditorWidget::fromEditor(editor));
+        QCOMPARE(editorWidget == nullptr, quick);
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // On the declaration of the pointer.
+        QTextCursor cursor(document->document());
+        cursor.setPosition(document->document()->findBlockByNumber(4).position()
+                           + QString("    S *st").size());
+        TextEditor::setTextCursorOf(editor, cursor);
+
+        const std::unique_ptr<TextEditor::AssistInterface> interface
+            = editorWidget
+                  ? std::unique_ptr<TextEditor::AssistInterface>(
+                        new CppQuickFixInterface(editorWidget, TextEditor::ExplicitlyInvoked))
+                  : document->createAssistInterface(cursor, TextEditor::QuickFix,
+                                                    TextEditor::ExplicitlyInvoked, editor);
+        auto * const cppInterface = dynamic_cast<CppQuickFixInterface *>(interface.get());
+        QVERIFY(cppInterface);
+        QVERIFY2(!cppInterface->semanticInfo().localUses.isEmpty(),
+                 "the interface carries no uses of any local name");
+
+        TextEditor::QuickFixOperation::Ptr convert;
+        for (const TextEditor::QuickFixOperation::Ptr &operation :
+             quickFixOperations(interface.get())) {
+            if (operation->description() == "Convert to Stack Variable")
+                convert = operation;
+        }
+        QVERIFY2(convert, "nothing offered to make the pointer a stack variable");
+
+        convert->perform();
+
+        // The declaration and all three uses, or the file no longer compiles.
+        const QString rewritten = document->document()->toPlainText();
+        QVERIFY2(!rewritten.contains(QLatin1String("str->")),
+                 qPrintable("a use of the name was left dereferencing a pointer:\n" + rewritten));
+        QVERIFY2(rewritten.contains(QLatin1String("str.isEmpty()"))
+                     && rewritten.contains(QLatin1String("str.clear()")),
+                 qPrintable("the uses were not rewritten:\n" + rewritten));
+        QVERIFY2(rewritten.contains(QLatin1String("f1(str)")),
+                 qPrintable("the argument was left dereferenced:\n" + rewritten));
     }
 
     // The file a refactoring changes is looked up by path, and that lookup

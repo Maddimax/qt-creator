@@ -26757,3 +26757,56 @@ pre-existing and neither is this batch's.
 2. The whole-suite use-after-free above.
 3. **The switch**: `setUsesQuickEditor(true)` in `CppEditorFactory` with no env
    var, and `QTC_WIDGET_CPP_EDITOR` as the way back.
+
+## 2026-09-02 — Where a fix finds every use of a local name
+
+The 19 standing `ConvertFromAndToPointerTest` failures, and the gap behind
+them. A fix that rewrites a variable - making a pointer a stack variable,
+extracting a function - has to touch every use of the name, and reads those
+from `SemanticInfo::localUses`. Nothing filled that in except
+`CppEditorWidget`, which patches its own copy as the caret moves. So in a Qt
+Quick view the declaration was rewritten and the uses were left as they were,
+which does not compile.
+
+**`CppQuickFixInterface` works them out itself**, from the parse it already
+holds: `BuiltinCursorInfo::findLocalUses()` is a pure function over a
+`Document::Ptr`, the file text and a caret, and it is one function's worth of
+AST. Only a quick fix actually being asked for pays for it.
+
+**`localUsesUpdated` is not the flag it looks like.** The first version skipped
+the work when that was set - and the widget row of the new test then failed
+about one run in eight. The flag says a use-selections run has *finished*, not
+that what it found is about the caret this fix is asking about: the updater is
+asynchronous and follows whatever caret it last saw. So the interface computes
+unconditionally, and both views now answer the same thing for the same reason
+instead of one of them depending on a view having been doing bookkeeping.
+
+That also makes the widget path more robust than it was: with the computation
+removed the widget row fails too, which means it had been relying on the
+updater having run first.
+
+The test is the fix's own purpose: a pointer with three uses becomes a stack
+variable and none of the three is left dereferencing. Run in both views.
+
+Negative controls, three bit: the document interface not working the uses out
+(the quick row, and `ConvertFromAndToPointer` back to 8/19), the widget
+interface not working them out (the widget row), and looking for them at line 1
+column 0 instead of at the caret (both rows, and 8/19 again).
+
+`TextEditor` 411 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. CppEditor, per class:
+`QuickFixAssistTest` 8 (four consecutive runs, after the flake was fixed),
+`ConvertFromAndToPointer` **27, was 8 passed / 19 failed**, `ExtractFunction`
+12, `ExtractLiteralAsParameter` 27, `AssignToLocalVariable` 20,
+`ConvertToCamelCase` 10, `MoveFunctionComments` 10, `SelectionsTest` 15 in each
+view - all exit 0. No new file, no `.qbs` edit.
+
+**Next**:
+
+1. The whole-suite heap-use-after-free in `Core::DocumentModel::
+   documentForFilePath()` reached from `MoveFunctionCommentsOp`, which is what
+   `-test CppEditor` now aborts on. Passes standalone, so it is state left by
+   an earlier class in the run.
+2. **The switch**: `setUsesQuickEditor(true)` in `CppEditorFactory` with no env
+   var, and `QTC_WIDGET_CPP_EDITOR` as the way back. Nothing in the plan stands
+   between here and it any more.
