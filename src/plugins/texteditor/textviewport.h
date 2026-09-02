@@ -444,6 +444,9 @@ public:
     QFont font() const;
     int lineCount() const;
     int visibleLineCount() const;
+    // How many columns of this view's own font fit across it. The widget
+    // editor answers the same question with columnCount().
+    int visibleColumnCount() const;
 
     int selectionStart() const;
     void setSelectionStart(int position);

@@ -616,6 +616,14 @@ int TextViewport::visibleLineCount() const
     return int(m_lines.size());
 }
 
+int TextViewport::visibleColumnCount() const
+{
+    const qreal charWidth = QFontMetricsF(m_font).horizontalAdvance(QLatin1Char(' '));
+    if (charWidth <= 0)
+        return 0;
+    return int(width() / charWidth);
+}
+
 int TextViewport::selectionStart() const
 {
     return m_selectionStart;

@@ -10235,6 +10235,28 @@ void followSymbolUnderCursorIn(Core::IEditor *editor, bool inNextSplit)
         view->followSymbolUnderCursor(inNextSplit);
 }
 
+int visibleRowCountOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return 0;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->rowCount();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->visibleLineCount();
+    return 0;
+}
+
+int visibleColumnCountOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return 0;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->columnCount();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->visibleColumnCount();
+    return 0;
+}
+
 Core::IEditor *editorForDocument(TextDocument *document)
 {
     if (!document)

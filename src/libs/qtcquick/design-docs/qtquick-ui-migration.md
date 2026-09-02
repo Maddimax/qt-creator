@@ -27300,3 +27300,92 @@ No new file, no `.qbs` edit. `mcpsupport.cpp` no longer mentions
 3. `designer/qtcreatorintegration.cpp:902`, unread.
 4. The revision race under whitespace-on-save, and the whole-suite
    heap-use-after-free. Both older than this migration.
+
+## 2026-09-02 — The CurrentDocument variables, and FakeVim is broken
+
+### Not the clangd override proposal
+
+The plan had that next; it is the wrong next batch and the reason is worth
+recording. `FollowSymbolTest` decides `useClangd = m_testKit`, and this
+checkout has no kit - so all 155 of its passing rows are the *builtin* path and
+the clangd one is entirely uncovered here. Together with `adjustedCursor()`
+being private and observable only through a round trip against a running,
+indexed clangd, everything left in `clangdclient.cpp` and
+`clangdfollowsymbol.cpp` is unverifiable on this machine. It should be done by
+someone with a kit, not guessed at here.
+
+### What was broken and testable: the CurrentDocument macro variables
+
+`%{CurrentDocument:Row}`, `:Column`, `:Selection`, `:WordUnderCursor`,
+`:RowCount`, `:ColumnCount` and `:FontSize` - what an external tool, a custom
+wizard or a keyboard-invoked command is told about the file being looked at.
+All seven asked `BaseTextEditor::currentTextEditor()`, which a Quick editor is
+not, so all seven answered `0` or the empty string. For plain text that has
+been true since this editor became its default; for C++ since the switch. An
+external tool configured with `%{CurrentDocument:Row}` has been getting 0.
+
+Four needed no new API at all: `Core::IEditor` already declares
+`currentLine()`, `currentColumn()` and `selectedText()` as virtuals and
+`QuickTextEditor` already implements all three, so those variables just ask the
+current editor. `WordUnderCursor` goes through `textCursorOf()`.
+
+`FontSize` asked the widget for its font; it asks the document's font settings,
+which is the same number and needs no view. `RowCount` and `ColumnCount` are
+genuinely view geometry, so they got the dispatcher treatment -
+`visibleRowCountOf()` / `visibleColumnCountOf()` - over the widget's
+`rowCount()`/`columnCount()` and the viewport's `visibleLineCount()` and a new
+`visibleColumnCount()`.
+
+**Found while writing the test:** the column variable's own description says it
+"starts with 0". Both views answer 1-based - `BaseTextEditor::currentColumn()`
+is `positionInBlock() + 1` - so the description has been wrong in either view
+for as long as it has said it. Left alone: it is a translated string and not
+this migration's.
+
+Negative controls, both bit: asking `BaseTextEditor::currentTextEditor()` again
+for the row, and dropping the Quick view from `visibleRowCountOf()`.
+
+`TextEditor` 413 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. Macros 12 passed, exit
+0. CppEditor spot checks unchanged. No new file, no `.qbs` edit.
+
+### FakeVim does nothing in the Quick editor, and its tests crash
+
+This is the important part of the batch, and it is a **regression the switch
+shipped**:
+
+    -test FakeVim                          11 passed, exit 134 (SEGV)
+    -test FakeVim QTC_WIDGET_CPP_EDITOR=1  258 passed, exit 0
+
+`FakeVimPlugin::editorOpened()` attaches a handler only to an editor whose
+widget aggregates a `QTextEdit`, a `QPlainTextEdit` or a
+`Utils::PlainTextEdit`. A Quick editor's widget is a `QtcQuick::QuickWidget`
+and is none of those, so **no handler is installed at all** - FakeVim is
+silently inert for every file in the Quick editor. Its own `setupTest()` opens
+`test.cpp`, gets no handler, and dereferences the null one:
+`FakeVimHandler::setupWidget()` at `fakevimhandler.cpp:16833`.
+
+Two things follow. The first is that 247 FakeVim tests stopped running when the
+switch landed and nobody noticed, because every sweep in this document has been
+`-test CppEditor` and `-test TextEditor`. **The per-class sweep that justified
+the switch only ever covered CppEditor.** Any plugin that reaches into an
+editor's widget could be in the same state; FakeVim is simply the one with
+enough tests to make a noise.
+
+The second is that porting FakeVim is not a small job: `FakeVimHandler` is
+written against `QPlainTextEdit` - its cursor, viewport, scrollbars and event
+filter - rather than against a document.
+
+**Next**, and the first item is now much more important than the rest:
+
+1. **Sweep the other plugins the way CppEditor was swept.** `-test <plugin>`
+   for every plugin that touches editors, default against
+   `QTC_WIDGET_CPP_EDITOR=1`, and compare. FakeVim was found by accident; this
+   should not be how the rest are found.
+2. **FakeVim**: decide whether it gets a viewport-backed handler or whether
+   Quick editors keep it disabled honestly rather than silently.
+3. The clangd override proposal and `adjustedCursor()` - for a machine with a
+   kit.
+4. `cppcodemodelinspectordialog.cpp:1676`,
+   `designer/qtcreatorintegration.cpp:902`.
+5. The whitespace-on-save revision race and the whole-suite use-after-free.

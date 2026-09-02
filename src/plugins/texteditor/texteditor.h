@@ -978,6 +978,11 @@ TEXTEDITOR_EXPORT void cutIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,
                                                  bool inNextSplit = false);
 
+// How much of the file \a editor is showing: whole lines down, and columns of
+// its own font across. Zero where \a editor is not a text editor at all.
+TEXTEDITOR_EXPORT int visibleRowCountOf(Core::IEditor *editor);
+TEXTEDITOR_EXPORT int visibleColumnCountOf(Core::IEditor *editor);
+
 // An editor showing \a document, where one is open - the current editor when
 // that is one of them, so that a caller meaning "where the user can see this"
 // gets the view being looked at rather than an arbitrary split.

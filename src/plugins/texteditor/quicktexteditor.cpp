@@ -60,6 +60,7 @@
 #include <utils/algorithm.h>
 #include <utils/theme/theme.h>
 #include <utils/mimeutils.h>
+#include <utils/macroexpander.h>
 #include <utils/temporarydirectory.h>
 
 #include <QDataStream>
@@ -4139,6 +4140,61 @@ private slots:
         // It says where the caret is, so it has to follow it.
         outline->showRow(1);
         QTRY_COMPARE(drawn->property("text").toString(), QString("beta()"));
+    }
+
+    // What an external tool, a wizard or a custom command is told about the
+    // file being looked at: %{CurrentDocument:Row} and its six siblings. Each
+    // asked BaseTextEditor::currentTextEditor(), which a Quick editor is not,
+    // so every one of them answered 0 or nothing at all - for plain text since
+    // this editor became its default, and for C++ since the switch.
+    void testTheCurrentDocumentVariablesAnswerForThisEditor()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-document-variables");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("alpha beta\ngamma delta\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        // On "delta", with "gamma" selected before it.
+        QTextDocument * const text = view->textDocument()->document();
+        QTextCursor caret(text);
+        caret.setPosition(text->findBlockByNumber(1).position());
+        caret.setPosition(caret.position() + QString("gamma").size(),
+                          QTextCursor::KeepAnchor);
+        view->setTextCursor(caret);
+
+        Utils::MacroExpander * const expander = Utils::globalMacroExpander();
+        QCOMPARE(expander->expand(QString("%{CurrentDocument:Selection}")), QString("gamma"));
+        // Both 1-based, which is what BaseTextEditor answers too - the
+        // variable's own description says the column starts at 0 and has been
+        // wrong about that in either view for as long as it has said it.
+        QCOMPARE(expander->expand(QString("%{CurrentDocument:Row}")), QString("2"));
+        QCOMPARE(expander->expand(QString("%{CurrentDocument:Column}")),
+                 QString::number(QString("gamma").size() + 1));
+        QCOMPARE(expander->expand(QString("%{CurrentDocument:WordUnderCursor}")),
+                 QString("gamma"));
+
+        // The font size is the document's setting, and has to be a real one
+        // rather than the zero this used to answer.
+        const int fontSize = view->textDocument()->fontSettings().fontSize();
+        QVERIFY(fontSize > 0);
+        QCOMPARE(expander->expand(QString("%{CurrentDocument:FontSize}")),
+                 QString::number(fontSize));
+
+        // How much is on screen. Only that it is a real count: how many lines
+        // fit depends on the size the test happens to give the view.
+        QCOMPARE(expander->expand(QString("%{CurrentDocument:RowCount}")),
+                 QString::number(view->visibleLineCount()));
+        QVERIFY2(expander->expand(QString("%{CurrentDocument:RowCount}")) != "0",
+                 "the number of visible lines is still reported as none");
     }
 
     // Commands only some languages can answer. A factory says which of them

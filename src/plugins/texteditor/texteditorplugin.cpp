@@ -209,11 +209,15 @@ void TextEditorPlugin::extensionsInitialized()
 
     MacroExpander *expander = Utils::globalMacroExpander();
 
+    // What a tool is told about the file being looked at. Asked of
+    // Core::IEditor rather than of BaseTextEditor: a Qt Quick editor is not
+    // one, so every one of these answered nothing at all for a file open in
+    // it - an external tool given %{CurrentDocument:Row} got 0.
     expander->registerVariable(kCurrentDocumentSelection,
         Tr::tr("Selected text within the current document."),
         []() -> QString {
             QString value;
-            if (BaseTextEditor *editor = BaseTextEditor::currentTextEditor()) {
+            if (IEditor *editor = EditorManager::currentEditor()) {
                 value = editor->selectedText();
                 value.replace(QChar::ParagraphSeparator, QLatin1String("\n"));
             }
@@ -223,44 +227,43 @@ void TextEditorPlugin::extensionsInitialized()
     expander->registerIntVariable(kCurrentDocumentRow,
         Tr::tr("Line number of the text cursor position in current document (starts with 1)."),
         []() -> int {
-            BaseTextEditor *editor = BaseTextEditor::currentTextEditor();
+            IEditor *editor = EditorManager::currentEditor();
             return editor ? editor->currentLine() : 0;
         });
 
     expander->registerIntVariable(kCurrentDocumentColumn,
         Tr::tr("Column number of the text cursor position in current document (starts with 0)."),
         []() -> int {
-            BaseTextEditor *editor = BaseTextEditor::currentTextEditor();
+            IEditor *editor = EditorManager::currentEditor();
             return editor ? editor->currentColumn() : 0;
         });
 
     expander->registerIntVariable(kCurrentDocumentRowCount,
         Tr::tr("Number of lines visible in current document."),
-        []() -> int {
-            BaseTextEditor *editor = BaseTextEditor::currentTextEditor();
-            return editor ? editor->rowCount() : 0;
-        });
+        []() -> int { return visibleRowCountOf(EditorManager::currentEditor()); });
 
     expander->registerIntVariable(kCurrentDocumentColumnCount,
         Tr::tr("Number of columns visible in current document."),
-        []() -> int {
-            BaseTextEditor *editor = BaseTextEditor::currentTextEditor();
-            return editor ? editor->columnCount() : 0;
-        });
+        []() -> int { return visibleColumnCountOf(EditorManager::currentEditor()); });
 
     expander->registerIntVariable(kCurrentDocumentFontSize,
         Tr::tr("Current document's font size in points."),
         []() -> int {
-            BaseTextEditor *editor = BaseTextEditor::currentTextEditor();
-            return editor ? editor->widget()->font().pointSize() : 0;
+            // The document's own setting rather than whatever widget is
+            // drawing it, which is the same number and needs no view.
+            IEditor * const editor = EditorManager::currentEditor();
+            const auto document = editor ? qobject_cast<TextDocument *>(editor->document())
+                                         : nullptr;
+            return document ? document->fontSettings().fontSize() : 0;
         });
 
     expander->registerVariable(kCurrentDocumentWordUnderCursor,
                                Tr::tr("Word under the current document's text cursor."), [] {
-                                   BaseTextEditor *editor = BaseTextEditor::currentTextEditor();
-                                   if (!editor)
+                                   const QTextCursor cursor
+                                       = textCursorOf(EditorManager::currentEditor());
+                                   if (cursor.isNull())
                                        return QString();
-                                   return Text::wordUnderCursor(editor->editorWidget()->textCursor());
+                                   return Text::wordUnderCursor(cursor);
                                });
 }
 
