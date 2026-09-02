@@ -24,8 +24,6 @@
 
 #include <coreplugin/session.h>
 
-#include <cplusplus/ASTPath.h>
-
 #include <projectexplorer/projectexplorer.h>
 #include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectmanager.h>
@@ -431,26 +429,14 @@ void CppEditorDocument::slotCodeStyleSettingsChanged()
 
 void CppEditorDocument::removeTrailingWhitespace(const QTextBlock &block)
 {
-    const auto baseImpl = [&] { TextDocument::removeTrailingWhitespace(block); };
-    // This document's own parse, rather than one belonging to a widget showing
-    // it: whether a line ends inside a raw string literal - where trailing
-    // whitespace is content and not formatting - is a fact about the file.
-    // Behaves as before; see the plan for why the guard below is unreachable
-    // through a save in either view, which is older than this.
-    if (!isSemanticInfoValid())
-        return baseImpl();
-    const CPlusPlus::Document::Ptr doc = semanticInfo().doc;
-    QTC_ASSERT(doc, return baseImpl());
-
-    QTextCursor cursor(block);
-    cursor.setPosition(block.position() + block.length() - 1);
-    const QList<CPlusPlus::AST*> astPath = CPlusPlus::ASTPath(doc)(cursor);
-
-    if (astPath.isEmpty())
-        return baseImpl();
-    const CPlusPlus::Token &tok = doc->translationUnit()->tokenAt(astPath.last()->firstToken());
-    if (!tok.isRawStringLiteral())
-        baseImpl();
+    // Trailing whitespace on a line that ends inside a raw string literal is
+    // content, not formatting. That is a question about the lexer state at the
+    // end of the block and not about the parse: saving opens an edit block
+    // before it changes any text, which already moves the document's revision
+    // past the one the parse was made from.
+    if (!TextEditor::TextBlockUserData::expectedRawStringSuffix(block).isEmpty())
+        return;
+    TextDocument::removeTrailingWhitespace(block);
 }
 
 void CppEditorDocument::processDocument()

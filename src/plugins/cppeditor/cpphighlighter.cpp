@@ -11,6 +11,7 @@
 #include "cpptoolsreuse.h"
 
 #include <extensionsystem/iplugin.h>
+#include <texteditor/storagesettings.h>
 #include <texteditor/textdocumentlayout.h>
 #include <utils/algorithm.h>
 #include <utils/textutils.h>
@@ -848,11 +849,78 @@ private:
     QTextDocument m_doc;
 };
 
-// Which highlighter a C++ file gets. CppEditorDocument builds a CppHighlighter
-// in its constructor, and the Qt Quick editor was replacing it with the
-// generic definition for every file it opened - so a C++ file there was
-// coloured by KSyntaxHighlighting, and everything that reads the block states
-// CppHighlighter leaves behind saw the wrong thing.
+// Trailing whitespace inside a raw string literal, which is content and must
+// survive a save that strips it everywhere else.
+class RawStringWhitespaceTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testWhitespaceInsideARawStringSurvivesCleaning()
+    {
+        Utils::TemporaryDirectory dir("raw-string-whitespace");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        const QString source = "const char *t = R\"(keep   \n)\";   \nint x;   \n";
+        QVERIFY(file.writeFileContents(source.toUtf8()));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const doc = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(doc);
+
+        TextEditor::StorageSettingsData settings = doc->storageSettings();
+        settings.m_cleanWhitespace = true;
+        settings.m_inEntireDocument = true;
+        settings.m_addFinalNewLine = false;
+        settings.m_ignoreFileTypes.clear();
+        doc->setStorageSettings(settings);
+
+        // Which lines end inside the literal is the highlighter's answer, and
+        // it is what the cleaning consults.
+        QTRY_VERIFY(!TextEditor::TextBlockUserData::expectedRawStringSuffix(
+                         doc->document()->firstBlock())
+                         .isEmpty());
+
+        QTextCursor whole(doc->document());
+        whole.select(QTextCursor::Document);
+        doc->cleanWhitespace(whole);
+
+        QCOMPARE(doc->document()->toPlainText(),
+                 QString("const char *t = R\"(keep   \n)\";\nint x;\n"));
+    }
+
+    void testWhitespaceOutsideARawStringIsStillCleaned()
+    {
+        Utils::TemporaryDirectory dir("plain-whitespace");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents(QString("int x;   \nint y;\t\n").toUtf8()));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const doc = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(doc);
+
+        TextEditor::StorageSettingsData settings = doc->storageSettings();
+        settings.m_cleanWhitespace = true;
+        settings.m_inEntireDocument = true;
+        settings.m_addFinalNewLine = false;
+        settings.m_ignoreFileTypes.clear();
+        doc->setStorageSettings(settings);
+
+        QTextCursor whole(doc->document());
+        whole.select(QTextCursor::Document);
+        doc->cleanWhitespace(whole);
+
+        QCOMPARE(doc->document()->toPlainText(), QString("int x;\nint y;\n"));
+    }
+};
+
 // Fold All Comment Blocks. The action reached the code model through a
 // BaseTextEditor, which a Qt Quick view is not - so the entry was in the menu
 // and did nothing. What is folded is state on the document's blocks, so this
@@ -922,6 +990,11 @@ private slots:
     }
 };
 
+// Which highlighter a C++ file gets. CppEditorDocument builds a CppHighlighter
+// in its constructor, and the Qt Quick editor was replacing it with the
+// generic definition for every file it opened - so a C++ file there was
+// coloured by KSyntaxHighlighting, and everything that reads the block states
+// CppHighlighter leaves behind saw the wrong thing.
 class QuickEditorHighlighterTest : public QObject
 {
     Q_OBJECT
@@ -1159,6 +1232,7 @@ void registerHighlighterTests(ExtensionSystem::IPlugin &plugin)
     plugin.addTest<CppHighlighterTest>();
     plugin.addTest<CodeFoldingTest>();
     plugin.addTest<FoldCommentsTest>();
+    plugin.addTest<RawStringWhitespaceTest>();
     plugin.addTest<QuickEditorHighlighterTest>();
     plugin.addTest<LanguageToolBarTest>();
 #else

@@ -27118,6 +27118,11 @@ Whatever bumps the revision between the parse and the cleaning is worth finding
 - it is a real bug, it eats data inside raw string literals, and it belongs to
 whoever owns whitespace-on-save rather than to this migration.
 
+> **Corrected on 2026-09-02.** "The document has moved on" is wrong, and so is
+> calling this a race: nothing edits the text, and `beginEditBlock()` alone
+> bumps `QTextDocument::revision()`. The last section of this document has the
+> measurement and the fix.
+
 So the port ships with **no test and no negative control**, which is worth
 saying rather than dressing up: the change is behaviour-preserving, and the
 evidence is that the original and the port were run side by side in both views
@@ -28216,3 +28221,121 @@ memory".
 - Older than this migration and still open: the whitespace-on-save revision
   race, and the Profiler abort. Worth trying the same instrument-don't-guess
   approach on both - it has now worked twice.
+
+
+## 2026-09-02 — The whitespace-on-save bug: not a race
+
+The plan has carried "the whitespace-on-save revision race" as an open item for
+a dozen entries, on the strength of a reading I wrote down once and then quoted
+back to myself every batch. It was wrong in both nouns. Instrumenting it took
+one afternoon and the fix is nine lines.
+
+**What it does.** Cleaning whitespace on save strips what sits at the end of a
+line - except inside a raw string literal, where trailing spaces are content.
+`CppEditorDocument::removeTrailingWhitespace()` decides which by walking an
+`ASTPath` to the last token on the line and asking
+`Token::isRawStringLiteral()`. It is guarded by `isSemanticInfoValid()`, and
+that guard never passes, so every
+raw string in every C++ file loses its trailing whitespace on save. This is
+upstream code from `57ea7f10c3f`; it predates the Quick editor entirely and
+reproduces identically in the widget view.
+
+**What I had claimed**, twice, in this document: the parse is a revision behind
+by the time cleaning runs, so the guard is unreachable, and "any wait long
+enough for it to become true lets a background reparse of an older revision land
+on top". That second half is what made it look unfixable, and it is fiction.
+
+**What the probes actually said.** A `qWarning` in the test, one in
+`recalculateSemanticInfo()`, one in the processor's `semanticInfoUpdated`
+lambda, one at the top of the override, and one either side of
+`indentationForBlocks()`:
+
+    PROBE after wait, valid true document at 1
+    PROBE pre-indent  rev 2  text "...R\"(keep   \n)\";   \nint x;   \n"
+    PROBE post-indent rev 2  text "...R\"(keep   \n)\";   \nint x;   \n"
+    PROBE enter blk 0 valid false semRev 1 docRev 2 hasDoc true
+
+Read those four lines in order. Immediately before the call the parse is
+**valid** at revision 1. At the top of the loop body the document is at
+revision **2** - and `pre-indent` is already 2, so the indenter did not do it
+either. The only thing between them is
+`TextDocument::cleanWhitespace(const QTextCursor &)` doing
+`copyCursor.beginEditBlock()`. **`beginEditBlock()` bumps
+`QTextDocument::revision()` on its own**, and the text is byte-for-byte
+identical across the bump.
+
+So there is no race and nothing is stale. `isSemanticInfoValid()` compares
+`semanticInfo().revision` against `document()->revision()`, and `revision()`
+counts undo steps rather than content changes. Opening an edit block to make an
+edit is enough to invalidate a parse that still describes the text perfectly.
+The guard is dead 100% of the time on save, not intermittently - which is why no
+amount of waiting in a test ever helped, and why "let the reparse land" was a
+story about a mechanism that was never running.
+
+**The fix is to stop asking the parse.** Whether a line *ends* inside a raw
+string literal is a question about lexer state at the end of a block, and the
+highlighter already leaves that on every block for exactly this kind of
+consumer - `TextBlockUserData::expectedRawStringSuffix()`, which
+`cppcodeformatter.cpp` consults for the same question when it indents. Probing
+it on the fixture gives precisely the wanted answer:
+
+    blk 0  "const char *t = R\"(keep   "   suffix ")\""     -> keep
+    blk 1  ")\";   "                        suffix ""        -> strip
+    blk 2  "int x;   "                      suffix ""        -> strip
+
+The opening line and any interior line end inside the literal; the line that
+closes it has already cleared the suffix by its end, so whitespace after `)";`
+is formatting again. The whole override becomes:
+
+    if (!TextEditor::TextBlockUserData::expectedRawStringSuffix(block).isEmpty())
+        return;
+    TextDocument::removeTrailingWhitespace(block);
+
+`<cplusplus/ASTPath.h>` is no longer needed in that file. Beyond being correct,
+this is available *earlier* than the old test - highlighting arrives before a
+full parse - and where it is unavailable it degrades to today's behaviour rather
+than to something new.
+
+**The tests**, `RawStringWhitespaceTest` in `cpphighlighter.cpp`, are the ones
+the previous entry said could not be written. Two cases, because one alone
+cannot tell a working guard from a broken stripper: whitespace inside the
+literal survives, and whitespace outside it is still removed. The precondition
+is spun on causally - `QTRY_VERIFY` that block 0 carries a suffix, which is the
+highlighter's answer and the thing the cleaning consults - not on a wait for a
+parse.
+
+Negative controls, both bit:
+
+- Guard forced to `if (false)`: the inside-a-literal test fails with
+  `keep   ` stripped to `keep`, and the outside test **stays green** - so the
+  two tests are not measuring one thing.
+- Whole override no-op'd: the outside test fails too, so it is not vacuous.
+
+`-test TextEditor` 419 passed across 18 classes, 0 failed, exit 0. QuickUi 207
+passed / 1 skipped, exit 0. The five classes in the file I edited -
+`RawStringWhitespaceTest,FoldCommentsTest,QuickEditorHighlighterTest,LanguageToolBarTest,CodeFoldingTest`
+- 17 passed, 1 skipped ("folding is done via clangd", pre-existing), exit 0. No
+new file, no `.qbs` edit, no QML.
+
+**The lesson, which is the same one as the last two entries and is now costing
+real time to keep relearning.** I wrote a plausible mechanism into this document
+once, without measuring it, and then cited *my own note* as evidence in eleven
+subsequent entries. Each citation made it more settled and none of them checked
+it. A claim in this plan about *why* something fails should carry the
+measurement that produced it, or be marked as a guess - because the next batch
+reads it as fact.
+
+Also worth keeping: `-test` takes one plugin, so several classes go in a single
+comma-separated list. `-test P,A -test P,B` exits 255 with "The plugin is
+specified twice for testing" and runs nothing.
+
+**Still left**:
+
+- Needs a working project: the four kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
+  the caret shape per mode.
+- Older than this migration and still open: the Profiler abort. Instrumenting
+  rather than theorising has now worked three times in a row on exactly this
+  kind of item.
