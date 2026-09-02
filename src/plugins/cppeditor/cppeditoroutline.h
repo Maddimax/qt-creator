@@ -5,6 +5,8 @@
 
 #include "cppoutlinemodel.h"
 
+#include <texteditor/texteditor.h>
+
 #include <QObject>
 
 QT_BEGIN_NAMESPACE
@@ -22,7 +24,7 @@ class CppEditorWidget;
 
 namespace Internal {
 
-class CppEditorOutline : public QObject
+class CppEditorOutline : public TextEditor::ToolBarOutline
 {
     Q_OBJECT
 
@@ -36,6 +38,13 @@ public:
     explicit CppEditorOutline(CppEditorWidget *widget);
 
     QWidget *widget() const; // Must be deleted by client.
+
+    // What a view that draws this itself asks. The proxy is what the combo
+    // shows, sorted or not, so it is what a form sees too.
+    QAbstractItemModel *model() const override;
+    QModelIndex currentIndex() const override;
+    QString currentText() const override;
+    void activate(const QModelIndex &index) override;
 
 public slots:
     void updateIndex();

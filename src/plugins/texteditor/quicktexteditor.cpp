@@ -69,6 +69,7 @@
 #include <QQuickWidget>
 #include <QScopeGuard>
 #include <QSignalSpy>
+#include <QStandardItemModel>
 #include <QTextEdit>
 
 #ifdef WITH_TESTS
@@ -682,10 +683,17 @@ public:
             return doc ? doc->toolBarActions() : QList<QAction *>();
         });
 
+        // The outline the language keeps for this editor, where it keeps one.
+        // Parented to the editor by whoever made it, which is why it is found
+        // rather than handed over - the editor is built before the language
+        // has anything to say about the file it will hold.
+        auto * const outline = findChild<ToolBarOutline *>();
+
         auto bar = new QtcQuick::QuickWidget;
         bar->quickWidget()->setInitialProperties(
             {{"viewport", QVariant::fromValue(view)},
-             {"languageActions", QVariant::fromValue(&m_toolBarActions)}});
+             {"languageActions", QVariant::fromValue(&m_toolBarActions)},
+             {"outline", QVariant::fromValue(outline)}});
         bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
         m_toolBar = bar;
         return m_toolBar;
@@ -3843,6 +3851,84 @@ private slots:
         QSignalSpy pressed(document->m_action, &QAction::triggered);
         QMetaObject::invokeMethod(drawn, "clicked");
         QTRY_VERIFY2(!pressed.isEmpty(), "the button did nothing");
+    }
+
+    // The outline the toolbar shows: which function the caret is in, and the
+    // tree behind it. The language keeps one and parents it to the editor;
+    // this is a stand-in for it, because TextEditor has no language of its own.
+    void testTheFormDrawsTheLanguagesOutline()
+    {
+        class TestOutline final : public ToolBarOutline
+        {
+        public:
+            explicit TestOutline(QObject *parent)
+                : ToolBarOutline(parent)
+            {
+                m_model.appendRow(new QStandardItem("alpha()"));
+                m_model.appendRow(new QStandardItem("beta()"));
+            }
+            QAbstractItemModel *model() const override
+            {
+                return const_cast<QStandardItemModel *>(&m_model);
+            }
+            QModelIndex currentIndex() const override { return m_current; }
+            QString currentText() const override
+            {
+                return m_current.isValid() ? m_current.data().toString() : QString();
+            }
+            void activate(const QModelIndex &index) override
+            {
+                m_activated = index;
+                m_current = index;
+                emit currentIndexChanged();
+            }
+            void showRow(int row)
+            {
+                m_current = m_model.index(row, 0);
+                emit currentIndexChanged();
+            }
+
+            QStandardItemModel m_model;
+            QModelIndex m_current;
+            QModelIndex m_activated;
+        };
+
+        class OutlineFactory final : public TextEditorFactory
+        {
+        public:
+            OutlineFactory()
+            {
+                setId("QuickEditorOutlineTest");
+                setDisplayName("Quick Editor Outline Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorOutlineTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        OutlineFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+
+        // Parented to the editor before the toolbar is asked for, which is
+        // what the plugin does when it makes one for a file.
+        auto * const outline = new TestOutline(editor.get());
+        outline->showRow(0);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "outlineButton")),
+                     "the toolbar drew nothing for the language's outline");
+        QCOMPARE(drawn->property("text").toString(), QString("alpha()"));
+        QVERIFY2(drawn->isVisible(), "the outline was drawn where it cannot be seen");
+
+        // It says where the caret is, so it has to follow it.
+        outline->showRow(1);
+        QTRY_COMPARE(drawn->property("text").toString(), QString("beta()"));
     }
 
     // The provider is on the document, and asking it is what turns that into

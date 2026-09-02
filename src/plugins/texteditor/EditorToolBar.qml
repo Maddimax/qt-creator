@@ -21,8 +21,61 @@ Row {
     // What the language wants here - the preprocessor button for a C++ file.
     // A model of actions rather than widgets, so this decides how they look.
     required property ActionModel languageActions
+    // Where the caret is in the file, as the language sees it: a tree of what
+    // is in it and which row the caret is inside. Null where the language
+    // keeps none, which is every language but C++ today.
+    // Typed as var: ToolBarOutline is a plain QObject rather than a QML type,
+    // and QML reaches its properties through the meta-object either way.
+    required property var outline
 
     spacing: Spacing.GapHM
+
+    // Which function the caret is in, and a way to go to another. A button
+    // rather than a ComboBox, because what it opens is a tree and a combo's
+    // popup is a list.
+    QtcButton {
+        id: outlineButton
+
+        objectName: "outlineButton"
+        anchors.verticalCenter: parent.verticalCenter
+        visible: root.outline !== null && text !== ""
+        text: root.outline ? root.outline.currentText : ""
+        onClicked: outlinePopup.opened ? outlinePopup.close() : outlinePopup.open()
+
+        Popup {
+            id: outlinePopup
+
+            objectName: "outlinePopup"
+            y: outlineButton.height
+            width: Math.max(outlineButton.width, 320)
+            height: 320
+            padding: 0
+
+            TreeView {
+                id: outlineTree
+
+                objectName: "outlineTree"
+                anchors.fill: parent
+                clip: true
+                model: root.outline ? root.outline.model : null
+
+                delegate: TreeViewDelegate {
+                    id: outlineRow
+
+                    // TreeViewDelegate has row, column and model of its own,
+                    // so nothing is required here - asking again is an
+                    // override of what the base already answers.
+                    // Picking a row is what the reader came here for, and the
+                    // popup has said what it was for once that happens.
+                    onClicked: {
+                        // One column: an outline is a list of names, nested.
+                        root.outline.activate(outlineTree.index(outlineRow.row, 0))
+                        outlinePopup.close()
+                    }
+                }
+            }
+        }
+    }
 
     Repeater {
         model: root.languageActions
@@ -37,7 +90,9 @@ Row {
             required property string actionToolTip
 
             objectName: "languageToolBarButton"
-            anchors.verticalCenter: parent.verticalCenter
+            // Guarded: a Repeater's delegate has no parent while it is being
+            // created, and an unguarded binding warns on every one of them.
+            anchors.verticalCenter: parent ? parent.verticalCenter : undefined
             text: languageButton.actionText
             enabled: languageButton.actionEnabled
             visible: languageButton.actionVisible

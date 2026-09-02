@@ -880,6 +880,32 @@ TEXTEDITOR_EXPORT Core::IEditor *editorForWidget(TextEditorWidget *widget);
 TEXTEDITOR_EXPORT void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type,
                                             const RefactorMarkers &markers);
 
+// The outline an editor shows in the toolbar: a tree of what is in the file,
+// which row the caret is inside, and a way to go to one. A language fills this
+// in and parents it to the editor; a view finds it there and draws it.
+//
+// The editor rather than the document, because the current row follows a caret
+// and two views of one file have two.
+class TEXTEDITOR_EXPORT ToolBarOutline : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QAbstractItemModel *model READ model CONSTANT)
+    Q_PROPERTY(QModelIndex currentIndex READ currentIndex NOTIFY currentIndexChanged)
+    Q_PROPERTY(QString currentText READ currentText NOTIFY currentIndexChanged)
+
+public:
+    using QObject::QObject;
+
+    virtual QAbstractItemModel *model() const = 0;
+    virtual QModelIndex currentIndex() const = 0;
+    virtual QString currentText() const = 0;
+    // Go to what \a index names, which is what picking a row means.
+    Q_INVOKABLE virtual void activate(const QModelIndex &index) = 0;
+
+signals:
+    void currentIndexChanged();
+};
+
 // Follow the symbol the caret is on, in whichever view \a editor has. The
 // language's link finder is what answers; this only decides who asks.
 TEXTEDITOR_EXPORT void followSymbolUnderCursorIn(Core::IEditor *editor,

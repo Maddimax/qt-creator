@@ -26494,3 +26494,55 @@ combo on whatever it was.
    nobody sees unless a file belongs to several project parts.
 3. `CppLocalRenaming`, whose fallback the Quick editor already has.
 4. The switch.
+
+## 2026-09-02 — The outline is drawn, and a tree in a popup rather than a combo
+
+The last entry left the outline right and invisible. It is drawn now.
+
+**`TextEditor::ToolBarOutline`** is the seam: a `QObject` with a `model`, a
+`currentIndex` that follows the caret, a `currentText`, and `activate(index)`.
+A language fills it in and **parents it to the editor**; a view finds it there.
+The editor rather than the document, because the current row follows a caret
+and two views of one file have two. `CppEditorOutline` derives from it, which
+took four methods over what it already had - the proxy it sorts through, the
+combo's current index and text, and a jump that goes through the combo so that
+picking a row in a form and picking one in the combo are the same act.
+
+**A tree in a popup, not a combo.** The widget uses `Utils::TreeViewComboBox`;
+a QtQuick `ComboBox` popup is a list. So the form is a `QtcButton` saying where
+the caret is, opening a `Popup` holding a `TreeView` over the model. That is
+the first tree-in-a-popup this migration has needed, and it is ordinary once
+written - `TreeView` and `TreeViewDelegate` are what `QtcQuick`'s own tree
+delegate already uses.
+
+**Four QML lessons, three of them from qmllint rather than from a failure.**
+`ToolBarOutline` has no `QML_ELEMENT`, so a `required property ToolBarOutline`
+is a load error - and a load error in the toolbar form shows up as every
+existing toolbar test failing with `QQuickWidget::Error`, which is how it was
+found for the second batch running. Typed `var`, QML reaches its properties
+through the meta-object. Then: a `Repeater` delegate has no parent while it is
+being created, so `anchors.verticalCenter: parent.verticalCenter` warns on
+every one - guard it. And `TreeViewDelegate` already has `row` and `model`, so
+requiring them again is an override; it has no `column`, and an outline has one.
+
+The test is the pair of halves this document keeps ending up with: CppEditor
+asserts what the outline *says* as the caret moves, and TextEditor asserts the
+form draws it and follows it, over a stand-in `ToolBarOutline` parented to an
+editor a seam factory built.
+
+Negative controls, both bit: the button's text unbound from the outline, and
+the editor never finding the outline parented to it.
+
+`TextEditor` 409 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. Widget path:
+`FollowSymbolTest` 155, `CompletionTest` 204, `CppOutlineTest` 3,
+`CppEditorOutlineTest` 3, `LanguageToolBarTest` 3 - exit 0. No new file, no
+`.qbs` edit.
+
+**Next**, and it is two small things and a decision:
+
+1. The parse-context combo - flat, and invisible unless a file belongs to
+   several project parts. The toolbar seam takes actions and an outline; a
+   chooser is the third shape, and it is the only one left.
+2. `CppLocalRenaming`, whose fallback the Quick editor already has.
+3. The switch.

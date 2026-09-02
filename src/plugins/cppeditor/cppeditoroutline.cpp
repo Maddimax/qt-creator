@@ -85,8 +85,31 @@ static void setSortedEditorDocumentOutline(bool sorted)
                                            kSortEditorDocumentOutlineDefault);
 }
 
+QAbstractItemModel *CppEditorOutline::model() const
+{
+    return m_proxyModel;
+}
+
+QModelIndex CppEditorOutline::currentIndex() const
+{
+    return m_combo->view()->currentIndex();
+}
+
+QString CppEditorOutline::currentText() const
+{
+    return m_combo->currentText();
+}
+
+void CppEditorOutline::activate(const QModelIndex &index)
+{
+    // Through the combo, so that picking a row from a form and picking one
+    // from the combo are the same act - including what it leaves selected.
+    m_combo->view()->setCurrentIndex(index);
+    gotoSymbolInEditor();
+}
+
 CppEditorOutline::CppEditorOutline(CppEditorWidget *widget)
-    : QObject(widget)
+    : ToolBarOutline(widget)
     , m_widget(widget)
     , m_combo(new TreeViewComboBox)
 {
@@ -95,7 +118,7 @@ CppEditorOutline::CppEditorOutline(CppEditorWidget *widget)
 }
 
 CppEditorOutline::CppEditorOutline(Core::IEditor *editor, CppEditorDocument *document)
-    : QObject(editor)
+    : ToolBarOutline(editor)
     , m_editor(editor)
     , m_document(document)
     , m_combo(new TreeViewComboBox)
@@ -200,6 +223,7 @@ void CppEditorOutline::updateIndexNow()
         QSignalBlocker blocker(m_combo);
         m_combo->setCurrentIndex(m_proxyModel->mapFromSource(comboIndex));
         updateToolTip();
+        emit currentIndexChanged();
     }
 }
 
