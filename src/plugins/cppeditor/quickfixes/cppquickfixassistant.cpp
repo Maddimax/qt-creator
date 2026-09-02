@@ -255,7 +255,7 @@ private slots:
         QVERIFY(file.writeFileContents("int main()\n{\n    int alpha = 1;\n    return alpha;\n}\n"));
 
         // The C++ factory, told to build the Quick view for the length of this
-        // test whatever QTC_QUICK_CPP_EDITOR says.
+        // test whatever the default is.
         TextEditor::TextEditorFactory * const factory
             = TextEditor::TextEditorFactory::preferredFactoryFor(file);
         QVERIFY2(factory, "no editor factory claims a C++ file");

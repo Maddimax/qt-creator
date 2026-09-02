@@ -26881,3 +26881,67 @@ is real, and the missing piece is which entry is still filed and under what.
    test that does not force one.
 2. The use-after-free, which is not a Quick-editor gap and blocks nothing but
    whole-suite runs.
+
+## 2026-09-02 — The switch
+
+A C++ file opens in the Qt Quick editor.
+
+    setUsesQuickEditor(!qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"));
+
+`QTC_QUICK_CPP_EDITOR` is gone; `QTC_WIDGET_CPP_EDITOR` is the way back, for a
+report that says the Quick view got something wrong.
+
+**One gap closed on the way in.** "Find References With Access Type" was the
+last action in this plugin still keyed on `currentCppEditorWidget()`, which is
+null in a Quick view - the menu entry would have been there and done nothing.
+It asks `findUsagesOf(editor)` now, the same call the plain Find Usages action
+already made, and `currentCppEditorWidget()` has no callers left.
+
+**Everything else the factory configures was checked rather than assumed.** The
+optional-action mask is the one the instructions call out: the Quick editor
+does not read it. For C++ that costs nothing, because the mask grants every
+symbol action and the Quick editor registers all ten of them unconditionally -
+`FOLLOW_SYMBOL_UNDER_CURSOR`, `FOLLOW_SYMBOL_TO_TYPE`, `FIND_USAGES`,
+`RENAME_SYMBOL`, `JUMP_TO_FILE_UNDER_CURSOR`, `OPEN_CALL_HIERARCHY`,
+`OPEN_TYPE_HIERARCHY`, `UN_COMMENT_SELECTION`, `UNFOLD_ALL`,
+`AUTO_INDENT_SELECTION`. What it costs is on *other* file types, which have
+been in the Quick editor for a while already: a plain text file is offered
+Rename Symbol and Follow Symbol where the widget editor greys them out. That is
+a real gap, it predates this switch, and it is written up as next.
+
+The measurement is the same per-class sweep as last time, re-run with the flip
+in place - the default against `QTC_WIDGET_CPP_EDITOR=1`:
+
+**81 classes. 1602 passed / 1 failed / 58 skipped by default, 1601 / 1 / 59
+with the way back. One class differs, and it is the new test below skipping
+when it is asked to.** The one failure is
+`ModelManagerTest::testExtraeditorsupportUiFiles` in both, the standing
+environment flake. `ClangCodeModel` 28 passed / 8 skipped, exit 0.
+
+The test is the switch itself: open a C++ file, tell the factory nothing, and
+the editor must not be a `TextEditorWidget`. It skips under
+`QTC_WIDGET_CPP_EDITOR`, which is what the one differing row is.
+
+Negative control, it bit: putting the factory back to opting in on
+`QTC_QUICK_CPP_EDITOR` - "a C++ file still opens in the widget editor". The
+categorized find-references change has no control, because no test covers that
+action; it is a mechanical swap onto the call the covered action already uses.
+
+`TextEditor` 411 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. No new file, no `.qbs`
+edit.
+
+**Next**, now that the goal is met, in the order I would take them:
+
+1. **The optional-action mask.** `TextEditorFactory` has one and the Quick
+   editor ignores it, so every text file is offered symbol actions its language
+   cannot answer. `createQuickTextEditor()` takes the document and the context;
+   the mask belongs beside them, and the ten registrations above gate on it.
+2. **`SynchronizeMemberFunctionOrderTest`** asserts `QVERIFY(editorWidget)`. It
+   skips here for want of a kit, so the sweep never saw it - it will fail on a
+   machine that has one.
+3. The whole-suite heap-use-after-free, still not reproduced. See the previous
+   entry for the free stack and for the mechanism that turned out not to be it.
+4. Deleting `CppEditorWidget` is not close: it is still what
+   `QTC_WIDGET_CPP_EDITOR` builds, and still where a good deal of behaviour
+   lives that the Quick side reaches through seams rather than owns.

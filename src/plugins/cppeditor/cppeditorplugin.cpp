@@ -109,13 +109,6 @@ using namespace Utils;
 
 namespace CppEditor::Internal {
 
-static CppEditorWidget *currentCppEditorWidget()
-{
-    if (IEditor *currentEditor = EditorManager::currentEditor())
-        return qobject_cast<CppEditorWidget*>(currentEditor->widget());
-    return nullptr;
-}
-
 //////////////////////////// CppEditorFactory /////////////////////////////
 
 // Where the symbol under the cursor is defined, for a view that is not a
@@ -158,11 +151,16 @@ public:
 
         addEditorContext(ProjectExplorer::Constants::CXX_LANGUAGE_ID);
 
-        // The Qt Quick view of a C++ file, for whoever asks for it. Not yet
-        // the default: what it does not have is everything CppEditorWidget
-        // adds - quick fixes, renaming, the uses of the symbol under the
-        // cursor - and every one of those is keyed on being that widget.
-        setUsesQuickEditor(Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_CPP_EDITOR"));
+        // A C++ file opens in the Qt Quick view. Everything CppEditorWidget
+        // adds is reachable without being that widget now: completion, quick
+        // fixes, follow symbol, refactoring, renaming both in place and across
+        // a project, the uses of the symbol under the caret, the outline and
+        // the parse-context chooser in the toolbar. Every CppEditor test class
+        // was run once per view and the two answer the same.
+        //
+        // QTC_WIDGET_CPP_EDITOR is the way back, for a report that says
+        // otherwise.
+        setUsesQuickEditor(!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"));
 
         setDocumentCreator([]() { return new CppEditorDocument; });
         setEditorWidgetCreator([]() { return new CppEditorWidget; });
@@ -483,11 +481,12 @@ void CppEditorPlugin::addPerSymbolActions()
     findRefsCategorized.bindContextAction(&d->m_findRefsCategorizedAction);
     findRefsCategorized.addToContainers(menus, Constants::G_SYMBOL);
     findRefsCategorized.addOnTriggered(this, [] {
-        if (const auto w = currentCppEditorWidget()) {
-            CppCodeModelSettings::setCategorizeFindReferences(true);
-            w->findUsages();
-            CppCodeModelSettings::setCategorizeFindReferences(false);
-        }
+        IEditor * const editor = EditorManager::currentEditor();
+        if (!editor || !qobject_cast<CppEditorDocument *>(editor->document()))
+            return;
+        CppCodeModelSettings::setCategorizeFindReferences(true);
+        CppEditor::findUsagesOf(editor);
+        CppCodeModelSettings::setCategorizeFindReferences(false);
     });
 
     addSymbolActionToMenus(TextEditor::Constants::RENAME_SYMBOL);

@@ -856,6 +856,32 @@ class QuickEditorHighlighterTest : public QObject
     Q_OBJECT
 
 private slots:
+    // The switch itself: opening a C++ file with nothing asked for gives the
+    // Qt Quick view. QTC_WIDGET_CPP_EDITOR is the way back, and a machine that
+    // has it set is one where this says nothing.
+    void testACppFileOpensInTheQuickEditor()
+    {
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
+            QSKIP("the widget editor is what this run asked for");
+
+        Utils::TemporaryDirectory dir("cpp-opens-in-the-quick-editor");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+        // Nothing is told to build anything here: what the factory does by
+        // default is the whole point.
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "a C++ file still opens in the widget editor");
+        QVERIFY2(qobject_cast<CppEditorDocument *>(editor->document()),
+                 "the Quick view was given something other than a C++ document");
+    }
+
     void testACppDocumentKeepsItsOwnHighlighter()
     {
         Utils::TemporaryDirectory dir("cpp-highlighter-in-any-view");
