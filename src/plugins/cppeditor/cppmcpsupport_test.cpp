@@ -3,11 +3,17 @@
 
 #include "cppmcpsupport_test.h"
 
+#include "cppeditordocument.h"
 #include "cpptoolstestcase.h"
 
 #include <mcp/server/toolregistry.h>
 
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+
 #include <utils/filepath.h>
+
+#include <QScopeGuard>
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -173,6 +179,44 @@ void CppMcpSupportTest::testFindOverrides()
         names << value.toObject().value("name").toString();
     QVERIFY(names.contains("Base::f"));
     QVERIFY(names.contains("Derived::f"));
+}
+
+// The quick fixes offered at a position. This asked for a CppEditorWidget and
+// refused with "Could not open ... in a C++ editor" when there was not one,
+// which is every C++ file since the Qt Quick view became the default - the
+// file had opened perfectly well.
+void CppMcpSupportTest::testGetQuickFixes()
+{
+    CppEditor::Tests::TestCase testCase;
+    QVERIFY(testCase.succeededSoFar());
+    CppEditor::Tests::TemporaryDir dir;
+    Utils::FilePath file;
+    QVERIFY(writeAndParse(dir, "void f() { int *p = new int; }\n", &file));
+    const QScopeGuard closeEditors([] { Core::EditorManager::closeAllEditors(false); });
+
+    // Semantic info is worked out asynchronously, and the tool says so rather
+    // than reporting no fixes. A caller retries; this waits once.
+    Core::IEditor *editor = nullptr;
+    QVERIFY(CppEditor::Tests::TestCase::openCppEditorInAnyView(file, &editor));
+    auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+    QVERIFY(document);
+    QVERIFY(CppEditor::Tests::TestCase::waitForRehighlightedSemanticDocument(document));
+
+    // On the pointer's name, where a fix applies.
+    QString error;
+    const QJsonObject result = callTool(
+        "get_quick_fixes",
+        {{"file", file.toFSPathString()}, {"line", 1}, {"column", 17}}, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    QStringList offered;
+    for (const QJsonValue &fix : result.value("quick_fixes").toArray())
+        offered << fix.toObject().value("description").toString();
+    // A named one: a list that merely happens to be non-empty would not say
+    // the caret was understood.
+    QVERIFY2(offered.contains("Convert to Stack Variable"),
+             qPrintable("nothing offered to make the pointer a stack variable; got: "
+                        + offered.join(", ")));
 }
 
 void CppMcpSupportTest::testRenameSymbolDryRun()

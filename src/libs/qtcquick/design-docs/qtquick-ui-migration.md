@@ -27236,3 +27236,67 @@ no test for.
    `designer/qtcreatorintegration.cpp:902`.
 2. The revision race under whitespace-on-save, from the previous entry.
 3. The whole-suite heap-use-after-free, still not reproduced.
+
+## 2026-09-02 — The MCP quick-fixes tool, and what the survey has left
+
+Next on the survey. Not `clangdclient.cpp` after all: `adjustedCursor()` is
+private to `ClangdClient::Private` and only observable through a follow-symbol
+round trip against a running, indexed clangd, so a test for it would be an
+integration test of the slowest kind. The other two widget arguments in that
+file (`followSymbol`, `switchDeclDef`) carry the widget down into
+`ClangdFollowSymbol` for four separate jobs - cancelling on cursor movement,
+`isInTestMode()`, `setProposals()`, and `invokeTextEditorWidgetAssist()` for
+the virtual-function override proposal. That is the clangd twin of the override
+proposal batch and wants its own.
+
+**`get_quick_fixes` is the one that was both broken and testable.** The MCP
+tool that reports which quick fixes apply at a position asked for a
+`CppEditorWidget` and, not finding one, answered
+
+    Could not open "<file>" in a C++ editor.
+
+for every C++ file, since the Qt Quick view became the default - about a file
+that had opened perfectly well. An agent asking this tool has been told the
+file will not open, which is not what happened.
+
+It asks the `CppEditorDocument` now, and the document-based
+`CppQuickFixInterface` takes the caret as an argument. So the tool also stops
+**moving the reader's cursor**: the old shape had to save the widget's caret,
+set it to the position asked about, build the interface, and put it back. None
+of that is needed to ask a question about a file.
+
+One behaviour change worth naming: the "is it parsed yet" guard was the
+widget's `isSemanticInfoValid()`, which also waits for local uses; the
+document's is the same check without them. Since the interface works local uses
+out itself, the tool now answers in a few cases where it used to say "not
+parsed yet".
+
+`get_quick_fixes` had no test at all, so it has one now: it asks for the fixes
+on a pointer declaration and expects Convert to Stack Variable by name, in both
+views. It waits for the parse first, which is what the tool's own error message
+tells a caller to do.
+
+Negative controls, both bit: requiring a widget again reproduces the original
+message verbatim - "Could not open ... in a C++ editor" - and ignoring the
+caret handed in returns an empty list, so the test is watching the position and
+not merely that something came back.
+
+`TextEditor` 412 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. CppEditor in both views,
+identical: `CppMcpSupportTest` 11, `QuickFixAssistTest` 9, `FoldCommentsTest` 4.
+No new file, no `.qbs` edit. `mcpsupport.cpp` no longer mentions
+`CppEditorWidget` at all.
+
+**Next**:
+
+1. **The clangd override proposal**: `followSymbol()` and `switchDeclDef()`
+   carry a `CppEditorWidget` into `ClangdFollowSymbol`, which uses it for four
+   things listed above. The builtin equivalent is already done, so there is a
+   shape to copy.
+2. `cppcodemodelinspectordialog.cpp:1676` - reads the widget's semantic info to
+   add "Current Editor's Semantic Info Snapshot" to the inspector. The document
+   has that snapshot; the dialog is a debugging aid, so it is low stakes and
+   easy.
+3. `designer/qtcreatorintegration.cpp:902`, unread.
+4. The revision race under whitespace-on-save, and the whole-suite
+   heap-use-after-free. Both older than this migration.

@@ -4,7 +4,8 @@
 #include "mcpsupport.h"
 
 #include "cppcanonicalsymbol.h"
-#include "cppeditorwidget.h"
+#include "cppcompletionassist.h"
+#include "cppeditordocument.h"
 #include "cppelementevaluator.h"
 #include "cppindexingsupport.h"
 #include "cpplocatordata.h"
@@ -1776,9 +1777,12 @@ void registerMcpTools()
                 filePath, {},
                 Core::EditorManager::DoNotChangeCurrentEditor
                     | Core::EditorManager::DoNotMakeVisible);
-            auto cppWidget = qobject_cast<CppEditorWidget *>(
-                TextEditor::TextEditorWidget::fromEditor(editor));
-            if (!cppWidget) {
+            // The document rather than a widget showing it: which fixes apply
+            // is a question about the file, and asking for a widget answered
+            // nothing at all once C++ opened in the Qt Quick view.
+            auto * const cppDocument = qobject_cast<CppEditorDocument *>(
+                editor ? editor->document() : nullptr);
+            if (!cppDocument) {
                 return CallToolResult{}.isError(true).addContent(TextContent{}.text(
                     QString("Could not open \"%1\" in a C++ editor.")
                         .arg(filePath.toUserOutput())));
@@ -1786,28 +1790,26 @@ void registerMcpTools()
 
             // Semantic info arrives asynchronously, so a file this call just
             // opened has none yet. Say so instead of reporting no quick-fixes.
-            if (!cppWidget->isSemanticInfoValid()) {
+            if (!cppDocument->isSemanticInfoValid()) {
                 return CallToolResult{}.isError(true).addContent(TextContent{}.text(
                     QString("\"%1\" is not parsed yet. Try again once the code model "
                             "has caught up.").arg(filePath.toUserOutput())));
             }
 
-            QTextDocument *doc = cppWidget->document();
+            QTextDocument *doc = cppDocument->document();
             const QTextBlock block = doc->findBlockByNumber(line - 1);
             if (!block.isValid()) {
                 return CallToolResult{}.isError(true).addContent(TextContent{}.text(
                     QString("Line %1 is out of range in \"%2\".")
                         .arg(line).arg(filePath.toUserOutput())));
             }
-            const QTextCursor savedCursor = cppWidget->textCursor();
-            const QScopeGuard restoreCursor([cppWidget, savedCursor] {
-                cppWidget->setTextCursor(savedCursor);
-            });
+            // Handed the caret to ask about rather than moving the reader's
+            // there and back, which is what asking a widget forced.
             QTextCursor cursor(doc);
             cursor.setPosition(block.position() + qMin(column - 1, block.length() - 1));
-            cppWidget->setTextCursor(cursor);
 
-            const CppQuickFixInterface interface(cppWidget, TextEditor::ExplicitlyInvoked);
+            const CppQuickFixInterface interface(cppDocument, cursor,
+                                                 TextEditor::ExplicitlyInvoked, editor);
             if (interface.path().isEmpty()) {
                 return CallToolResult{}.isError(false).structuredContent(
                     QJsonObject{{"quick_fixes", QJsonArray()}});

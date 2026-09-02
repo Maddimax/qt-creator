@@ -19,6 +19,7 @@ private slots:
     void testFindOverrides();
     void testGetIncludeHierarchy();
     void testFindSignalConnections();
+    void testGetQuickFixes();
     void testRenameSymbolDryRun();
     void testRenameSymbolClashCheck();
     void testResultCap();
