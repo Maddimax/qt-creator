@@ -4288,6 +4288,146 @@ private slots:
                  "the language asked for Ctrl+W and did not get it");
     }
 
+    // Typing over what is there instead of pushing it along. The Insert key
+    // has always done this in the widget editor; the Quick editor had no such
+    // mode at all, so a C++ file lost it at the switch and a text file long
+    // before that. It is also one of the four things FakeVim needs from a view.
+    void testInsertTogglesTypingOverTheTextThatIsThere()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-overwrite");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("abcdef\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+        QTextDocument * const text = view->textDocument()->document();
+
+        const auto type = [view](int key, const QString &written,
+                                 Qt::KeyboardModifiers mods = Qt::NoModifier) {
+            QKeyEvent event(QEvent::KeyPress, key, mods, written);
+            QCoreApplication::sendEvent(view, &event);
+        };
+        const auto caretWidth = [view] {
+            const QVariantList rects = view->caretRectangles();
+            return rects.isEmpty() ? 0.0 : rects.first().toRectF().width();
+        };
+
+        view->setCursorPosition(0);
+        QVERIFY2(!view->overwriteMode(), "the editor started out typing over");
+        const qreal insertingCaret = caretWidth();
+        QVERIFY(insertingCaret > 0);
+
+        // Inserting: what is there is pushed along.
+        type(Qt::Key_X, "X");
+        QCOMPARE(text->toPlainText(), QString("Xabcdef\n"));
+
+        // Shift+Insert is paste and must not be mistaken for the toggle.
+        type(Qt::Key_Insert, {}, Qt::ShiftModifier);
+        QVERIFY2(!view->overwriteMode(), "Shift+Insert was taken for the overwrite toggle");
+
+        type(Qt::Key_Insert, {});
+        QVERIFY2(view->overwriteMode(), "Insert did not turn typing-over on");
+        QVERIFY2(caretWidth() > insertingCaret,
+                 "the caret is still drawn between two characters, not over one");
+
+        // Typing over: the character under the caret goes.
+        type(Qt::Key_Y, "Y");
+        QCOMPARE(text->toPlainText(), QString("XYbcdef\n"));
+
+        // At the end of a line there is nothing to type over, so the newline
+        // survives and the text grows.
+        QTextCursor atEnd(text);
+        atEnd.movePosition(QTextCursor::EndOfBlock);
+        view->setTextCursor(atEnd);
+        type(Qt::Key_Z, "Z");
+        QCOMPARE(text->toPlainText(), QString("XYbcdefZ\n"));
+
+        // And back again.
+        type(Qt::Key_Insert, {});
+        QVERIFY2(!view->overwriteMode(), "Insert did not turn typing-over off again");
+        view->setCursorPosition(0);
+        type(Qt::Key_W, "W");
+        QCOMPARE(text->toPlainText(), QString("WXYbcdefZ\n"));
+    }
+
+    // The other three things a view has to answer for FakeVim to drive it:
+    // a cursor at a point, how wide a tab is, and whether scrolling centres.
+    void testTheViewAnswersWhatAnEditingModeAsksOfIt()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-editing-mode-surface");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QString content;
+        for (int i = 0; i < 200; ++i)
+            content += QString("line %1 of the file\n").arg(i);
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+        QTRY_VERIFY(view->visibleLineCount() > 2);
+
+        // A cursor at a point, which is what "gm" - go to the middle of the
+        // screen line - is worked out from.
+        view->setCursorPosition(0);
+        const QVariantList carets = view->caretRectangles();
+        QVERIFY(!carets.isEmpty());
+        const QRectF caret = carets.first().toRectF();
+        const QTextCursor atCaret = view->cursorForPosition(
+            QPoint(int(caret.x() + caret.width() / 2), int(caret.y() + caret.height() / 2)));
+        QVERIFY2(!atCaret.isNull(), "the view could not name a position under a point");
+        QCOMPARE(atCaret.position(), 0);
+        // And somewhere along the first line, which must not be the start.
+        const QTextCursor further = view->cursorForPosition(
+            QPoint(int(caret.x() + caret.width() * 6), int(caret.y() + caret.height() / 2)));
+        QVERIFY2(further.position() > 0, "every point answered the same position");
+
+        // How wide a tab is. Asked in pixels, because that is what the widget
+        // editors take; kept as the columns this view lays out by.
+        const qreal spaceWidth = QFontMetricsF(view->textDocument()->fontSettings().font())
+                                     .horizontalAdvance(QLatin1Char(' '));
+        QVERIFY(spaceWidth > 0);
+        view->setTabStopDistance(spaceWidth * 3);
+        QCOMPARE(view->textDocument()->tabSettings().m_tabSize, 3);
+        view->setTabStopDistance(spaceWidth * 8);
+        QCOMPARE(view->textDocument()->tabSettings().m_tabSize, 8);
+
+        // And centring, which a mode turns on for as long as it is driving.
+        QVERIFY2(!view->centerOnScroll(), "the view started out centring");
+        view->setCursorPosition(0);
+        QTextCursor farDown(view->textDocument()->document());
+        farDown.setPosition(view->textDocument()->document()->findBlockByNumber(150).position());
+
+        view->setCenterOnScroll(false);
+        view->setTextCursor(farDown);
+        view->ensureCursorVisible();
+        const qreal scrolledToEdge = view->scrollY();
+
+        view->setCursorPosition(0);
+        view->ensureCursorVisible();
+        view->setCenterOnScroll(true);
+        QVERIFY(view->centerOnScroll());
+        view->setTextCursor(farDown);
+        view->ensureCursorVisible();
+        const qreal scrolledToMiddle = view->scrollY();
+
+        // Going down, stopping at the edge scrolls just far enough to bring the
+        // caret into view at the bottom; centring keeps going until it is in
+        // the middle, so it scrolls further.
+        QVERIFY2(scrolledToMiddle > scrolledToEdge,
+                 qPrintable(QString("centring scrolled to %1, the edge to %2")
+                                .arg(scrolledToMiddle).arg(scrolledToEdge)));
+    }
+
     // Commands only some languages can answer. A factory says which of them
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.

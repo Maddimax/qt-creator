@@ -27678,3 +27678,71 @@ edit.
    kit.
 4. The whitespace-on-save revision race, the CppEditor whole-suite
    use-after-free, and the Profiler abort - all older than this migration.
+
+## 2026-09-02 — Typing over, and the rest of what an editing mode asks
+
+The four capabilities the adapter's interface named last time. Three were small
+once the interface said what they were; one was a feature the Quick editor
+simply did not have.
+
+**Overwrite mode is not FakeVim's, it is the editor's.** `Insert` toggles
+typing-over in `TextEditorWidget::keyPressEvent()` and has for ever. The Quick
+editor had no such mode, so pressing Insert did nothing - for a text file since
+that moved, and for a C++ file since the switch. This is another gap the
+cross-plugin sweep could not see, because nothing tests it.
+
+It is three things, and each is a different part of the view:
+
+- a `Q_PROPERTY(bool overwriteMode)` that the Insert key toggles, on its own
+  only - `Shift+Insert` is paste and `Ctrl+Insert` is copy, which is what the
+  widget editor checks for in the same place;
+- typing takes the character under the caret with it, unless the caret is at
+  the end of a line where there is nothing to type over. Done *after* the
+  auto-completer has been asked, so that it still reads the caret as the reader
+  left it rather than with a character already selected;
+- the caret is drawn over that character rather than between two, which is
+  `rectangleAt()` answering the width of what is under it, with a space's worth
+  at the end of a line. The same two cases `WidgetTextControl` draws.
+
+The other three were shorter:
+
+- `cursorForPosition()` is `positionAt()` wrapped in a cursor, which the view
+  already had for the mouse.
+- `setTabStopDistance()` takes pixels because that is what `QTextOption` takes;
+  this view lays tabs out in columns, so it converts and writes the document's
+  tab settings.
+- `centerOnScroll` turned out **not** to need inventing: `ensureCursorVisible()`
+  already centres when the reader's display setting says so. The per-view flag
+  joins that setting rather than replacing it, so a mode can ask for centring
+  while it is driving and give it back afterwards - which is exactly the
+  save-and-restore FakeVim does around `zz`.
+
+`ensureCursorVisible()` became public on the way past, because the adapter
+needs it and it was private for no reason other than nobody outside asking.
+
+Negative controls, all four bit, each on its own assertion: typing not taking
+the character it types over, the caret keeping its one-pixel width, the
+per-view centring flag not being honoured (the two scrolls land on the same
+1485), and the Insert key falling through without toggling.
+
+`TextEditor` 416 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 258 passed and
+standalone `tst_fakevim` 7 passed, both exit 0. CppEditor spot checks -
+`FoldComments` 4, `CppCodeModelInspector` 4, `Selections` 15, `Doxygen` 34 -
+all exit 0. No new file, no `.qbs` edit.
+
+**Next**:
+
+1. **The viewport backend and the wiring** - the last step for FakeVim, and
+   everything it needs now exists. A `FakeVimEditorAdapter` over `TextViewport`
+   whose `keyTarget()` is the item, and `FakeVimPlugin::editorOpened()`
+   accepting an editor whose view is a `TextViewport` rather than only one
+   aggregating a `QPlainTextEdit`. Worth checking early whether an event filter
+   on a `QQuickItem` sees key events at all - `QQuickWindow` delivers them with
+   `QCoreApplication::sendEvent()` to the focus item, so it should, but if it
+   does not the adapter should drive `EditHandler` instead, which is what that
+   seam was built for.
+2. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+3. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.

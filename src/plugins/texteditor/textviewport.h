@@ -224,6 +224,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // Whether typing does anything. A viewport is a view until told otherwise,
     // so that showing a file cannot accidentally change it.
     Q_PROPERTY(bool readOnly READ isReadOnly WRITE setReadOnly NOTIFY readOnlyChanged)
+    // Typing replaces what is under the caret instead of pushing it along, and
+    // the caret is drawn over that character rather than between two. The
+    // Insert key turns it on and off, as it does in the widget editor.
+    Q_PROPERTY(bool overwriteMode READ overwriteMode WRITE setOverwriteMode
+                   NOTIFY overwriteModeChanged)
     // Whether a line too long for the width is broken across rows.
     //
     // Off by default, and off is the cheap path: with every line exactly one
@@ -838,6 +843,19 @@ public:
     Q_INVOKABLE void decreaseFontZoom();
     Q_INVOKABLE void resetFontZoom();
     void setReadOnly(bool readOnly);
+    bool overwriteMode() const;
+    void setOverwriteMode(bool overwrite);
+    // A cursor at an item coordinate, which is positionAt() as the widget
+    // editors spell it.
+    QTextCursor cursorForPosition(const QPoint &point) const;
+    // How wide a tab is drawn, in pixels. The document's tab settings say so
+    // normally; this is for a language that overrides them for one view.
+    void setTabStopDistance(qreal distance);
+    // Whether scrolling keeps the caret in the middle of the view.
+    bool centerOnScroll() const;
+    void setCenterOnScroll(bool center);
+    // Scroll until the caret is on screen, obeying the setting above.
+    void ensureCursorVisible();
 
 signals:
     void documentChanged();
@@ -870,6 +888,7 @@ signals:
     void suggestionChanged();
     void cursorRectangleChanged();
     void readOnlyChanged();
+    void overwriteModeChanged();
     void fileFormatChanged();
     // A character to pulse where it stands: the bracket that matches the one
     // the caret just arrived beside, once per arrival.
@@ -1021,7 +1040,7 @@ private:
 
     // Keeps the caret on screen after it has been moved by something other than
     // the mouse.
-    void ensureCursorVisible();
+
     void ensureCaretVisibleSideways();
     // Which row a block starts on. A row and a line are the same thing only
     // while wrapping is off; with it on, the layout that lays the rows out is
@@ -1094,6 +1113,8 @@ private:
     std::unique_ptr<IAssistProposal> m_functionHintProposal;
     QPointer<Utils::TextEditorLayout> m_editorLayout;
     bool m_wrapping = false;
+    bool m_overwriteMode = false;
+    bool m_centerOnScroll = false;
     // Unset until the view is told: the setting answers until then.
     std::optional<bool> m_visualizeWhitespace;
 

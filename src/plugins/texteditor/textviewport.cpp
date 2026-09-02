@@ -977,7 +977,19 @@ QRectF TextViewport::rectangleAt(int position) const
 
     int offset = found.offsetInLine;
     const qreal x = textLine.cursorToX(&offset);
-    return QRectF(line.at.x() + x, line.at.y(), 1, m_lineHeight);
+    qreal width = 1;
+    if (m_overwriteMode) {
+        // As wide as the character it stands on, and a space's worth at the
+        // end of a line where there is no character to stand on. The same two
+        // cases WidgetTextControl draws for the widget editor.
+        int next = offset + 1;
+        width = next <= textLine.textStart() + textLine.textLength()
+                    ? textLine.cursorToX(&next) - x
+                    : QFontMetricsF(m_font).horizontalAdvance(QLatin1Char(' '));
+        if (width <= 0)
+            width = QFontMetricsF(m_font).horizontalAdvance(QLatin1Char(' '));
+    }
+    return QRectF(line.at.x() + x, line.at.y(), width, m_lineHeight);
 }
 
 bool TextViewport::isWrapping() const
@@ -1450,7 +1462,9 @@ void TextViewport::ensureCursorVisible()
     // Put the caret in the middle rather than just inside the edge, where the
     // user asked for that: a caret that stops one line into view leaves
     // nothing to read in the direction it is heading.
-    if (displaySettings().centerCursorOnScroll())
+    // The reader's setting, or this view's own - a language driving the view
+    // can ask for centring for as long as it is in charge.
+    if (m_centerOnScroll || displaySettings().centerCursorOnScroll())
         setScrollY(top - (height() - rowSpan(row)) / 2);
     else
         setScrollY(above ? top : top + rowSpan(row) - height());
@@ -1881,6 +1895,16 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
         return;
     }
 
+    // Insert turns typing-over on and off. Only on its own: Shift+Insert is
+    // paste and Ctrl+Insert is copy, which is what the widget editor checks
+    // for here too.
+    if (event->key() == Qt::Key_Insert && canEdit()
+        && (event->modifiers() == Qt::NoModifier
+            || event->modifiers() == Qt::KeypadModifier)) {
+        setOverwriteMode(!m_overwriteMode);
+        return event->accept();
+    }
+
     const QTextCursor::MoveMode mode = event->modifiers().testFlag(Qt::ShiftModifier)
                                            ? QTextCursor::KeepAnchor
                                            : QTextCursor::MoveAnchor;
@@ -2101,8 +2125,17 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
 // than something to delete.
 void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
 {
+    // Overwriting: what is under the caret goes, unless the caret is at the end
+    // of the line, where there is nothing to type over. The same rule the
+    // widget editor's text control uses.
+    const auto takeOverwrittenCharacter = [this](QTextCursor &cursor) {
+        if (m_overwriteMode && !cursor.hasSelection() && !cursor.atBlockEnd())
+            cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+    };
+
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     if (!doc || !m_autoCompleter) {
+        takeOverwrittenCharacter(cursor);
         cursor.insertText(text);
         return;
     }
@@ -2121,6 +2154,9 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     const QString closing = m_autoCompleter->autoComplete(probe, text, false);
 
     cursor.beginEditBlock();
+    // After the auto-completer has been asked, which reads the caret as the
+    // reader left it rather than with a character already selected.
+    takeOverwrittenCharacter(cursor);
     cursor.insertText(text);
     if (!closing.isEmpty()) {
         const int before = cursor.position();
@@ -2826,6 +2862,62 @@ bool TextViewport::selectBlockDown()
     setTextCursor(cursor);
     updateParenthesesMatch();
     return true;
+}
+
+bool TextViewport::overwriteMode() const
+{
+    return m_overwriteMode;
+}
+
+void TextViewport::setOverwriteMode(bool overwrite)
+{
+    if (m_overwriteMode == overwrite)
+        return;
+    m_overwriteMode = overwrite;
+    // The caret is drawn a character wide in this mode, so what is on screen
+    // changes even though the text has not.
+    emit cursorRectangleChanged();
+    emit overwriteModeChanged();
+}
+
+QTextCursor TextViewport::cursorForPosition(const QPoint &point) const
+{
+    QTextDocument * const doc = m_document ? m_document->textDocument()->document() : nullptr;
+    if (!doc)
+        return {};
+    const int position = positionAt(point.x(), point.y());
+    if (position < 0)
+        return {};
+    QTextCursor cursor(doc);
+    cursor.setPosition(position);
+    return cursor;
+}
+
+void TextViewport::setTabStopDistance(qreal distance)
+{
+    const qreal spaceWidth = QFontMetricsF(m_font).horizontalAdvance(QLatin1Char(' '));
+    if (spaceWidth <= 0 || distance <= 0)
+        return;
+    // Kept as a column count, which is what this view lays tabs out by; the
+    // widget editors take pixels because QTextOption does.
+    if (TextDocument * const doc = m_document ? m_document->textDocument() : nullptr) {
+        TabSettingsData settings = doc->tabSettings();
+        settings.m_tabSize = qMax(1, qRound(distance / spaceWidth));
+        doc->setTabSettings(settings);
+    }
+}
+
+bool TextViewport::centerOnScroll() const
+{
+    return m_centerOnScroll;
+}
+
+void TextViewport::setCenterOnScroll(bool center)
+{
+    if (m_centerOnScroll == center)
+        return;
+    m_centerOnScroll = center;
+    ensureCursorVisible();
 }
 
 Core::IEditor *TextViewport::editor() const
