@@ -731,6 +731,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createDeclDefLinkTest);
     addTestCreator(createIncludeGroupsTest);
     addTestCreator(createCppPreProcessorDialogTest);
+    addTestCreator(createCppCodeModelInspectorTest);
     addTestCreator(createClangdSettingsTest);
     addTestCreator(createCppQuickFixSettingsTest);
     addTestCreator(createQuickFixAssistTest);

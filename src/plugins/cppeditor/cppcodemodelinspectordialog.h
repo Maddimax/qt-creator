@@ -3,7 +3,13 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace CppEditor::Internal {
+
+#ifdef WITH_TESTS
+QObject *createCppCodeModelInspectorTest();
+#endif
 
 void inspectCppCodeModel();
 

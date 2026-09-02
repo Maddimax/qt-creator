@@ -27472,3 +27472,72 @@ file, no `.qbs` edit.
 5. Re-run this cross-plugin sweep after any further change to what the factory
    builds. The script is worth keeping: it found in one pass what six batches
    of CppEditor-only sweeping had missed.
+
+## 2026-09-02 — The inspector, and why FakeVim is not a batch
+
+### FakeVim: sized, and deliberately not started
+
+The plan called this the largest thing left, so this batch sized it before
+picking it up. The good news is that `FakeVimHandler` is not as widget-bound as
+17,000 lines suggests: its whole view surface is the `EDITOR(s)` macro - 31
+uses, about nineteen distinct operations - plus roughly ten three-way dispatch
+sites. The macro *already* abstracts over `QTextEdit`, `QPlainTextEdit` and
+`Utils::PlainTextEdit`, so a fourth backend is the shape the code invites.
+
+And the key path fits a seam that already exists: `eventFilter()` comes down to
+`d->handleEvent(kev)` returning an `EventResult`, which maps exactly onto
+`TextEditor::EditHandler::handleKeyPress(event, processNormally)`.
+
+**What does not fit is `QEvent::ShortcutOverride`.** FakeVim's
+`passShortcuts()` / `wantsOverride()` machinery exists to take a key *before*
+Qt's shortcut system does - which is how `Ctrl+W` reaches vim rather than
+closing something. `EditHandler` is asked from inside
+`TextViewport::keyPressEvent()`, which runs *after* shortcut processing, so a
+Quick backend built on it would lose exactly the keys that collide with
+Creator's shortcuts.
+
+That is a design question - the Quick editor has no "I want this key first"
+seam - and not a mechanical port. Starting the refactor without an answer would
+produce a large diff, no user-visible change, and a backend that cannot be
+finished. So: **not started**, and the specific unsolved problem is written
+down instead of "this is big".
+
+### The C++ Code Model Inspector
+
+The last of the widget-cast survey, and a real if debugging-only loss:
+`BaseTextEditor::currentTextEditor()` answered nothing for a C++ file, so
+**every per-editor section vanished** - the inspector opened on a C++ file
+showed only "Global/Indexing Snapshot" and nothing about the file being
+inspected. It asks the current editor and the document's semantic info now.
+
+The rest of the survey turned out to be already done or not to matter:
+`highlighterhelper.cpp` and `cpprefactoringchanges.cpp` grew document branches
+in earlier batches, and the `qmakeprojectmanager` and `qmljseditor` casts are
+about `.pro` and `.qml` files, which no factory opens in the Quick editor.
+`moveclasstoownfile.cpp` was passing a null `TextDocument` into its
+`CursorInEditor` when there was no widget; it passes the refactoring file's
+document, which it had all along.
+
+The test builds the dialog - its constructor is what fills the snapshot list -
+and reads the entries out of the selector, in both views. Negative controls,
+both bit, and only on the quick row: asking `currentTextEditor()` again leaves
+"Global/Indexing Snapshot (2 Documents)" as the only entry, and asking the
+widget for the semantic info drops the semantic-info section alone.
+
+`TextEditor` 413 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. `CppCodeModelInspector`
+4, `MoveClassToOwnFile` 2/0/9, `QuickFixAssist` 9 - all exit 0. No new file, no
+`.qbs` edit.
+
+**Next**:
+
+1. **A "first refusal" seam for keys in the Quick editor**, which is what
+   FakeVim needs and what `EditHandler` does not give: something asked before
+   the shortcut system, equivalent to `QEvent::ShortcutOverride`. Design first;
+   FakeVim is the customer and the only one so far.
+2. FakeVim itself, once that exists: the `EDITOR(s)` macro becomes an
+   interface, and the Quick backend implements it over `TextViewport`.
+3. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+4. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.

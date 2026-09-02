@@ -12,6 +12,8 @@
 #include "cppworkingcopy.h"
 #include "editordocumenthandle.h"
 
+#include "cppeditordocument.h"
+#include "cpptoolstestcase.h"
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
 
@@ -28,7 +30,12 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <utils/algorithm.h>
+
 #include <QComboBox>
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 #include <QDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -1368,6 +1375,7 @@ CppCodeModelInspectorDialog::CppCodeModelInspectorDialog()
     m_partPrecompiledHeadersEdit->setReadOnly(true);
 
     m_snapshotSelector = new QComboBox;
+    m_snapshotSelector->setObjectName("snapshotSelector");
     QSizePolicy sizePolicy1(QSizePolicy::Preferred, QSizePolicy::Fixed);
     sizePolicy1.setHorizontalStretch(100);
     sizePolicy1.setVerticalStretch(0);
@@ -1660,8 +1668,12 @@ void CppCodeModelInspectorDialog::refresh()
     m_snapshotSelector->addItem(globalSnapshotTitle);
     dumper.dumpSnapshot(globalSnapshot, globalSnapshotTitle, /*isGlobalSnapshot=*/ true);
 
+    // The file being looked at, in whichever view. Asking for a BaseTextEditor
+    // answered nothing once C++ opened in the Qt Quick view, so the inspector
+    // lost every one of its per-editor sections for exactly the files it is
+    // opened to inspect.
     CppEditorDocumentHandle *cppEditorDocument = nullptr;
-    if (auto editor = TextEditor::BaseTextEditor::currentTextEditor()) {
+    if (Core::IEditor *editor = Core::EditorManager::currentEditor()) {
         const FilePath editorFilePath = editor->document()->filePath();
         cppEditorDocument = CppModelManager::cppEditorDocument(editorFilePath);
         if (auto documentProcessor = CppModelManager::cppEditorDocumentProcessor(editorFilePath)) {
@@ -1673,9 +1685,10 @@ void CppCodeModelInspectorDialog::refresh()
             dumper.dumpSnapshot(editorSnapshot, editorSnapshotTitle);
             m_snapshotSelector->addItem(editorSnapshotTitle);
         }
-        auto cppEditorWidget = qobject_cast<CppEditorWidget *>(editor->editorWidget());
-        if (cppEditorWidget) {
-            SemanticInfo semanticInfo = cppEditorWidget->semanticInfo();
+        // The semantic info is the document's; a widget keeps its own copy with
+        // the local uses patched in, and nothing here reads those.
+        if (const auto cppDocument = qobject_cast<CppEditorDocument *>(editor->document())) {
+            SemanticInfo semanticInfo = cppDocument->semanticInfo();
             Snapshot snapshot;
 
             // Add semantic info snapshot
@@ -1688,7 +1701,7 @@ void CppCodeModelInspectorDialog::refresh()
             // Add a pseudo snapshot containing only the semantic info document since this document
             // is not part of the semantic snapshot.
             snapshot = Snapshot();
-            snapshot.insert(cppEditorWidget->semanticInfo().doc);
+            snapshot.insert(semanticInfo.doc);
             m_snapshotInfos.append(SnapshotInfo(snapshot, SnapshotInfo::EditorSnapshot));
             const QString snapshotTitle
                 = QString::fromLatin1("Current Editor's Pseudo Snapshot with Semantic Info Document (%1 Documents)")
@@ -1999,6 +2012,87 @@ void inspectCppCodeModel()
         theCppCodeModelInspectorDialog->show();
     }
 }
+
+#ifdef WITH_TESTS
+
+// The inspector's per-editor sections - the snapshot the document processor
+// holds and the semantic info - come from whatever file is being looked at.
+// Finding it asked for a BaseTextEditor, so once C++ opened in the Qt Quick
+// view the inspector showed only the global snapshot: nothing about the file
+// it was opened to inspect.
+class CppCodeModelInspectorTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheInspectorSeesTheCurrentEditor_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("quick view") << true;
+        QTest::newRow("widget view") << false;
+    }
+
+    void testTheInspectorSeesTheCurrentEditor()
+    {
+        QFETCH(bool, quick);
+
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Tests::CppTestDocument testDocument("inspected.cpp", "int value = 1;\n");
+        testDocument.setBaseDirectory(dir.path());
+        QVERIFY(testDocument.writeToDisk());
+        QVERIFY(CppEditor::Tests::TestCase::parseFiles({testDocument.filePath()}));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(testDocument.filePath());
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(testDocument.filePath());
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // Built, not shown: the constructor is what fills the snapshot list.
+        CppCodeModelInspectorDialog dialog;
+        const auto selector = dialog.findChild<QComboBox *>("snapshotSelector");
+        QVERIFY2(selector, "the dialog has no snapshot selector to read");
+
+        QStringList entries;
+        for (int i = 0; i < selector->count(); ++i)
+            entries << selector->itemText(i);
+        const auto hasEntryStartingWith = [&entries](const QString &prefix) {
+            return Utils::anyOf(entries, [&prefix](const QString &e) {
+                return e.startsWith(prefix);
+            });
+        };
+
+        QVERIFY2(hasEntryStartingWith("Global/Indexing Snapshot"),
+                 qPrintable("no global snapshot at all; got: " + entries.join(" | ")));
+        QVERIFY2(hasEntryStartingWith("Current Editor's Snapshot"),
+                 qPrintable("the inspector cannot see the open file; got: " + entries.join(" | ")));
+        QVERIFY2(hasEntryStartingWith("Current Editor's Semantic Info Snapshot"),
+                 qPrintable("the inspector cannot see the file's semantic info; got: "
+                            + entries.join(" | ")));
+    }
+};
+
+QObject *createCppCodeModelInspectorTest()
+{
+    return new CppCodeModelInspectorTest;
+}
+
+#endif // WITH_TESTS
 
 } // CppEditor::Internal
 

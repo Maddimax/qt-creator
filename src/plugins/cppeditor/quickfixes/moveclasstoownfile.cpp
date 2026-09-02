@@ -232,7 +232,6 @@ private:
     static void lookupSymbol(Symbol *symbol, const State::Ptr &state)
     {
         const CppRefactoringFilePtr refactoringFile = getRefactoringFile(symbol->filePath(), state);
-        const auto editorWidget = qobject_cast<CppEditorWidget *>(refactoringFile->editor());
         QTextCursor cursor(refactoringFile->document()->begin());
         TranslationUnit * const tu = refactoringFile->cppDocument()->translationUnit();
         const int symbolPos = tu->getTokenPositionInDocument(symbol->sourceLocation(),
@@ -241,8 +240,8 @@ private:
         const CursorInEditor cursorInEditor(
             cursor,
             symbol->filePath(),
-            editorWidget,
-            editorWidget ? editorWidget->textDocument() : nullptr,
+            nullptr,
+            refactoringFile->textDocument(),
             refactoringFile->cppDocument());
         const auto callback = [symbol, symbolPos, doc = cursor.document(), state](const Link &link) {
             class FinishedChecker {
