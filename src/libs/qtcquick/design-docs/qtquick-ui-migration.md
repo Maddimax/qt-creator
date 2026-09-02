@@ -27086,3 +27086,84 @@ each run twice - default and `QTC_WIDGET_CPP_EDITOR=1` - are identical in both:
 2. The whole-suite heap-use-after-free, still not reproduced.
 3. Deleting `CppEditorWidget` - not close, and a question for whoever owns its
    other users rather than for this plan.
+
+## 2026-09-02 — Two things the switch did not break, and one it did
+
+The plan's remaining items were a deferred `qWait`, an unreproduced crash, and
+deleting `CppEditorWidget`. None is a gap, so this batch went looking for
+production code still keyed on the widget - the kind of thing that now silently
+does nothing rather than failing a test. `grep qobject_cast<CppEditorWidget` in
+non-test code finds about fifteen. Two of them turned out to matter, and only
+one of those is the switch's doing.
+
+**`CppEditorDocument::removeTrailingWhitespace()` asked the views.** Cleaning
+whitespace on save strips what is at the end of a line, except inside a raw
+string literal, where it is content. Deciding which takes a parse, and this
+looped over `CppEditorWidget::editorWidgetsForDocument(this)` - a *document*
+method asking whichever views happened to exist for the document's own parse.
+With no widget it found nothing and fell through to the plain-text rule. It
+asks `semanticInfo()` now, which is the same parse and is character-for-
+character the same validity check the widget used
+(`isSemanticInfoValidExceptLocalUses()`).
+
+**That guard is dead, and was dead before the switch.** Chasing a test for it:
+the parse is only valid for the revision it was made from, and by the time
+cleaning runs the document has moved on - `semRev 2, docRev 3` at every block.
+Restoring the original widget-loop code and running the *widget* view gives
+exactly the same result, so this is not something the switch exposed. Nor is it
+reachable by trying harder from a test: `recalculateSemanticInfo()` does not
+leave `isSemanticInfoValid()` true synchronously, and any wait long enough for
+it to become true lets a background reparse of an older revision land on top.
+Whatever bumps the revision between the parse and the cleaning is worth finding
+- it is a real bug, it eats data inside raw string literals, and it belongs to
+whoever owns whitespace-on-save rather than to this migration.
+
+So the port ships with **no test and no negative control**, which is worth
+saying rather than dressing up: the change is behaviour-preserving, and the
+evidence is that the original and the port were run side by side in both views
+and behaved identically. What it buys is one less widget dependency in a
+document method, not a fix.
+
+**Fold All Comments is genuinely dead in the Quick view.** This one is the
+switch's doing, and it is user-visible: the menu entry is there and does
+nothing. `CppModelManager::foldComments()` casts
+`EditorManager::currentEditor()` to `BaseTextEditor *` and gives up when that
+is null, so the action does not even reach the model manager support. It is
+widget-typed four layers deep:
+
+    CppModelManager::foldComments(Backend)            BaseTextEditor *
+      ModelManagerSupport::foldOrUnfoldComments()     BaseTextEditor *
+        Client::foldOrUnfoldCommentBlocks()           TextEditorWidget *
+          FoldingRangeSupport::foldOrUnfoldComments() TextEditorWidget *
+
+and the same for `foldOrUnfoldInactiveRegions`. Not started here rather than
+started badly: it crosses CppEditor, ClangCodeModel and LanguageClient.
+
+The shape of the fix is already clear, though. **Folding is document state, not
+view state**: `TextEditorWidget::fold()` is `blockToFold()` plus
+`TextBlockUserData::doFoldOrUnfold()` plus a layout update on the document, and
+only `moveCursorVisible()` belongs to a view. Both views share the
+`QTextDocument` and its `TextDocumentLayout`, so a fold applied to the document
+shows in both. Lifting those three lines to a free function is what makes every
+layer above stop needing a widget.
+
+`TextEditor` 412 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. CppEditor, each run
+twice - default and `QTC_WIDGET_CPP_EDITOR=1` - identical in both:
+`CodeFoldingTest` 2/0/1, `DoxygenTest` 34, `CppCodeStyleAspectsTest` 7,
+`QuickEditorHighlighterTest` 4 and 3/0/1 (the switch test skipping when told
+to). No new file, no `.qbs` edit.
+
+**Next**:
+
+1. **Fold All Comments / Unfold All Comments, and inactive regions.** Free
+   `foldBlock()`/`unfoldBlock()` on the document, then `Core::IEditor *`
+   through the four layers above. A real user-visible gap and the only one this
+   survey found.
+2. The rest of that survey, unread: `cppcodemodelinspectordialog.cpp:1676`,
+   `mcpsupport.cpp:1514`, `designer/qtcreatorintegration.cpp:902` and
+   `clangdclient.cpp:1387` all still cast to `CppEditorWidget`. The clangd one
+   is a workaround for a clangd bug that silently stops working - worth reading
+   before the others.
+3. The revision race under whitespace-on-save, described above. Not this
+   migration's, but nobody else has written it down.

@@ -22,7 +22,6 @@
 #include "editordocumenthandle.h"
 #include "quickfixes/cppquickfixassistant.h"
 
-#include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/session.h>
 
 #include <cplusplus/ASTPath.h>
@@ -46,12 +45,14 @@
 #include <utils/utilsicons.h>
 #include <utils/wizard.h>
 
+#include <coreplugin/editormanager/editormanager.h>
 #include <QApplication>
 #include <QScopeGuard>
 #include <QKeyEvent>
 #include <QTextDocument>
 
 #include <memory>
+
 
 const char NO_PROJECT_CONFIGURATION[] = "NoProject";
 
@@ -431,21 +432,20 @@ void CppEditorDocument::slotCodeStyleSettingsChanged()
 void CppEditorDocument::removeTrailingWhitespace(const QTextBlock &block)
 {
     const auto baseImpl = [&] { TextDocument::removeTrailingWhitespace(block); };
-
-    CPlusPlus::Document::Ptr doc;
-    for (CppEditorWidget * const editorWidget : CppEditorWidget::editorWidgetsForDocument(this)) {
-        if (editorWidget->isSemanticInfoValidExceptLocalUses()) {
-            doc = editorWidget->semanticInfo().doc;
-            QTC_ASSERT(doc, continue);
-            break;
-        }
-    }
-    if (!doc)
+    // This document's own parse, rather than one belonging to a widget showing
+    // it: whether a line ends inside a raw string literal - where trailing
+    // whitespace is content and not formatting - is a fact about the file.
+    // Behaves as before; see the plan for why the guard below is unreachable
+    // through a save in either view, which is older than this.
+    if (!isSemanticInfoValid())
         return baseImpl();
+    const CPlusPlus::Document::Ptr doc = semanticInfo().doc;
+    QTC_ASSERT(doc, return baseImpl());
 
     QTextCursor cursor(block);
     cursor.setPosition(block.position() + block.length() - 1);
     const QList<CPlusPlus::AST*> astPath = CPlusPlus::ASTPath(doc)(cursor);
+
     if (astPath.isEmpty())
         return baseImpl();
     const CPlusPlus::Token &tok = doc->translationUnit()->tokenAt(astPath.last()->firstToken());
