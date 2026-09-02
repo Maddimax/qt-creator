@@ -27930,3 +27930,46 @@ origin not following the caret, and FakeVim not telling a non-widget view.
    kit.
 4. The whitespace-on-save revision race, the CppEditor whole-suite
    use-after-free, and the Profiler abort - all older than this migration.
+
+## 2026-09-02 — Reading the gutter instead of the model
+
+The plan's own complaint about the last batch: the relative numbering was
+asserted at the model and not on screen. That gap is real and specific - the
+form looks its roles up **by name at run time**, so `model.displayNumbre` is
+not a compile error, is not something `qmllint` can see, and leaves the model
+answering perfectly while the gutter prints `undefined`. Exactly the trap
+already written up for `roleNames()` plumbing.
+
+So the numbers are now read off the items that draw them: the delegate got an
+`objectName`, and `itemsNamed()` collects every item with a name in top-to-
+bottom order - `itemNamed()` answers the first one, which is no use for a
+column. The test puts the caret on line five and compares the drawn strings
+against `1 2 3 4 5 6 7`, then against `4 3 2 1 5 1 2`, moves the caret and
+compares again.
+
+**The control is the point of the batch.** Putting `model.lineNumber` back in
+the form fails the new test and **leaves the model-level one passing** - 61 of
+62, with the older test green. That is the coverage gap the plan named,
+demonstrated rather than asserted. Reading a role that does not exist fails the
+same way.
+
+`TextEditor` 418 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 263 passed exit
+0. No new file, no `.qbs` edit.
+
+**Worth keeping in mind for the rest of this migration**: every form in it
+reads untyped model roles the same way, and most of those bindings have only
+model-level tests behind them. `itemsNamed()` is now there for the next one.
+
+**Next**:
+
+1. **Suggestions in the Quick editor.** `blockSuggestions()` and
+   `clearSuggestion()` are the widget's, so FakeVim skips them and Tab in
+   insert mode is vim's alone. The view already answers `currentSuggestion()`,
+   so this is the smaller half of the job.
+2. Somebody should still *use* vim in a running Creator. The gutter is read off
+   the items now, but the mode line, the highlight and the caret shape are not.
+3. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+4. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.

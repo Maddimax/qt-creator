@@ -102,6 +102,8 @@ Item {
         delegate: Text {
             id: number
 
+            objectName: "gutterLineNumber"
+
             required property int index
             required property var model
 

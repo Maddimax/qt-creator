@@ -1148,6 +1148,24 @@ private:
 // A Repeater's delegates are visual children of the item and QObject children
 // of somewhere else, so findChild() never sees one. See
 // textviewport_test.cpp, which walks the tree the same way.
+// Every item drawn under \a root with that name, top to bottom. itemNamed()
+// answers the first one, which is no use for a column of them.
+static QList<QQuickItem *> itemsNamed(QQuickItem *root, const QString &name)
+{
+    QList<QQuickItem *> found;
+    if (!root)
+        return found;
+    if (root->objectName() == name)
+        found.append(root);
+    const QList<QQuickItem *> children = root->childItems();
+    for (QQuickItem * const child : children)
+        found += itemsNamed(child, name);
+    std::sort(found.begin(), found.end(), [](QQuickItem *a, QQuickItem *b) {
+        return a->y() < b->y();
+    });
+    return found;
+}
+
 static QQuickItem *itemNamed(QQuickItem *root, const QString &name)
 {
     if (!root)
@@ -4496,6 +4514,71 @@ private slots:
         view->setRelativeLineNumbers(false);
         for (int row = 0; row < 5; ++row)
             QCOMPARE(numberOfRow(row), lineOfRow(row));
+    }
+
+    // The numbers as the gutter actually draws them. The role the form reads
+    // is looked up by name at run time, so a wrong one is not a compile error
+    // and not something qmllint can see: the model would still answer and the
+    // gutter would quietly print nothing.
+    void testTheGutterDrawsTheNumbersItIsGiven()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-gutter-drawing");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QString content;
+        for (int i = 1; i <= 40; ++i)
+            content += QString("line %1\n").arg(i);
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QTRY_VERIFY(view->visibleLineCount() > 6);
+
+        const auto drawnNumbers = [quick](int count) {
+            QStringList texts;
+            const QList<QQuickItem *> items
+                = itemsNamed(quick->rootObject(), "gutterLineNumber");
+            for (QQuickItem * const item : items) {
+                if (texts.size() == count)
+                    break;
+                texts << item->property("text").toString();
+            }
+            return texts;
+        };
+
+        QTRY_VERIFY2(!drawnNumbers(1).isEmpty(),
+                     "the gutter drew no line numbers at all");
+
+        QTextCursor caret(view->textDocument()->document());
+        caret.setPosition(view->textDocument()->document()->findBlockByNumber(4).position());
+        view->setTextCursor(caret);
+        QCOMPARE(view->cursorLine(), 5);
+
+        // Counting from the top of the file.
+        QTRY_COMPARE(drawnNumbers(7),
+                     (QStringList{"1", "2", "3", "4", "5", "6", "7"}));
+
+        // And from the caret, which keeps its own number.
+        view->setRelativeLineNumbers(true);
+        QTRY_COMPARE(drawnNumbers(7),
+                     (QStringList{"4", "3", "2", "1", "5", "1", "2"}));
+
+        // Moving the caret redraws them.
+        caret.setPosition(view->textDocument()->document()->findBlockByNumber(2).position());
+        view->setTextCursor(caret);
+        QCOMPARE(view->cursorLine(), 3);
+        QTRY_COMPARE(drawnNumbers(7),
+                     (QStringList{"2", "1", "3", "1", "2", "3", "4"}));
+
+        view->setRelativeLineNumbers(false);
+        QTRY_COMPARE(drawnNumbers(7),
+                     (QStringList{"1", "2", "3", "4", "5", "6", "7"}));
     }
 
     // Commands only some languages can answer. A factory says which of them
