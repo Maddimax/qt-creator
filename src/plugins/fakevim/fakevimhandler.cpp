@@ -126,57 +126,6 @@ namespace FakeVim::Internal {
 
 #define ParagraphSeparator QChar::ParagraphSeparator
 
-// What FakeVim needs from the view it is driving, as opposed to from the
-// document. Editing goes through a QTextCursor, which belongs to the document
-// and reads the same in any view; what is left over is where the caret is on
-// screen, what has been scrolled into sight, and where the keys arrive.
-//
-// Deliberately plain Qt: this file is also compiled standalone, without Qt
-// Creator, by tests/auto/fakevim.
-class FakeVimEditorAdapter
-{
-public:
-    virtual ~FakeVimEditorAdapter() = default;
-
-    // The widget the handler hands out.
-    virtual QWidget *widget() const = 0;
-
-    // Where key events arrive, which is what the handler filters and what it
-    // compares against in eventFilter(). The same object as the widget for a
-    // widget; a view drawn by an item would say the item.
-    virtual QObject *keyTarget() const { return widget(); }
-
-    virtual QTextDocument *document() const = 0;
-    virtual QTextCursor textCursor() const = 0;
-    virtual void setTextCursor(const QTextCursor &cursor) = 0;
-    virtual QRect cursorRect(const QTextCursor &cursor) const = 0;
-    virtual QTextCursor cursorForPosition(const QPoint &point) const = 0;
-    virtual void ensureCursorVisible() = 0;
-
-    // The area the text is drawn in, which is not the whole widget: there are
-    // margins, and in Creator's editor a line-number column.
-    virtual int viewportWidth() const = 0;
-    virtual int viewportHeight() const = 0;
-    virtual int height() const = 0;
-
-    virtual QFont font() const = 0;
-    virtual QPalette palette() const = 0;
-    virtual bool isReadOnly() const = 0;
-    virtual void setTabStopDistance(qreal distance) = 0;
-    virtual bool overwriteMode() const = 0;
-    virtual void setOverwriteMode(bool overwrite) = 0;
-    virtual void undo() = 0;
-    virtual void redo() = 0;
-
-    // Whether scrolling keeps the caret in the middle, which is what "zz" and
-    // friends switch on and off. Not every view has the idea.
-    virtual bool centerOnScroll() const { return false; }
-    virtual void setCenterOnScroll(bool) {}
-
-    virtual QMetaObject::Connection connectCursorPositionChanged(
-        QObject *receiver, const std::function<void()> &slot) = 0;
-};
-
 namespace {
 
 // The three widgets FakeVim has always driven. They share an API without
@@ -3021,7 +2970,7 @@ class VimExpr;
 class FakeVimHandler::Private : public QObject
 {
 public:
-    Private(FakeVimHandler *parent, QWidget *widget);
+    Private(FakeVimHandler *parent, std::unique_ptr<FakeVimEditorAdapter> adapter);
 
     EventResult handleEvent(QKeyEvent *ev);
     bool wantsOverride(QKeyEvent *ev);
@@ -4458,10 +4407,11 @@ static void initSingleShotTimer(QTimer *timer,
 
 FakeVimHandler::Private::GlobalData FakeVimHandler::Private::g;
 
-FakeVimHandler::Private::Private(FakeVimHandler *parent, QWidget *widget)
+FakeVimHandler::Private::Private(FakeVimHandler *parent,
+                                 std::unique_ptr<FakeVimEditorAdapter> adapter)
 {
     q = parent;
-    m_adapter = adapterFor(widget);
+    m_adapter = std::move(adapter);
 
     init();
 
@@ -30827,7 +30777,11 @@ void FakeVimHandler::Private::getRegisterType(int *reg, bool *isClipboard, bool 
 ///////////////////////////////////////////////////////////////////////
 
 FakeVimHandler::FakeVimHandler(QWidget *widget, QObject *parent)
-    : QObject(parent), d(new Private(this, widget))
+    : QObject(parent), d(new Private(this, adapterFor(widget)))
+{}
+
+FakeVimHandler::FakeVimHandler(std::unique_ptr<FakeVimEditorAdapter> adapter, QObject *parent)
+    : QObject(parent), d(new Private(this, std::move(adapter)))
 {}
 
 FakeVimHandler::~FakeVimHandler()
@@ -30862,7 +30816,7 @@ bool FakeVimHandler::eventFilter(QObject *ob, QEvent *ev)
     }
 
     if (ev->type() == QEvent::KeyPress &&
-        (ob == d->editor()
+        (ob == d->m_adapter->keyTarget()
          || (Private::g.mode == ExMode || Private::g.subsubmode == SearchSubSubMode))) {
         auto kev = static_cast<QKeyEvent *>(ev);
         KEY_DEBUG("KEYPRESS" << kev->key() << kev->text() << QChar(kev->key()));
@@ -30876,7 +30830,7 @@ bool FakeVimHandler::eventFilter(QObject *ob, QEvent *ev)
         return res == EventHandled || res == EventCancelled;
     }
 
-    if (ev->type() == QEvent::ShortcutOverride && (ob == d->editor()
+    if (ev->type() == QEvent::ShortcutOverride && (ob == d->m_adapter->keyTarget()
          || (Private::g.mode == ExMode || Private::g.subsubmode == SearchSubSubMode))) {
         auto kev = static_cast<QKeyEvent *>(ev);
         if (d->wantsOverride(kev)) {
@@ -30899,12 +30853,12 @@ bool FakeVimHandler::eventFilter(QObject *ob, QEvent *ev)
         return true;
     }
 
-    if (ev->type() == QEvent::FocusOut && ob == d->editor()) {
+    if (ev->type() == QEvent::FocusOut && ob == d->m_adapter->keyTarget()) {
         d->unfocus();
         return false;
     }
 
-    if (ev->type() == QEvent::FocusIn && ob == d->editor())
+    if (ev->type() == QEvent::FocusIn && ob == d->m_adapter->keyTarget())
         d->focus();
 
     return QObject::eventFilter(ob, ev);

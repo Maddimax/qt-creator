@@ -47,6 +47,7 @@
 #include <texteditor/tabsettings.h>
 #include <texteditor/textdocumentlayout.h>
 #include <texteditor/texteditor.h>
+#include <texteditor/textviewport.h>
 #include <texteditor/texteditorconstants.h>
 
 #include <texteditor/textmark.h>
@@ -1486,11 +1487,17 @@ static void setupTest(QString *title, FakeVimHandler **handler, QWidget **edit)
 }
 #endif
 
+#ifdef WITH_TESTS
+QObject *createFakeVimInQuickEditorTest();
+#endif
+
 FakeVimPlugin::FakeVimPlugin()
 {
     dd = this;
 
 #ifdef WITH_TESTS
+    // Defined further down, where the plugin's own types are in scope.
+    addTestCreator(createFakeVimInQuickEditorTest);
     addTestCreator([] { return createFakeVimTester(&setupTest); });
     addTestCreator(createFakeVimUserCommandsTest);
     addTestCreator(createFakeVimExCommandsTest);
@@ -2020,6 +2027,154 @@ static QString vimFileType(const IDocument *document)
     return mimeToFileType.value(mimeName);
 }
 
+// Driving the Qt Quick editor. Everything below is what a TextViewport
+// answers of FakeVimEditorAdapter; the interesting one is keyTarget(), which
+// is the item rather than the widget, because that is where key events arrive.
+class ViewportAdapter final : public FakeVimEditorAdapter
+{
+public:
+    ViewportAdapter(TextEditor::TextViewport *view, QWidget *host)
+        : m_view(view), m_host(host)
+    {}
+
+    // The widget the item is drawn in. The item is not one, and callers of
+    // FakeVimHandler::widget() want something to parent and place against.
+    QWidget *widget() const override { return m_host; }
+    QObject *keyTarget() const override { return m_view; }
+
+    QTextDocument *document() const override
+    {
+        TextEditor::TextDocument * const doc = m_view ? m_view->textDocument() : nullptr;
+        return doc ? doc->document() : nullptr;
+    }
+    QTextCursor textCursor() const override { return m_view ? m_view->textCursor() : QTextCursor(); }
+    void setTextCursor(const QTextCursor &cursor) override
+    {
+        if (m_view)
+            m_view->setTextCursor(cursor);
+    }
+    QRect cursorRect(const QTextCursor &cursor) const override
+    {
+        if (!m_view)
+            return {};
+        return m_view->rectangleAt(cursor.position()).toAlignedRect();
+    }
+    QTextCursor cursorForPosition(const QPoint &point) const override
+    {
+        return m_view ? m_view->cursorForPosition(point) : QTextCursor();
+    }
+    void ensureCursorVisible() override
+    {
+        if (m_view)
+            m_view->ensureCursorVisible();
+    }
+    int viewportWidth() const override { return m_view ? int(m_view->width()) : 0; }
+    int viewportHeight() const override { return m_view ? int(m_view->height()) : 0; }
+    int height() const override { return viewportHeight(); }
+    QFont font() const override
+    {
+        TextEditor::TextDocument * const doc = m_view ? m_view->textDocument() : nullptr;
+        return doc ? doc->fontSettings().font() : QFont();
+    }
+    QPalette palette() const override { return QGuiApplication::palette(); }
+    bool isReadOnly() const override { return !m_view || m_view->isReadOnly(); }
+    void setTabStopDistance(qreal distance) override
+    {
+        if (m_view)
+            m_view->setTabStopDistance(distance);
+    }
+    bool overwriteMode() const override { return m_view && m_view->overwriteMode(); }
+    void setOverwriteMode(bool overwrite) override
+    {
+        if (m_view)
+            m_view->setOverwriteMode(overwrite);
+    }
+    void undo() override { if (m_view) m_view->undo(); }
+    void redo() override { if (m_view) m_view->redo(); }
+    bool centerOnScroll() const override { return m_view && m_view->centerOnScroll(); }
+    void setCenterOnScroll(bool on) override
+    {
+        if (m_view)
+            m_view->setCenterOnScroll(on);
+    }
+
+    QMetaObject::Connection connectCursorPositionChanged(
+        QObject *receiver, const std::function<void()> &slot) override
+    {
+        return QObject::connect(m_view, &TextEditor::TextViewport::cursorPositionChanged,
+                                receiver, slot);
+    }
+
+private:
+    const QPointer<TextEditor::TextViewport> m_view;
+    const QPointer<QWidget> m_host;
+};
+
+#ifdef WITH_TESTS
+
+// FakeVim installs its handler only on an editor it recognises, and until now
+// that meant one whose widget aggregates a QPlainTextEdit. The Qt Quick editor
+// draws its text with an item, so FakeVim was inert there - silently, which is
+// the worst way for an editing mode to be off.
+class FakeVimInQuickEditorTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testFakeVimDrivesTheQuickEditor()
+    {
+        const bool wasOn = settings().useFakeVim();
+        const QScopeGuard restore([wasOn] { settings().useFakeVim.setValue(wasOn); });
+        settings().useFakeVim.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-in-the-quick-editor");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("hello\nworld\n"));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+
+        // The premise: no widget to attach to, which is what used to end this.
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        QObject * const keyTarget = TextEditor::keyTargetOf(editor);
+        QVERIFY2(qobject_cast<TextEditor::TextViewport *>(keyTarget),
+                 "the Quick editor has no viewport to drive");
+
+        const auto document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+        QTextCursor start(document->document());
+        TextEditor::setTextCursorOf(editor, start);
+
+        // Sent to the object FakeVim filters, which is what its event filter
+        // is installed on. That a keystroke reaches that object at all is the
+        // Quick editor's own business and is tested there.
+        const auto send = [keyTarget](int key, const QString &text) {
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+            QCoreApplication::sendEvent(keyTarget, &press);
+        };
+
+        // Command mode, then "x" - delete the character under the cursor.
+        send(Qt::Key_Escape, {});
+        send(Qt::Key_X, "x");
+        QCOMPARE(document->document()->toPlainText(), QString("ello\nworld\n"));
+
+        // And "dd" takes the line, so this is vim and not a stray keystroke.
+        send(Qt::Key_D, "d");
+        send(Qt::Key_D, "d");
+        QCOMPARE(document->document()->toPlainText(), QString("world\n"));
+    }
+};
+
+QObject *createFakeVimInQuickEditorTest()
+{
+    return new FakeVimInQuickEditorTest;
+}
+
+#endif // WITH_TESTS
+
 void FakeVimPlugin::editorOpened(IEditor *editor)
 {
     if (!editor)
@@ -2037,15 +2192,24 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
     if (!widget)
         return;
 
-    // we can only handle QTextEdit and QPlainTextEdit
-    if (auto edit = Aggregation::query<QTextEdit>(widget))
+    // The Qt Quick editor draws its text with an item rather than a widget, so
+    // none of the three below finds anything in it. It is driven through the
+    // same handler over an adapter of its own.
+    std::unique_ptr<FakeVimEditorAdapter> adapter;
+    // keyTargetOf() answers the item for a Quick editor and the widget for a
+    // widget one, which is exactly the question being asked here.
+    if (const auto view = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor))) {
+        adapter = std::make_unique<ViewportAdapter>(view, widget);
+    } else if (auto edit = Aggregation::query<QTextEdit>(widget)) {
         widget = edit;
-    else if (auto edit = Aggregation::query<QPlainTextEdit>(widget))
+    } else if (auto edit = Aggregation::query<QPlainTextEdit>(widget)) {
         widget = edit;
-    else if (auto edit = Aggregation::query<Utils::PlainTextEdit>(widget))
+    } else if (auto edit = Aggregation::query<Utils::PlainTextEdit>(widget)) {
         widget = edit;
-    else
+    } else {
         return;
+    }
 
     // Duplicated editors are not signalled by the EditorManager. Track them nevertheless.
     connect(editor, &IEditor::editorDuplicated, this, [this](IEditor *duplicate) {
@@ -2060,7 +2224,8 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
     //qDebug() << "OPENING: " << editor << editor->widget()
     //    << "MODE: " << theFakeVimSetting(ConfigUseFakeVim)->value();
 
-    auto handler = new FakeVimHandler(widget, nullptr);
+    auto handler = adapter ? new FakeVimHandler(std::move(adapter), nullptr)
+                           : new FakeVimHandler(widget, nullptr);
     // the handler might have triggered the deletion of the editor:
     // make sure that it can return before being deleted itself
     new DeferredDeleter(widget, handler);
@@ -2081,7 +2246,8 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
             showCommandBuffer(handler, contents, cursorPos, anchorPos, messageLevel);
         });
 
-    handler->highlightFormatRequested.set([tew](const QString &group) {
+    handler->highlightFormatRequested.set([alive = QPointer<IEditor>(editor)](
+                                              const QString &group) {
         // What matchadd() paints with: the group names Vim uses, drawn the way
         // this editor draws the same thing.
         static const QHash<QString, TextStyle> styles = {
@@ -2102,17 +2268,32 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
             {"Underlined", C_LINK}
         };
         const auto style = styles.constFind(group);
-        if (style == styles.constEnd() || !tew)
+        if (style == styles.constEnd() || !alive)
             return QTextCharFormat();
-        return tew->textDocument()->fontSettings().toTextCharFormat(*style);
+        const TextDocumentPtr document = TextEditor::textDocumentPtr(alive);
+        if (!document)
+            return QTextCharFormat();
+        return document->fontSettings().toTextCharFormat(*style);
     });
 
-    handler->selectionChanged.set([tew](const QList<QTextEdit::ExtraSelection> &selection) {
-        if (tew)
-            tew->setExtraSelections(TextEditorWidget::FakeVimSelection, selection);
+    // Guarded: the handler outlives the editor during teardown, and this
+    // callback is reached from there.
+    handler->selectionChanged.set([alive = QPointer<IEditor>(editor)](
+                                      const QList<QTextEdit::ExtraSelection> &selection) {
+        if (!alive)
+            return;
+        QList<TextDocument::ExtraSelection> forView;
+        forView.reserve(selection.size());
+        for (const QTextEdit::ExtraSelection &one : selection)
+            forView.append({one.cursor, one.format});
+        TextEditor::setViewSelections(alive, TextEditorWidget::FakeVimSelection, forView);
     });
 
     handler->tabPressedInInsertMode.set([tew]() {
+        // A view that is not a widget shows no suggestions yet, so Tab is
+        // nobody else's and the handler should treat it as its own.
+        if (!tew)
+            return true;
         auto suggestion = tew->currentSuggestion();
         if (suggestion) {
             suggestion->apply();
@@ -2134,12 +2315,14 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         if (!settings().useFakeVim())
             return;
 
+        if (!tew)
+            return;
+
         // We don't want to show suggestions unless we are in insert mode.
         if (insertMode != (handlerAndData.suggestionBlocker == nullptr))
             handlerAndData.suggestionBlocker = insertMode ? nullptr : tew->blockSuggestions();
 
-        if (tew)
-            tew->clearSuggestion();
+        tew->clearSuggestion();
     });
 
     handler->highlightMatches.set([this](const QString &needle) {

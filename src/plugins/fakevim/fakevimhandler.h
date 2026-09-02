@@ -4,11 +4,65 @@
 #pragma once
 
 #include <QObject>
+#include <QPalette>
 #include <QTextEdit>
 
 #include <functional>
+#include <memory>
 
 namespace FakeVim::Internal {
+
+// What FakeVim needs from the view it is driving, as opposed to from the
+// document. Editing goes through a QTextCursor, which belongs to the document
+// and reads the same in any view; what is left over is where the caret is on
+// screen, what has been scrolled into sight, and where the keys arrive.
+//
+// Deliberately plain Qt: this file is also compiled standalone, without Qt
+// Creator, by tests/auto/fakevim.
+class FakeVimEditorAdapter
+{
+public:
+    virtual ~FakeVimEditorAdapter() = default;
+
+    // The widget the handler hands out.
+    virtual QWidget *widget() const = 0;
+
+    // Where key events arrive, which is what the handler filters and what it
+    // compares against in eventFilter(). The same object as the widget for a
+    // widget; a view drawn by an item would say the item.
+    virtual QObject *keyTarget() const { return widget(); }
+
+    virtual QTextDocument *document() const = 0;
+    virtual QTextCursor textCursor() const = 0;
+    virtual void setTextCursor(const QTextCursor &cursor) = 0;
+    virtual QRect cursorRect(const QTextCursor &cursor) const = 0;
+    virtual QTextCursor cursorForPosition(const QPoint &point) const = 0;
+    virtual void ensureCursorVisible() = 0;
+
+    // The area the text is drawn in, which is not the whole widget: there are
+    // margins, and in Creator's editor a line-number column.
+    virtual int viewportWidth() const = 0;
+    virtual int viewportHeight() const = 0;
+    virtual int height() const = 0;
+
+    virtual QFont font() const = 0;
+    virtual QPalette palette() const = 0;
+    virtual bool isReadOnly() const = 0;
+    virtual void setTabStopDistance(qreal distance) = 0;
+    virtual bool overwriteMode() const = 0;
+    virtual void setOverwriteMode(bool overwrite) = 0;
+    virtual void undo() = 0;
+    virtual void redo() = 0;
+
+    // Whether scrolling keeps the caret in the middle, which is what "zz" and
+    // friends switch on and off. Not every view has the idea.
+    virtual bool centerOnScroll() const { return false; }
+    virtual void setCenterOnScroll(bool) {}
+
+    virtual QMetaObject::Connection connectCursorPositionChanged(
+        QObject *receiver, const std::function<void()> &slot) = 0;
+};
+
 
 enum RangeMode
 {
@@ -102,6 +156,10 @@ class FakeVimHandler : public QObject
 
 public:
     explicit FakeVimHandler(QWidget *widget, QObject *parent = nullptr);
+    // For a view that is not one of the widgets this knows: the caller says
+    // how to drive it. See FakeVimEditorAdapter.
+    explicit FakeVimHandler(std::unique_ptr<FakeVimEditorAdapter> adapter,
+                            QObject *parent = nullptr);
     ~FakeVimHandler() override;
 
     QWidget *widget();

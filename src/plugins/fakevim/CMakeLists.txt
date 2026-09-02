@@ -1,5 +1,7 @@
 add_qtc_plugin(FakeVim
-  DEPENDS McpServerLib
+  # Qt Quick because the editor it drives may be drawn by a QQuickItem rather
+  # than by a widget; see ViewportAdapter in fakevimplugin.cpp.
+  DEPENDS McpServerLib Qt::Quick
   PLUGIN_DEPENDS Core TextEditor
   PLUGIN_TEST_DEPENDS CppEditor
   SOURCES ${TEST_SOURCES}

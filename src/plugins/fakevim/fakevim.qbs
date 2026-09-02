@@ -3,6 +3,9 @@ import qbs 1.0
 QtcPlugin {
     name: "FakeVim"
 
+    // Qt Quick because the editor it drives may be drawn by a QQuickItem
+    // rather than by a widget; see ViewportAdapter in fakevimplugin.cpp.
+    Depends { name: "Qt.quick" }
     Depends { name: "Qt.widgets" }
     Depends { name: "Utils" }
 

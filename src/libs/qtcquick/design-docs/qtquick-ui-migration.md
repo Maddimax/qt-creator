@@ -27746,3 +27746,71 @@ all exit 0. No new file, no `.qbs` edit.
    kit.
 3. The whitespace-on-save revision race, the CppEditor whole-suite
    use-after-free, and the Profiler abort - all older than this migration.
+
+## 2026-09-02 — FakeVim drives the Qt Quick editor
+
+The last step, and it works: with FakeVim on, `x` deletes a character and `dd`
+deletes a line in a C++ file opened in the Quick view.
+
+**The interface paid for itself.** The adapter is about seventy lines of
+`ViewportAdapter` in `fakevimplugin.cpp`, and every operation was already
+answerable - the four capabilities added last batch were the whole of what was
+missing. The handler needed one new constructor, taking an adapter the caller
+built, because `fakevimhandler.cpp` is compiled standalone and cannot see
+`TextViewport`; the interface moved to the header for the same reason.
+
+**Two bugs the wiring exposed, both mine to fix and both instructive.**
+
+The first: `eventFilter()` compared the object an event arrived at against
+`d->editor()`, the *widget*. The filter is installed on `keyTarget()`, and for
+an item-drawn view those are different objects, so every key was ignored and
+`x` was simply typed. Four comparisons, all now against the key target. For a
+widget the two are the same object, which is why this had never mattered.
+
+The second was a crash of my own making. Rewriting `selectionChanged` to go
+through `setViewSelections()` meant capturing the editor rather than the
+widget, and the handler outlives the editor during teardown - so the callback
+ran on a dangling pointer and `-test FakeVim` died in `QMetaObject::cast`.
+Caught only because the whole suite was re-run after the negative controls:
+the first run after the change had passed. **A single green run is not
+evidence** - it took three consecutive ones to believe the `QPointer` fix.
+
+Some things a Quick editor does not have, and the wiring says so rather than
+pretending: suggestions are a widget's, so Tab in insert mode is FakeVim's
+alone there, and `blockSuggestions()`/`clearSuggestion()` are skipped.
+
+FakeVim now depends on Qt Quick, in both `CMakeLists.txt` and `fakevim.qbs` -
+it drives a `QQuickItem`, so that is the truth. **The `.qbs` edit is one
+`Depends` line mirroring the CMake one and is unverified: there is no qbs
+binary on this machine.**
+
+Negative controls, all three bit, each taking the suite from 261 to 260 passed
+with one failure: the plugin not recognising a Quick editor, the filter
+comparing against the widget again, and the adapter naming the widget as its
+key target instead of the item.
+
+`TextEditor` 416 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. FakeVim 261 passed exit
+0 on three consecutive runs, standalone `tst_fakevim` 7 passed exit 0, Designer
+8 and Macros 12. No new file.
+
+**What the test does and does not show.** It sends keys to the object FakeVim
+filters, which proves the adapter, the filter and the handler. That a real
+keystroke reaches that object is the Quick editor's own business - the
+ShortcutOverride work two entries ago is what makes keys bound to commands get
+there, and `EditHandler::wantsKeyBeforeShortcuts()` is the seam FakeVim should
+use to claim `Ctrl+W` and friends. **It does not use it yet**: that is the
+first thing to do next, and it is why vim keys that collide with Creator's
+shortcuts will still go to the shortcut.
+
+**Next**:
+
+1. **Claim the colliding keys.** `ViewportAdapter` has no way to answer
+   `wantsKeyBeforeShortcuts()` today, because the seam is `EditHandler` on the
+   editor and FakeVim installs an event filter instead. Either FakeVim gains an
+   `EditHandler` that forwards to `wantsOverride()`, or the viewport asks its
+   key-filter chain. Without it `Ctrl+W` never reaches vim.
+2. The clangd override proposal and `adjustedCursor()`, for a machine with a
+   kit.
+3. The whitespace-on-save revision race, the CppEditor whole-suite
+   use-after-free, and the Profiler abort - all older than this migration.
