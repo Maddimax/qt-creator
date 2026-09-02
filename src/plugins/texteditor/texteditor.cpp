@@ -8895,16 +8895,8 @@ void TextEditorWidget::fold(const QTextBlock &block, bool recursive)
     if (singleShotAfterHighlightingDone([this, block] { fold(block); }))
         return;
 
-    QTextDocument *doc = document();
-    auto documentLayout = qobject_cast<TextDocumentLayout*>(doc->documentLayout());
-    QTC_ASSERT(documentLayout, return);
-    const QTextBlock b = TextEditor::blockToFold(block);
-    if (b.isValid()) {
-        TextBlockUserData::doFoldOrUnfold(b, false, recursive);
-        d->moveCursorVisible();
-        documentLayout->requestUpdate();
-        documentLayout->emitDocumentSizeChanged();
-    }
+    d->m_document->foldBlock(block, recursive);
+    d->moveCursorVisible();
 }
 
 void TextEditorWidget::unfold(const QTextBlock &block, bool recursive)
@@ -8912,14 +8904,8 @@ void TextEditorWidget::unfold(const QTextBlock &block, bool recursive)
     if (singleShotAfterHighlightingDone([this, block] { unfold(block); }))
         return;
 
-    QTextDocument *doc = document();
-    auto documentLayout = qobject_cast<TextDocumentLayout*>(doc->documentLayout());
-    QTC_ASSERT(documentLayout, return);
-    const QTextBlock b = TextEditor::blockToUnfold(block);
-    TextBlockUserData::doFoldOrUnfold(b, true, recursive);
+    d->m_document->unfoldBlock(block, recursive);
     d->moveCursorVisible();
-    documentLayout->requestUpdate();
-    documentLayout->emitDocumentSizeChanged();
 }
 
 void TextEditorWidget::unfoldCurrentBlock()

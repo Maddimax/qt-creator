@@ -143,6 +143,17 @@ public:
     // markers are comes from its language, and the language is not known until
     // the highlighter has been set up.
     bool singleShotAfterHighlightingDone(std::function<void()> &&f);
+
+    // Fold or unfold \a block. Folding is state on the block itself and on
+    // this document's layout, so both views showing the file follow - which is
+    // why this is here rather than on whichever one happens to be open. A view
+    // adds only what it does with its own caret afterwards.
+    //
+    // Deferred until the file has been highlighted where it has not been:
+    // where a block can be folded to is worked out while highlighting, so
+    // folding before that has nothing to go on.
+    void foldBlock(const QTextBlock &block, bool recursive = false);
+    void unfoldBlock(const QTextBlock &block, bool recursive = false);
     void autoFormatOrIndent(const QTextCursor &cursor);
     Utils::MultiTextCursor indent(const Utils::MultiTextCursor &cursor);
     Utils::MultiTextCursor unindent(const Utils::MultiTextCursor &cursor);

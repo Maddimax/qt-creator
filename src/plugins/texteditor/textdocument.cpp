@@ -16,6 +16,7 @@
 #include "highlighterhelper.h"
 #include "tabsettings.h"
 #include "textdocumentlayout.h"
+#include "textoperations.h"
 #include "texteditor.h"
 #include "texteditorconstants.h"
 #include "texteditortr.h"
@@ -553,6 +554,31 @@ RefactorMarker TextDocument::refactorMarkerAt(int position) const
         }
     }
     return {};
+}
+
+void TextDocument::foldBlock(const QTextBlock &block, bool recursive)
+{
+    if (singleShotAfterHighlightingDone([this, block, recursive] { foldBlock(block, recursive); }))
+        return;
+    auto * const layout = qobject_cast<TextDocumentLayout *>(document()->documentLayout());
+    QTC_ASSERT(layout, return);
+    const QTextBlock toFold = blockToFold(block);
+    if (!toFold.isValid())
+        return;
+    TextBlockUserData::doFoldOrUnfold(toFold, false, recursive);
+    layout->requestUpdate();
+    layout->emitDocumentSizeChanged();
+}
+
+void TextDocument::unfoldBlock(const QTextBlock &block, bool recursive)
+{
+    if (singleShotAfterHighlightingDone([this, block, recursive] { unfoldBlock(block, recursive); }))
+        return;
+    auto * const layout = qobject_cast<TextDocumentLayout *>(document()->documentLayout());
+    QTC_ASSERT(layout, return);
+    TextBlockUserData::doFoldOrUnfold(blockToUnfold(block), true, recursive);
+    layout->requestUpdate();
+    layout->emitDocumentSizeChanged();
 }
 
 std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(

@@ -1890,14 +1890,14 @@ int Client::completionResultsLimit() const
     return d->m_completionResultsLimit;
 }
 
-void Client::foldOrUnfoldCommentBlocks(TextEditor::TextEditorWidget *widget, bool fold)
+void Client::foldOrUnfoldCommentBlocks(TextEditor::TextDocument *doc, bool fold)
 {
-    d->m_foldingSupport.foldOrUnfoldCommentBlocks(widget, fold);
+    d->m_foldingSupport.foldOrUnfoldCommentBlocks(doc, fold);
 }
 
-void Client::foldOrUnfoldInactiveRegions(TextEditor::TextEditorWidget *widget, bool fold)
+void Client::foldOrUnfoldInactiveRegions(TextEditor::TextDocument *doc, bool fold)
 {
-    d->m_foldingSupport.foldOrUnfoldInactiveRegions(widget, fold);
+    d->m_foldingSupport.foldOrUnfoldInactiveRegions(doc, fold);
 }
 
 const ServerCapabilities &Client::capabilities() const

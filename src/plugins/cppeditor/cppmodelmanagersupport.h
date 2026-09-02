@@ -58,8 +58,10 @@ public:
                               const std::function<void()> &callback) = 0;
     virtual void findUsages(const CursorInEditor &data) const = 0;
     virtual void switchHeaderSource(const Utils::FilePath &filePath, bool inNextSplit) = 0;
-    virtual void foldOrUnfoldComments(TextEditor::BaseTextEditor *editor, bool fold) = 0;
-    virtual void foldOrUnfoldInactiveRegions(TextEditor::BaseTextEditor *editor, bool fold) = 0;
+    // The open file, not a view of it: what is folded is state on the
+    // document's blocks, so both views showing it follow.
+    virtual void foldOrUnfoldComments(TextEditor::TextDocument *document, bool fold) = 0;
+    virtual void foldOrUnfoldInactiveRegions(TextEditor::TextDocument *document, bool fold) = 0;
     virtual void checkUnused(const Utils::Link &link, Core::SearchResult *search,
                              const Utils::LinkHandler &callback) = 0;
 };

@@ -3,6 +3,8 @@
 
 #include "cpphighlighter.h"
 
+#include "cppmodelmanager.h"
+
 #include "cppdoxygen.h"
 #include "cppeditordocument.h"
 #include "cppeditorlogging.h"
@@ -851,6 +853,75 @@ private:
 // generic definition for every file it opened - so a C++ file there was
 // coloured by KSyntaxHighlighting, and everything that reads the block states
 // CppHighlighter leaves behind saw the wrong thing.
+// Fold All Comment Blocks. The action reached the code model through a
+// BaseTextEditor, which a Qt Quick view is not - so the entry was in the menu
+// and did nothing. What is folded is state on the document's blocks, so this
+// asks the file rather than a view of it now.
+class FoldCommentsTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testFoldingAllCommentsWorksInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("quick view") << true;
+        QTest::newRow("widget view") << false;
+    }
+
+    void testFoldingAllCommentsWorksInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("cpp-fold-all-comments");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        // Not the first thing in the file: a comment that starts it is taken
+        // for a licence header and folded on open all by itself.
+        QVERIFY(file.writeFileContents("int value = 1;\n"
+                                       "/* first\n"
+                                       "   second\n"
+                                       "*/\n"
+                                       "int main() { return 0; }\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        // The action asks the editor manager which file is being looked at.
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+        // Where a block can be folded to is worked out while highlighting.
+        QTRY_VERIFY2(document->syntaxHighlighter()->syntaxHighlighterUpToDate(),
+                     "the file was never highlighted");
+
+        const QTextBlock comment = document->document()->findBlockByNumber(1);
+        QVERIFY(comment.isValid());
+        QVERIFY2(!TextEditor::TextBlockUserData::isFolded(comment),
+                 "the comment was already folded, so this proves nothing");
+
+        // The builtin backend rather than Best: clangd answers this one itself
+        // where it is running, and nothing here starts it.
+        CppModelManager::foldComments(CppModelManager::Backend::Builtin);
+        QVERIFY2(TextEditor::TextBlockUserData::isFolded(comment),
+                 "Fold All Comment Blocks left the comment open");
+
+        CppModelManager::unfoldComments(CppModelManager::Backend::Builtin);
+        QVERIFY2(!TextEditor::TextBlockUserData::isFolded(comment),
+                 "Unfold All Comment Blocks left the comment folded");
+    }
+};
+
 class QuickEditorHighlighterTest : public QObject
 {
     Q_OBJECT
@@ -1087,6 +1158,7 @@ void registerHighlighterTests(ExtensionSystem::IPlugin &plugin)
 #ifdef WITH_TESTS
     plugin.addTest<CppHighlighterTest>();
     plugin.addTest<CodeFoldingTest>();
+    plugin.addTest<FoldCommentsTest>();
     plugin.addTest<QuickEditorHighlighterTest>();
     plugin.addTest<LanguageToolBarTest>();
 #else

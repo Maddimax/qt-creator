@@ -481,28 +481,31 @@ void CppModelManager::showPreprocessedFile(bool inNextSplit)
     compiler->start();
 }
 
+// The file being looked at, rather than a widget showing it: asking for a
+// BaseTextEditor answered nothing once C++ opened in the Qt Quick view, so the
+// menu entry was there and did nothing.
+static TextEditor::TextDocument *currentTextDocument()
+{
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    return editor ? qobject_cast<TextEditor::TextDocument *>(editor->document()) : nullptr;
+}
+
 void CppModelManager::foldComments(Backend backend)
 {
-    if (const auto currentEditor = qobject_cast<TextEditor::BaseTextEditor *>(
-            EditorManager::currentEditor())) {
-        modelManagerSupport(backend)->foldOrUnfoldComments(currentEditor, true);
-    }
+    if (TextEditor::TextDocument * const document = currentTextDocument())
+        modelManagerSupport(backend)->foldOrUnfoldComments(document, true);
 }
 
 void CppModelManager::unfoldComments(Backend backend)
 {
-    if (const auto currentEditor = qobject_cast<TextEditor::BaseTextEditor *>(
-            EditorManager::currentEditor())) {
-        modelManagerSupport(backend)->foldOrUnfoldComments(currentEditor, false);
-    }
+    if (TextEditor::TextDocument * const document = currentTextDocument())
+        modelManagerSupport(backend)->foldOrUnfoldComments(document, false);
 }
 
 void CppModelManager::foldOrUnfoldInactiveRegions(bool fold)
 {
-    if (const auto currentEditor = qobject_cast<TextEditor::BaseTextEditor *>(
-            EditorManager::currentEditor())) {
-        modelManagerSupport(Backend::Best)->foldOrUnfoldInactiveRegions(currentEditor, fold);
-    }
+    if (TextEditor::TextDocument * const document = currentTextDocument())
+        modelManagerSupport(Backend::Best)->foldOrUnfoldInactiveRegions(document, fold);
 }
 
 class FindUnusedActionsEnabledSwitcher

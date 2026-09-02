@@ -419,14 +419,13 @@ void ClangModelManagerSupport::switchHeaderSource(const FilePath &filePath, bool
     CppModelManager::switchHeaderSource(inNextSplit, CppModelManager::Backend::Builtin);
 }
 
-void ClangModelManagerSupport::foldOrUnfoldComments(TextEditor::BaseTextEditor *editor, bool fold)
+void ClangModelManagerSupport::foldOrUnfoldComments(TextEditor::TextDocument *doc, bool fold)
 {
-    TextEditor::TextDocument * const doc = editor->textDocument();
     if (!doc)
         return;
     if (doc->isFoldingIndentExternallyProvided()) {
         if (ClangdClient * const client = clientForFile(doc->filePath())) {
-            client->foldOrUnfoldCommentBlocks(editor->editorWidget(), fold);
+            client->foldOrUnfoldCommentBlocks(doc, fold);
             return;
         }
     }
@@ -437,14 +436,13 @@ void ClangModelManagerSupport::foldOrUnfoldComments(TextEditor::BaseTextEditor *
 }
 
 void ClangModelManagerSupport::foldOrUnfoldInactiveRegions(
-    TextEditor::BaseTextEditor *editor, bool fold)
+    TextEditor::TextDocument *doc, bool fold)
 {
-    TextEditor::TextDocument * const doc = editor->textDocument();
     if (!doc)
         return;
     if (doc->isFoldingIndentExternallyProvided()) {
         if (ClangdClient * const client = clientForFile(doc->filePath())) {
-            client->foldOrUnfoldInactiveRegions(editor->editorWidget(), fold);
+            client->foldOrUnfoldInactiveRegions(doc, fold);
             return;
         }
     }

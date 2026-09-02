@@ -230,8 +230,8 @@ public:
     void setCompletionResultsLimit(int limit);
     int completionResultsLimit() const;
 
-    void foldOrUnfoldCommentBlocks(TextEditor::TextEditorWidget *widget, bool fold);
-    void foldOrUnfoldInactiveRegions(TextEditor::TextEditorWidget *widget, bool fold);
+    void foldOrUnfoldCommentBlocks(TextEditor::TextDocument *doc, bool fold);
+    void foldOrUnfoldInactiveRegions(TextEditor::TextDocument *doc, bool fold);
 
 signals:
     void initialized(const LanguageServerProtocol::ServerCapabilities &capabilities);

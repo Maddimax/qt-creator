@@ -27167,3 +27167,72 @@ to). No new file, no `.qbs` edit.
    before the others.
 3. The revision race under whitespace-on-save, described above. Not this
    migration's, but nobody else has written it down.
+
+## 2026-09-02 — Fold All Comment Blocks
+
+The gap the last entry found, closed. It was user-visible in the plainest way:
+the menu entry was there, and clicking it did nothing.
+
+**Folding is document state.** `TextEditorWidget::fold()` is three lines -
+`blockToFold()`, `TextBlockUserData::doFoldOrUnfold()`, and a layout update on
+the document - plus `moveCursorVisible()`, which is the only part belonging to
+a view. Both views share the `QTextDocument` and its `TextDocumentLayout`, so a
+fold applied to the document shows in both. So the three lines moved to
+`TextDocument::foldBlock()` / `unfoldBlock()`, and the widget keeps the caret.
+
+The deferral came along with them, which was the part worth checking rather
+than assuming: `fold()` waits for highlighting to finish, because where a block
+folds to is worked out while highlighting - and
+`singleShotAfterHighlightingDone()` was already a method on the *document*, so
+the wait belongs there too. The widget keeps its own wrapper so that
+`moveCursorVisible()` also happens after the wait; the second check inside the
+document is free once highlighting is done.
+
+With that, all four layers stop needing a widget, and each was only ever using
+one to reach the document:
+
+    CppModelManager::foldComments()                  TextDocument *
+      ModelManagerSupport::foldOrUnfoldComments()    TextDocument *
+        Client::foldOrUnfoldCommentBlocks()          TextDocument *
+          FoldingRangeSupport::foldOrUnfold...()     TextDocument *
+
+`foldOrUnfoldInactiveRegions` is the same shape and went with it.
+`CppModelManager` asked `EditorManager::currentEditor()` for a
+`BaseTextEditor *` and gave up on null, which is why the action died before it
+reached any of this; it asks for the current *document* now.
+
+The test folds and then unfolds a comment through `CppModelManager` in both
+views and reads `TextBlockUserData::isFolded()`. Two things it had to get
+right: a comment that starts a file is taken for a licence header and folded on
+open all by itself, so the comment goes on line two; and it asks the Builtin
+backend explicitly, because clangd answers this itself where it is running and
+nothing here starts it - so the clangd path is changed but not covered.
+
+Negative controls, both bit, and the first is the one that matters: putting the
+`BaseTextEditor` cast back fails **only the quick row**, which is exactly the
+bug, and leaves the widget row passing - so the fix is not a rewrite of
+something that already worked. Making `TextDocument::foldBlock()` do nothing
+fails both rows, so the test is watching real folding rather than a flag.
+
+`TextEditor` 412 passed across 18 classes, 0 failed, exit 0. QuickUi 207 passed
+/ 1 skipped, exit 0. `ninja all_qmllint` zero warnings. LanguageClient 27
+passed and ClangCodeModel 28 passed / 8 skipped, both exit 0, since both had
+their signatures changed. CppEditor in both views, identical: `FoldCommentsTest`
+4, `CodeFoldingTest` 2/0/1, `CppHighlighterTest` 86, `LanguageToolBarTest` 3,
+`QuickEditorHighlighterTest` 4 and 3/0/1. No new file, no `.qbs` edit.
+
+**Noticed, not fixed:** `TextEditorWidget::fold()`'s deferral lambda is
+`[this, block] { fold(block); }` - it drops `recursive`, so a recursive fold
+that arrives before highlighting has finished comes back non-recursive. That is
+older than this change and I left it alone rather than alter behaviour I have
+no test for.
+
+**Next**:
+
+1. The rest of the widget-cast survey, still unread:
+   `clangdclient.cpp:1387` (`widgetFromDocument`, feeding a workaround for a
+   clangd bug that silently stops working - read this one first),
+   `cppcodemodelinspectordialog.cpp:1676`, `mcpsupport.cpp:1514`, and
+   `designer/qtcreatorintegration.cpp:902`.
+2. The revision race under whitespace-on-save, from the previous entry.
+3. The whole-suite heap-use-after-free, still not reproduced.

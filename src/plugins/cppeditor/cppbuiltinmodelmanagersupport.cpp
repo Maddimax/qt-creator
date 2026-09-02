@@ -219,12 +219,8 @@ void BuiltinModelManagerSupport::switchHeaderSource(const FilePath &filePath,
         openEditor(otherFile, inNextSplit);
 }
 
-void BuiltinModelManagerSupport::foldOrUnfoldComments(BaseTextEditor *editor, bool fold)
+void BuiltinModelManagerSupport::foldOrUnfoldComments(TextEditor::TextDocument *textDoc, bool fold)
 {
-    const auto editorWidget = qobject_cast<CppEditorWidget*>(editor->widget());
-    if (!editorWidget)
-        return;
-    TextEditor::TextDocument * const textDoc = editorWidget->textDocument();
     QTC_ASSERT(textDoc, return);
 
     const Document::Ptr cppDoc = CppModelManager::snapshot().preprocessedDocument(
@@ -254,16 +250,16 @@ void BuiltinModelManagerSupport::foldOrUnfoldComments(BaseTextEditor *editor, bo
             continue;
         }
         if (fold)
-            editorWidget->fold(tokenBlock);
+            textDoc->foldBlock(tokenBlock);
         else
-            editorWidget->unfold(tokenBlock);
+            textDoc->unfoldBlock(tokenBlock);
     }
 }
 
 void BuiltinModelManagerSupport::foldOrUnfoldInactiveRegions(
-    TextEditor::BaseTextEditor *editor, bool fold)
+    TextEditor::TextDocument *document, bool fold)
 {
-    Q_UNUSED(editor)
+    Q_UNUSED(document)
     Q_UNUSED(fold)
     MessageManager::writeDisrupting(Tr::tr("Folding inactive code is only available with clangd."));
 }

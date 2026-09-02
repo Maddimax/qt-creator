@@ -21,8 +21,8 @@ public:
     ~FoldingRangeSupport();
 
     void requestFoldingRanges(TextEditor::TextDocument *doc);
-    void foldOrUnfoldCommentBlocks(TextEditor::TextEditorWidget *widget, bool fold);
-    void foldOrUnfoldInactiveRegions(TextEditor::TextEditorWidget *widget, bool fold);
+    void foldOrUnfoldCommentBlocks(TextEditor::TextDocument *doc, bool fold);
+    void foldOrUnfoldInactiveRegions(TextEditor::TextDocument *doc, bool fold);
     void deactivate(TextEditor::TextDocument *doc);
     void refresh();
 

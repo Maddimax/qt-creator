@@ -48,13 +48,13 @@ public:
             Qt::QueuedConnection);
     }
 
-    void foldOrUnfoldCommentBlocks(TextEditorWidget *widget, bool fold)
+    void foldOrUnfoldCommentBlocks(TextDocument *textDoc, bool fold)
     {
-        QTC_ASSERT(widget, return);
-        if (m_client->documentVersion(widget->textDocument()->filePath()) != m_savedRanges.first)
+        QTC_ASSERT(textDoc, return);
+        if (m_client->documentVersion(textDoc->filePath()) != m_savedRanges.first)
             return;
 
-        QTextDocument *const doc = widget->textDocument()->document();
+        QTextDocument *const doc = textDoc->document();
 
         for (const FoldingRange &r : std::as_const(m_savedRanges.second)) {
             if (r.kind() != "comment")
@@ -64,20 +64,20 @@ public:
             const QTextBlock end = doc->findBlockByNumber(r.endLine() + 1);
             for (QTextBlock b = start; b != end; b = b.next()) {
                 if (fold)
-                    widget->fold(b);
+                    textDoc->foldBlock(b);
                 else
-                    widget->unfold(b);
+                    textDoc->unfoldBlock(b);
             }
         }
     }
 
-    void foldOrUnfoldInactiveRegions(TextEditorWidget *widget, bool fold)
+    void foldOrUnfoldInactiveRegions(TextDocument *textDoc, bool fold)
     {
-        QTC_ASSERT(widget, return);
-        if (m_client->documentVersion(widget->textDocument()->filePath()) != m_savedRanges.first)
+        QTC_ASSERT(textDoc, return);
+        if (m_client->documentVersion(textDoc->filePath()) != m_savedRanges.first)
             return;
 
-        QTextDocument *const doc = widget->textDocument()->document();
+        QTextDocument *const doc = textDoc->document();
 
         for (const FoldingRange &r : std::as_const(m_savedRanges.second)) {
             if (r.kind() != "region")
@@ -119,9 +119,9 @@ public:
 
             for (QTextBlock b = start; b.isValid() && b != end; b = b.next()) {
                 if (fold)
-                    widget->fold(b);
+                    textDoc->foldBlock(b);
                 else
-                    widget->unfold(b);
+                    textDoc->unfoldBlock(b);
             }
         }
     }
@@ -232,14 +232,14 @@ void FoldingRangeSupport::requestFoldingRanges(TextEditor::TextDocument *doc)
     d->requestFoldingRanges(doc);
 }
 
-void FoldingRangeSupport::foldOrUnfoldCommentBlocks(TextEditorWidget *widget, bool fold)
+void FoldingRangeSupport::foldOrUnfoldCommentBlocks(TextDocument *doc, bool fold)
 {
-    d->foldOrUnfoldCommentBlocks(widget, fold);
+    d->foldOrUnfoldCommentBlocks(doc, fold);
 }
 
-void FoldingRangeSupport::foldOrUnfoldInactiveRegions(TextEditorWidget *widget, bool fold)
+void FoldingRangeSupport::foldOrUnfoldInactiveRegions(TextDocument *doc, bool fold)
 {
-    d->foldOrUnfoldInactiveRegions(widget, fold);
+    d->foldOrUnfoldInactiveRegions(doc, fold);
 }
 
 void FoldingRangeSupport::deactivate(TextEditor::TextDocument *doc)
