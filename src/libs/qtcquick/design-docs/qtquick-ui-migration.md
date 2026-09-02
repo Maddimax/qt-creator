@@ -28339,3 +28339,134 @@ specified twice for testing" and runs nothing.
 - Older than this migration and still open: the Profiler abort. Instrumenting
   rather than theorising has now worked three times in a row on exactly this
   kind of item.
+
+
+## 2026-09-02 — The Profiler abort: two deterministic bugs, not one flaky suite
+
+The last open item that needed neither a working project nor a person at a
+screen. This document, and a memory note, both described it as flaky: "exits
+134 with a different test failing each run". That description was the thing
+standing in the way, because it framed the problem as timing.
+
+**It was never flaky.** `-test Profiler -load all` contained *two independent,
+100%-reproducible aborts* in different classes. Whichever class the runner
+reached first killed the process, and class order is not stable (this document
+already says so) - so the *reported* failure moved between runs while the
+underlying bugs never did. Run each class on its own and both are 3/3:
+
+    -test Profiler,FlameGraphViewTest             exit 134, 3/3
+    -test Profiler,QmlProfilerDetailsRewriterTest exit 134, 3/3
+
+That is the reusable part. "A different test fails each run" is evidence about
+*ordering*, not about timing, when the failure is an abort - because an abort
+truncates the run. Per-class first, always.
+
+### Abort 1: a use-after-free on a menu that closed itself
+
+ASan named it in one run:
+
+    #0 QMetaObject::cast(QObject const*)              qmetaobject.cpp:413
+    #1 QGestureManager::filterEvent(QObject*, QEvent*) qgesturemanager.cpp:539
+    #2 QApplication::notify(QObject*, QEvent*)
+    #5 QTest::mouseClick(QWidget*, ...)
+    #6 FlameGraphViewTest::testContextMenu()::$_0    flamegraphview_test.cpp:133
+
+`testContextMenu()` drives the view's context menu from a `QTimer` tick: read
+`QApplication::activePopupWidget()`, move onto an action, click it, then - if
+the range was not restricted - click somewhere else to dismiss the menu.
+`FlameGraphView::contextMenuEvent()` builds that menu with `new QMenu(this)`
+and `Qt::WA_DeleteOnClose`, so **activating the action destroys the popup**,
+and the dismissing click at line 133 was using freed memory.
+`QMetaObject::cast` on a dead `QObject` is the signature; a raw pointer made it
+silent.
+
+Holding it in a `QPointer` was not sufficient on its own, and that is the
+interesting bit: the first attempt moved the crash to
+`ASSERT: "widget"` in `qtestmouse.h:154`, i.e. a *null* widget one call
+earlier. The popup does not only die at the action click - every `QTest::mouse*`
+call spins the event loop, so a pending `deleteLater` can land during the
+`mouseMove` that precedes the click. The pointer has to be re-checked between
+events rather than once per tick. The `QPointer` turning a silent
+use-after-free into a loud null-assert is exactly what an instrument is for.
+
+Also guarded `activePopup->windowHandle()` against null in the same condition -
+latent rather than observed, but one clause in the same expression.
+
+### Abort 2: a singleton the test tried to own
+
+    QFATAL ... ASSERT: "! g_instance" in qmljsmodelmanagerinterface.cpp:129
+
+`QmlProfilerDetailsRewriterTest::seedRewriter()` did
+`delete m_modelManager; m_modelManager = new QmlJS::ModelManagerInterface(this)`.
+`ModelManagerInterface` is a singleton that asserts on a second instance, and
+under `-load all` QmlJSTools has already made it - so the *first* seeding
+aborted, taking all three tests that seed with it. Under a bare
+`-test Profiler` there is no QmlJSTools and it worked, which is why this never
+showed up in a narrower run.
+
+`seedRewriter()` borrows `ModelManagerInterface::instance()` where there is
+one and only constructs (and owns) a manager when there is not.
+`testMissingModelManager()` genuinely cannot run in that configuration - its
+whole subject is deleting the manager, and deleting the application's would
+break the rest of the process - so it `QSKIP`s with that as the reason. The
+skip is conditional, not blanket: without `-load all` the class is still
+**6 passed, 0 skipped**, so nothing lost coverage.
+
+### And a third bug, found by probing rather than assuming
+
+With the aborts gone, `FlameGraphViewTest::testSelection` failed
+deterministically (2 comparisons, `typeSelected` giving `-1` where 0 and 2 were
+wanted). This
+document had it recorded as "pre-existing: flame graph selection", which is true
+and also not a diagnosis. One probe:
+
+    PROBE child QWidget geom QRect(0,0 500x470) viewSize QSize(500,500)
+          clickPt QPoint(15,485)
+
+The test clicks `view.childAt(...)` - a child **470** tall - at a point computed
+from `view.height()`, which is **500**. `y = 485` is outside the child, so the
+click selected nothing. The two failing clicks are exactly the two that used
+`view.height() - N`; the one in between expects `-1` anyway and passed by
+accident, which is why the count was always 2. Taking the points from the
+child's own geometry fixes it.
+
+### Result
+
+    before:  aborted partway, exit 134, failure set moved between runs
+    after:   23 classes, 474 passed, 2 failed, 1 skipped, exit 2
+             - identical across three consecutive runs
+
+Negative controls, all three bit:
+
+- `QPointer` back to a raw pointer: exit 134, the same
+  `SEGV qmetaobject.cpp:413`.
+- `seedRewriter()` constructing unconditionally: exit 134, the same
+  `! g_instance` assert.
+- One click point back to `view.height() - 15`: the same
+  `Actual -1 / Expected 0` at line 44.
+
+`-test TextEditor` 419 passed, 0 failed, exit 0. QuickUi 207 passed / 1 skipped,
+exit 0. No new file, no `.qbs` edit, no QML.
+
+**The two failures that are left**, now with numbers rather than adjectives:
+
+- `LocalQmlProfilerRunnerTest::testRunner`, `localqmlprofilerrunner_test.cpp:81`
+  - `runCount` is 1 where 0 is expected, so a run happened that should not
+  have.
+- `DebugMessagesModelTest::testColor`, `debugmessagesmodel_test.cpp:47` -
+  `model.color(i)` gives `4289607736`, the test's own
+  `QColor::fromHsl(...).rgb()` formula gives `4292506226`. The test restates
+  the implementation's old arithmetic; per this project's UI rules the model
+  should be answering a theme colour, so the *test* is probably what is stale.
+
+Neither is an abort, so neither blocks the suite any more.
+
+**Still left**:
+
+- Needs a working project: the four kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
+  the caret shape per mode.
+- The two Profiler failures above, which are ordinary test bugs now that the
+  suite runs to the end.

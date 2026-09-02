@@ -7,6 +7,7 @@
 #include <profiler/qmlprofilertool.h>
 
 #include <QMenu>
+#include <QPointer>
 #include <QSignalSpy>
 #include <QTest>
 #include <QTimer>
@@ -44,9 +45,15 @@ void FlameGraphViewTest::testSelection()
     });
 
     QSignalSpy spy(&view, SIGNAL(typeSelected(int)));
-    QTest::mouseClick(
-        view.childAt(view.width() / 2, view.height() / 2), Qt::LeftButton, Qt::NoModifier,
-        QPoint(15, view.height() - 15));
+
+    // The graph is drawn by a child of the view, and it is shorter than the
+    // view is - so the points below have to be in the child's coordinates or
+    // they land outside it and select nothing.
+    QWidget * const canvas = view.childAt(view.width() / 2, view.height() / 2);
+    QVERIFY(canvas);
+
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(15, canvas->height() - 15));
     if (spy.isEmpty())
         QVERIFY(spy.wait());
 
@@ -56,9 +63,8 @@ void FlameGraphViewTest::testSelection()
 
     // Click in empty area deselects
     expectedType = -1;
-    QTest::mouseClick(
-        view.childAt(view.width() / 2, view.height() / 2), Qt::LeftButton, Qt::NoModifier,
-        QPoint(view.width() - 15, 50));
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(canvas->width() - 15, 50));
     QCOMPARE(spy.count(), 2);
 
     view.onVisibleFeaturesChanged(1 << ProfileBinding);
@@ -79,9 +85,8 @@ void FlameGraphViewTest::testSelection()
         QCOMPARE(selected, 2);
     });
 
-    QTest::mouseClick(
-        view.childAt(view.width() / 2, view.height() / 2), Qt::LeftButton, Qt::NoModifier,
-        QPoint(5, view.height() - 5));
+    QTest::mouseClick(canvas, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(5, canvas->height() - 5));
     if (spy.count() == 1)
         QVERIFY(spy.wait());
 
@@ -114,23 +119,30 @@ void FlameGraphViewTest::testContextMenu()
     int menuClicks = 0;
 
     connect(&timer, &QTimer::timeout, this, [&]() {
-        auto activePopup = QApplication::activePopupWidget();
-        if (!activePopup || !activePopup->windowHandle()->isExposed()) {
+        const QPointer<QWidget> activePopup = QApplication::activePopupWidget();
+        if (!activePopup || !activePopup->windowHandle()
+            || !activePopup->windowHandle()->isExposed()) {
             QContextMenuEvent *event = new QContextMenuEvent(QContextMenuEvent::Mouse,
                                                              QPoint(250, 250), QCursor::pos());
             QCoreApplication::postEvent(&view, event);
             return;
         }
 
+        // FlameGraphView's menu is WA_DeleteOnClose, and every one of these
+        // spins the event loop - so the popup can go away between any two of
+        // them and has to be re-checked, not just checked once up front.
         QTest::mouseMove(activePopup, QPoint(targetWidth, targetHeight));
+        if (!activePopup)
+            return;
         QTest::mouseClick(activePopup, Qt::LeftButton, Qt::NoModifier,
                           QPoint(targetWidth, targetHeight));
         ++menuClicks;
 
-        if (!manager.isRestrictedToRange()) {
+        if (activePopup && !manager.isRestrictedToRange()) {
             // click somewhere else to remove the menu and return to outer function
             QTest::mouseMove(activePopup, QPoint(-10, -10));
-            QTest::mouseClick(activePopup, Qt::LeftButton, Qt::NoModifier, QPoint(-10, -10));
+            if (activePopup)
+                QTest::mouseClick(activePopup, Qt::LeftButton, Qt::NoModifier, QPoint(-10, -10));
         }
     });
 

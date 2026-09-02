@@ -67,9 +67,13 @@ void QmlProfilerDetailsRewriterTest::testMissingModelManager()
     DummyBuildConfigurationFactory factory;
     Q_UNUSED(factory)
 
+    if (QmlJS::ModelManagerInterface::instance())
+        QSKIP("cannot delete a model manager that belongs to the application");
+
     seedRewriter();
     delete m_modelManager;
     m_modelManager = nullptr;
+    m_ownsModelManager = false;
 
     // Verify it doesn't crash if model manager is missing.
     QVERIFY(!m_rewriterDone);
@@ -169,8 +173,15 @@ void QmlProfilerDetailsRewriterTest::testPopulateFileFinder()
 
 void QmlProfilerDetailsRewriterTest::seedRewriter()
 {
-    delete m_modelManager;
-    m_modelManager = new QmlJS::ModelManagerInterface(this);
+    // ModelManagerInterface is a singleton and asserts on a second instance,
+    // so where the application has already made one this borrows it.
+    if (m_ownsModelManager)
+        delete m_modelManager;
+    m_modelManager = QmlJS::ModelManagerInterface::instance();
+    m_ownsModelManager = !m_modelManager;
+    if (m_ownsModelManager)
+        m_modelManager = new QmlJS::ModelManagerInterface(this);
+
     QString filename = ":/qmlprofiler/tests/Test.qml";
 
     QmlJS::PathsAndLanguages lPaths;

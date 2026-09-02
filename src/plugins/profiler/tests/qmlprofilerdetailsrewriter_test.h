@@ -23,6 +23,7 @@ private slots:
 
 private:
     QmlJS::ModelManagerInterface *m_modelManager = nullptr;
+    bool m_ownsModelManager = false;
     QmlProfilerDetailsRewriter m_rewriter;
     bool m_rewriterDone = false;
 
