@@ -2189,23 +2189,10 @@ void TextEditorWidgetPrivate::editorContentsChange(int position, int charsRemove
 
     m_contentsChanged = true;
     QTextDocument *doc = q->document();
-    auto documentLayout = static_cast<TextDocumentLayout*>(doc->documentLayout());
     const QTextBlock posBlock = doc->findBlock(position);
 
-    // Keep the line numbers and the block information for the text marks updated
-    if (charsRemoved != 0) {
-        documentLayout->updateMarksLineNumber();
-        documentLayout->updateMarksBlock(posBlock);
-    } else {
-        const QTextBlock nextBlock = doc->findBlock(position + charsAdded);
-        if (posBlock != nextBlock) {
-            documentLayout->updateMarksLineNumber();
-            documentLayout->updateMarksBlock(posBlock);
-            documentLayout->updateMarksBlock(nextBlock);
-        } else {
-            documentLayout->updateMarksBlock(posBlock);
-        }
-    }
+    // The text marks' line numbers and blocks are kept by TextDocument, which
+    // every view shares - see updateMarkPositions() there.
 
     if (m_snippetOverlay.isVisible()) {
         QTextCursor cursor = q->textCursor();

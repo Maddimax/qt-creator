@@ -1109,10 +1109,18 @@ class TextDocumentLayoutTest final : public QObject
 
 private slots:
     void testDeletingMarkOnReload();
+    void testAMarkFollowsItsLineWhenTextIsInsertedAbove();
+    void testDeletingAMarkWhoseLineMovedLeavesNothingBehind();
     void testFoldingTheLicenceHeader();
     void testAFileOpeningWithADocumentationCommentIsLeftOpen();
 
 private:
+    // The block that really lists the mark, which is what the layout's
+    // teardown walks. Takes the pointer as an opaque value so it can be asked
+    // about a mark that has already been deleted without dereferencing it.
+    static int blockNumberHolding(TextDocument *doc, const void *mark);
+    static std::unique_ptr<TextDocument> markedDocument(const QString &text);
+
     // A document with foldable blocks and no Highlighter of its own, which is
     // what an editor with a language of its own looks like to
     // foldLicenseHeader(): the qobject_cast for the comment markers fails, so
@@ -1166,6 +1174,69 @@ void TextDocumentLayoutTest::testAFileOpeningWithADocumentationCommentIsLeftOpen
     QVERIFY2(!TextBlockUserData::isFolded(first),
              "a documentation comment was folded away as if it were a licence");
     QVERIFY(first.next().isVisible());
+}
+
+int TextDocumentLayoutTest::blockNumberHolding(TextDocument *doc, const void *mark)
+{
+    const QTextDocument *document = doc->document();
+    for (QTextBlock block = document->firstBlock(); block.isValid(); block = block.next()) {
+        if (const TextBlockUserData *data = TextBlockUserData::textUserData(block)) {
+            for (const TextMark *candidate : data->marks()) {
+                if (static_cast<const void *>(candidate) == mark)
+                    return block.blockNumber();
+            }
+        }
+    }
+    return -1;
+}
+
+std::unique_ptr<TextDocument> TextDocumentLayoutTest::markedDocument(const QString &text)
+{
+    auto doc = std::make_unique<TextDocument>();
+    doc->setFilePath(Utils::TemporaryDirectory::masterDirectoryFilePath() / "TestMarkDoc.txt");
+    doc->setPlainText(text);
+    return doc;
+}
+
+void TextDocumentLayoutTest::testAMarkFollowsItsLineWhenTextIsInsertedAbove()
+{
+    // No view is created here, which is the point: a file open only in the Qt
+    // Quick editor has no widget, and the line a mark is on is the document's
+    // own state rather than something a view keeps for it.
+    const std::unique_ptr<TextDocument> doc = markedDocument("one\ntwo\nthree\n");
+    auto *mark = new TextMark(doc.get(), 3, TextMarkCategory{"testMark", "testMark"});
+    QVERIFY2(doc->marks().contains(mark), "the fixture never attached the mark");
+    QCOMPARE(mark->lineNumber(), 3);
+    QCOMPARE(blockNumberHolding(doc.get(), mark), 2);
+
+    QTextCursor cursor(doc->document());
+    cursor.insertText("zero\n");
+
+    // The invariant, rather than the number: the line a mark reports has to be
+    // the line that holds it, or everything that asks a mark where it is - the
+    // gutter, the scroll bar, removeMark() - is answered about another line.
+    QCOMPARE(blockNumberHolding(doc.get(), mark), 3);
+    QCOMPARE(mark->lineNumber(), 4);
+
+    delete mark;
+}
+
+void TextDocumentLayoutTest::testDeletingAMarkWhoseLineMovedLeavesNothingBehind()
+{
+    const std::unique_ptr<TextDocument> doc = markedDocument("one\ntwo\nthree\n");
+    auto *mark = new TextMark(doc.get(), 3, TextMarkCategory{"testMark", "testMark"});
+    QTextCursor cursor(doc->document());
+    cursor.insertText("zero\n");
+
+    const void *removed = mark;
+    delete mark;
+
+    // ~TextDocumentLayout calls setBaseTextDocument() on every mark every
+    // block still lists, so one left behind is a dangling pointer written
+    // through at shutdown rather than a cosmetic leak.
+    QVERIFY2(!doc->marks().contains(static_cast<TextMark *>(const_cast<void *>(removed))),
+             "the document still lists a deleted mark");
+    QCOMPARE(blockNumberHolding(doc.get(), removed), -1);
 }
 
 void TextDocumentLayoutTest::testDeletingMarkOnReload()

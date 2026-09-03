@@ -241,6 +241,32 @@ void TextDocumentPrivate::updateRevisions()
 //
 ///////////////////////////////////////////////////////////////////////
 
+// Text marks carry the line they sit on, and that line moves when text above
+// them is inserted or removed. That is the document's own state rather than a
+// view's: a file open only in the Qt Quick editor has no widget to keep it,
+// and removeMark() has to be able to trust what a mark says about itself.
+static void updateMarkPositions(QTextDocument *document, int position, int charsRemoved,
+                                int charsAdded)
+{
+    auto documentLayout = qobject_cast<TextDocumentLayout *>(document->documentLayout());
+    if (!documentLayout) // the layout is installed after this is connected
+        return;
+    const QTextBlock posBlock = document->findBlock(position);
+    if (charsRemoved != 0) {
+        documentLayout->updateMarksLineNumber();
+        documentLayout->updateMarksBlock(posBlock);
+        return;
+    }
+    const QTextBlock nextBlock = document->findBlock(position + charsAdded);
+    if (posBlock == nextBlock) {
+        documentLayout->updateMarksBlock(posBlock);
+        return;
+    }
+    documentLayout->updateMarksLineNumber();
+    documentLayout->updateMarksBlock(posBlock);
+    documentLayout->updateMarksBlock(nextBlock);
+}
+
 TextDocument::TextDocument(Id id)
     : d(new TextDocumentPrivate)
 {
@@ -249,6 +275,13 @@ TextDocument::TextDocument(Id id)
             this, &TextDocument::modificationChanged);
     connect(&d->m_document, &QTextDocument::contentsChanged,
             this, &Core::IDocument::contentsChanged);
+    connect(&d->m_document, &QTextDocument::contentsChange, this,
+            [this](int position, int charsRemoved, int charsAdded) {
+        // Renumbering walks every block, and a refactoring edits many
+        // documents that have no marks at all - so ask before walking.
+        if (!d->m_marksCache.isEmpty())
+            updateMarkPositions(&d->m_document, position, charsRemoved, charsAdded);
+    });
     connect(&d->m_document, &QTextDocument::contentsChange,
             this, &TextDocument::contentsChangedWithPosition);
 

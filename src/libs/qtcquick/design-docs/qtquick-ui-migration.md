@@ -28818,3 +28818,127 @@ repro first.
 - The `TextMark` use-after-free above, once someone can make it repeat.
 - Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
   the caret shape per mode.
+
+## 2026-09-03 — A mark's line number was the widget's to keep
+
+**The gap this batch closed**: a text mark's line number and block were
+maintained *only* by `TextEditorWidgetPrivate::editorContentsChange`. A file
+open in the Qt Quick editor has no widget, so nothing renumbered its marks:
+every mark kept the line it was created on while the text moved under it.
+
+Two things follow, and the second is the crash this document has been carrying
+as "not yet reproduced":
+
+- Everything that asks a mark where it is - the gutter, the marks on the scroll
+  bar, the annotation, `marksAt()` - is answered about a line the mark left.
+- `TextDocument::removeMark()` finds the block **by** `mark->lineNumber()`. With
+  a stale number it removes the mark from the wrong block, or from none, and
+  only `qDebug()`s about it. The block that really lists the mark keeps a raw
+  pointer to freed memory, and `~TextDocumentLayout` walks every block telling
+  its marks the document is going away.
+
+That last one is the `TextMark` use-after-free the previous entry recorded with
+"one sighting in three runs is not enough to put a control on, and it wants a
+deterministic repro first". It is three lines:
+
+    doc->setPlainText("one\ntwo\nthree\n");
+    auto *mark = new TextMark(doc.get(), 3, category);
+    QTextCursor(doc->document()).insertText("zero\n");   // no view attached
+    delete mark;                                          // removes nothing
+
+with the stack the sighting reported, now on demand:
+
+    WRITE of size 8 ... heap-use-after-free
+      TextMark::setBaseTextDocument        textmark.h:107
+      TextBlockUserData::documentClosing   textdocumentlayout.h:65
+      TextDocumentLayout::documentClosing
+      ~TextDocumentLayout
+
+### The fix: the document keeps its own state
+
+`updateMarkPositions()` in `textdocument.cpp`, connected to the document's own
+`QTextDocument::contentsChange` - the same arithmetic the widget was doing,
+moved down to where the state lives. It is connected *before*
+`contentsChangedWithPosition`, so marks are right by the time anything
+reacting to the change asks one where it is, and the widget's copy is deleted
+rather than left to run twice.
+
+Where a mark sits is document state. Keeping it in a view meant it was kept
+once per view - twice in a split, never with no view - which is the shape of
+this whole migration rather than a detail of marks.
+
+### The second fix, and why it is not in this commit
+
+I also made `removeMark()` find the mark by identity - fast path on the named
+block, falling back to a scan - so that a stale number could never dangle
+again. It is the same shape as the `documentmodel` fix earlier in this branch,
+and it *does* prevent the crash: with it in and the renumbering out, the
+use-after-free test passes and ASan is silent.
+
+**But no control could make it bite.** With the renumbering in place, removing
+the identity lookup again changes nothing: all green, exit 0, no ASan. I went
+looking for a caller that leaves a mark's line number stale on purpose and
+there isn't one - `DisassemblerAgent::updateLocationMarker()` removes before it
+renumbers, `TextMark::move()` hands `moveMark()` the *previous* line, and all
+four in-tree `updateLineNumber()` overriders call the base.
+
+So it was defence against a case I could not produce, and it went back out.
+An untested fallback in a function this hot is the code version of an assertion
+that cannot fail: it would have silently absorbed a regression in the
+renumbering instead of letting the test catch it.
+
+### A cost the first version added
+
+`updateMarksLineNumber()` walks every block. The widget paid that only when a
+widget existed; putting it on the document made *every* `TextDocument` pay it,
+including the many view-less ones a project-wide rename edits - a thousand
+full-document walks for a thousand occurrences. Guarded on
+`d->m_marksCache.isEmpty()`, which is exact.
+
+Note the layout's `hasMarks` is **not** the right guard: `addMark()` returns
+early for an invisible mark before setting it, so a document whose marks are
+all invisible reads as having none.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      18 classes, 422 passed, 0 failed, 0 skipped, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+422 rather than the 420 of the last entry: the two tests below are new. No new
+file, no `.qbs` edit, no QML, no header touched - so nothing outside TextEditor
+needed rebuilding.
+
+**Negative controls, on the code as shipped** (not on an intermediate):
+removing the one `connect()` and rebuilding gives
+
+    testAMarkFollowsItsLineWhenTextIsInsertedAbove          FAIL (lineNumber 3, expected 4)
+    testDeletingAMarkWhoseLineMovedLeavesNothingBehind      FAIL (block 3 still lists it)
+    exit 134, AddressSanitizer: heap-use-after-free textmark.h:107
+
+Both tests assert the *invariant* rather than a number:
+`blockNumberHolding()` walks the blocks and returns the one that really lists
+the mark, so the first test compares that against what the mark says about
+itself, and the second asks it about a mark that has already been deleted -
+comparing the pointer as an opaque value, never dereferencing it. The second
+therefore fails on its own assertion whether or not ASan is in the build.
+
+Worth knowing for the next batch: the full `-test TextEditor` run takes about
+twelve minutes in the sanitized debug build, past the ten-minute ceiling on a
+foreground command here. Run it as a background task and read the log, or it
+gets killed at the ten-minute mark looking exactly like a hang.
+
+**Still left**, unchanged by this batch:
+
+- Needs a working project: the four kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.
+
+And one thing this batch did *not* look at, worth writing down while it is
+fresh: `TextDocument::updateMark()` and `moveMark()` both find their block the
+same way `removeMark()` does, by line number. They are correct now for the same
+reason `removeMark()` is - the number is maintained - but they are the same
+shape, and if the renumbering is ever made conditional they fail together.
