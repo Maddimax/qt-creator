@@ -28593,3 +28593,126 @@ eyes on a window, is closed. A batch that starts here should say so rather than
 invent work: the useful next moves are either to get a project opening in this
 environment (which unblocks the first group and is the larger prize), or to
 take the macOS `disclaim` observation above to whoever owns process launching.
+
+
+## 2026-09-03 — Why no project would open here: a question nobody answered
+
+**The gap this batch closes** is not a Quick-editor feature gap - it is the one
+that gates the rest of them. Every remaining item in the "needs a working
+project" group (the four kit-requiring classes, `adjustedCursor()`,
+`FollowSymbolTest`'s clangd rows, the clangd override proposal) was blocked on
+"a project cannot be opened on this machine". It can now.
+
+### What it actually was
+
+`QMakeStep::askForRebuild()` puts up
+
+    "The option will only take effect if the project is recompiled.
+     Do you want to recompile now?"
+
+It is raised from `qmlDebuggingChanged` / `useQtQuickCompilerChanged` /
+`separateDebugInfoChanged`, which fire while a build configuration is being set
+up - so `Project::configureAsExampleProject()`, which is how every one of these
+tests configures its project, raises it. In a test run nobody answers it.
+
+It is `show()`n rather than `exec()`d, so it looks harmless. It is not: it is
+`setModal(true)`, and on macOS that becomes a native `NSAlert` whose `runModal`
+spins **its own** event loop inside `processEvents()`. The test sits in
+`QTest::qWaitFor` at the time, so the wait never gets control back to check
+its own deadline. That is why a wait documented and coded as 30 seconds
+produced a 300-second watchdog kill.
+
+`sample` on the stuck process says it in one stack:
+
+    TestCase::waitUntilProjectIsFullyOpened
+      QTest::qWaitFor
+        QCocoaEventDispatcher::processEvents
+          QCoreApplicationPrivate::sendPostedEvents
+            QCocoaMessageDialog::show(...)::$_1
+              -[NSAlert runModal]
+                -[NSApplication runModalForWindow:]     <- never returns
+
+### The fix
+
+    if (ExtensionSystem::PluginManager::testRunRequested())
+        return;
+
+at the top of `askForRebuild()`. The question exists to offer a *user* a
+rebuild; a test run has nobody to offer it to. Interactive behaviour is
+untouched.
+
+### Three earlier conclusions in this document were wrong
+
+Worth recording together, because they were all wrong in the same direction -
+each blamed something plausible that had never been asked directly.
+
+1. "The kit has a Qt and no compiler." Corrected on 2026-09-02: the kit is
+   fine.
+2. "Opening a qmake project under it is not possible." qmake runs and writes
+   its `.qmake.stash`; parsing was never the problem.
+3. "The wait is bounded at 30s, so a 300s hang means the open path waits
+   several times over." No - it means the bounded wait never regains control.
+   A deadline is only checked by the loop that owns it.
+
+### What it buys, measured
+
+`AddModuleFromIncludeTest`, which had never completed here:
+
+    before:  300s, killed by the watchdog, every run
+    after:   ~19s, 3 passed, exit 0 - 0 failures in 5 runs
+
+And `MoveClassToOwnFileTest::test(nested)` **passes** - the first kit-requiring
+test to run to completion on this machine.
+
+Negative control: guard replaced with `if (false)`. The run hangs again and
+produces no totals at all, where the guarded build finishes in ~19s.
+
+### The next blocker, already visible
+
+`MoveClassToOwnFileTest` passes its first data row and then fails the rest:
+
+    PASS   : test(nested)
+    FAIL!  : test(file name match 1)  projectMgr.open(...) returned FALSE
+    FAIL!  : test(file name match 2)  '!ProjectManager::hasProjects()' false
+
+The second row's qmake **does** run - it writes a fresh `.qmake.stash` - but the
+30s wait times out, and the row after it fails because the previous project was
+never closed. `ProjectOpenerAndCloser::~ProjectOpenerAndCloser` waits up to 30s
+for `CppModelManager::gcFinished`; the obvious suspect is that it does not
+arrive. That is the next thing to instrument, and it is now a normal bug rather
+than a wall.
+
+### An environment lesson that cost most of this batch
+
+Repeatedly killing test runs **poisons the settings directory**, and the
+symptom is not subtle: `-test QuickUi` began hanging on its *first* test, and
+`-test TextEditor` mid-suite, on code that had just run green. I twice came
+close to blaming my own one-line change for it - once concluding "the fix causes
+a hang" from a single run each way, which is exactly the mistake the previous
+entry is about.
+
+    -settingspath <fresh dir>    QuickUi: 208 passed, 0 failed, exit 0
+
+A fresh settings path fixes it outright. Two related habits, both earned here:
+
+- A run killed by a tool timeout leaves **orphaned children holding the pipe**,
+  so the next batched shell loop appears to hang even though nothing is running.
+  Run one measurement per shell call, redirect from `/dev/null`, and bound the
+  run itself with `perl -e 'alarm shift; exec @ARGV' <secs> <cmd>` - there is no
+  `timeout(1)` on this machine.
+- Before believing a green suite has gone red, re-run it with fresh settings.
+
+### Verification
+
+    -test TextEditor  18 classes, 419 passed, 0 failed, exit 0
+    -test QuickUi     208 passed, 0 failed, 0 skipped, exit 0 (fresh settings)
+
+No new file, no `.qbs` edit, no QML. The mime-type switch was not touched.
+
+**Still left**:
+
+- Needs a working project - and now reachable: the four kit-requiring classes on
+  their merits (starting with the second-data-row failure above), the clangd
+  override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
+  the caret shape per mode.

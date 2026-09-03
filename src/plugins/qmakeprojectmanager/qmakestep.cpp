@@ -32,6 +32,8 @@
 
 #include <coreplugin/icore.h>
 
+#include <extensionsystem/pluginmanager.h>
+
 #include <qtsupport/qtkitaspect.h>
 
 #include <ios/iosconstants.h>
@@ -593,6 +595,12 @@ void QMakeStep::buildConfigurationSelected()
 
 void QMakeStep::askForRebuild(const QString &title)
 {
+    // Nobody answers this in a test run, and it is modal: on macOS the native
+    // alert runs its own event loop, so a test waiting for the project to
+    // finish opening never gets control back and dies on the watchdog.
+    if (ExtensionSystem::PluginManager::testRunRequested())
+        return;
+
     auto *question = new QMessageBox(Core::ICore::dialogParent());
     question->setWindowTitle(title);
     question->setText(Tr::tr("The option will only take effect if the project is recompiled. Do you want to recompile now?"));
