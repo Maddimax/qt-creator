@@ -28716,3 +28716,105 @@ No new file, no `.qbs` edit, no QML. The mime-type switch was not touched.
   override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd rows.
 - Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
   the caret shape per mode.
+
+
+## 2026-09-03 — Black cells in every comment: a background that paints nothing
+
+**The gap this batch closed**: whitespace inside comments and string literals
+was drawn as a solid black cell in the Quick editor. Reported from a screenshot
+of a real file - every space in the licence header and in `"Same Game"` a black
+box, while spaces in ordinary code were fine.
+
+That asymmetry is the whole clue, and it points at one function.
+`CppHighlighter` formats comments and strings with `setFormatWithSpaces()`,
+which overlays whitespace runs with `SyntaxHighlighter::whitespacified()`:
+
+    QTextCharFormat format = d->whitespaceFormat;
+    format.setBackground(fmt.background());
+
+Ordinary code goes through plain `formatSpaces()`, which never calls
+`setBackground`. A comment has no background, so `fmt.background()` is a
+default-constructed `QBrush` - style `Qt::NoBrush`, colour black - and setting
+it leaves the format carrying a background property that paints nothing.
+
+`QTextLayout::draw()` asks the brush for its style and leaves such a run alone,
+which is why the widget editor never showed this and why the code has survived
+since 209e3d0e669. **A `QSGTextNode` takes the property being there as reason
+enough** and fills the run with the brush's colour. Black.
+
+This is the third instance of the same shape, and the file already says so two
+comments up: `flattenedFormats()` exists because `draw()` merges overlapping
+ranges and `QSGTextNode` does not. Ranges the widget editor tolerated need
+sanitising before a scene graph sees them, so that is where the fix goes -
+`dropEmptyBackground()` clears a `Qt::NoBrush` background in both of that
+function's paths.
+
+Fixing `whitespacified()` instead would have fixed this one instance and left
+the renderer just as fragile to the next format that does the same.
+
+### Measured rather than reasoned, because I twice guessed wrong
+
+The screenshot alone suggested three mechanisms I could not choose between -
+`ShowTabsAndSpaces` glyphs, the whitespace-marker Repeater in `CodeViewport`
+(it draws 2x2 dots, so it was never a candidate once read), and a background.
+`visibleLine()` already reports each run's background *colour*, and that was
+useless here: an **unset** brush answers `#000000` too, so every run in the file
+looked black. The distinguishing question is whether the property is set at all:
+
+    row "// a b c"    run 2 (a space)  fg #4c4d50  hasBg true   bgStyle 0
+    row "int x = 1;"  run 3 (a space)  fg #4c4d50  hasBg false
+
+Same foreground, same character, opposite answer - and `bgStyle 0` is
+`Qt::NoBrush`, i.e. set to something that paints nothing. `visibleLine()` now
+carries `hasBackground` permanently, since a colour that cannot tell "unset"
+from "set to nothing" cannot see this class of bug at all.
+
+`testWhitespaceInACommentIsNotDrawnAsABlackCell` asserts that no run on a plain
+comment line carries a background. Negative control: `dropEmptyBackground()`
+made a no-op fails it with *"run at 2 carries a background, which nothing on a
+plain comment line should"* - run 2 being the space after `//`.
+
+### Verification
+
+    -test TextEditor  18 classes, 420 passed, 0 failed, exit 0
+    -test QuickUi     208 passed, 0 failed, exit 0
+    CppEditor highlighter classes  103 passed, 1 skipped, exit 0
+
+One earlier TextEditor run failed `testTheClipboardCarriesLineBreaksAndNotU2029`
+with "the viewport never took focus" - the known key-window flake, green on the
+re-run. No new file, no `.qbs` edit, no QML change.
+
+### Also settled this batch
+
+`MoveClassToOwnFileTest` now runs here. With a settings directory that already
+has a kit it gives **7 passed / 4 failed**, and `QTC_WIDGET_CPP_EDITOR=1` gives
+**exactly the same four failures** - so those are pre-existing quick-fix
+behaviour, not something the switch broke. The previous entry's claim that the
+second data row fails because the previous project is not closed was wrong: with
+a clean settings path those rows pass, and it was the poisoned-settings effect
+again.
+
+One thing the kit runs did surface, seen once with a clean ASan stack and not
+yet reproduced:
+
+    TextMark::setBaseTextDocument       textmark.h:107
+    TextBlockUserData::documentClosing  textdocumentlayout.h:65
+    TextDocumentLayout::documentClosing
+    ~TextDocumentLayout
+
+preceded by `Could not find mark 0x... on line 21`. `TextDocument::removeMark()`
+looks a mark up **by its current line number** and removes it from that block;
+when the line has moved on it removes nothing, leaves a dangling raw pointer in
+the block's `m_marks`, and the layout's teardown writes through it. Same shape
+as the `documentmodel` fix earlier in this branch. Not fixed here: one sighting
+in three runs is not enough to put a control on, and it wants a deterministic
+repro first.
+
+**Still left**:
+
+- Needs a working project, and now reachable: the remaining kit-requiring
+  classes on their merits, the clangd override proposal, `adjustedCursor()`,
+  `FollowSymbolTest`'s clangd rows.
+- The `TextMark` use-after-free above, once someone can make it repeat.
+- Needs a person at a screen: vim's mode line, the FakeVim selection highlight,
+  the caret shape per mode.

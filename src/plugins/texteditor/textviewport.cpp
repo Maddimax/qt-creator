@@ -926,7 +926,12 @@ QVariantMap TextViewport::visibleLine(int index) const
                                    {QStringLiteral("background"), range.format.background().color()},
                                    // A link is drawn by underlining it, which
                                    // neither colour shows.
-                                   {QStringLiteral("underline"), range.format.fontUnderline()}});
+                                   {QStringLiteral("underline"), range.format.fontUnderline()},
+                                   // Set-but-empty is what a black cell looks
+                                   // like before it is drawn, and the colour
+                                   // above cannot tell it from unset.
+                                   {QStringLiteral("hasBackground"),
+                                    range.format.hasProperty(QTextFormat::BackgroundBrush)}});
     }
     return QVariantMap{{QStringLiteral("text"), line.layout->text()},
                        {QStringLiteral("formats"), formats},
@@ -4406,6 +4411,20 @@ void TextViewport::geometryChange(const QRectF &newGeometry, const QRectF &oldGe
         polish();
 }
 
+// A background brush that paints nothing. QTextLayout::draw() asks the brush
+// for its style and leaves the run alone; a QSGTextNode takes the property
+// being there as reason enough and fills the run with the brush's colour,
+// which for a default-constructed one is black. SyntaxHighlighter::
+// whitespacified() sets exactly that on whitespace inside comments and
+// strings, so every such space was drawn as a solid black cell.
+static void dropEmptyBackground(QTextCharFormat &format)
+{
+    if (format.hasProperty(QTextFormat::BackgroundBrush)
+        && format.background().style() == Qt::NoBrush) {
+        format.clearProperty(QTextFormat::BackgroundBrush);
+    }
+}
+
 // The same ranges, cut at every boundary so that none of them overlap.
 //
 // A QTextLayout takes overlapping ranges and QTextLayout::draw() merges them,
@@ -4420,8 +4439,12 @@ void TextViewport::geometryChange(const QRectF &newGeometry, const QRectF &oldGe
 static QList<QTextLayout::FormatRange> flattenedFormats(
     const QList<QTextLayout::FormatRange> &formats)
 {
-    if (formats.size() < 2)
-        return formats;
+    if (formats.size() < 2) {
+        QList<QTextLayout::FormatRange> single = formats;
+        for (QTextLayout::FormatRange &range : single)
+            dropEmptyBackground(range.format);
+        return single;
+    }
 
     QList<int> edges;
     edges.reserve(formats.size() * 2);
@@ -4446,6 +4469,7 @@ static QList<QTextLayout::FormatRange> flattenedFormats(
         }
         if (!covered)
             continue;
+        dropEmptyBackground(merged);
         // Runs that say the same thing are one run: fewer glyph runs to build,
         // and the reuse check below compares format lists.
         if (!flat.isEmpty() && flat.last().start + flat.last().length == from

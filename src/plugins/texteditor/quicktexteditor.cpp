@@ -2174,6 +2174,44 @@ private slots:
                      qPrintable(QString("the line is drawn in %1 colour(s)").arg(colours().size())));
     }
 
+    // Whitespace inside a comment or a string carries the visual-whitespace
+    // format, which SyntaxHighlighter builds by copying the comment's own
+    // background onto it - a background the comment does not have. A run that
+    // says it has one and then paints nothing is drawn as a solid black cell
+    // by a QSGTextNode, so the flattening has to drop it.
+    void testWhitespaceInACommentIsNotDrawnAsABlackCell()
+    {
+        Utils::TemporaryDirectory dir("whitespace-cells");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("commented.cpp");
+        QVERIFY(file.writeFileContents("// a b c\nint x = 1;\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const auto runs = [viewport] {
+            return viewport->visibleLine(0).value("formats").toList();
+        };
+        // The highlighter arrives separately; before it does there is nothing
+        // to check and the comment is not coloured yet.
+        QTRY_VERIFY(!runs().isEmpty());
+
+        for (const QVariant &run : runs()) {
+            const QVariantMap format = run.toMap();
+            QVERIFY2(!format.value("hasBackground").toBool(),
+                     qPrintable(QString("run at %1 carries a background, which nothing on a "
+                                        "plain comment line should")
+                                    .arg(format.value("start").toInt())));
+        }
+    }
+
     // The same highlighter is what works out where the folds are, so a real
     // file opened in this editor has to be foldable - the folding tests fold
     // by hand and would not notice this arriving unwired.
