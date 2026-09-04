@@ -31881,3 +31881,95 @@ does not route", it is not - add the context. The tests that worked around
 this by calling handlers directly (Ctrl+U, the Refactor submenu) could be
 tightened to go through the command instead, which would cover the
 `ActionBuilder` wiring those tests currently skip.
+
+## 2026-09-04 -- Pressing Ctrl+U rather than calling what it calls
+
+The previous entry ended with a standing note: now that a test can activate a
+command's context, the tests that worked around the old belief by calling
+handlers directly could go through the command instead, and cover the
+`ActionBuilder` wiring they skip. This does that for Ctrl+U.
+
+### What was checked first and not written
+
+The optional-action mask looked like the obvious thing to add a census for -
+the batch rules name it, and CppEditor sets eight of the ten bits. It is
+already tested: `testTheOptionalCommandsFollowTheFactorysMask()` covers both
+polarities (a language that asked and one that did not), a bit no language
+asked for, and the writability gate on top. Nothing to add, and finding that
+out cost one read.
+
+Worth noting *how* it avoids the routing problem: `Command::actionForContext()`
+fetches the action registered for a context without that context being active.
+That is the lighter tool where all a test needs is "is this registered and
+enabled"; adding the context is for when the action has to actually fire.
+
+### The gap the old test could not see
+
+`testGrowingASelection()` drives the walk by calling `growSelectionIn(editor)`.
+That is the right seam for asking *what the walk does*, and it is useless for
+asking whether Ctrl+U reaches it: a handler wired to the wrong id, or into no
+context, reads exactly the same from inside that function.
+
+So a second test presses the command - once, with the editor's own context
+added - and checks the syntax answer comes back rather than the bracket one.
+
+### Why it is Quick-only, which was measured rather than assumed
+
+The first attempt made the existing data-driven test press the command for
+both rows. The widget row went red with an empty selection while the quick row
+passed. The reason is that the widget editor registers `SELECT_BLOCK_UP`
+**twice**:
+
+- `texteditorplugin.cpp:571`, in the global `C_TEXTEDITOR` context, which is
+  the menu entry and its shortcut and has no handler;
+- `texteditor.cpp:4189`, in the *widget's* own context, which is where the
+  handler is.
+
+`editor->context()` is the editor's, not the widget's, so pressing the command
+in the test reached the first one and did nothing. Chasing the widget's context
+plumbing buys this migration nothing, so the existing test keeps its direct
+call - it is the control on the *behaviour* - and the new one covers the Quick
+registration and says in its comment why it stops there.
+
+### Negative controls
+
+All three bite, and the same thing is true of all three, which is the point of
+the batch: **`testGrowingASelection(quick)` stayed green in every one.**
+
+- **A -- the Quick editor's Ctrl+U handler does nothing**: new test red with
+  an empty selection against `"b"`. The whole feature disconnected, and the
+  older test does not notice.
+- **B -- the handler registered under another id**: red on the `isEnabled()`
+  assertion. Again invisible to the older test.
+- **C -- the test does not add the editor's context**: red on the same
+  assertion, which is that assertion doing its job - without it the test would
+  trigger a disabled action and compare a selection that never changed.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 449 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Unchanged, and expected to be: the new test is in CppEditor. It was run on its
+own - 5 passed, 0 failed - because the whole `-test CppEditor` suite is red at
+baseline for reasons measured several entries ago.
+
+One file, tests only. No new file and no `.qbs` edit.
+
+### What this leaves
+
+The same four as the previous entry, none of them closable here:
+
+1. **The debugger's tooltips** - needs a debug session.
+2. **`restoreState()` stashing** - needs a decision.
+3. **The parse-context highlight and the Refactor submenu's presentation** -
+   want a person at a screen.
+4. **`isChosen()` against a real project part** - needs a project.
+
+And one piece of tightening left of the kind this batch did: the Refactor
+submenu's test invokes `extraTriggered` on the menu rather than opening the
+menu through `SHOWCONTEXTMENU`. That would cover the command that opens it,
+which nothing does today. It is smaller than this batch was and worth folding
+into whatever touches that area next rather than being a batch of its own.

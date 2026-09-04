@@ -944,6 +944,7 @@ private slots:
             [editor] { Core::EditorManager::closeEditors({editor}, false); });
         QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
 
+
         auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
         QVERIFY(document);
         QTRY_VERIFY2(document->semanticInfo().doc,
@@ -965,6 +966,63 @@ private slots:
         retraced.removeLast();
         std::reverse(retraced.begin(), retraced.end());
         QCOMPARE(back, retraced);
+    }
+
+    // The walk above is driven by calling growSelectionIn() - which leaves the
+    // shortcut's own registration uncovered: a handler wired to the wrong id,
+    // or into no context, reads exactly the same from inside that function.
+    // So press Ctrl+U itself, once, and check the syntax answer comes back.
+    //
+    // Only the Quick editor. The widget editor registers this twice - a
+    // handler-less entry in the global C_TEXTEDITOR context and the real one
+    // in the widget's own, which is not the editor's - so pressing it here
+    // reaches the first and does nothing. That is the widget's context
+    // plumbing and not this migration's.
+    void testCtrlUReachesTheLanguageThroughTheCommand()
+    {
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = fileWithANestedExpression(dir);
+        QVERIFY(!file.isEmpty());
+
+        Core::IEditor * const editor = openWith(file, true);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        // The editor's own context, which its commands are registered in and
+        // which nothing activates in a test process.
+        Core::ICore::addAdditionalContext(editor->context());
+        const QScopeGuard dropContext(
+            [editor] { Core::ICore::removeAdditionalContext(editor->context()); });
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY(document->semanticInfo().doc);
+        QVERIFY(putCaretOnTheInnerOperand(editor));
+
+        Core::Command * const grow
+            = Core::ActionManager::command(TextEditor::Constants::SELECT_BLOCK_UP);
+        QVERIFY(grow);
+        QVERIFY2(grow->action()->isEnabled(),
+                 "Ctrl+U is disabled here, so triggering it would prove nothing");
+        grow->action()->trigger();
+
+        // The syntax answer and not the bracket one, which is what says the
+        // key reached the language rather than the viewport's own walk.
+        QCOMPARE(TextEditor::textCursorOf(editor).selectedText(), theSyntaxWalk().first());
+
+        Core::Command * const shrink
+            = Core::ActionManager::command(TextEditor::Constants::SELECT_BLOCK_DOWN);
+        QVERIFY(shrink);
+        QVERIFY(shrink->action()->isEnabled());
     }
 
     // The setting the reader has for this, in the view that used to ignore it:
