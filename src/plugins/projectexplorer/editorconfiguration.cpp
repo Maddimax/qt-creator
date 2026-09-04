@@ -20,6 +20,10 @@
 #include <texteditor/storagesettings.h>
 #include <texteditor/tabsettings.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/textviewport.h>
+
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <texteditor/texteditor.h>
 #include <texteditor/typingsettings.h>
 
@@ -99,6 +103,7 @@ EditorConfiguration::EditorConfiguration()
             // Whichever view: what a document carries reaches either one.
             if (auto * const document = qobject_cast<TextDocument *>(editor->document()))
                 applySettings(document);
+            applyBehaviorSettings(editor);
             if (auto widget = TextEditorWidget::fromEditor(editor))
                 switchSettings(widget);
         }
@@ -236,6 +241,7 @@ void EditorConfiguration::configureEditor(Core::IEditor *editor) const
                 && document->encoding() != d->m_textEncoding;
         document->setEncoding(d->m_textEncoding);
         applySettings(document);
+        applyBehaviorSettings(editor);
         if (widget)
             switchSettings(widget);
         if (reloadWithProjectEncoding)
@@ -280,20 +286,29 @@ void EditorConfiguration::applySettings(TextDocument *document) const
     }
 }
 
+void EditorConfiguration::applyBehaviorSettings(Core::IEditor *editor) const
+{
+    if (useGlobalSettings()) {
+        // Nothing of its own: back to the globals, and following them.
+        TextEditor::setBehaviorSettingsIn(editor, {});
+        QObject::disconnect(&behaviorSettings, &AspectContainer::changed, editor, nullptr);
+        QObject::connect(&globalBehaviorSettings(), &AspectContainer::changed, editor,
+                         [editor] { TextEditor::setBehaviorSettingsIn(editor, {}); });
+    } else {
+        TextEditor::setBehaviorSettingsIn(editor, behaviorSettings.data());
+        QObject::disconnect(&globalBehaviorSettings(), &AspectContainer::changed, editor, nullptr);
+        QObject::connect(&behaviorSettings, &AspectContainer::changed, editor, [this, editor] {
+            TextEditor::setBehaviorSettingsIn(editor, behaviorSettings.data());
+        });
+    }
+}
+
 void EditorConfiguration::switchSettings(TextEditorWidget *widget) const
 {
     if (useGlobalSettings()) {
         widget->setMarginSettings(TextEditor::marginSettings().data());
-        widget->setBehaviorSettings(globalBehaviorSettings().data());
-        QObject::disconnect(&behaviorSettings, &AspectContainer::changed, widget, nullptr);
-        QObject::connect(&globalBehaviorSettings(), &AspectContainer::changed,
-                         widget, [widget] { widget->setBehaviorSettings(globalBehaviorSettings().data()); });
     } else {
         widget->setMarginSettings(marginSettings.data());
-        widget->setBehaviorSettings(behaviorSettings.data());
-        QObject::disconnect(&globalBehaviorSettings(), &AspectContainer::changed, widget, nullptr);
-        QObject::connect(&behaviorSettings, &AspectContainer::changed,
-                         widget, [this, widget] { widget->setBehaviorSettings(behaviorSettings.data()); });
     }
 }
 
@@ -388,6 +403,10 @@ private slots:
         TextEditor::StorageSettingsData mine = config.storageSettings.data();
         mine.m_cleanWhitespace = !TextEditor::globalStorageSettings().data().m_cleanWhitespace;
         config.storageSettings.setData(mine);
+        TextEditor::BehaviorSettingsData mine2 = config.behaviorSettings.data();
+        mine2.m_camelCaseNavigation
+            = !TextEditor::globalBehaviorSettings().data().m_camelCaseNavigation;
+        config.behaviorSettings.setData(mine2);
 
         QCOMPARE(document->storageSettings().m_cleanWhitespace,
                  TextEditor::globalStorageSettings().data().m_cleanWhitespace);
@@ -396,6 +415,34 @@ private slots:
 
         QCOMPARE(document->storageSettings().m_cleanWhitespace, mine.m_cleanWhitespace);
         QVERIFY2(document->codeStyle(), "the project left the document with no code style");
+
+        // And how the view behaves, which is not on the document: the widget
+        // keeps its own copy and the Qt Quick view follows the globals until
+        // it is told otherwise.
+        const auto behaviourHere = [editor, quick] {
+            if (quick) {
+                // Through the QQuickWidget's root object: the item is in its
+                // offscreen window and is not a child of the widget, so a
+                // direct findChild() answers nothing - which it did, silently,
+                // until this was instrumented.
+                auto * const quickWidget = editor->widget()->findChild<QQuickWidget *>();
+                auto * const view = quickWidget && quickWidget->rootObject()
+                    ? quickWidget->rootObject()->findChild<TextEditor::TextViewport *>()
+                    : nullptr;
+                return view ? view->behaviorSettings() : TextEditor::BehaviorSettingsData{};
+            }
+            return TextEditor::TextEditorWidget::fromEditor(editor)->behaviorSettings();
+        };
+        QCOMPARE(behaviourHere().m_camelCaseNavigation, mine2.m_camelCaseNavigation);
+
+        // And handing over nothing puts the view back to following the
+        // globals, which is what "use global settings" asks for. Asserted
+        // through the seam rather than through configureEditor(), which only
+        // applies anything in the customised branch - the toggle goes through
+        // useGlobalSettings' own handler instead.
+        TextEditor::setBehaviorSettingsIn(editor, {});
+        QCOMPARE(behaviourHere().m_camelCaseNavigation,
+                 TextEditor::globalBehaviorSettings().data().m_camelCaseNavigation);
     }
 };
 

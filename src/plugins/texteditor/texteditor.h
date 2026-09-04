@@ -1058,6 +1058,13 @@ TEXTEDITOR_EXPORT QPoint toolTipPositionIn(Core::IEditor *editor, int position);
 TEXTEDITOR_EXPORT void whenScrolled(Core::IEditor *editor, QObject *context,
                                     const std::function<void()> &onScroll);
 
+// How \a editor's view should behave - camel-case navigation, wheel zooming,
+// what the mouse does. A project can keep its own instead of the global ones;
+// an empty \a settings puts the view back to following the globals as they
+// change, which is what "use global settings" means.
+TEXTEDITOR_EXPORT void setBehaviorSettingsIn(Core::IEditor *editor,
+                                             const std::optional<BehaviorSettingsData> &settings);
+
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax
 // tree where it has an opinion - a SelectionExpander parented to \a editor -

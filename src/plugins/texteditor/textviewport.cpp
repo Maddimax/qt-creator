@@ -1249,7 +1249,7 @@ bool TextViewport::opensInNextSplit(bool asked) const
 
 bool TextViewport::isMouseNavigation(Qt::KeyboardModifiers modifiers) const
 {
-    return globalBehaviorSettings().mouseNavigation()
+    return behaviorSettings().m_mouseNavigation
            && modifiers.testFlag(Qt::ControlModifier)
            && !modifiers.testFlag(Qt::ShiftModifier);
 }
@@ -1900,7 +1900,7 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
     // Alt on its own asks for a tooltip when it is let go; Alt with anything
     // else is a shortcut, so any other key takes the offer back.
     m_maybeKeyboardTooltip = event->key() == Qt::Key_Alt
-                             && globalBehaviorSettings().keyboardTooltips();
+                             && behaviorSettings().m_keyboardTooltips;
 
     // Control pressed while the mouse is over the text asks for the link under
     // it, rather than waiting for the mouse to move first.
@@ -1908,7 +1908,7 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         updateLink(m_hoverItemPos, Qt::ControlModifier);
 
     if (!m_mouseHidden && isTypingKey(event->key())
-        && hideMouseWhileTyping(globalBehaviorSettings().data())) {
+        && hideMouseWhileTyping(behaviorSettings())) {
         m_mouseHidden = true;
         emit mouseHiddenChanged();
     }
@@ -2042,7 +2042,7 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
     // that is its own - the document's layout never sees that wrapping, so
     // handing it over makes Down step over a whole wrapped line instead of on
     // to the next row of it.
-    if (cursors.handleMoveKeyEvent(event, globalBehaviorSettings().camelCaseNavigation(),
+    if (cursors.handleMoveKeyEvent(event, behaviorSettings().m_camelCaseNavigation,
                                    movementLayout())) {
         m_verticalMovementX = cursors.mainCursor().verticalMovementX();
         setTextCursor(cursors.mainCursor());
@@ -3214,6 +3214,16 @@ void TextViewport::circularPaste()
     }
 }
 
+BehaviorSettingsData TextViewport::behaviorSettings() const
+{
+    return m_behaviorSettings.value_or(globalBehaviorSettings().data());
+}
+
+void TextViewport::setBehaviorSettings(const std::optional<BehaviorSettingsData> &settings)
+{
+    m_behaviorSettings = settings;
+}
+
 void TextViewport::pasteWithoutFormat()
 {
     paste();
@@ -3376,7 +3386,7 @@ void TextViewport::selectLineAt(int position)
 
 void TextViewport::zoomBy(int steps)
 {
-    if (steps == 0 || !globalBehaviorSettings().scrollWheelZooming())
+    if (steps == 0 || !behaviorSettings().m_scrollWheelZooming)
         return;
 
     // The same step the widget editor takes, and always at least one, so a

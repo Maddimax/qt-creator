@@ -32838,3 +32838,88 @@ a question: it wants per-view settings on `TextViewport`, which does not have
 them - the Qt Quick editor reads display and behaviour settings from the
 globals. It is the same shape as everything else that has been ported here,
 and it is the honest next piece of work.
+
+## 2026-09-05 -- Behaviour settings a project can override
+
+The previous entry left the margin and behaviour settings as the last real
+remainder: a project can override them and they reached only the widget
+editor. This closes the behaviour half.
+
+### What the viewport needed
+
+`TextViewport` read the globals at each point of use - `globalBehaviorSettings()
+.camelCaseNavigation()`, `.scrollWheelZooming()`, and three more. It now keeps
+an `std::optional<BehaviorSettingsData>` and answers
+`m_behaviorSettings.value_or(globalBehaviorSettings().data())`.
+
+The optional is the whole design. A view nobody has overridden follows the
+globals *as they change*, exactly as before - there is no copy to go stale.
+One a project has overridden stops following. That is what "use global
+settings" means, and it needs no connect/disconnect bookkeeping at all, which
+is what the widget editor has to do instead.
+
+`setBehaviorSettingsIn(IEditor *, std::optional<...>)` joins the other
+editor-level seams, and `EditorConfiguration` pushes through it for either
+view. The widget's own copy is unchanged in behaviour; an empty optional hands
+it what the globals currently say, since it has no notion of following them.
+
+### The test that measured nothing
+
+Worth recording because it passed the first time for the wrong reason. The
+helper reaching for the Quick view's settings was:
+
+    editor->widget()->findChild<TextEditor::TextViewport *>()
+
+which is **always null**: the item lives in the QQuickWidget's offscreen
+window and is not a child of the widget. So the quick row compared a
+default-constructed `BehaviorSettingsData` against itself and was happy.
+
+It only came out because the run *after* it failed, and instrumenting rather
+than adjusting the assertion showed `viewport 0x0` on both rows. The lookup
+has to go through `QQuickWidget::rootObject()`, which every other test in this
+tree already does - this one was written from memory instead of from them.
+
+**A test that finds nothing and compares defaults looks exactly like a test
+that passes.** Control C below is that mistake, kept: with the lookup broken
+the quick row goes red now.
+
+### Negative controls
+
+- **A -- the seam does not reach a view that is not a widget**: quick row red,
+  widget green. The gap, reproduced.
+- **B -- the project's behaviour is never pushed**: both rows red, so the
+  assertion is about the settings arriving rather than which view arrived.
+- **C -- the test cannot find the viewport**: quick row red. The bug above, as
+  a control that stops it coming back.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 455 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+`-test ProjectExplorer` still exits 2 on the same two failures measured last
+entry - `testSourceToBinaryMapping(qbs)` and `RunWorkerConflictTest` - neither
+this change.
+
+Six files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**The margin settings**, which are the same shape and were left out
+deliberately rather than forgotten: `TextViewport` reads
+`marginSettings()` at five places the way it read the behaviour globals, and
+the same optional would do it. It is one more repetition of this pattern and
+the honest next batch.
+
+Then the two presentation questions, still for a person.
+
+### A note on where the seams have got to
+
+`texteditor.h` now carries a dozen of these free functions - `textCursorOf`,
+`setTextCursorOf`, `growSelectionIn`, `toolTipPositionIn`, `whenScrolled`,
+`setBehaviorSettingsIn` and the rest. They all have the same shape: ask the
+editor, and let it answer from whichever view it has. That is the migration's
+whole method, and it is worth saying that the file is starting to want a
+section header rather than more of them in a row.

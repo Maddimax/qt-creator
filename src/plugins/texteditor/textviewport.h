@@ -5,6 +5,7 @@
 
 #include "textoperations.h"
 #include "basehoverhandler.h"
+#include "behaviorsettings.h"
 #include "textdocumentlayout.h"
 #include "texteditor_global.h"
 
@@ -22,6 +23,8 @@
 #include <QQmlEngine>
 #include <QFont>
 #include <QQuickItem>
+
+#include <optional>
 #include <QRectF>
 #include <QVariantMap>
 
@@ -303,6 +306,14 @@ public:
     // with it, so it has to be handed to views that are already open and
     // taken back before it dies.
     void addHoverHandler(BaseHoverHandler *handler);
+
+    // What the reader has asked for about how this view behaves - camel-case
+    // navigation, mouse navigation, wheel zooming. The global settings unless
+    // a project has said otherwise, which is what the empty optional means:
+    // a view nobody has overridden keeps following the globals as they change,
+    // and one that has been overridden stops.
+    BehaviorSettingsData behaviorSettings() const;
+    void setBehaviorSettings(const std::optional<BehaviorSettingsData> &settings);
     void removeHoverHandler(BaseHoverHandler *handler);
 
     // Follow Symbol. What is under the cursor is the language's business -
@@ -1197,6 +1208,7 @@ private:
     QPointer<QTextDocument> m_connectedDocument;
     // The highlighter currently connected to, for the same reason.
     QPointer<SyntaxHighlighter> m_connectedHighlighter;
+    std::optional<BehaviorSettingsData> m_behaviorSettings;
     qreal m_scrollY = 0;
     qreal m_scrollX = 0;
     // The carets after the first. The main one stays a position and a

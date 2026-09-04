@@ -10316,6 +10316,23 @@ void whenScrolled(Core::IEditor *editor, QObject *context,
     }
 }
 
+void setBehaviorSettingsIn(Core::IEditor *editor,
+                           const std::optional<BehaviorSettingsData> &settings)
+{
+    if (!editor)
+        return;
+
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        // The widget has no notion of going back to the globals; the caller
+        // that wants that hands over what the globals currently say and
+        // reconnects itself, which is what EditorConfiguration does.
+        widget->setBehaviorSettings(settings.value_or(globalBehaviorSettings().data()));
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->setBehaviorSettings(settings);
+}
+
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)
 {
     if (!editor)
