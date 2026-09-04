@@ -265,4 +265,8 @@ private:
     virtual bool shouldSendDidSave(const TextEditor::TextDocument *) const { return true; }
 };
 
+#ifdef WITH_TESTS
+QObject *createClientEditorHandlerTest();
+#endif
+
 } // namespace LanguageClient

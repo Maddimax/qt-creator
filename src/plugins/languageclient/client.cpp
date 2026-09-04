@@ -60,6 +60,16 @@
 #include <QDebug>
 #include <QGuiApplication>
 #include <QJsonDocument>
+
+#ifdef WITH_TESTS
+#include <coreplugin/editormanager/editormanager.h>
+#include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
+#include <utils/temporarydirectory.h>
+#include <QJsonArray>
+#include <QScopeGuard>
+#include <QTest>
+#endif
 #include <QLoggingCategory>
 #include <QMessageBox>
 #include <QPointer>
@@ -2489,6 +2499,140 @@ void Client::registerCustomMethod(const QString &method, const CustomMethodHandl
         qCWarning(LOGLSPCLIENT) << "Overwriting custom method handler for:" << method;
     d->m_customHandlers.insert(method, handler);
 }
+
+
+#ifdef WITH_TESTS
+
+namespace Internal {
+
+// A server that never runs. It answers the initialize handshake - which is the
+// only answer a Client needs to reach Initialized - and records what it was
+// asked to send. Reaching Initialized is the point: an unreachable Client
+// queues its requests instead of sending them, so "the request was sent" is
+// only an observable question once the handshake has happened.
+class RecordingServer : public BaseClientInterface
+{
+public:
+    Utils::FilePath serverDeviceTemplate() const override { return {}; }
+
+    bool sawMethod(const QString &method) const
+    {
+        return Utils::contains(m_sent, [&method](const QJsonObject &message) {
+            return message.value("method").toString() == method;
+        });
+    }
+
+    void forget() { m_sent.clear(); }
+
+protected:
+    void sendData(const QByteArray &data) override
+    {
+        // sendMessage() hands the header and the content over as two separate
+        // calls, so the content arrives as plain JSON with no framing to strip.
+        const QJsonDocument document = QJsonDocument::fromJson(data);
+        if (!document.isObject())
+            return;
+        const QJsonObject message = document.object();
+        m_sent.append(message);
+        if (message.value("method").toString() != "initialize")
+            return;
+
+        QJsonObject legend;
+        legend["tokenTypes"] = QJsonArray{"variable"};
+        legend["tokenModifiers"] = QJsonArray{};
+        QJsonObject semanticTokens;
+        semanticTokens["legend"] = legend;
+        semanticTokens["full"] = true;
+        QJsonObject capabilities;
+        capabilities["foldingRangeProvider"] = true;
+        capabilities["semanticTokensProvider"] = semanticTokens;
+        QJsonObject result;
+        result["capabilities"] = capabilities;
+        QJsonObject response;
+        response["jsonrpc"] = "2.0";
+        response["id"] = message.value("id");
+        response["result"] = result;
+        emit messageReceived(LanguageServerProtocol::JsonRpcMessage(response));
+    }
+
+private:
+    QList<QJsonObject> m_sent;
+};
+
+// Both of these are handlers on EditorManager::currentEditorChanged that used
+// to do their work only when the editor was a TextEditorWidget, so a C++ file
+// in the Qt Quick editor was never asked about. The client has to be really
+// reachable for either to send anything, which is what RecordingServer is for.
+class ClientEditorHandlerTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheRequestsThatFollowTheCurrentEditorReachAnyView()
+    {
+        Utils::TemporaryDirectory dir("lsp-handlers-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("watched.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+        const Utils::FilePath other = dir.filePath("elsewhere.txt");
+        QVERIFY(other.writeFileContents("elsewhere\n"));
+
+        auto * const server = new RecordingServer;
+        auto * const client = new Client(server);
+        client->setName("editor handler test");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY2(client->reachable(),
+                     "the fake server never got the client as far as Initialized");
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        client->openDocument(document);
+        QTRY_VERIFY2(client->documentOpen(document),
+                     "the client never took the document, so nothing would be asked about it");
+
+        // Away and back, because the handlers under test are the ones that run
+        // when an editor *becomes* current. Opening the second file is also
+        // what makes the first stop being current.
+        Core::IEditor * const elsewhere = Core::EditorManager::openEditor(other);
+        QVERIFY(elsewhere);
+        const QScopeGuard closeOther(
+            [elsewhere] { Core::EditorManager::closeEditors({elsewhere}, false); });
+
+        // Cleared here so that what is asserted is what becoming current asked
+        // for, not anything the opening above did.
+        server->forget();
+        QVERIFY(!server->sawMethod("textDocument/foldingRange"));
+        QVERIFY(!server->sawMethod("textDocument/semanticTokens/full"));
+
+        Core::EditorManager::activateEditor(editor);
+
+        QTRY_VERIFY2(server->sawMethod("textDocument/foldingRange"),
+                     "becoming current asked the server for no folding ranges");
+        QTRY_VERIFY2(server->sawMethod("textDocument/semanticTokens/full"),
+                     "becoming current asked the server for no semantic tokens");
+    }
+};
+
+} // namespace Internal
+
+QObject *createClientEditorHandlerTest()
+{
+    return new Internal::ClientEditorHandlerTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace LanguageClient
 

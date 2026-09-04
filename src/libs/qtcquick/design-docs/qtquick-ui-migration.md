@@ -29607,3 +29607,156 @@ put a test on it for the reason given above.
   rows.
 - Needs a person at a screen: vim's mode line, the FakeVim selection
   highlight, the caret shape per mode.
+
+## 2026-09-04 — The fake server, and two requests that never left
+
+**The gap this batch closed**: with clangd on, a C++ file in the Qt Quick
+editor was never asked about **folding ranges** or **semantic tokens** when it
+became the current editor. Both handlers were
+
+    connect(EditorManager::instance(), &EditorManager::currentEditorChanged, ...
+        if (auto widget = TextEditorWidget::fromEditor(editor))
+            requestFoldingRanges(widget->textDocument());     // and updateSemanticTokens
+
+and both take a `TextDocument *`, so the widget was only ever a way of getting
+one. They ask the document now.
+
+The previous entry diagnosed these and deliberately did **not** fix them,
+because there was no way to put a control on a `Client`. That is what this
+batch built, and the fix is the four lines that were already written down.
+
+This was the third and fourth instance of one bug: `client.cpp` carries a
+comment explaining the pattern ("asking only there left the first file opened
+in any other view with no highlights at all, for good, because nothing asks
+again until the caret moves"), the session that wrote it fixed
+`requestDocumentHighlights`, another fixed the hover handler, and these two sat
+twenty lines away from the explanation the whole time. **A comment is not a
+control.**
+
+### The fixture
+
+`RecordingServer` in `client.cpp`, about fifty lines: a `BaseClientInterface`
+that answers the initialize handshake and records what it was asked to send.
+Six things make it cheap, and none of them were obvious from the outside:
+
+- **`BaseClientInterface` has two pure virtuals**, `serverDeviceTemplate()` and
+  `sendData()`. `startImpl()` already defaults to emitting `started()`, so a
+  server that does nothing needs no lifecycle code.
+- **`sendMessage()` calls `sendData()` twice** - once with the header, once with
+  the content - so the content arrives as **plain JSON with no framing to
+  strip**. `QJsonDocument::fromJson` on each call is the whole parser.
+- **`messageReceived` is a signal, so it is public**: the fake injects a
+  response directly rather than feeding framed bytes back through
+  `parseData()`.
+- **Only `initialize` has to be answered.** An ill-formed `InitializeResult`
+  merely logs and carries on, so a `capabilities` object naming
+  `foldingRangeProvider` and `semanticTokensProvider` is enough to reach
+  `Initialized`.
+- **Reaching `Initialized` is the point.** `doRequestRanges()` opens with
+  `QTC_ASSERT(m_client->reachable(), return)`, and an unreachable client
+  *queues* instead of sending - so "the request was sent" is only an
+  observable question after the handshake. This is why the obvious cheap
+  version of this test, poking the private queues, would have asserted the
+  wrong thing.
+- **`LanguageClientManager::deleteClient()` deregisters and queues a plain
+  `delete`** - no shutdown handshake - so a fake that never answers `shutdown`
+  is safe to drop at the end of a test.
+
+Two more things the test needs that are easy to miss: `setSupportedLanguage()`
+must name a mime type or `openDocument()` silently refuses the document, and
+the editor has to be switched **away and back**, because the handler under test
+is the one that runs when an editor *becomes* current.
+
+### Both halves, controlled separately
+
+The first run - fixture in, neither fix applied - failed on folding ranges and
+**never reached the semantic-token assertion**, because `QVERIFY` stops there.
+A run like that proves one of the two fixes and says nothing about the other,
+which is exactly the shape of a control that looks like it bit and did not.
+So the semantic half was reverted on its own, with the folding fix in place:
+
+    folding reverted   FAIL  "becoming current asked the server for no folding ranges"
+    semantic reverted  FAIL  "becoming current asked the server for no semantic tokens"
+
+Each fix has a control that fails on its own assertion. **Two fixes in one
+test need two controls, one per fix, not one run with both reverted.**
+
+A side observation worth keeping: the failing runs take ~16 s and the passing
+one 0.5 s, all of it `QTRY_VERIFY` waiting out its timeout. A slow run of this
+test means it is failing, not that the machine is busy.
+
+### What it unlocks
+
+Every remaining LanguageClient site was blocked on the same missing fixture:
+`updateEditorToolBar()`, the call and type hierarchy widgets, and
+`sendPostponedDocumentUpdates()`. They are now testable the same way - build a
+client over a `RecordingServer`, drive the editor, assert on what was sent.
+`requestLinkAt` is still the exception: it is a `TextEditorWidget` *signal*,
+so it is a design question rather than a document substitution.
+
+### A hang that was not this change, established rather than assumed
+
+One `-test TextEditor` run stopped producing output partway through. The
+temptation was to blame the only thing that had changed; `sample` on the
+process settled it in one stack instead:
+
+    CodeAssistTests::cleanupTestCase()   codeassist_test.cpp:170
+      -> QCocoaEventDispatcher::processEvents   (spinning)
+
+`cleanupTestCase()` calls `Core::EditorManager::closeEditors(m_editorsToClose)`
+and that overload's `askAboutModifiedEditors` **defaults to true**, so it can
+raise the modal save dialog this document already has two entries about - on
+macOS a native `NSAlert` whose `runModal` spins its own loop inside
+`processEvents()`, which is exactly the shape of that stack.
+
+It also cannot be reached by this change: both handlers live on
+`ClientPrivate`, so with no language client configured - which is what a fresh
+settings path gives - there is no handler to run at all.
+
+**Measured rather than argued**: two further full `-test TextEditor` runs with
+the change in, both 19 classes / 428 passed / 0 failed / exit 0. One hang in
+three runs, and the two clean ones are on the same binary that hung. Left as a
+known flake rather than fixed here, since the fix belongs to whoever owns that
+test: `closeEditors(m_editorsToClose, false)` is almost certainly what it
+meant.
+
+Two process notes earned here, both about looking at the right thing:
+
+- **`pgrep -f "Qt Creator"` matches the shell running the test**, because the
+  path is in its command line, and sampling that gives a pristine `zsh` stack
+  waiting on `waitjobs` - which reads like the app being idle. `pgrep -x
+  "Qt Creator"` is the app.
+- **A test class stalled at the same line count twice is not evidence of a
+  hang.** `CodeAssistTests` and `SnippetTest` both take minutes here. Sampling
+  tells the difference between slow and stuck in two seconds; polling the log
+  never does.
+
+### Verification
+
+    -test LanguageClient  4 classes, 30 passed, 0 failed, exit 0
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 428 passed, 0 failed, exit 0  (twice, see above)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      208 passed, 0 failed, 0 skipped, exit 0
+
+No new file, so no `.qbs` edit and no qbs re-resolve: the fixture and the test
+sit in `client.cpp` beside the class they exercise, which is where this
+plugin's other tests live. The keychain test that usually skips did not skip
+this run, hence 208/0 rather than 207/1 - it is about the machine's keychain,
+not about anything here.
+
+**Still left**:
+
+- LanguageClient, now unblocked by the fixture: `updateEditorToolBar()`, the
+  call and type hierarchy widgets, `sendPostponedDocumentUpdates()`. Note
+  `client.cpp:2027` warns about an unused `currentWidget` since the tooltip
+  batch - that is the same site.
+- Debugger's remaining sites, unread.
+- `requestLinkAt`, which is a widget signal rather than a cast.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.
+- Somebody else's to fix, found here: `CodeAssistTests::cleanupTestCase()`
+  closing editors with the ask-about-modified default.

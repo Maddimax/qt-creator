@@ -30,8 +30,13 @@ public:
     {
         QObject::connect(EditorManager::instance(), &EditorManager::currentEditorChanged, this,
             [this](IEditor *editor) {
-                if (auto widget = TextEditorWidget::fromEditor(editor))
-                    requestFoldingRanges(widget->textDocument());
+                // The document, not a view: ranges are a property of the file,
+                // and asking only where there is a widget left a file opened in
+                // the Qt Quick editor never asked about at all.
+                if (auto *doc = qobject_cast<TextDocument *>(
+                        editor ? editor->document() : nullptr)) {
+                    requestFoldingRanges(doc);
+                }
             });
     }
 

@@ -282,8 +282,9 @@ void SemanticTokenSupport::updateFormatHash()
 
 void SemanticTokenSupport::onCurrentEditorChanged(Core::IEditor *editor)
 {
-    if (auto widget = TextEditorWidget::fromEditor(editor))
-        updateSemanticTokens(widget->textDocument());
+    // The document, not a view - see the same change in FoldingRangeSupport.
+    if (auto *doc = qobject_cast<TextDocument *>(editor ? editor->document() : nullptr))
+        updateSemanticTokens(doc);
 }
 
 void SemanticTokenSupport::setTokenTypesMap(const QMap<QString, int> &tokenTypesMap)
