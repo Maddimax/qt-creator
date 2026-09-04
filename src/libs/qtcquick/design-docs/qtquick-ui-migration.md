@@ -32593,3 +32593,81 @@ Two things remain and both are questions for a person rather than work:
 And one small piece of work with no urgency: following the Quick view's scroll
 so an open tooltip moves with the text, which the widget editor does through
 its scroll bar.
+
+## 2026-09-05 -- An open tooltip follows the text
+
+The previous entry left one piece of work and two questions for a person. This
+is the piece of work, and with it there is nothing left on the list that is
+work rather than a judgement.
+
+A tooltip drawn over the text has to move when the text scrolls. The manager
+did that by watching `TextEditorWidget`'s vertical scroll bar, which a view
+without one cannot offer - so a value tooltip in the Qt Quick editor stayed
+where it was put while the code slid out from under it.
+
+    TEXTEDITOR_EXPORT void whenScrolled(Core::IEditor *editor, QObject *context,
+                                        const std::function<void()> &onScroll);
+
+Beside the other editor-level seams, and answered the way they all are: the
+widget editor connects the scroll bar, the Quick one connects
+`TextViewport::scrollYChanged`. The debugger asks the editor rather than
+reaching for a scroll bar, which is the whole shape of this migration in one
+line.
+
+### The mistake in the test, which is worth keeping
+
+The lifetime half of the test first read `listener.disconnect()`, which severs
+connections *from* an object, not *to* it - so it disconnected nothing and the
+count went up anyway. The test failed and said so, which is the right outcome
+but for the wrong reason: it was measuring my misuse of `QObject::disconnect()`
+rather than the seam.
+
+What the seam actually promises is that the connection dies with the context
+object, so the test now destroys it. That is the guarantee a caller relies on -
+the debugger passes `this`, and a manager going away must not leave a callback
+pointing at it.
+
+### Negative controls
+
+- **A -- only the widget editor says when it scrolled**: quick row red,
+  widget green.
+- **B -- only the Quick view says**: widget row red, quick green. The pair
+  says the seam answers for both rather than one and a coincidence.
+- **C -- the connection is made against `qApp` instead of the context**: red
+  on the count still rising after the listener is destroyed.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 455 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+455 is 453 plus the two rows. The debugger's two were run beside each other -
+5 passed, 0 failed.
+
+Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**Nothing that is work.** A C++ file opens in the Qt Quick editor, and
+everything CppEditor configures on a `TextEditorWidget` reaches it:
+completion, quick fixes, follow symbol, refactoring, renaming, the optional
+action mask, the outline, the parse-context chooser, smart selection, string
+splitting, the navigation history in all four of its parts, the macro
+recorder, code warnings, and now the debugger's value tooltips and their
+following the text.
+
+Two questions remain and both want somebody to look at a screen:
+
+1. Whether the Clear button beside the parse-context chooser says enough on
+   its own, or whether that chooser wants the highlight the widget editor
+   gives it.
+2. Whether the Refactor submenu should nest, as it does, or show its fixes
+   inline.
+
+Neither is answerable by measurement, which is what separates them from the
+five labels this document got wrong - focus, a decision, a project, a
+debugger, and a scroll bar. Each of those named something the *production*
+path needs and the *seam* did not; these two name a judgement about what a
+reader should see, and no amount of reading the code settles it.

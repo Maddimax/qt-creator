@@ -10299,6 +10299,23 @@ QPoint toolTipPositionIn(Core::IEditor *editor, int position)
     return {};
 }
 
+void whenScrolled(Core::IEditor *editor, QObject *context,
+                  const std::function<void()> &onScroll)
+{
+    if (!editor || !context || !onScroll)
+        return;
+
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        QObject::connect(widget->verticalScrollBar(), &QScrollBar::valueChanged,
+                         context, [onScroll] { onScroll(); });
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        QObject::connect(view, &TextViewport::scrollYChanged,
+                         context, [onScroll] { onScroll(); });
+    }
+}
+
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)
 {
     if (!editor)

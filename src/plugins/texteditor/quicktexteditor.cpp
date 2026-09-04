@@ -3764,6 +3764,63 @@ private slots:
                               "back3=9", "fwd=12"}));
     }
 
+    void testTheViewSaysWhenItScrolled_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Anything drawn over the text - the debugger's value tooltip - has to
+    // move with it, and only the view knows when it moved. One has a scroll
+    // bar to watch and the other scrolls without one, which is why asking is
+    // a seam rather than a connect at the call site.
+    //
+    // The widget row is the control on the fixture: it says a file this long
+    // really does scroll when told to.
+    void testTheViewSaysWhenItScrolled()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-scrolled");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("long.cpp");
+        QString text;
+        for (int i = 0; i < 400; ++i)
+            text += QString("int line%1();\n").arg(i);
+        QVERIFY(file.writeFileContents(text.toUtf8()));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto listener = std::make_unique<QObject>();
+        int told = 0;
+        whenScrolled(editor, listener.get(), [&told] { ++told; });
+        QCOMPARE(told, 0);
+
+        // Scrolled the way the reader would, by going somewhere far enough
+        // down that the view has to follow.
+        editor->gotoLine(300, 0);
+        QTRY_VERIFY2(told > 0, "the view scrolled and said nothing");
+
+        // And the listener going away takes the connection with it, which is
+        // what stops a closed tooltip hearing about an editor that is still
+        // open. The editor outlives it here, which is the way round that bites.
+        const int afterFirst = told;
+        listener.reset();
+        editor->gotoLine(1, 0);
+        QCOMPARE(told, afterFirst);
+    }
+
     // Which languages open in the Qt Quick editor, written down rather than
     // grepped for. Three times in this migration a gap has been "closed" in
     // code that nothing reaches, because the language's files still open in

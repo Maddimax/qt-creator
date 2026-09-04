@@ -949,14 +949,10 @@ void DebuggerToolTipManagerPrivate::slotEditorOpened(IEditor *e)
                      this, &DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested,
                      Qt::UniqueConnection);
 
-    // Move tooltip along when scrolled. Only the widget editor has a scroll
-    // bar to follow; the Quick view scrolls without one, and following that is
-    // its own piece of work.
-    if (auto textEditor = qobject_cast<BaseTextEditor *>(e)) {
-        QObject::connect(textEditor->editorWidget()->verticalScrollBar(),
-                         &QScrollBar::valueChanged,
-                         this, &DebuggerToolTipManagerPrivate::updateVisibleToolTips);
-    }
+    // Move an open tooltip along when the text under it scrolls. Whichever
+    // view is showing it knows when that happened - one has a scroll bar and
+    // the other does not.
+    TextEditor::whenScrolled(e, this, [this] { updateVisibleToolTips(); });
 
     // Apparently the widget's window is still the original one once the
     // EditorManager::editorOpened() is fired.

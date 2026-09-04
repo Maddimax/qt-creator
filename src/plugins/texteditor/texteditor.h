@@ -1051,6 +1051,13 @@ TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor 
 // Null where \a editor shows no text.
 TEXTEDITOR_EXPORT QPoint toolTipPositionIn(Core::IEditor *editor, int position);
 
+// Call \a onScroll whenever \a editor's view scrolls, for as long as
+// \a context lives. Anything placed over the text has to move with it, and
+// only the view knows when that happened: the widget editor has a scroll bar
+// to watch and the Qt Quick one scrolls without one.
+TEXTEDITOR_EXPORT void whenScrolled(Core::IEditor *editor, QObject *context,
+                                    const std::function<void()> &onScroll);
+
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax
 // tree where it has an opinion - a SelectionExpander parented to \a editor -
