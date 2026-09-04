@@ -29327,3 +29327,132 @@ has it" - and **the overlap has not been checked.** Confirm what those two
 commits actually cover before assuming a site is still open. Note also that
 `-test LanguageClient` is 27 passed with 3 classes, which is far less than ten
 sites' worth of coverage: the suite going green says very little here.
+
+## 2026-09-04 — LSP tooltips, and what `activateEditor` does in three parts
+
+First of LanguageClient's ten sites, taken with the rule the last batch ended
+on: **each row is a guess until the `else if` has been looked for.** Applied to
+`Client::activateEditor`, it split the row into three pieces with three
+different answers.
+
+### The hover handler, which is the gap
+
+A language registers its hover handlers on its **editor factory**, and every
+view picks them up when it is built - `QuickTextEditor` does exactly that,
+`factory->hoverHandlers()` plus the colour preview one. A language server
+cannot use that door: a `Client` is created with a project and destroyed with
+it, so it hands its handler to the editors that are already open, through
+`TextEditorWidget::addHoverHandler()`.
+
+`TextViewport` had no such door. `setHoverHandlers()` is a *snapshot*, and
+grepping its callers is what settles it - three, all of them the factory path
+or a test. So **LSP tooltips never appeared in the Qt Quick editor at all**.
+
+**Blast radius, bounded the way the mime claim bounds the editor default:**
+the factory-registered handlers do reach the Quick editor, and CppEditor
+registers `cppHoverHandler` there, so a C++ file still shows *a* tooltip - the
+built-in code model's, not clangd's richer one. A language served by a generic
+LSP configuration, which opens in the Quick editor because nothing more
+specific claims it, gets only `baseHoverHandler` and so effectively nothing
+from its server. Coco's client had the same two calls and the same gap.
+
+`removeHoverHandler()` has to tell the runner, not just drop the pointer:
+`HoverHandlerRunner` holds the list as `const QList<BaseHoverHandler *> &`, so
+losing it from the list is enough for it not to be *asked* again, but a check
+already in flight holds the pointer and only the runner can let that go.
+
+### The tracking, which turned out to be part of the same bug
+
+`activateEditor()` also did `m_activeEditors.insert(editor)` **inside the
+widget branch**, and shutting a client down walks that set calling
+`deactivateEditor()` on each - which is precisely what takes the hover handler
+back out again. Registering the handler for a Quick editor while leaving the
+editor out of the set would have left the view holding a pointer to a handler
+its client had destroyed. So the tracking moved out of the branch with the
+registration; the two are one change, and finding that out is the reason to
+read a function rather than patch the line that greps.
+
+### The optional-actions mask, which is not fixable here
+
+The third part of the branch widens the mask - `FindUsage`, `RenameSymbol`,
+`FollowSymbolUnderCursor`, `FollowTypeUnderCursor`, `CallHierarchy`,
+`TypeHierarchy` - according to what the server reports. `QuickTextEditor`
+takes its mask from the factory that built it and `m_optionalActions` is
+**const**, so there is nowhere to put the answer. `QuickTextEditorFactory`
+passes `Format | UnCommentSelection | UnCollapseAll`, so for a generic LSP
+language those six commands stay greyed out however capable the server is.
+
+Left alone deliberately. Making the mask mutable means re-evaluating the
+actions that read it whenever it changes, which is a change to how the Quick
+editor enables commands rather than a lookup to widen - and it is invisible in
+C++, because `CppEditorFactory` grants those actions itself.
+
+### Testing hover without a pointer, and the short-circuit that ate the test
+
+The gesture is **Alt on its own** - "show help tooltips using the keyboard" -
+which goes `keyPressEvent` sets a flag, `keyReleaseEvent` calls
+`askForTooltipAtCaret()`. No pointer, no hover timer, and no dependence on the
+mouse actually being over anything, which is what makes it testable at all;
+the mouse-hover path is what `testALinkUnderThePointerIsUnderlined` fails on.
+The setting it is gated on is applied and put back, because a test that
+applies a setting has to un-apply it.
+
+**The first version of the test asked three times about the same word and it
+was wrong.** `HoverHandlerRunner::startChecking()` short-circuits straight to
+whichever handler won last time when `lastHelpItemAppliesTo(target)` holds and
+the document revision *and the word start* both repeat - so the second and
+third asks would have consulted nobody, and the test would have been measuring
+the short-circuit. It asks about a different word each time now, which is why
+the fixture has four of them.
+
+**Asserting the removal needed an ordering trick.** "The handler is no longer
+asked" has no event of its own to wait for. A second handler that stays
+registered is the event: they are asked in list order and the one under test
+was added first, so once the second has answered again, the first would
+already have been asked had it still been there.
+
+Both halves controlled, one line at a time:
+
+| control | failure |
+| --- | --- |
+| `addHoverHandler` body emptied | `mine.asked: 0 != 1` |
+| `removeHoverHandler` body emptied | `mine.asked: 3 != 2` |
+
+The second is the one worth having: it is what proves the removal assertion is
+not vacuous, and a removal that silently does nothing is the dangling-pointer
+case above.
+
+### Verification
+
+    -test TextEditor,QuickTextEditorTest    64 passed, 1 failed
+    -test LanguageClient                    27 passed, 0 failed
+    -test Coco                               3 passed, 0 failed
+
+The one failure is `testInsertTogglesTypingOverTheTextThatIsThere`, measured
+3/3 at the previous series base and 3/3 at its head in the batch before this -
+pre-existing. `QuickTextEditorTest` was 63 passed at that base and is 64 now,
+which is the one test this batch adds.
+
+### What is left of LanguageClient's ten
+
+`Client::activateEditor` and `deactivateEditor` are done except for the mask.
+`LanguageClientManager::editorOpened` was chased in the previous batch and left
+only `requestLinkAt`. Two more are now *partly* answered by reading rather than
+grepping, and both need finishing rather than believing:
+
+- **Refactor markers.** `TextEditorWidget::setRefactorMarkers(markers, type)`
+  writes through to the document ("so that a view which is not a
+  TextEditorWidget can offer them too"), so the Quick editor *can* draw them -
+  but the producer, `updateCodeActionRefactoringMarker()` in
+  `languageclientutils.cpp`, only ever calls it on an `editorWidget`. So a
+  document open only in a Quick editor never gets code-action markers at all,
+  and `deactivateEditor`'s clear is widget-gated for the same reason. One
+  feature, two halves, both widget-shaped.
+- **Document highlights are already fine**, and the reason is worth writing
+  down because it reads like a gap: `requestDocumentHighlights(Core::IEditor
+  *widget)` takes an editor and the *parameter is merely named* `widget`, left
+  over from the port. Grepping for `widget->` in that function finds nothing
+  to fix.
+
+Still unread: the call and type hierarchy pair, folding ranges, the toolbar's
+language-client selector, and semantic tokens on an editor change.
