@@ -936,6 +936,13 @@ public:
         // After the cursor: setting it scrolls to it, and where the reader
         // left the view is the more specific answer.
         view->setScrollY(scrollY);
+
+        // Arriving here is a jump like any other, and Go Back is how the
+        // reader usually arrives: without this, going back and then moving
+        // around leaves Back with nothing to return to, and it walks on
+        // through the older entries instead. The widget editor ends
+        // restoreState() the same way.
+        rememberThisAsSomewhereJumpedTo();
     }
 
 private:
@@ -3680,6 +3687,81 @@ private slots:
         QStringList missing = QStringList((widget - quick).begin(), (widget - quick).end());
         missing.sort();
         QCOMPARE(missing, knownMissing);
+    }
+
+    // Back and Forward over a whole trail, as one list, because the places
+    // they disagree are several steps in: arriving somewhere by Go Back is
+    // itself a jump, and a view that does not record it leaves Back with
+    // nothing to return to and walking on through older entries instead.
+    //
+    // Against the widget row this is the control on the fixture - the trail is
+    // what Creator really produces - and against the quick row it is the test.
+    void testBackAndForwardWalkTheSameTrail_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testBackAndForwardWalkTheSameTrail()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-restorestate");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("lines.cpp");
+        QString text;
+        for (int i = 0; i < 60; ++i)
+            text += QString("int line%1();\n").arg(i);
+        QVERIFY(file.writeFileContents(text.toUtf8()));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        QWidget *keyTarget = nullptr;
+        if (quick) {
+            auto * const qw = editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(qw && qw->rootObject());
+            auto * const view = qw->rootObject()->findChild<TextViewport *>();
+            QVERIFY(view);
+            QTRY_VERIFY(view->visibleLineCount() > 0);
+            view->forceActiveFocus();
+            keyTarget = qw;
+        } else {
+            TextEditorWidget * const w = TextEditorWidget::fromEditor(editor);
+            QVERIFY(w);
+            w->setFocus();
+            keyTarget = w;
+        }
+
+        const auto here = [editor] { return textCursorOf(editor).blockNumber(); };
+        const auto wander = [keyTarget] {
+            for (int i = 0; i < 3; ++i)
+                QTest::keyClick(keyTarget, Qt::Key_Down);
+        };
+
+        QStringList trace;
+        editor->gotoLine(10, 0); wander(); trace << QString("A=%1").arg(here());
+        editor->gotoLine(30, 0); wander(); trace << QString("B=%1").arg(here());
+        Core::EditorManager::goBackInNavigationHistory(); trace << QString("back1=%1").arg(here());
+        Core::EditorManager::goBackInNavigationHistory(); trace << QString("back2=%1").arg(here());
+        wander(); trace << QString("wander=%1").arg(here());
+        Core::EditorManager::goBackInNavigationHistory(); trace << QString("back3=%1").arg(here());
+        Core::EditorManager::goForwardInNavigationHistory(); trace << QString("fwd=%1").arg(here());
+
+        // Written down rather than derived: every step is a place a reader
+        // would recognise, and a change to any of them should be read.
+        QCOMPARE(trace,
+                 QStringList({"A=12", "B=32", "back1=29", "back2=9", "wander=12",
+                              "back3=9", "fwd=12"}));
     }
 
     // Which languages open in the Qt Quick editor, written down rather than

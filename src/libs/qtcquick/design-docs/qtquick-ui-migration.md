@@ -32272,3 +32272,79 @@ previous entry is **withdrawn**. It was true of the attempt, not of the
 problem: focus was never needed, only the right context order, and a test can
 build that itself. If something else looks blocked on focus, read
 `updateAdditionalContexts()` before believing it.
+
+## 2026-09-05 -- Arriving by Go Back is a jump too
+
+The previous entry listed `restoreState()` stashing as needing **a decision**
+rather than a measurement. That label was wrong, and it was wrong the same way
+the focus label was wrong one entry earlier: it recorded a hypothesis as a
+constraint. The hypothesis was that stashing in `restoreState()` "risks
+re-recording the place Go Back just arrived at". It does exactly that, and
+that is the point of it.
+
+### Measured instead of decided
+
+Jump to line 10, wander; jump to line 30, wander; Back, Back, wander, Back,
+Forward. The two views agree for five steps and then do not:
+
+    widget   A=12  B=32  back1=29  back2=9  wander=12  back3=9   fwd=12
+    quick    A=12  B=32  back1=29  back2=9  wander=12  back3=12  fwd=29
+
+`back3` is the whole of it. Having gone back to line 9 and then moved to line
+12, the widget's Back returns to 9 - the place Go Back had landed on, which
+`restoreState()`'s stash recorded. The Quick editor recorded nothing there, so
+Back had nothing to return to and walked on through the older entries instead,
+and Forward then went somewhere else again.
+
+That is a plain user-visible difference: **go back, look around, and Back
+stops taking you where you were.** `QuickTextEditor::restoreState()` now ends
+with the same stash `gotoLine()` uses, and the two traces are identical.
+
+### The test is the trail
+
+Both rows assert the whole seven-step trail as one list rather than a single
+position. The steps where the views disagree are five deep - a test that
+checked only "Back returns to the jump" passes on both before and after this
+change, which is what the previous two entries' tests did. The widget row is
+the control on the fixture: the trail is what Creator really produces.
+
+### Negative controls
+
+- **A -- arriving by Go Back is not remembered** (the change reverted): quick
+  row red at index 5, `back3=12` against `back3=9`; widget row green. The gap,
+  reproduced at exactly the step the measurement found.
+- **B -- a jump by `gotoLine()` is not remembered either**: red much earlier,
+  at index 2, and the older `testGoBackReturnsToAJumpTheReaderLeft` fails too.
+  The two stashes are separate and both load-bearing, which the trail shows
+  and a single-position test could not.
+- **C -- the expected trail altered**: both rows red. Not vacuous.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 452 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+452 is 450 plus the two rows of the new test. One file, no new file and no
+`.qbs` edit.
+
+### What this leaves
+
+Three, and all three want something this machine does not have:
+
+1. **The debugger's tooltips** - a debug session.
+2. **The parse-context highlight and the Refactor submenu's presentation** - a
+   person at a screen.
+3. **`isChosen()` against a real project part** - a loaded project.
+
+Navigation history is now finished: the origin of a jump, the destination once
+the reader leaves it, arriving by Go Back, and the last edit location.
+
+**On labels.** Two entries in a row have now had an item struck off that a
+previous entry called blocked - one on hardware, one on a decision - and both
+times the block was a hypothesis nobody had measured. The remaining three each
+name a thing that is *absent* (a debugger, a project, a person) rather than a
+mechanism that is believed to be in the way, which is a different kind of
+claim; but the record here says to spend ten minutes checking before accepting
+any of them either.
