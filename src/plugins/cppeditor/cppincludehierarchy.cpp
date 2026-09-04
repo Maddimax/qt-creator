@@ -37,6 +37,12 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#ifdef WITH_TESTS
+#include "cpptoolstestcase.h"
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 using namespace Core;
 using namespace CPlusPlus;
 using namespace TextEditor;
@@ -348,11 +354,14 @@ private:
     TextEditorLinkLabel *m_inspectedFile = nullptr;
     QLabel *m_includeHierarchyInfoLabel = nullptr;
     QToolButton *m_toggleSync = nullptr;
-    BaseTextEditor *m_editor = nullptr;
+    Core::IEditor *m_editor = nullptr;
     QTimer *m_timer = nullptr;
 
     // CppIncludeHierarchyFactory needs private members for button access
     friend class CppIncludeHierarchyFactory;
+#ifdef WITH_TESTS
+    friend class CppIncludeHierarchyWidgetTest;
+#endif
 };
 
 CppIncludeHierarchyWidget::CppIncludeHierarchyWidget()
@@ -408,11 +417,19 @@ void CppIncludeHierarchyWidget::perform()
 {
     showNoIncludeHierarchyLabel();
 
-    m_editor = BaseTextEditor::currentTextEditor();
-    if (!m_editor)
+    // The document rather than the view: what a hierarchy is about is the file
+    // and the line the caret is on, and Core::IEditor answers both in any
+    // view. Asking for a BaseTextEditor left this silently empty for a C++
+    // file opened in the Qt Quick editor.
+    m_editor = EditorManager::currentEditor();
+    const auto textDocument = m_editor
+        ? qobject_cast<TextEditor::TextDocument *>(m_editor->document()) : nullptr;
+    if (!textDocument) {
+        m_editor = nullptr;
         return;
+    }
 
-    const Utils::FilePath documentPath = m_editor->textDocument()->filePath();
+    const Utils::FilePath documentPath = textDocument->filePath();
 
     // If the cursor is on a #include line, inspect the included file, so that
     // invoking this on a #include shows which files include that header.
@@ -430,7 +447,7 @@ void CppIncludeHierarchyWidget::perform()
     m_model.buildHierarchy(inspectedPath);
 
     if (inspectedPath == documentPath)
-        m_inspectedFile->setText(m_editor->textDocument()->displayName());
+        m_inspectedFile->setText(textDocument->displayName());
     else
         m_inspectedFile->setText(inspectedPath.fileName());
     m_inspectedFile->setLink(Link(inspectedPath));
@@ -490,11 +507,11 @@ void CppIncludeHierarchyWidget::syncFromEditorManager()
     if (!m_toggleSync->isChecked())
         return;
 
-    const auto editor = BaseTextEditor::currentTextEditor();
+    const auto editor = EditorManager::currentEditor();
     if (!editor)
         return;
 
-    auto document = qobject_cast<CppEditorDocument *>(editor->textDocument());
+    auto document = qobject_cast<CppEditorDocument *>(editor->document());
     if (!document)
         return;
 
@@ -598,6 +615,87 @@ void setupCppIncludeHierarchy()
 {
     (void) cppIncludeHierarchyFactory(); // Force instantiation
 }
+
+#ifdef WITH_TESTS
+
+// The existing IncludeHierarchyTest builds a CppIncludeHierarchyModel itself
+// and calls buildHierarchy() on a path it took from the editor's document, so
+// it never goes through the widget - and the widget is where the view was
+// being asked for. This drives perform() instead.
+class CppIncludeHierarchyWidgetTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheHierarchyIsBuiltForAFileInTheQuickEditor()
+    {
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const FilePath header = dir.createFile("header.h", "#pragma once\n");
+        const FilePath source = dir.createFile(
+            "main.cpp", "#include \"header.h\"\nint main() { return 0; }\n");
+        QVERIFY(!header.isEmpty());
+        QVERIFY(!source.isEmpty());
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(source);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor *editor = nullptr;
+        QVERIFY(CppEditor::Tests::TestCase::openCppEditorInAnyView(source, &editor));
+        const QScopeGuard closeIt(
+            [editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        QVERIFY(CppEditor::Tests::TestCase::parseFiles({header, source}));
+
+        CppIncludeHierarchyWidget widget;
+
+        // Line 2, so the caret is off the #include: the open file is the one
+        // whose hierarchy is shown.
+        editor->gotoLine(2, 1);
+        widget.perform();
+        QCOMPARE(widget.m_model.editorFilePath(), source);
+
+        // Row 0 is the "Includes" branch, and it fetches its children lazily.
+        const QModelIndex includes = widget.m_model.index(0, 0);
+        QVERIFY(includes.isValid());
+        if (widget.m_model.canFetchMore(includes))
+            widget.m_model.fetchMore(includes);
+        QCOMPARE(widget.m_model.rowCount(includes), 1);
+        QCOMPARE(widget.m_model.index(0, 0, includes).data().toString(), QString("header.h"));
+
+        // And with the caret on the #include line, the included file is
+        // inspected instead. That branch reads the caret, so it is what shows
+        // currentLine() being answered by a view that is not a widget - a
+        // hierarchy built for the wrong file would otherwise look like one
+        // built correctly.
+        editor->gotoLine(1, 1);
+        widget.perform();
+        QCOMPARE(widget.m_model.editorFilePath(), header);
+
+        // "Synchronize with Editor" has a lookup of its own, and it is what
+        // runs for a reader who never invokes the action. Cleared first, so a
+        // hierarchy left over from the calls above cannot pass for one this
+        // path built.
+        widget.m_model.buildHierarchy({});
+        QVERIFY(widget.m_model.editorFilePath().isEmpty());
+        widget.m_toggleSync->setChecked(true);
+        widget.syncFromEditorManager();
+        QCOMPARE(widget.m_model.editorFilePath(), header);
+    }
+};
+
+QObject *createCppIncludeHierarchyWidgetTest()
+{
+    return new CppIncludeHierarchyWidgetTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace CppEditor::Internal
 

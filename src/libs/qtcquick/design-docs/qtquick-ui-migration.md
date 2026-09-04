@@ -28942,3 +28942,136 @@ fresh: `TextDocument::updateMark()` and `moveMark()` both find their block the
 same way `removeMark()` does, by line number. They are correct now for the same
 reason `removeMark()` is - the number is maintained - but they are the same
 shape, and if the renumbering is ever made conditional they fail together.
+
+## 2026-09-04 — The Include Hierarchy, and a test that built the model itself
+
+**The gap this batch closed**: opening a C++ file and asking for its include
+hierarchy showed "No include hierarchy available" and nothing else.
+`CppIncludeHierarchyWidget::perform()` and `syncFromEditorManager()` both began
+
+    m_editor = BaseTextEditor::currentTextEditor();
+    if (!m_editor)
+        return;
+
+which is null for a file in the Qt Quick editor, so both returned before
+building anything. Silent, and permanent for as long as the file is open.
+
+This is the third view of the same shape the outline and the type hierarchy
+already went through - a navigation panel keyed on the editor being a widget -
+and it was simply missed when those two were done. All four things it wanted
+are on `Core::IEditor`: `document()->filePath()`, `currentLine()`,
+`document()->displayName()`, and the pointer itself for the closed-editor
+check. `BaseTextEditor::currentTextEditor()`'s real filter is "the current
+editor's document is a `TextDocument`", and that is what it asks now.
+
+### Why no test saw it
+
+`IncludeHierarchyTest` has existed all along, and it opens its file with
+`openCppEditorInAnyView()` - so it already ran in the Quick editor. Then:
+
+    CppIncludeHierarchyModel model;
+    model.buildHierarchy(inspected);
+
+It constructs the model itself and hands it a path it took from
+`editor->document()->filePath()`. The widget is never built and `perform()` is
+never called, so the one function that asked for a view was invisible to it.
+The fixture supplied exactly the thing production failed to obtain.
+
+Worth being precise about the lesson, because "test the widget not the model"
+is the wrong one: the model test is a good test of the model. What was missing
+is that **nothing tested the seam between the editor and the model**, and that
+seam is the whole of what this migration changes. A test that reaches around
+the code under test to assemble its own inputs cannot see an input being
+acquired wrongly.
+
+### A wrong fixture that turned into the better assertion
+
+The first version put `#include "header.h"` on line 1 and asserted the
+hierarchy was built for `main.cpp`. It failed, reporting `header.h` - and the
+code was right and the test was wrong. `perform()` deliberately inspects the
+*included* file when the caret sits on a `#include` line, and a freshly opened
+editor has its caret on line 1.
+
+So the test asserts both positions now: caret on line 2 gives the file's own
+hierarchy, caret on line 1 gives the included file's. The second is the better
+half, because that branch is the one that reads `m_editor->currentLine()` -
+without it the test would pass on a `currentLine()` that always answered 0.
+
+The sync path gets its own assertion for the same reason: it has a second
+lookup that `perform()` does not go through, and it is what runs for a reader
+who leaves "Synchronize with Editor" on rather than invoking the action. The
+model is cleared with `buildHierarchy({})` first, so a hierarchy left over from
+the earlier calls cannot pass for one this path built.
+
+### How it was found, and what the survey still has
+
+By grepping for every site that reaches an editor for a widget, in **both**
+spellings - the mistake recorded earlier in this document was a survey that
+matched `qobject_cast<BaseTextEditor` and missed every
+`qobject_cast<TextEditor::BaseTextEditor`:
+
+    qobject_cast<(TextEditor::)?BaseTextEditor        52
+    TextEditorWidget::fromEditor                      82
+    BaseTextEditor::currentTextEditor                 24
+    TextEditorWidget::currentTextEditorWidget         26
+    Aggregation::query<(TextEditor::)?TextEditorWidget 2
+
+Most of CppEditor's are `QVERIFY2(!TextEditorWidget::fromEditor(editor), ...)`
+guards inside `WITH_TESTS` blocks - assertions that the Quick editor *is* what
+a test opened, which is the opposite problem and a good sign. Include Hierarchy
+stood out by being the one navigation panel with no such guard anywhere near it.
+
+**Not examined by this batch, and the obvious place to start the next one**:
+Debugger (20 sites) and LanguageClient (10). Both are plausible - the debugger
+puts marks and tooltips on an open editor, the language client follows the
+caret - but neither has been read, and "20 grep hits" is not a finding. The
+count is where to look, not what is wrong.
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      18 classes, 422 passed, 0 failed, 0 skipped, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+    IncludeHierarchyTest            8 passed, 0 failed   (the existing model test)
+    CppIncludeHierarchyWidgetTest   3 passed, 0 failed   (new)
+
+No `.qbs` edit and no new file, so no qbs re-resolve; the test lives in
+`cppincludehierarchy.cpp` beside the widget, the way the outline's does.
+
+**Negative control**: putting `BaseTextEditor::currentTextEditor()` back in
+both functions and rebuilding gives
+
+    Actual   (widget.m_model.editorFilePath()): ""
+    Expected (source)                         : ".../main.cpp"
+
+an empty path - nothing built at all, which is exactly the production symptom
+rather than a wrong answer.
+
+**An accident worth keeping**: `-test "CppEditor,test,..."` selects by test
+*function* name, and `test()` is the name of the data-driven slot in dozens of
+CppEditor classes, so what was meant as a two-class run became 47 classes.
+45 are green. The two that are not are `MoveClassToOwnFileTest` (2/9) and
+`SynchronizeMemberFunctionOrderTest` (2/4), and every failure in them is
+
+    'projectMgr.open(projectDir->absolutePath(projectName + ".pro"), kit)' returned FALSE
+    '!ProjectManager::hasProjects()' returned FALSE
+
+- the first row cannot open its project, and every row after it fails on the
+previous project still being open. These are the kit-requiring classes this
+document already lists under "needs a working project", and this run had a
+throwaway settings directory with no Qt on `PATH`, so there was no kit.
+
+**Marked as an inference rather than a measurement**: they were *not* re-run
+with this change reverted. What is measured is that the two classes this batch
+touches are green, and that the failures are all in project setup, which
+`cppincludehierarchy.cpp` has nothing to do with. Anyone re-measuring should
+run them with a settings path that has a kit.
+
+**Still left**, unchanged:
+
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.

@@ -44,4 +44,8 @@ private:
 void openCppIncludeHierarchy();
 void setupCppIncludeHierarchy();
 
+#ifdef WITH_TESTS
+QObject *createCppIncludeHierarchyWidgetTest();
+#endif
+
 } // CppEditor::Internal
