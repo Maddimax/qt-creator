@@ -29075,3 +29075,255 @@ run them with a settings path that has a kit.
   rows.
 - Needs a person at a screen: vim's mode line, the FakeVim selection
   highlight, the caret shape per mode.
+
+## 2026-09-04 — The gutter's mark column, and no way to set a breakpoint
+
+The batch before this ended by naming Debugger (20 sites) and LanguageClient
+(10) as the obvious place to start, with the warning that "20 grep hits is not
+a finding". Reading the twenty turned up something worse than any individual
+site: **a breakpoint could not be set in the Qt Quick editor by any route at
+all.**
+
+Three doors, all shut, and a fourth that was never built:
+
+- `DebuggerPluginPrivate::editorOpened()` connected `markRequested` and
+  `markContextMenuRequested` on a `TextEditorWidget`.
+- `updateBreakMenuItem()` enabled both breakpoint actions on a
+  `qobject_cast<BaseTextEditor *>`, so F9 and its sibling were greyed out.
+- `setOrRemoveBreakpoint()` and `enableOrDisableBreakpoint()` opened with
+  `QTC_ASSERT(BaseTextEditor::currentTextEditor(), return)`.
+- And `EditorGutter.qml` drew the mark column but had **no click target in
+  it**, so there was no gesture for the debugger to have missed.
+
+### The seam is the document, and it has a trap in it
+
+Both signals carried a `TextEditorWidget *`, and all three consumers - the
+debugger, ClangCodeModel's fix-its, Valgrind's callgrind entry - used it for
+exactly one thing, `widget->textDocument()`. So the signals moved to
+`TextDocument`, along with the two decisions the widget was making inline:
+which mark takes a click, and that Shift means a bookmark.
+
+`clickMark()` and `requestMark()` stayed two calls rather than becoming one,
+because the widget composes them differently: it offers the click to the line's
+marks only when the press and the release landed on the same line. A single
+entry point would have changed that silently.
+
+**The trap: a document-level signal fires once however many views there are.**
+The old per-widget connection was per view and correct by construction; the
+same code connected per *editor* would toggle a split file's breakpoint twice
+and leave it exactly as it was. All three consumers connect with
+`Qt::UniqueConnection` now, which is also why all three slots have to stay
+member functions - a lambda cannot be a unique connection.
+
+### The menu, without writing a menu
+
+The right-click half looked like the expensive one, because the plugins fill a
+`QMenu *` and a Quick view has none to show. It is not: `QtcQuick::ActionModel`
+already documents that "nulls are allowed and become separators, which is how a
+QMenu carries them too - so a caller can hand over `menu->actions()`
+unfiltered". So `TextViewport::prepareMarkMenu()` builds a throwaway `QMenu`,
+lets everyone fill it exactly as before, and lists what came out. **No plugin's
+menu-building code changed at all.** The viewport owns that `QMenu` rather than
+the call that filled it, because the model holds `QPointer<QAction>` into it and
+the popup outlives the call.
+
+`CodeViewport.qml`'s existing context menu and this one differ only in which
+model they read, so the `MenuItem` delegate came out into `ActionMenu.qml` and
+both use it.
+
+### qmllint, and the dependency entry nothing in the tree had needed
+
+The first `ninja TextEditor_qmllint` after adding
+`Q_PROPERTY(QtcQuick::ActionModel *markActions ...)` said
+
+    Type "QtcQuick::ActionModel" of property "markActions" not found.
+    This is likely due to a missing dependency entry [unresolved-type]
+
+which this document already warns is *worse* than leaving a property untyped,
+because an unresolved type stops qmllint checking every binding that names it.
+The fix is `DEPENDENCIES QtCreator.Ui` on TextEditor's `qt_add_qml_module` -
+**the first one in the tree**, because nothing else had needed a C++ property
+whose type lives in another QML module. A QML-level `import QtCreator.Ui` does
+not cover it; the type comes in through the C++ property, so the module has to
+declare the dependency.
+
+**Controlled, because a silenced check and a passing one look identical.**
+Renaming all three new members in the QML and re-linting gives
+
+    Member "prepareMarkMenuZZZ" not found on type "TextEditor::TextViewport"
+    Member "clickMarkColumnZZZ" not found on type "TextEditor::TextViewport"
+    Member "markActionsZZZ" not found on type "TextEditor::TextViewport"
+
+Naming the real type is what makes the clean run evidence.
+
+### Two tests, two controls, and each control bites only its own test
+
+`testClickingTheMarkColumnAsksForAMarkOnThatLine` drives the whole chain -
+`QTest::mouseClick` on a real `QQuickView` showing a `CodeViewport`, through the
+QML `MouseArea`, the coordinate mapping and the document - and asserts the
+`markRequested` that comes out. That is exactly what the debugger connects to,
+so nothing is faked. It covers all three ways a click is answered: a request on
+a bare line, a clickable mark taking it instead, and Shift making it a bookmark
+(toggled back afterwards - the bookmark manager is global state that outlives
+the test).
+
+The first attempt at a control was **too blunt to count**: reverting all of
+`EditorGutter.qml` made `CodeViewport.qml` fail to load entirely (`Cannot
+assign to non-existent property "requestMarks"`) and took ten tests down with
+it, which proves the test needs the gutter but disables far more than the fix.
+Redone one line at a time, the two halves separate cleanly:
+
+| control | red | still green |
+| --- | --- | --- |
+| gutter's left-click line emptied | click test, `requested.size(): 0 != 1` | menu test |
+| `emit markContextMenuRequested` removed | menu test, `askedAbout: 0 != 6` | click test |
+
+**`BreakpointRequest` is zero**, and so is what `QVariant::toInt()` answers for
+an argument `QSignalSpy` could not record, so `QCOMPARE(kind, BreakpointRequest)`
+cannot fail on its own. It is paired with an `isValid()` check, and
+`TextMarkRequestKind` got a `Q_DECLARE_METATYPE` so the spy can record it.
+
+The second test failed first time round and the code was right:
+`prepareMarkMenu()` was asked about line 13 in a 400x200 fixture that lays out
+about eleven lines, and `positionAt()` **clamps to what is laid out** rather
+than answering "not on screen". It reported line 11. The fix is to ask about a
+line that is on screen, with the row count asserted so the clamp cannot quietly
+become the thing being measured.
+
+### Two `-test` options run no tests, and it looks exactly like a pass
+
+Worth its own heading, because it produced a confident wrong claim that went
+into a handoff note. To check whether two whole-suite failures were mine, this
+was run:
+
+    -test "TextEditor,TextViewportTest" -test "TextEditor,QuickTextEditorTest"
+
+Qt Creator answers `The plugin "TextEditor" is specified twice for testing.`,
+prints its usage text and exits. The loop counted `FAIL!` lines, got zero five
+times, and reported "0/5 failures, so the failures are flaky" - when the truth
+was **zero tests, five times**.
+
+**How to apply:** one `-test` option per process, and before believing any
+count, assert a `Totals:` line exists. `grep -c '^FAIL!'` on a run that never
+started is indistinguishable from a green one. Same family as "a plugin ninja
+has no target for has been rotting" and "ClangFormat is not built in this
+configuration: asking for it returns nothing, which reads exactly like a clean
+pass if only the totals are looked at".
+
+### Attributing every failure, base against head
+
+Three runs of each command at the series base (`f094cce13e8`) and at its head,
+one `-test` per run, `-load all -noload QmlDesigner -noload UpdateInfo`:
+
+| suite / test | base | head | verdict |
+| --- | --- | --- | --- |
+| Debugger | - | 127 passed, 0 failed | clean |
+| Valgrind | - | 31 passed, 0 failed, 13 skipped | clean |
+| LanguageClient | - | 27 passed, 0 failed | clean |
+| QuickUi | 205/2/1 | 205/2/1 | identical, pre-existing |
+| ClangCodeModel | 363/109 | 363/109 | identical, pre-existing |
+| `testALinkUnderThePointerIsUnderlined` | 3/3 fail | 3/3 fail | pre-existing, deterministic |
+| `testInsertTogglesTypingOverTheTextThatIsThere` | 3/3 fail | 3/3 fail | pre-existing, deterministic |
+| `testAPageIsAScreenOfRowsNotOfLines` | 1/3 fail | 0/3 fail | pre-existing, intermittent |
+
+`TextViewportTest` runs 180 cases at base and 182 at head, which is exactly the
+two this batch adds. The whole `-test TextEditor` suite is 422 passed, 2 failed,
+and both of those two are in the table above.
+
+**This document's recorded QuickUi baseline of "207 passed, 0 failed, 1
+skipped" is stale.** The base commit itself now gives 205/2/1, so the
+difference is the machine and not anybody's code - one of the two failures is
+literally `QFontInfo(codeFont).fixedPitch()` returning false, and offscreen runs
+here log a missing "Sans Serif" family. Anyone comparing a change against 207/0
+would wrongly blame themselves. Re-measure a baseline on the day you use it.
+
+**Every commit in the series builds on its own**, which had to be checked
+rather than assumed: the first one deletes the widget's two signals, and the
+consumers that referenced them are in the same commit for exactly that reason.
+
+### The rest of the twenty, each one read rather than counted
+
+Fixed here, all the same shape - ask `Core::IEditor` for the line, or the
+document for itself: Run to Line, Jump to Line, Run to Selected Function, Add
+Expression Evaluator, and the source the debugger produces (`SourceAgent`,
+which was dead behind a `QTC_ASSERT`: it opens with `CPPEDITOR_ID`, which has
+produced a Quick editor since C++ moved, so the cast beneath it returned null
+and the soft assert ate the whole view). Widening that one wanted
+`setReadOnlyIn(IEditor *, bool)`, beside `pasteIn()` and the rest of that
+family. **`SourceAgent` is compile-verified only** - it needs an engine that
+produces source, and there is no such session on this machine.
+
+Not broken, and worth writing down so they are not looked at twice:
+
+- The **disassembler** view and the debugger's scratch text editor open
+  `K_DEFAULT_TEXT_EDITOR_ID` *by name*, so they get the plain text widget
+  editor whatever the default is.
+- **QML exception highlighting** reaches for widgets, but `.qml` opens in
+  QmlJSEditor, which is more specific than the mime type the Quick editor
+  claims.
+- `LocationMark::dragToLine()` is unreachable from the Quick editor, because
+  its gutter has no mark *dragging*. That is a gap in the gutter, not in the
+  debugger - as is the missing click-the-line-number-to-select-the-line.
+
+**Still dead, and deliberately not this batch**: the debugger's value tooltips
+(`DebuggerToolTipManager`, three sites) and the inline value annotations while
+stepping (`WatchHandler::setValueAnnotations`). Both position a widget against
+a widget's cursor rectangle and both hang off
+`TextEditorWidget::tooltipOverrideRequested`; that is a design question about
+where a pinned tooltip lives in a Quick view, not a lookup to widen.
+
+### LanguageClient's ten, read but not measured
+
+Read this time, so the next batch starts from what they are rather than from a
+count. **None of these has been run** - what follows is what the code says, not
+what was observed:
+
+| site | what would be missing in the Quick editor |
+| --- | --- |
+| `Client::activateEditor` / `deactivateEditor` | the LSP hover handler, and the client's own optional-actions mask |
+| `CallHierarchy::updateHierarchyAtCursorPosition` | the call hierarchy never updates |
+| `TypeHierarchyFactory::createWidget` | the LSP type hierarchy panel is empty |
+| `FoldingRangeSupport` | server-provided folding is never requested |
+| `updateEditorToolBar` | the language-client selector is absent from the toolbar |
+| `SemanticTokenSupport::onCurrentEditorChanged` | semantic tokens are not refreshed on an editor change |
+| `LanguageClientManager::editorOpened` | Follow Symbol only - see below, this one was chased down |
+| `sendPostponedDocumentUpdates` | the current document is not recognised as current |
+
+The tenth, `createJsonEditor`, is **not** a defect: it walks
+`preferredEditorFactories("foo.json")` until one yields a `BaseTextEditor`, so
+it builds and deletes a Quick editor and then finds the plain text one. Waste,
+not breakage.
+
+**One of the ten chased to the end, and it shrank.** The table above first said
+`LanguageClientManager::editorOpened` left `requestLinkAt` *and*
+`requestTypeAt` unwired, which is wrong: that function has an `else if` branch
+on `symbolRequestsForEditor(editor)`, and the relay already carries usages,
+rename, type-at and call-hierarchy, and the branch ends with the same
+`activateEditor()` / `autoSetupLanguageServer()` the widget branch does. So
+server setup is not a gap either.
+
+What *is* missing is exactly one question: **`requestLinkAt`, Follow Symbol to
+a definition.** `SymbolRequests` has no link question - `askForLinkAt` does not
+exist - and the Quick editor's own `followSymbolAt()` goes through
+`TextEditorFactory::linkFinderFor(document)` instead, which only CppEditor,
+QmlJSEditor, Nim and the .pro editor register. LanguageClient registers none.
+
+**And that bounds the blast radius**, the same way the mime claim did for the
+editor default: a file reaches the Quick editor only when no more specific
+factory claims it, and every language that registers a link finder has its own
+editor. So this bites a language served by a *generic* LSP configuration whose
+mime type no dedicated editor claims - not C++, not QML. Which languages those
+are on a given machine depends on the user's language-server settings, so the
+fix is either an `askForLinkAt` on the relay or a link finder registered by
+LanguageClient, and the choice wants a real example first.
+
+The lesson for the remaining eight rows: **every one of them is a guess until
+the `else if` has been looked for.** This one lost two thirds of its claim to a
+branch fifty lines further down.
+
+Two of these look like they overlap work this document already records as done
+- "Ask for highlights whatever the view" and "Follow the caret in whichever view
+has it" - and **the overlap has not been checked.** Confirm what those two
+commits actually cover before assuming a site is still open. Note also that
+`-test LanguageClient` is 27 passed with 3 classes, which is far less than ten
+sites' worth of coverage: the suite going green says very little here.
