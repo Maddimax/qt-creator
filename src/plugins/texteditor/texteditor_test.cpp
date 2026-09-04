@@ -98,6 +98,60 @@ class TextEditorTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // Extra selections and refactor markers travelled one way: a view told the
+    // document so that another view could draw them. Anything with no view of
+    // its own - a document's own diagnostics - could reach neither. The widget
+    // reads what the document holds now, so publishing there is enough.
+    void testTheWidgetDrawsWhatWasPublishedOnTheDocument()
+    {
+        Utils::TemporaryDirectory dir("widget-reads-document-selections");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("published.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        QVERIFY2(widget, "this is about the widget editor, so it has to be one");
+        TextDocument * const document = widget->textDocument();
+        QVERIFY(document);
+
+        const Utils::Id kind = TextEditorWidget::CodeWarningsSelection;
+        QVERIFY2(widget->extraSelections(kind).isEmpty(),
+                 "the fixture already has warnings, so publishing one proves nothing");
+
+        QTextCursor cursor(document->document());
+        cursor.setPosition(0);
+        cursor.setPosition(5, QTextCursor::KeepAnchor);
+        QTextCharFormat format;
+        format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+        document->setExtraSelections(kind, {{cursor, format}});
+
+        QTRY_COMPARE(widget->extraSelections(kind).size(), 1);
+        QCOMPARE(widget->extraSelections(kind).first().cursor.selectedText(), QString("alpha"));
+
+        // And taken away again, which is what a diagnostic being fixed looks
+        // like - a stale squiggle is worse than none.
+        document->setExtraSelections(kind, {});
+        QTRY_VERIFY2(widget->extraSelections(kind).isEmpty(),
+                     "the widget kept a warning the document had dropped");
+
+        // A refactor marker the same way: the clang fix-it lamp is published
+        // by the document too.
+        const Utils::Id markerType("TextEditor.Test.Fixit");
+        QVERIFY(document->refactorMarkers(markerType).isEmpty());
+        RefactorMarker marker;
+        marker.cursor = QTextCursor(document->document());
+        marker.cursor.setPosition(0);
+        marker.type = markerType;
+        document->setRefactorMarkers(markerType, {marker});
+        QTRY_COMPARE(widget->refactorMarkers().size(), 1);
+    }
+
+
     void testIndentationClean_data();
     void testIndentationClean();
     void testIndentUnindent_data();

@@ -873,7 +873,12 @@ public:
     QTimer m_delayedUpdateTimer;
 
     void setExtraSelections(Utils::Id kind, const QList<QTextEdit::ExtraSelection> &selections);
+    void readSelectionsFromDocument();
+    void readRefactorMarkersFromDocument();
     QHash<Utils::Id, QList<QTextEdit::ExtraSelection>> m_extraSelections;
+    // True while this widget is telling the document what it already drew, so
+    // the document's answer is not drawn a second time.
+    bool m_publishingToDocument = false;
 
     void startCursorFlashTimer();
     void resetCursorFlashTimer();
@@ -1499,6 +1504,20 @@ void TextEditorWidgetPrivate::setDocument(const QSharedPointer<TextDocument> &do
                                      &QTextDocument::modificationChanged,
                                      q,
                                      &TextEditorWidget::updateTextLineEndingLabel);
+
+    // What was published on the *document* rather than through a view. The
+    // flow used to be one way - a view told the document so another view could
+    // draw - which left anything with no view of its own unable to reach this
+    // one. A document's own diagnostics are exactly that.
+    m_documentConnections << connect(m_document.data(),
+                                     &TextDocument::extraSelectionsChanged,
+                                     this,
+                                     &TextEditorWidgetPrivate::readSelectionsFromDocument);
+
+    m_documentConnections << connect(m_document.data(),
+                                     &TextDocument::refactorMarkersChanged,
+                                     this,
+                                     &TextEditorWidgetPrivate::readRefactorMarkersFromDocument);
 
     m_documentConnections << connect(m_document.data(),
                                      &TextDocument::aboutToReload,
@@ -8533,6 +8552,54 @@ void TextEditorWidget::deleteStartOfWordCamelCase()
     setMultiTextCursor(cursor);
 }
 
+// Which kinds are facts about the document rather than about one view of it,
+// and worth every view knowing. A diagnostic is on the line whoever is looking;
+// where the caret is, what this view just auto-inserted and which bracket it is
+// matching are not.
+//
+// An allowlist rather than a denylist, for a reason that is about cost. These
+// are kept as QTextCursors so that an edit above carries them along, and every
+// cursor in a document is updated on every change - so a second copy of a
+// *large* set doubles that work. CodeSemanticsSelection is the large one: it
+// is one range per identifier on screen and is deliberately not here. A Quick
+// view gets its semantic colouring from the highlighter's formats instead,
+// which is where it already came from.
+static const QSet<Id> &documentWideSelectionKinds()
+{
+    static const QSet<Id> shared{TextEditorWidget::CodeWarningsSelection,
+                                 TextEditorWidget::UndefinedSymbolSelection,
+                                 TextEditorWidget::UnusedSymbolSelection,
+                                 TextEditorWidget::ObjCSelection,
+                                 TextEditorWidget::DebuggerExceptionSelection};
+    return shared;
+}
+
+static bool isDocumentWideSelection(Id kind)
+{
+    return documentWideSelectionKinds().contains(kind);
+}
+
+void TextEditorWidgetPrivate::readSelectionsFromDocument()
+{
+    if (m_publishingToDocument)
+        return;
+    for (const Id kind : documentWideSelectionKinds()) {
+        const QList<TextDocument::ExtraSelection> shared = m_document->extraSelections(kind);
+        QList<QTextEdit::ExtraSelection> mine;
+        mine.reserve(shared.size());
+        for (const TextDocument::ExtraSelection &selection : shared)
+            mine.append({selection.cursor, selection.format});
+        setExtraSelections(kind, mine);
+    }
+}
+
+void TextEditorWidgetPrivate::readRefactorMarkersFromDocument()
+{
+    if (m_publishingToDocument)
+        return;
+    q->setRefactorMarkers(m_document->refactorMarkers());
+}
+
 void TextEditorWidgetPrivate::setExtraSelections(Id kind, const QList<QTextEdit::ExtraSelection> &selections)
 {
     if (selections.isEmpty() && m_extraSelections[kind].isEmpty())
@@ -8563,27 +8630,6 @@ void TextEditorWidgetPrivate::setExtraSelections(Id kind, const QList<QTextEdit:
     }
 }
 
-// Which kinds are facts about the document rather than about one view of it,
-// and worth every view knowing. A diagnostic is on the line whoever is looking;
-// where the caret is, what this view just auto-inserted and which bracket it is
-// matching are not.
-//
-// An allowlist rather than a denylist, for a reason that is about cost. These
-// are kept as QTextCursors so that an edit above carries them along, and every
-// cursor in a document is updated on every change - so a second copy of a
-// *large* set doubles that work. CodeSemanticsSelection is the large one: it
-// is one range per identifier on screen and is deliberately not here. A Quick
-// view gets its semantic colouring from the highlighter's formats instead,
-// which is where it already came from.
-static bool isDocumentWideSelection(Id kind)
-{
-    static const QSet<Id> shared{TextEditorWidget::CodeWarningsSelection,
-                                 TextEditorWidget::UndefinedSymbolSelection,
-                                 TextEditorWidget::UnusedSymbolSelection,
-                                 TextEditorWidget::ObjCSelection,
-                                 TextEditorWidget::DebuggerExceptionSelection};
-    return shared.contains(kind);
-}
 
 void TextEditorWidget::setExtraSelections(Id kind, const QList<QTextEdit::ExtraSelection> &selections)
 {
@@ -8595,7 +8641,11 @@ void TextEditorWidget::setExtraSelections(Id kind, const QList<QTextEdit::ExtraS
         shared.reserve(selections.size());
         for (const QTextEdit::ExtraSelection &selection : selections)
             shared.append({selection.cursor, selection.format});
+        // Flagged, so that the document telling us back what we just told it
+        // does not convert and repaint the same set a second time.
+        d->m_publishingToDocument = true;
         d->m_document->setExtraSelections(kind, shared);
+        d->m_publishingToDocument = false;
     }
     d->setExtraSelections(kind, selections);
 }
@@ -9579,7 +9629,9 @@ void TextEditorWidget::setRefactorMarkers(const RefactorMarkers &newMarkers, con
     // Told to the document as well, so that a view which is not a
     // TextEditorWidget can offer them too. Every producer keyed by type goes
     // through here, so this is the one place that has to know.
+    d->m_publishingToDocument = true;
     d->m_document->setRefactorMarkers(type, newMarkers);
+    d->m_publishingToDocument = false;
 
     RefactorMarkers markers = d->m_refactorOverlay.markers();
     auto first = std::partition(markers.begin(),

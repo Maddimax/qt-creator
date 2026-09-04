@@ -30646,3 +30646,105 @@ the vtable entry two batches ago says to make, made rather than assumed.
   sets and this does not, is the visible difference and wants an eye on it.
 - Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — Selections flow both ways now, and a gap I could not verify closing
+
+**The gap this batch closed** is an enabling one: extra selections and refactor
+markers travelled **one way**. A view told the document so that another view
+could draw - `TextEditorWidget::setExtraSelections()` and
+`setRefactorMarkers(markers, type)` each forward to the `TextDocument`, and
+`TextViewport` listens. Nothing listened in the other direction, so anything
+that published on the *document* was drawn by the Quick view and **not by the
+widget**. That made "publish on the document" unusable for anything that has no
+view of its own, because taking that route would have regressed the widget.
+
+`TextEditorWidget` reads the document now, for the document-wide selection
+kinds and for refactor markers. The forwarding is flagged while it happens, so
+the document telling the widget what it has just been told does not convert and
+repaint the same set twice.
+
+### What it was for, and why that half is not here
+
+The reason to want it: `CppEditorDocument::codeWarningsUpdated` is a **document**
+signal and `CppEditorWidget::onCodeWarningsUpdated` was its only listener. A
+C++ file in the Qt Quick editor has no `CppEditorWidget`, so with the built-in
+code model nobody publishes its diagnostics - **no warning underlines and no
+clang fix-it markers**. The fix is to let the document handle its own signal,
+which needs the read-back above so the widget keeps drawing.
+
+I wrote that, and it built, and then the test I wrote for it failed: opening a
+C++ file with an undeclared identifier in the Quick editor and waiting left
+`document->extraSelections(CodeWarningsSelection)` empty.
+
+**So it is reverted.** Not because the shape is wrong - a fact about the file
+published by the file is the right shape, and it is the same substitution this
+document has made a dozen times - but because I do not know whether the change
+works. The guard was not the problem: `CppEditorWidget::documentRevision()` is
+just `document()->revision()`, which is what the document-side version
+compares too. Either the built-in model does not report anything for that file
+in that setup, or the publication does not run, and the failing test cannot
+tell those apart.
+
+**An uncontrolled change I have tried and failed to verify is worse than one I
+have not tried**, because the failed attempt is evidence that I do not
+understand the path. Shipping it would have put a plausible-looking commit in
+front of the next person with a test in the tree that says it does not work.
+
+### The sharp question for next time
+
+Not "port the warnings handler" - that part is written and easy. It is:
+**what does the built-in code model actually report through
+`BaseEditorDocumentProcessor::codeWarningsUpdated`, and when?** Probe it in the
+*widget* editor first, where the path is known to work: open a file in a widget
+editor, watch `CppEditorDocument::codeWarningsUpdated`, and find an input that
+makes it fire. That gives a fixture whose premise is measured rather than
+assumed, and the port then has a control on the first attempt. `undeclaredThing`
+in a projectless file was a guess and it did not fire - which is itself the
+first measurement.
+
+### Control
+
+Removing the two connections that read the document gives
+
+    Actual   (widget->extraSelections(kind).size()): 0
+    Expected (1)                                   : 1
+
+The test also asserts the widget has no warnings *before* one is published, so
+it cannot pass on a fixture that arrived with some, and that clearing them on
+the document clears them in the widget - a stale squiggle after a diagnostic is
+fixed being worse than none. Refactor markers are checked the same way, since
+they are the clang fix-it lamp and travel the same road.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 433 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Full rebuild, because `texteditor.cpp` alone would not have been enough had
+anything else been touched - and because the previous entry's step-count note
+says the count tells you reach, not layout. Nothing here changes a layout: two
+private slots and one bool behind the d-pointer. No new file, no `.qbs` edit.
+
+**Still left**:
+
+- **The C++ warnings port**, with the measured question above. This batch built
+  the road it needs.
+- **The debugger's tooltips** - `tooltipOverrideRequested` has no `TextViewport`
+  equivalent and the tooltip is a pinnable widget, so a new seam or a port onto
+  hover handlers. Still the largest single thing.
+- The QML exception selections, which this batch also unblocks: publishing them
+  on the document now reaches both views, so that one *is* a substitution after
+  all - the previous entry said it was not, and the reason it was not is what
+  this batch removed.
+- `disassembleragent.cpp` and `sourceagent.cpp`, which make their own editors.
+- `debuggerplugin.cpp:2021`, a small substitution on a scratch-contents editor.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode, the language client's button, outline
+  and Follow Symbol, and dragging a breakpoint in a real Qt Quick editor.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.
