@@ -774,8 +774,9 @@ public:
         // The outline the language keeps for this editor, where it keeps one.
         // Parented to the editor by whoever made it, which is why it is found
         // rather than handed over - the editor is built before the language
-        // has anything to say about the file it will hold.
-        auto * const outline = findChild<ToolBarOutline *>();
+        // has anything to say about the file it will hold. For the same reason
+        // it can arrive after this row does, which childEvent() below answers.
+        ToolBarOutline * const outline = findChild<ToolBarOutline *>();
 
         auto bar = new QtcQuick::QuickWidget;
         bar->quickWidget()->setInitialProperties(
@@ -1037,6 +1038,39 @@ public:
     // The form's viewport. Found rather than held: the QML owns it, and it
     // does not exist until the component has been created. Public because
     // viewportForEditor() hands it to plugins that have to answer both this
+    // A language makes its outline a child of this editor, and it does so
+    // after the file is open - so a toolbar row that only looked when it was
+    // built would never show one. Deferred and coalesced: at ChildAdded the
+    // child is still being constructed, and several children may arrive
+    // together.
+    void childEvent(QChildEvent *event) final
+    {
+        Core::IEditor::childEvent(event);
+        if (!m_toolBar || m_outlineUpdateScheduled)
+            return;
+        if (!event->added() && !event->removed())
+            return;
+        m_outlineUpdateScheduled = true;
+        QMetaObject::invokeMethod(this, [this] {
+            m_outlineUpdateScheduled = false;
+            showOutlineInToolBar();
+        }, Qt::QueuedConnection);
+    }
+
+    // Told rather than asked, because the row is already drawn by now. The
+    // same lookup the row used when it was built, so the two cannot disagree.
+    void showOutlineInToolBar()
+    {
+        auto * const bar = qobject_cast<QtcQuick::QuickWidget *>(m_toolBar.data());
+        if (!bar)
+            return;
+        QQuickItem * const root = bar->quickWidget()->rootObject();
+        if (!root)
+            return;
+        root->setProperty("outline",
+                          QVariant::fromValue(findChild<ToolBarOutline *>()));
+    }
+
     // view and the widget one.
     TextViewport *viewport() const
     {
@@ -1052,6 +1086,7 @@ public:
     TextDocumentPtr m_document;
     QtcQuick::ActionModel m_contextActions;
     QtcQuick::ActionModel m_toolBarActions;
+    bool m_outlineUpdateScheduled = false;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
     QPointer<QWidget> m_toolBar;
     QPointer<QAction> m_wrapAction;
@@ -4278,6 +4313,89 @@ private slots:
         // It says where the caret is, so it has to follow it.
         outline->showRow(1);
         QTRY_COMPARE(drawn->property("text").toString(), QString("beta()"));
+    }
+
+    // A language client makes its outline after the file is open, so one
+    // parented to the editor once the row already exists has to appear in it.
+    // The row used to look for an outline only when it was built.
+    void testTheFormFollowsAnOutlineAddedAfterTheToolBarWasBuilt()
+    {
+        class LateOutline final : public ToolBarOutline
+        {
+        public:
+            explicit LateOutline(QObject *parent)
+                : ToolBarOutline(parent)
+            {
+                m_model.appendRow(new QStandardItem("alpha()"));
+            }
+            QAbstractItemModel *model() const override
+            {
+                return const_cast<QStandardItemModel *>(&m_model);
+            }
+            QModelIndex currentIndex() const override { return m_current; }
+            QString currentText() const override
+            {
+                return m_current.isValid() ? m_current.data().toString() : QString();
+            }
+            void activate(const QModelIndex &) override {}
+            void showRow(int row)
+            {
+                m_current = m_model.index(row, 0);
+                emit currentIndexChanged();
+            }
+
+        private:
+            QStandardItemModel m_model;
+            QModelIndex m_current;
+        };
+
+        class OutlineFactory final : public TextEditorFactory
+        {
+        public:
+            OutlineFactory()
+            {
+                setId("QuickEditorLateOutlineTest");
+                setDisplayName("Quick Editor Late Outline Test");
+                setDocumentCreator([] {
+                    return new TextDocument("QuickEditorLateOutlineTest");
+                });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        OutlineFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+
+        // The row first, with no outline to show.
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        // The button is in the tree either way - it is its visibility that
+        // says whether there is an outline - so this waits for the form to
+        // load rather than for the button to exist.
+        QQuickItem *button = nullptr;
+        QTRY_VERIFY((button = itemNamed(quick->rootObject(), "outlineButton")));
+        QVERIFY2(!button->isVisible(),
+                 "the row showed an outline button with no outline to draw");
+
+        // And now the language has one.
+        auto * const outline = new LateOutline(editor.get());
+        outline->showRow(0);
+
+        QTRY_VERIFY2(button->isVisible(),
+                     "an outline parented to the editor after the row was built "
+                     "never appeared in it");
+        QCOMPARE(button->property("text").toString(), QString("alpha()"));
+
+        // And it goes when the outline does, which is what a client stopping
+        // to serve the file looks like.
+        delete outline;
+        QTRY_VERIFY2(!button->isVisible(),
+                     "the button stayed after the outline was deleted");
     }
 
     // What an external tool, a wizard or a custom command is told about the

@@ -30178,3 +30178,96 @@ re-resolve.
   highlight, the caret shape per mode.
 - Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — Drawing the outline that had arrived, and a button that was always there
+
+**The gap this batch closed**: the previous batch made the language client's
+outline for any view, and the Qt Quick toolbar still did not draw it.
+`QuickTextEditor::toolBar()` looked for one **once**, with
+`findChild<ToolBarOutline *>()`, and passed it as an initial property. A client
+attaches after a file is open, so by the time it made an outline the row had
+already been built and asked.
+
+With this, `updateEditorToolBar()` is finished: the client's button and its
+outline both reach either view. That function has taken three batches, and the
+shape of each was the same - something the widget editor was handed, described
+instead so that whichever view is drawing decides how.
+
+### The child arriving *is* the signal
+
+The toolbar actions, two batches ago, had `TextDocument::toolBarActionsChanged()`
+to say the list had changed. An outline has no such signal and wants none: the
+existing contract is already "parented to the editor by whoever made it", so
+what says there is one now is the child arriving. `QuickTextEditor` overrides
+`childEvent()`.
+
+**Deferred and coalesced**, for two reasons that are easy to get wrong:
+
+- At `ChildAdded` the child is still being constructed - its own constructor
+  body has not run - so looking at it then is a bad idea even when the cast
+  would succeed.
+- Several children can arrive together, and each would otherwise re-scan and
+  re-assign.
+
+So `childEvent()` sets a flag and queues one update, which does the same
+`findChild<ToolBarOutline *>()` the row used when it was built. One lookup in
+two places rather than two lookups that can disagree - and `ChildRemoved` goes
+through it too, so the row empties when a client stops serving the file.
+
+### The assertion that would not have failed
+
+`EditorToolBar.qml` keeps the outline button in the tree whether or not there
+is an outline:
+
+    visible: root.outline !== null && text !== ""
+
+so the first version of the test - "there is no `outlineButton` yet" - would
+have failed on correct code, and worse, the mirror-image assertion "now there
+is one" would have **passed before the fix**. `itemNamed()` does not filter by
+visibility; the existing outline test says so by asserting `isVisible()`
+separately, which is the detail that gave it away.
+
+The test waits for the *form* to load, then asserts the button is **not
+visible**, adds the outline, and asserts it becomes visible with the right
+text. Visibility is what "drawn" means for an item that is always there.
+
+### Control
+
+`childEvent()` returning early gives
+
+    'button->isVisible()' returned FALSE
+      (an outline parented to the editor after the row was built never appeared in it)
+
+and - worth noting - `testTheFormDrawsTheLanguagesOutline`, which parents its
+outline *before* asking for the toolbar, still passes under that control. The
+change is additive: it did not move the case that already worked, it added the
+one that did not.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 430 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient  5 classes, 35 passed, 0 failed, exit 0
+
+430 rather than 429: one new test. One `.cpp` changed and no header, so
+`--target TextEditor` was the whole build - and worth saying after the last two
+batches, the reason it is enough is exactly that no header moved, not a guess.
+No new file, so no `.qbs` edit and no qbs re-resolve.
+
+**Still left**:
+
+- `requestLinkAt`, a `TextEditorWidget` *signal* rather than a cast, so it
+  wants a decision about what a view offers rather than a substitution. It is
+  the last LanguageClient site.
+- Debugger's remaining sites, unread.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode - and now also **the client's outline
+  and button in a real Qt Quick editor**, which has tests but has never been
+  looked at.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.
