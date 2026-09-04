@@ -2023,8 +2023,6 @@ void ClientPrivate::sendPostponedDocumentUpdates(Schedule semanticTokensSchedule
     m_documentUpdateTimer.stop();
     if (m_documentsToUpdate.empty())
         return;
-    TextEditor::TextEditorWidget *currentWidget
-        = TextEditor::TextEditorWidget::currentTextEditorWidget();
 
     struct DocumentUpdate
     {
@@ -2505,10 +2503,10 @@ void Client::registerCustomMethod(const QString &method, const CustomMethodHandl
 
 namespace Internal {
 
-// Both of these are handlers on EditorManager::currentEditorChanged that used
-// to do their work only when the editor was a TextEditorWidget, so a C++ file
+// These were all keyed on the editor being a TextEditorWidget, so a C++ file
 // in the Qt Quick editor was never asked about. The client has to be really
-// reachable for either to send anything, which is what RecordingServer is for.
+// reachable for the first two to send anything, which is what RecordingServer
+// is for.
 class ClientEditorHandlerTest final : public QObject
 {
     Q_OBJECT
@@ -2578,6 +2576,51 @@ private slots:
                      "becoming current asked the server for no folding ranges");
         QTRY_VERIFY2(server->sawMethod("textDocument/semanticTokens/full"),
                      "becoming current asked the server for no semantic tokens");
+    }
+
+    // Which client a file is using is shown by a button in the toolbar row.
+    // updateEditorToolBar() used to add it to a TextEditorWidget's toolbar, so
+    // every LSP language lost it in the Qt Quick editor; it is described on the
+    // document now and whichever view is showing it draws it.
+    void testTheClientButtonIsDescribedOnTheDocument()
+    {
+        Utils::TemporaryDirectory dir("lsp-toolbar-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("picked.txt");
+        QVERIFY(file.writeFileContents("one\n"));
+
+        auto * const server = new RecordingServer(QJsonObject{});
+        auto * const client = new Client(server);
+        client->setName("toolbar test client");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY(client->reachable());
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Asked before the client takes the document, so a button that was
+        // there all along cannot pass for one this produced.
+        QVERIFY2(document->toolBarActions().isEmpty(),
+                 "the document already had a toolbar action before any client took it");
+
+        // No call to updateEditorToolBar() here: taking the document is what
+        // runs it in production, and that is the path worth asserting.
+        LanguageClientManager::openDocumentWithClient(document, client);
+        QTRY_VERIFY(LanguageClientManager::clientForFilePath(file) == client);
+
+        QTRY_COMPARE(document->toolBarActions().size(), 1);
+        QCOMPARE(document->toolBarActions().first()->text(), client->name());
     }
 };
 

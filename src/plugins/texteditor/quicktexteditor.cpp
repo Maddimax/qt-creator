@@ -763,6 +763,13 @@ public:
             TextDocument * const doc = m_document.get();
             return doc ? doc->toolBarActions() : QList<QAction *>();
         });
+        // And asked again when the list itself changes, not only when the
+        // toolbar is built: a language client attaches to a document after it
+        // is open, so its button arrives later than this row does.
+        if (TextDocument * const doc = m_document.get()) {
+            connect(doc, &TextDocument::toolBarActionsChanged,
+                    &m_toolBarActions, &QtcQuick::ActionModel::refresh);
+        }
 
         // The outline the language keeps for this editor, where it keeps one.
         // Parented to the editor by whoever made it, which is why it is found
@@ -4100,7 +4107,7 @@ private slots:
             {
                 m_action->setToolTip("Additional Preprocessor Directives...");
             }
-            QList<QAction *> toolBarActions() const override { return {m_action}; }
+            QList<QAction *> ownToolBarActions() const override { return {m_action}; }
             QAction * const m_action;
         };
 
@@ -4139,6 +4146,60 @@ private slots:
         QSignalSpy pressed(document->m_action, &QAction::triggered);
         QMetaObject::invokeMethod(drawn, "clicked");
         QTRY_VERIFY2(!pressed.isEmpty(), "the button did nothing");
+    }
+
+    // A document gains a language client's button after it is open, so an
+    // action added once the toolbar row already exists has to appear in it.
+    // TextDocument::toolBarActionsChanged() is what says so; it was declared
+    // and never emitted until something needed to add one.
+    void testTheFormFollowsAnActionAddedAfterTheToolBarWasBuilt()
+    {
+        class PlainFactory final : public TextEditorFactory
+        {
+        public:
+            PlainFactory()
+            {
+                setId("QuickEditorLateToolBarTest");
+                setDisplayName("Quick Editor Late Tool Bar Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorLateToolBarTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        PlainFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QTRY_VERIFY(quick->rootObject());
+
+        // The document offers nothing of its own, so there is nothing to find
+        // yet - and without this the test would pass on a toolbar that drew
+        // the button from the start.
+        QVERIFY2(!itemNamed(quick->rootObject(), "languageToolBarButton"),
+                 "the toolbar already drew a language button with no action to draw");
+
+        auto * const late = new QAction("later", document);
+        document->addToolBarAction(late);
+        QVERIFY2(document->toolBarActions().contains(late),
+                 "the document does not list an action that was added to it");
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "languageToolBarButton")),
+                     "an action added after the toolbar was built never appeared in it");
+        QCOMPARE(drawn->property("text").toString(), QString("later"));
+
+        // And taking it away again empties the row, which is the path the
+        // client uses when the last server for a file goes away.
+        document->removeToolBarAction(late);
+        QTRY_VERIFY2(!itemNamed(quick->rootObject(), "languageToolBarButton"),
+                     "the button stayed after its action was removed");
     }
 
     // The outline the toolbar shows: which function the caret is in, and the

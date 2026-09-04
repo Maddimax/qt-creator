@@ -29870,3 +29870,165 @@ reading rather than re-running.
 - Somebody else's, found two batches ago:
   `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — The client button, and an extension point only the document could use
+
+**The gap this batch closed**: the toolbar button that says which language
+server a file is using, and lets a reader pick another, was missing in the Qt
+Quick editor - for **every** LSP language, not just C++.
+`updateEditorToolBar()` began with `TextEditorWidget::fromEditor(editor)` and
+added its action to `widget->toolBar()`.
+
+### The seam existed and the client could not reach it
+
+`TextDocument::toolBarActions()` was already the way a language describes what
+it wants in the toolbar row, and `EditorToolBar.qml` already draws it. But it
+was **virtual and nothing else**: the only way to contribute was to override
+it, so `CppEditorDocument` could and a language client could not. A client
+attaches to a Python or a Rust document whose class it has never heard of.
+
+So the extension point is widened rather than worked around:
+
+```cpp
+QList<QAction *> toolBarActions() const;          // own + added, what a view asks
+void addToolBarAction(QAction *action);           // for anything that is not the document
+void removeToolBarAction(QAction *action);
+protected:
+    virtual QList<QAction *> ownToolBarActions() const;   // what the document's class offers
+```
+
+The combining accessor is non-virtual on purpose. The alternative - leave
+`toolBarActions()` virtual and have every view ask for a second list as well -
+is three call sites that each have to remember, which is the shape of a bug
+waiting for a fourth view. Added actions are held by `QPointer` and the getter
+skips the cleared ones, because whoever added an action owns it.
+
+`CppEditorDocument::toolBarActions()` and the test document in
+`quicktexteditor.cpp` became `ownToolBarActions()`. Two renames, no behaviour.
+
+### A signal that was declared and never emitted
+
+`TextDocument::toolBarActionsChanged()` existed, was emitted by nobody and
+connected by nobody - written in anticipation of exactly this. It matters here
+because the timing is the whole point: **a document gains a client's button
+after it is open**, so a toolbar row that only asks once, when it is built,
+draws nothing. `addToolBarAction()`/`removeToolBarAction()` emit it, and
+`QuickTextEditor` connects it to its `ActionModel::refresh()`.
+
+A signal nobody emits is the code version of an assertion that cannot fail: it
+looks like the mechanism is there.
+
+### The extras belong to the document
+
+`ClientExtras` - which action, which client, which outline - was parented to
+the widget and found with `widget->findChild()`. It hangs off the document now.
+Which client a file is using is a property of the file, and a file open in a
+split had two of these.
+
+**What is still widget-only, deliberately**: the outline combo box.
+`createOutlineComboBox()` returns a `QWidget` and `setToolbarOutline()` takes
+one. The Qt Quick toolbar has a `ToolBarOutline` seam of its own already - it
+draws one for CppEditor - so moving the client's outline onto it is a real
+piece of work rather than a substitution, and it is the next thing here. The
+widget path is now reached after the button is described, guarded and
+commented, so a Quick editor gets the button and no outline rather than
+neither.
+
+### The test found that the production path already ran
+
+The first version asserted "the document has no toolbar action, call
+`updateEditorToolBar()`, now it has one" - and the *first* assertion failed.
+Taking the document with `openDocumentWithClient()` already runs
+`updateEditorToolBar()` by way of activating the editor, so by the time the
+test called it by hand the button was there.
+
+That guard was worth having. The test asserts the real path now: nothing before
+the client takes the document, one action named after the client afterwards, and
+no hand-call at all. **A guard that says "this proves nothing" is also how you
+find out the thing already happens by itself.**
+
+### Controls
+
+Two changes, two controls, each failing on its own assertion:
+
+    widget gate back on updateEditorToolBar   FAIL  toolBarActions().size() 0, expected 1
+    toolBarActionsChanged wiring removed      FAIL  "an action added after the toolbar was built
+                                                     never appeared in it"
+
+The Quick-side test also checks the row is empty *before* the action is added,
+so it cannot pass on a toolbar that drew a button from the start, and that
+removing the action empties it again - which is the path the client uses when
+the last server for a file goes away.
+
+### Two things about this machine, both already written down and both ignored
+
+- **`cp` is `-i` here.** A control script used bare `cp` for its backups,
+  hit an overwrite prompt, and hung with the build half-done. `cat src >| dst`
+  is what the notes say and what works.
+- **The file it was prompting about was nine days old**, left by an earlier
+  job in the same scratch directory. Had the script run, "restore from backup"
+  would have written a stale file over live work. Checking the backup before
+  relying on it cost one command and is the only reason that did not happen.
+
+### And the one that actually cost this batch: a vtable change
+
+The first full `-test TextEditor` after the change died at the seventh class:
+
+    AddressSanitizer: SEGV in QtSharedPointer::ExternalRefCountData::getAndRef(QObject const*)
+      QPointer<QAction>::QPointer(QAction *)
+      QtcQuick::ActionModel::setActions()
+      QtcQuick::ActionModel::refresh()
+      QuickTextEditor::toolBar()
+
+which reads exactly like "my provider returned a dangling action". It did not.
+The registers give it away: `x[0] = 0x2032332032332031` is **ASCII text**, not
+an address, so the list being walked was not a `QList<QAction *>` at all.
+
+Adding `virtual ownToolBarActions()` to `textdocument.h` **changes
+`TextDocument`'s vtable layout**, and only three plugins had been rebuilt.
+Every other plugin loaded by `-load all` still dispatched through the old
+offsets and landed on the wrong function. This document's own notes say
+"rebuild all after a shared vtable change" and I rebuilt the three I had
+edited.
+
+**The tell to remember**: a crash whose faulting address is legible as
+characters is a layout problem, not a lifetime problem. Chasing it as a
+dangling pointer would have meant auditing code that was correct.
+
+The design stands - a protected virtual for the document's own contribution and
+a non-virtual accessor that combines is the shape that cannot be forgotten by a
+subclass. The alternative, making overriders call the base, drops the client's
+button silently whenever somebody forgets, which is the bug this batch is
+about. Changing the layout of an exported class simply means the whole tree
+gets rebuilt, and on a branch that is what happens anyway; the mistake was
+mine, in only building what I had touched.
+
+### Verification
+
+After a **full** rebuild, not a per-plugin one:
+
+    -test LanguageClient  5 classes, 34 passed, 0 failed, exit 0
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 429 passed, 0 failed, exit 0, no ASan report
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+429 and 34 rather than 428 and 33: one new test each. No new file, so no
+`.qbs` edit and no qbs re-resolve.
+
+**Still left**:
+
+- The client's **outline** combo, the other half of `updateEditorToolBar()`.
+  `QuickTextEditor` finds a `ToolBarOutline` parented to the editor, so the
+  shape is known; what the client has is a `QWidget` from
+  `createOutlineComboBox()`, and the models behind the two need reconciling.
+- `requestLinkAt`, a `TextEditorWidget` signal rather than a cast - a decision
+  about what a view offers.
+- Debugger's remaining sites, unread.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.

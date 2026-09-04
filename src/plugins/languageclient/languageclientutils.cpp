@@ -216,21 +216,27 @@ public:
 void updateEditorToolBar(Core::IEditor *editor)
 {
     static QString msgNoLanguageClientSelected = Tr::tr("No language client selected.");
-    TextEditorWidget *widget = TextEditorWidget::fromEditor(editor);
-    if (!widget)
+    // Which client a file is using is a property of the file, so the button
+    // saying so is described on the document and drawn by whichever view is
+    // showing it. Asking for a widget here left every LSP language without
+    // that button in the Qt Quick editor.
+    TextDocument * const document = qobject_cast<TextDocument *>(
+        editor ? editor->document() : nullptr);
+    if (!document)
         return;
 
-    TextDocument *document = widget->textDocument();
     Client *client = LanguageClientManager::clientForDocument(document);
     const QList<Client *> supportingClients
         = LanguageClientManager::clientsSupportingDocument(document, false);
 
+    // On the document for the same reason, and once per document rather than
+    // once per view - a file open in a split had two of these.
     ClientExtras *extras = dynamic_cast<ClientExtras *>(
-        widget->findChild<QObject *>(clientExtrasName, Qt::FindDirectChildrenOnly));
+        document->findChild<QObject *>(clientExtrasName, Qt::FindDirectChildrenOnly));
     if (!extras) {
         if (!client && supportingClients.isEmpty())
             return;
-        extras = new ClientExtras(widget);
+        extras = new ClientExtras(document);
     }
     if (extras->m_popupAction) {
         if (client) {
@@ -238,16 +244,19 @@ void updateEditorToolBar(Core::IEditor *editor)
         } else if (!supportingClients.isEmpty()) {
             extras->m_popupAction->setText(msgNoLanguageClientSelected);
         } else {
-            widget->toolBar()->removeAction(extras->m_popupAction);
+            document->removeToolBarAction(extras->m_popupAction);
             delete extras->m_popupAction;
         }
     } else if (client || !supportingClients.isEmpty()) {
         const QIcon icon = Utils::Icon({{":/languageclient/images/languageclient.png",
                                          Utils::Theme::IconsBaseColor}}).icon();
         const QString name = client ? client->name() : msgNoLanguageClientSelected;
-        extras->m_popupAction = widget->toolBar()->addAction(
-                    icon, name, [widget, document = QPointer(document)] {
-            auto menu = new QMenu(widget);
+        auto * const popup = new QAction(icon, name, extras);
+        QObject::connect(popup, &QAction::triggered,
+                         extras, [document = QPointer(document)] {
+            // Parented to the dialog parent rather than to a view, which is
+            // the only thing the widget was needed for here.
+            auto menu = new QMenu(Core::ICore::dialogParent());
             menu->setAttribute(Qt::WA_DeleteOnClose);
             auto clientsGroup = new QActionGroup(menu);
             clientsGroup->setExclusive(true);
@@ -288,7 +297,17 @@ void updateEditorToolBar(Core::IEditor *editor)
             });
             menu->popup(QCursor::pos());
         });
+        extras->m_popupAction = popup;
+        document->addToolBarAction(popup);
     }
+
+    // The outline is still a widget - a combo box over the document symbols -
+    // so it goes where there is one. The Qt Quick editor has a ToolBarOutline
+    // seam of its own that this has not been moved onto yet; see the design
+    // doc.
+    TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+    if (!widget)
+        return;
 
     if (!extras->m_client || !client || extras->m_client != client
         || !client->supportsDocumentSymbols(document)) {

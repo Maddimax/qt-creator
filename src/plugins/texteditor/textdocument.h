@@ -274,7 +274,15 @@ public:
     // there itself - the button that opens the preprocessor dialog for a C++
     // file, say. Actions rather than widgets, so that whichever view is
     // drawing decides how, the same way the context menu is described.
-    virtual QList<QAction *> toolBarActions() const;
+    //
+    // ownToolBarActions() is what the document's own class offers.
+    // addToolBarAction() is for something that is not the document and cannot
+    // override anything - a language client attaches to a Python or a Rust
+    // document it knows nothing about - and toolBarActions() is the two of
+    // them together, which is what a view should ask for.
+    QList<QAction *> toolBarActions() const;
+    void addToolBarAction(QAction *action);
+    void removeToolBarAction(QAction *action);
     // The choice the language offers in the toolbar, or nullptr where it
     // offers none. Owned by the document.
     virtual ToolBarChoice *toolBarChoice() const;
@@ -311,6 +319,8 @@ signals:
     void markContextMenuRequested(TextEditor::TextDocument *document, int line, QMenu *menu);
 
 protected:
+    virtual QList<QAction *> ownToolBarActions() const;
+
     virtual void applyFontSettings();
     Utils::Result<> saveImpl(const Utils::FilePath &filePath, SaveOption option) override;
     virtual void slotCodeStyleSettingsChanged(); // Used in CppEditorDocumet

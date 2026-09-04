@@ -68,7 +68,7 @@ public:
     // but not a view's: what it changes is the document.
     void showPreProcessorDialog();
 
-    QList<QAction *> toolBarActions() const override;
+    QList<QAction *> ownToolBarActions() const override;
     TextEditor::ToolBarChoice *toolBarChoice() const override;
 
     // the blocks list must be sorted

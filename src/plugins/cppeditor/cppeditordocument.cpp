@@ -354,7 +354,7 @@ TextEditor::ToolBarChoice *CppEditorDocument::toolBarChoice() const
     return d->m_parseContextChoice;
 }
 
-QList<QAction *> CppEditorDocument::toolBarActions() const
+QList<QAction *> CppEditorDocument::ownToolBarActions() const
 {
     // Made once and kept: the toolbar is rebuilt whenever a view is, and an
     // action made per rebuild would lose whatever was connected to it.

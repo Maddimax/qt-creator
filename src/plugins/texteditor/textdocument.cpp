@@ -106,6 +106,9 @@ public:
     bool m_silentReload = false;
 
     TextMarks m_marksCache; // Marks not owned
+    // Toolbar actions put here by something other than the document's own
+    // class. Not owned - whoever added one deletes it - so held by QPointer.
+    QList<QPointer<QAction>> m_extraToolBarActions;
     Utils::Guard m_modificationChangedGuard;
 
     SyntaxHighlighter *m_highlighter = nullptr;
@@ -625,9 +628,42 @@ std::unique_ptr<AssistInterface> TextDocument::createAssistInterface(
     return std::make_unique<AssistInterface>(cursor, filePath(), reason);
 }
 
-QList<QAction *> TextDocument::toolBarActions() const
+QList<QAction *> TextDocument::ownToolBarActions() const
 {
     return {};
+}
+
+QList<QAction *> TextDocument::toolBarActions() const
+{
+    QList<QAction *> actions = ownToolBarActions();
+    // Skipping the ones a QPointer has cleared: an action deleted by whoever
+    // added it must not reach a view as a null entry.
+    for (const QPointer<QAction> &action : d->m_extraToolBarActions) {
+        if (action)
+            actions.append(action);
+    }
+    return actions;
+}
+
+void TextDocument::addToolBarAction(QAction *action)
+{
+    QTC_ASSERT(action, return);
+    if (d->m_extraToolBarActions.contains(action))
+        return;
+    d->m_extraToolBarActions.append(action);
+    // A view that has already built its toolbar has no other way to hear that
+    // there is something new to draw.
+    emit toolBarActionsChanged();
+}
+
+void TextDocument::removeToolBarAction(QAction *action)
+{
+    // Takes the entries a QPointer has already cleared with it, so a list that
+    // has outlived somebody else's action does not keep growing.
+    const qsizetype removed = d->m_extraToolBarActions.removeIf(
+        [action](const QPointer<QAction> &a) { return !a || a == action; });
+    if (removed > 0)
+        emit toolBarActionsChanged();
 }
 
 ToolBarChoice *TextDocument::toolBarChoice() const
