@@ -21,7 +21,6 @@
 #include <utils/qtcassert.h>
 
 #include <QDebug>
-#include <QTextBlock>
 
 #include <limits.h>
 
@@ -37,7 +36,7 @@ public:
     ~SourceAgentPrivate();
 
 public:
-    QPointer<BaseTextEditor> editor;
+    QPointer<Core::IEditor> editor;
     QPointer<DebuggerEngine> engine;
     TextMark *locationMark = nullptr;
     QString path;
@@ -82,23 +81,22 @@ void SourceAgent::setContent(const QString &filePath, const QString &content)
     if (!d->editor) {
         QString titlePattern = d->producer + ": "
             + Utils::FilePath::fromString(filePath).fileName();
-        d->editor = qobject_cast<BaseTextEditor *>(
-            EditorManager::openEditorWithContents(
-                CppEditor::Constants::CPPEDITOR_ID,
-                &titlePattern, content.toUtf8()));
+        // Whatever the C++ factory builds. Asking for a BaseTextEditor here
+        // made this whole view vanish behind a soft assert once C++ files
+        // started opening in the Qt Quick editor.
+        d->editor = EditorManager::openEditorWithContents(
+            CppEditor::Constants::CPPEDITOR_ID, &titlePattern, content.toUtf8());
         QTC_ASSERT(d->editor, return);
         d->editor->document()->setProperty(Debugger::Constants::OPENED_BY_DEBUGGER, true);
 
-        TextEditorWidget *baseTextEdit = d->editor->editorWidget();
-        if (baseTextEdit)
-            baseTextEdit->setRequestMarkEnabled(true);
+        // Widget only: the Qt Quick gutter's mark column is always live.
+        if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(d->editor))
+            widget->setRequestMarkEnabled(true);
     } else {
         EditorManager::activateEditor(d->editor);
     }
 
-    Utils::PlainTextEdit *plainTextEdit = d->editor->editorWidget();
-    QTC_ASSERT(plainTextEdit, return);
-    plainTextEdit->setReadOnly(true);
+    setReadOnlyIn(d->editor, true);
 
     updateLocationMarker();
 }
@@ -107,8 +105,11 @@ void SourceAgent::updateLocationMarker()
 {
     QTC_ASSERT(d->editor, return);
 
+    const auto document = qobject_cast<TextDocument *>(d->editor->document());
+    QTC_ASSERT(document, return);
+
     if (d->locationMark)
-        d->editor->textDocument()->removeMark(d->locationMark);
+        document->removeMark(d->locationMark);
     delete d->locationMark;
     d->locationMark = nullptr;
     if (d->engine->stackHandler()->currentFrame().file == Utils::FilePath::fromString(d->path)) {
@@ -121,11 +122,11 @@ void SourceAgent::updateLocationMarker()
         d->locationMark->setIcon(Icons::LOCATION.icon());
         d->locationMark->setPriority(TextMark::HighPriority);
 
-        d->editor->textDocument()->addMark(d->locationMark);
-        QTextCursor tc = d->editor->textCursor();
-        QTextBlock block = tc.document()->findBlockByNumber(lineNumber - 1);
-        tc.setPosition(block.position());
-        d->editor->setTextCursor(tc);
+        document->addMark(d->locationMark);
+        // Where the debugger stopped, which is what the reader was brought
+        // here to see. gotoLine() is what either view answers; setting a
+        // cursor on the widget was only ever reaching through to this.
+        d->editor->gotoLine(lineNumber);
         EditorManager::activateEditor(d->editor);
     }
 }

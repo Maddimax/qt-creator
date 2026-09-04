@@ -13,6 +13,9 @@
 #include <cplusplus/ExpressionUnderCursor.h>
 #include <cplusplus/Overview.h>
 
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+
 #include <cppeditor/cppprojectfile.h>
 #include <cppeditor/cppmodelmanager.h>
 
@@ -224,23 +227,24 @@ QString cppFunctionAt(const FilePath &filePath, int line, int column)
 
 
 // Return the Cpp expression, and, if desired, the function
-QString cppExpressionAt(TextEditorWidget *editorWidget, int pos,
+QString cppExpressionAt(TextDocument *textDocument, const QTextCursor &cursor, int pos,
                         int *line, int *column, QString *function,
                         int *scopeFromLine, int *scopeToLine)
 {
     if (function)
         function->clear();
 
-    const FilePath filePath = editorWidget->textDocument()->filePath();
+    QTC_ASSERT(textDocument, return {});
+    const FilePath filePath = textDocument->filePath();
     const Snapshot snapshot = CppModelManager::snapshot();
     const Document::Ptr document = snapshot.document(filePath);
-    QTextCursor tc = editorWidget->textCursor();
+    QTextCursor tc = cursor;
     QString expr;
     if (tc.hasSelection() && pos >= tc.selectionStart() && pos <= tc.selectionEnd()) {
         expr = tc.selectedText();
     } else {
         tc.setPosition(pos);
-        const QChar ch = editorWidget->characterAt(pos);
+        const QChar ch = textDocument->characterAt(pos);
         if (ch.isLetterOrNumber() || ch == '_')
             tc.movePosition(QTextCursor::EndOfWord);
 
@@ -285,6 +289,15 @@ QString fixCppExpression(const QString &expIn)
     }
     exp = exp.mid(pos1, pos2 - pos1);
     return removeObviousSideEffects(exp);
+}
+
+ContextData currentLocationContext()
+{
+    Core::IEditor * const editor = Core::EditorManager::currentEditor();
+    QTC_ASSERT(editor, return {});
+    const auto document = qobject_cast<TextDocument *>(editor->document());
+    QTC_ASSERT(document, return {});
+    return getLocationContext(document, editor->currentLine());
 }
 
 ContextData getLocationContext(TextDocument *document, int lineNumber)

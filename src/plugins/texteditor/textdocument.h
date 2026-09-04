@@ -26,6 +26,7 @@
 QT_BEGIN_NAMESPACE
 class QAction;
 class QKeyEvent;
+class QMenu;
 class QTextCursor;
 class QTextDocument;
 QT_END_NAMESPACE
@@ -49,6 +50,16 @@ class TextSuggestion;
 class TypingSettingsData;
 
 using TextMarks = QList<TextMark *>;
+
+// What a reader is asking for by clicking the gutter's mark column. Only the
+// debugger answers one today, by setting a breakpoint; the other two say what
+// the column is for rather than what is currently listening.
+enum TextMarkRequestKind
+{
+    BreakpointRequest,
+    BookmarkRequest,
+    TaskMarkRequest
+};
 
 class TEXTEDITOR_EXPORT TextDocument : public Core::BaseTextDocument,
                                        public QEnableSharedFromThis<TextDocument>
@@ -173,6 +184,22 @@ public:
     void updateMark(TextMark *mark);
     void moveMark(TextMark *mark, int previousLine);
     void removeMarkFromMarksCache(TextMark *mark);
+    // The gutter's mark column, used. Both views call these rather than
+    // deciding for themselves what a click there means: which mark takes a
+    // click, and that Shift makes it a bookmark, is the same in either.
+    //
+    // clickMark() offers the click to the marks already on \a lineNumber -
+    // that is how clicking a breakpoint's icon disables it - and answers
+    // whether one took it. Only then is requestMark() the right thing to ask,
+    // and the two are separate because a view that can tell a press from a
+    // release does not always offer the first: the widget one only does so
+    // when both landed on the same line.
+    bool clickMark(int lineNumber);
+    void requestMark(int lineNumber, Qt::KeyboardModifiers modifiers);
+    // What to offer for \a lineNumber when that column is right-clicked.
+    // Bookmarks add theirs directly, everyone else through the signal.
+    void fillMarkContextMenu(int lineNumber, QMenu *menu);
+
     static void temporaryHideMarksAnnotation(const Utils::Id &category);
     static void showMarksAnnotation(const Utils::Id &category);
     static bool marksAnnotationHidden(const Utils::Id &category);
@@ -275,6 +302,13 @@ signals:
     // Which actions the toolbar should show has changed.
     void toolBarActionsChanged();
     void markRemoved(TextEditor::TextMark *mark);
+    // A reader clicked the gutter's mark column on \a line, in whichever view
+    // is showing this document. Emitted once per click however many views
+    // there are, so connect per document - a handler wired up per editor
+    // toggles a split file's breakpoint twice and leaves it as it was.
+    void markRequested(TextEditor::TextDocument *document, int line,
+                       TextEditor::TextMarkRequestKind kind);
+    void markContextMenuRequested(TextEditor::TextDocument *document, int line, QMenu *menu);
 
 protected:
     virtual void applyFontSettings();
@@ -302,3 +336,5 @@ using TextDocumentPtr = QSharedPointer<TextDocument>;
 TEXTEDITOR_EXPORT TextDocumentPtr textDocumentPtr(Core::IEditor *editor);
 
 } // namespace TextEditor
+
+Q_DECLARE_METATYPE(TextEditor::TextMarkRequestKind)

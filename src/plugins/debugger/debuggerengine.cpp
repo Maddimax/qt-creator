@@ -2978,23 +2978,17 @@ void DebuggerEngine::handleExecReturn()
 void DebuggerEngine::handleExecJumpToLine()
 {
     resetLocation();
-    if (BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor()) {
-        ContextData location = getLocationContext(textEditor->textDocument(),
-                                                  textEditor->currentLine());
-        if (location.isValid())
-            executeJumpToLine(location);
-    }
+    const ContextData location = currentLocationContext();
+    if (location.isValid())
+        executeJumpToLine(location);
 }
 
 void DebuggerEngine::handleExecRunToLine()
 {
     resetLocation();
-    if (BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor()) {
-        ContextData location = getLocationContext(textEditor->textDocument(),
-                                                  textEditor->currentLine());
-        if (location.isValid())
-            executeRunToLine(location);
-    }
+    const ContextData location = currentLocationContext();
+    if (location.isValid())
+        executeRunToLine(location);
 }
 
 void DebuggerEngine::runToLine(const ContextData &location)
@@ -3006,9 +3000,9 @@ void DebuggerEngine::runToLine(const ContextData &location)
 
 void DebuggerEngine::handleExecRunToSelectedFunction()
 {
-    BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor();
-    QTC_ASSERT(textEditor, return);
-    QTextCursor cursor = textEditor->textCursor();
+    Core::IEditor * const editor = Core::EditorManager::currentEditor();
+    QTC_ASSERT(editor, return);
+    const QTextCursor cursor = textCursorOf(editor);
     QString functionName = cursor.selectedText();
     if (functionName.isEmpty()) {
         const QTextBlock block = cursor.block();
@@ -3039,16 +3033,19 @@ void DebuggerEngine::handleExecRunToSelectedFunction()
 void DebuggerEngine::handleAddToWatchWindow()
 {
     // Requires a selection, but that's the only case we want anyway.
-    BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor();
-    if (!textEditor)
+    Core::IEditor * const editor = Core::EditorManager::currentEditor();
+    if (!editor)
         return;
-    QTextCursor tc = textEditor->textCursor();
+    const auto document = qobject_cast<TextDocument *>(editor->document());
+    if (!document)
+        return;
+    const QTextCursor tc = textCursorOf(editor);
     QString exp;
     if (tc.hasSelection()) {
         exp = tc.selectedText();
     } else {
         int line, column;
-        exp = cppExpressionAt(textEditor->editorWidget(), tc.position(), &line, &column);
+        exp = cppExpressionAt(document, tc, tc.position(), &line, &column);
     }
     if (hasCapability(WatchComplexExpressionsCapability))
         exp = removeObviousSideEffects(exp);

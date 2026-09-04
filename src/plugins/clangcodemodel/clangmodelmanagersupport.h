@@ -84,14 +84,14 @@ private:
                                         const QByteArray &content);
     void onGeneratedFileSupportRemoved(const Utils::FilePath &filePath);
 
-    void onTextMarkContextMenuRequested(TextEditor::TextEditorWidget *widget,
+    void onTextMarkContextMenuRequested(TextEditor::TextDocument *document,
                                         int lineNumber,
                                         QMenu *menu);
 
     void onClangdSettingsChanged();
 
     void connectTextDocumentToTranslationUnit(TextEditor::TextDocument *textDocument);
-    void connectToWidgetsMarkContextMenuRequested(QWidget *editorWidget);
+    void connectToMarkContextMenuRequested(TextEditor::TextDocument *document);
 
     void updateLanguageClient(ProjectExplorer::Project *project);
     void doUpdateLanguageClient(

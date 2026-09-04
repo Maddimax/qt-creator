@@ -855,7 +855,7 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
     if (!settings().useToolTipsInMainEditor())
         return;
 
-    const TextDocument *document = editorWidget->textDocument();
+    TextDocument * const document = editorWidget->textDocument();
     if (!m_engine || !m_engine->canDisplayTooltip())
         return;
 
@@ -865,8 +865,9 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
     context.position = pos;
     editorWidget->convertPosition(pos, &context.line, &context.column);
     ++context.column;
-    QString raw = cppExpressionAt(editorWidget, context.position, &context.line, &context.column,
-                                  &context.function, &context.scopeFromLine, &context.scopeToLine);
+    QString raw = cppExpressionAt(document, editorWidget->textCursor(), context.position,
+                                  &context.line, &context.column, &context.function,
+                                  &context.scopeFromLine, &context.scopeToLine);
     context.expression = fixCppExpression(raw);
     context.isCppEditor = CppEditor::ProjectFile::classify(document->filePath())
                             != CppEditor::ProjectFile::Unsupported;

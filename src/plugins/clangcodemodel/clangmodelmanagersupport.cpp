@@ -500,13 +500,14 @@ void ClangModelManagerSupport::onCurrentEditorChanged(IEditor *editor)
     }
 }
 
-void ClangModelManagerSupport::connectToWidgetsMarkContextMenuRequested(QWidget *editorWidget)
+void ClangModelManagerSupport::connectToMarkContextMenuRequested(TextEditor::TextDocument *document)
 {
-    const auto widget = qobject_cast<TextEditor::TextEditorWidget *>(editorWidget);
-    if (widget) {
-        connect(widget, &TextEditor::TextEditorWidget::markContextMenuRequested,
-                this, &ClangModelManagerSupport::onTextMarkContextMenuRequested);
-    }
+    // The document rather than a view, so that the fix-its are offered in the
+    // Qt Quick editor too. UniqueConnection because a document open in two
+    // split views comes through here twice.
+    connect(document, &TextEditor::TextDocument::markContextMenuRequested,
+            this, &ClangModelManagerSupport::onTextMarkContextMenuRequested,
+            Qt::UniqueConnection);
 }
 
 static FilePath getJsonDbDir(Project *project)
@@ -939,7 +940,7 @@ void ClangModelManagerSupport::onEditorOpened(IEditor *editor)
 
     if (textDocument && CppModelManager::isCppEditor(editor)
         && ClangdClient::supportedLanguage().isSupported(document)) {
-        connectToWidgetsMarkContextMenuRequested(editor->widget());
+        connectToMarkContextMenuRequested(textDocument);
 
         Project * project = ProjectManager::projectForFile(document->filePath());
         const ClangdSettings::Data settings = clangdSettingsForProject(project);
@@ -997,29 +998,27 @@ static void addFixItsActionsToMenu(QMenu *menu, const TextEditor::QuickFixOperat
     }
 }
 
-static TextEditor::AssistInterface createAssistInterface(TextEditor::TextEditorWidget *widget,
+static TextEditor::AssistInterface createAssistInterface(TextEditor::TextDocument *document,
                                                          int lineNumber)
 {
-    QTextCursor cursor(widget->document()->findBlockByLineNumber(lineNumber));
+    QTextCursor cursor(document->document()->findBlockByLineNumber(lineNumber));
     if (!cursor.atStart())
         cursor.movePosition(QTextCursor::PreviousCharacter);
-    return TextEditor::AssistInterface(cursor,
-                                       widget->textDocument()->filePath(),
-                                       TextEditor::IdleEditor);
+    return TextEditor::AssistInterface(cursor, document->filePath(), TextEditor::IdleEditor);
 }
 
-void ClangModelManagerSupport::onTextMarkContextMenuRequested(TextEditor::TextEditorWidget *widget,
+void ClangModelManagerSupport::onTextMarkContextMenuRequested(TextEditor::TextDocument *document,
                                                               int lineNumber,
                                                               QMenu *menu)
 {
-    QTC_ASSERT(widget, return);
+    QTC_ASSERT(document, return);
     QTC_ASSERT(lineNumber >= 1, return);
     QTC_ASSERT(menu, return);
 
-    const FilePath filePath = widget->textDocument()->filePath();
+    const FilePath filePath = document->filePath();
     ClangEditorDocumentProcessor *processor = ClangEditorDocumentProcessor::get(filePath);
     if (processor) {
-        const auto assistInterface = createAssistInterface(widget, lineNumber);
+        const auto assistInterface = createAssistInterface(document, lineNumber);
         const auto fixItOperations = processor->extraRefactoringOperations(assistInterface);
 
         addFixItsActionsToMenu(menu, fixItOperations);

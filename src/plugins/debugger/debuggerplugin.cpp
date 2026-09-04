@@ -622,9 +622,9 @@ public:
 
     void editorOpened(IEditor *editor);
     void updateBreakMenuItem(IEditor *editor);
-    void requestMark(TextEditorWidget *widget, int lineNumber,
+    void requestMark(TextDocument *document, int lineNumber,
                      TextMarkRequestKind kind);
-    void requestContextMenu(TextEditorWidget *widget,
+    void requestContextMenu(TextDocument *document,
                             int lineNumber, QMenu *menu);
 
     void setOrRemoveBreakpoint();
@@ -1763,27 +1763,32 @@ void DebuggerPluginPrivate::runScheduled()
 
 void DebuggerPluginPrivate::editorOpened(IEditor *editor)
 {
-    if (auto widget = TextEditorWidget::fromEditor(editor)) {
-        connect(widget, &TextEditorWidget::markRequested,
-                this, &DebuggerPluginPrivate::requestMark);
+    // The document rather than a view: the gutter of either kind asks it, and
+    // a file open in two split views must not toggle its breakpoint twice.
+    // UniqueConnection is what makes the second editor on the same document a
+    // no-op - which is why both slots are member functions.
+    if (auto document = qobject_cast<TextDocument *>(editor->document())) {
+        connect(document, &TextDocument::markRequested,
+                this, &DebuggerPluginPrivate::requestMark, Qt::UniqueConnection);
 
-        connect(widget, &TextEditorWidget::markContextMenuRequested,
-                this, &DebuggerPluginPrivate::requestContextMenu);
+        connect(document, &TextDocument::markContextMenuRequested,
+                this, &DebuggerPluginPrivate::requestContextMenu, Qt::UniqueConnection);
     }
 }
 
 void DebuggerPluginPrivate::updateBreakMenuItem(IEditor *editor)
 {
-    BaseTextEditor *textEditor = qobject_cast<BaseTextEditor *>(editor);
-    m_setOrRemoveBreakpointAction.setEnabled(textEditor != nullptr);
-    m_enableOrDisableBreakpointAction.setEnabled(textEditor != nullptr);
+    // Whether a breakpoint can go here is a question about the document, not
+    // about what is drawing it. Asking for a BaseTextEditor left both actions
+    // greyed out for a file open in the Qt Quick editor.
+    const bool hasText = editor && qobject_cast<TextDocument *>(editor->document());
+    m_setOrRemoveBreakpointAction.setEnabled(hasText);
+    m_enableOrDisableBreakpointAction.setEnabled(hasText);
 }
 
-void DebuggerPluginPrivate::requestContextMenu(TextEditorWidget *widget,
+void DebuggerPluginPrivate::requestContextMenu(TextDocument *document,
     int lineNumber, QMenu *menu)
 {
-    TextDocument *document = widget->textDocument();
-
     const ContextData args = getLocationContext(document, lineNumber);
     const GlobalBreakpoint gbp = BreakpointManager::findBreakpointFromContext(args);
 
@@ -1874,29 +1879,23 @@ void DebuggerPluginPrivate::requestContextMenu(TextEditorWidget *widget,
 
 void DebuggerPluginPrivate::setOrRemoveBreakpoint()
 {
-    const BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor();
-    QTC_ASSERT(textEditor, return);
-    const int lineNumber = textEditor->currentLine();
-    ContextData location = getLocationContext(textEditor->textDocument(), lineNumber);
+    const ContextData location = currentLocationContext();
     if (location.isValid())
         BreakpointManager::setOrRemoveBreakpoint(location);
 }
 
 void DebuggerPluginPrivate::enableOrDisableBreakpoint()
 {
-    const BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor();
-    QTC_ASSERT(textEditor, return);
-    const int lineNumber = textEditor->currentLine();
-    ContextData location = getLocationContext(textEditor->textDocument(), lineNumber);
+    const ContextData location = currentLocationContext();
     if (location.isValid())
         BreakpointManager::enableOrDisableBreakpoint(location);
 }
 
-void DebuggerPluginPrivate::requestMark(TextEditorWidget *widget, int lineNumber,
+void DebuggerPluginPrivate::requestMark(TextDocument *document, int lineNumber,
                                         TextMarkRequestKind kind)
 {
     if (kind == BreakpointRequest) {
-        ContextData location = getLocationContext(widget->textDocument(), lineNumber);
+        ContextData location = getLocationContext(document, lineNumber);
         if (location.isValid())
             BreakpointManager::setOrRemoveBreakpoint(location);
     }

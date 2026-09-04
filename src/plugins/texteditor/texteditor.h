@@ -85,13 +85,6 @@ class MarginSettingsData;
 class StorageSettingsData;
 class TypingSettingsData;
 
-enum TextMarkRequestKind
-{
-    BreakpointRequest,
-    BookmarkRequest,
-    TaskMarkRequest
-};
-
 namespace OptionalActions {
 enum Mask {
     None = 0,
@@ -722,10 +715,6 @@ protected:
     void doSetTextCursor(const QTextCursor &cursor, bool keepMultiSelection);
 
 signals:
-    void markRequested(TextEditor::TextEditorWidget *widget,
-        int line, TextEditor::TextMarkRequestKind kind);
-    void markContextMenuRequested(TextEditor::TextEditorWidget *widget,
-        int line, QMenu *menu);
     void tooltipOverrideRequested(TextEditor::TextEditorWidget *widget,
         const QPoint &globalPos, int position, bool *handled);
     void tooltipRequested(const QPoint &globalPos, int position);
@@ -980,6 +969,12 @@ public:
 // through the language would come straight back here.
 TEXTEDITOR_EXPORT void pasteIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void cutIn(Core::IEditor *editor);
+
+// Whether \a editor's view refuses edits. Not the file's own read-only state,
+// which the document answers - this is a caller saying that what it put in a
+// scratch editor is there to be read. Both views have the notion; only the
+// widget one had a way to be told.
+TEXTEDITOR_EXPORT void setReadOnlyIn(Core::IEditor *editor, bool readOnly);
 
 // Follow the symbol the caret is on, in whichever view \a editor has. The
 // language's link finder is what answers; this only decides who asks.

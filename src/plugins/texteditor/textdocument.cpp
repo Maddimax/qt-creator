@@ -5,6 +5,7 @@
 
 #include <coreplugin/editormanager/ieditor.h>
 
+#include "bookmarkmanager.h"
 #include "codeassist/assistinterface.h"
 #include "extraencodingsettings.h"
 #include "fontsettings.h"
@@ -39,6 +40,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QFutureInterface>
+#include <QMenu>
 #include <QScrollBar>
 #include <QStringList>
 
@@ -1392,6 +1394,39 @@ TextMarks TextDocument::marksAt(int line) const
             return userData->marks();
     }
     return TextMarks();
+}
+
+bool TextDocument::clickMark(int lineNumber)
+{
+    // Backwards: the marks on a line are in the order they were added, and the
+    // one on top is the one the reader is pointing at.
+    const TextMarks marks = marksAt(lineNumber);
+    for (int i = marks.size(); --i >= 0; ) {
+        TextMark * const mark = marks.at(i);
+        if (mark->isClickable()) {
+            mark->clicked();
+            return true;
+        }
+    }
+    return false;
+}
+
+void TextDocument::requestMark(int lineNumber, Qt::KeyboardModifiers modifiers)
+{
+    if (modifiers & Qt::ShiftModifier) {
+        if (!isTemporary())
+            Internal::bookmarkManager().toggleBookmark(filePath(), lineNumber);
+        return;
+    }
+
+    emit markRequested(this, lineNumber, BreakpointRequest);
+}
+
+void TextDocument::fillMarkContextMenu(int lineNumber, QMenu *menu)
+{
+    QTC_ASSERT(menu, return);
+    Internal::bookmarkManager().requestContextMenu(filePath(), lineNumber, menu);
+    emit markContextMenuRequested(this, lineNumber, menu);
 }
 
 void TextDocument::removeMarkFromMarksCache(TextMark *mark)

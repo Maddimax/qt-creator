@@ -234,7 +234,7 @@ public:
     void engineFinished();
 
     void editorOpened(IEditor *);
-    void requestContextMenu(TextEditorWidget *widget, int line, QMenu *menu);
+    void requestContextMenu(TextDocument *document, int line, QMenu *menu);
     void updateRunActions();
 
     qint64 m_pid = 0;
@@ -1053,17 +1053,20 @@ void CallgrindTool::showParserResults(const ParseDataPtr &data)
 
 void CallgrindTool::editorOpened(IEditor *editor)
 {
-    if (auto widget = TextEditorWidget::fromEditor(editor)) {
-        connect(widget, &TextEditorWidget::markContextMenuRequested,
-                this, &CallgrindTool::requestContextMenu);
+    // The document, so that a file in the Qt Quick editor offers this too.
+    // UniqueConnection because a document can be open in several editors and
+    // each would otherwise add the entry again.
+    if (auto document = qobject_cast<TextDocument *>(editor->document())) {
+        connect(document, &TextDocument::markContextMenuRequested,
+                this, &CallgrindTool::requestContextMenu, Qt::UniqueConnection);
     }
 }
 
-void CallgrindTool::requestContextMenu(TextEditorWidget *widget, int line, QMenu *menu)
+void CallgrindTool::requestContextMenu(TextDocument *document, int line, QMenu *menu)
 {
     // Find callgrind text mark that corresponds to this editor's file and line number
     for (CallgrindTextMark *textMark : std::as_const(m_textMarks)) {
-        if (textMark->filePath() == widget->textDocument()->filePath() && textMark->lineNumber() == line) {
+        if (textMark->filePath() == document->filePath() && textMark->lineNumber() == line) {
             const Function *func = textMark->function();
             QAction *action = menu->addAction(Tr::tr("Select This Function in the Analyzer Output"));
             connect(action, &QAction::triggered, this, [this, func] { selectFunction(func); });

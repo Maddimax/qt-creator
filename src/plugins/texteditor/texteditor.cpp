@@ -7204,10 +7204,7 @@ void TextEditorWidget::extraAreaContextMenuEvent(QContextMenuEvent *e)
     if (d->m_marksVisible) {
         QTextCursor cursor = cursorForPosition(QPoint(0, e->pos().y()));
         auto contextMenu = new QMenu(this);
-        bookmarkManager().requestContextMenu(textDocument()->filePath(),
-                                             cursor.blockNumber() + 1,
-                                             contextMenu);
-        emit markContextMenuRequested(this, cursor.blockNumber() + 1, contextMenu);
+        textDocument()->fillMarkContextMenu(cursor.blockNumber() + 1, contextMenu);
         if (!contextMenu->isEmpty())
             contextMenu->exec(e->globalPos());
         delete contextMenu;
@@ -7393,26 +7390,10 @@ void TextEditorWidget::extraAreaMouseEvent(QMouseEvent *e)
             if (wasDragging && dragMark) {
                 dragMark->dragToLine(cursor.blockNumber() + 1);
                 return;
-            } else if (sameLine) {
-                QTextBlock block = cursor.document()->findBlockByNumber(n);
-                if (auto data = static_cast<TextBlockUserData *>(block.userData())) {
-                    TextMarks marks = data->marks();
-                    for (int i = marks.size(); --i >= 0; ) {
-                        TextMark *mark = marks.at(i);
-                        if (mark->isClickable()) {
-                            mark->clicked();
-                            return;
-                        }
-                    }
-                }
+            } else if (sameLine && textDocument()->clickMark(n + 1)) {
+                return;
             }
-            int line = n + 1;
-            if (QApplication::keyboardModifiers() & Qt::ShiftModifier) {
-                if (!textDocument()->isTemporary())
-                    bookmarkManager().toggleBookmark(textDocument()->filePath(), line);
-            } else {
-                emit markRequested(this, line, BreakpointRequest);
-            }
+            textDocument()->requestMark(n + 1, QApplication::keyboardModifiers());
         }
     }
 }
@@ -10309,6 +10290,18 @@ QObject *keyTargetOf(Core::IEditor *editor)
     if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
         return widget;
     return Internal::viewportForEditor(editor);
+}
+
+void setReadOnlyIn(Core::IEditor *editor, bool readOnly)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setReadOnly(readOnly);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->setReadOnly(readOnly);
 }
 
 void pasteIn(Core::IEditor *editor)
