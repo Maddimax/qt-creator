@@ -46,6 +46,9 @@
 #include <coreplugin/navigationwidget.h>
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
+#include <coreplugin/icore.h>
+
+#include <QMainWindow>
 #include <coreplugin/dialogs/codecselector.h>
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
@@ -3416,6 +3419,151 @@ private slots:
         // no entry to step back to. Measured on both rather than reasoned
         // from the widget's flags, which its own code calls too heavy.
         QCOMPARE(textCursorOf(editor).blockNumber(), 29);
+    }
+
+    void testGoToLastEditReturnsToTheEdit_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Go to Last Edit returns to where the reader last changed something.
+    // TextEditorWidget tells the manager from its own cursor handler; a view
+    // that is not one has to say so itself, or the command has nothing to go
+    // to and lands nowhere.
+    //
+    // Against the widget row this is the control on the fixture: it says the
+    // edit, the wander and the command are ones Creator really does.
+    void testGoToLastEditReturnsToTheEdit()
+    {
+        QFETCH(bool, quick);
+
+        // The command's context is Context(C_EDITORMANAGER, C_DESIGN_MODE),
+        // which follows a mode this process never enters - so its action stays
+        // disabled and triggering it does nothing. Adding the context by hand
+        // is what lets a test drive a command at all; showing the main window
+        // does not, which was measured before settling on this.
+        const Core::Context editorContext(Core::Constants::C_EDITORMANAGER);
+        Core::ICore::addAdditionalContext(editorContext);
+        const QScopeGuard dropContext(
+            [editorContext] { Core::ICore::removeAdditionalContext(editorContext); });
+
+        Utils::TemporaryDirectory dir("quick-editor-lastedit");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("edit.cpp");
+        QString text;
+        for (int i = 0; i < 40; ++i)
+            text += QString("int line%1();\n").arg(i);
+        QVERIFY(file.writeFileContents(text.toUtf8()));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        QWidget *keyTarget = nullptr;
+        if (quick) {
+            auto * const qw = editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(qw && qw->rootObject());
+            auto * const view = qw->rootObject()->findChild<TextViewport *>();
+            QVERIFY(view);
+            QTRY_VERIFY(view->visibleLineCount() > 0);
+            view->forceActiveFocus();
+            keyTarget = qw;
+        } else {
+            TextEditorWidget * const w = TextEditorWidget::fromEditor(editor);
+            QVERIFY(w);
+            w->setFocus();
+            keyTarget = w;
+        }
+
+        // Change something on line 5, then wander off to line 30.
+        editor->gotoLine(5, 0);
+        QTest::keyClick(keyTarget, 'x');
+        QCOMPARE(textCursorOf(editor).blockNumber(), 4);
+        editor->gotoLine(30, 0);
+        QCOMPARE(textCursorOf(editor).blockNumber(), 29);
+
+        Core::Command * const cmd = Core::ActionManager::command(Core::Constants::GOTOLASTEDIT);
+        QVERIFY(cmd);
+        QVERIFY2(cmd->action()->isEnabled(),
+                 "the command is disabled, so triggering it would prove nothing");
+        cmd->action()->trigger();
+
+        QTRY_COMPARE(textCursorOf(editor).blockNumber(), 4);
+    }
+
+    // And only the editor the reader is in says so. An edit in a view they are
+    // not looking at - a refactoring rewriting a file open in another split -
+    // would otherwise move Go to Last Edit to somewhere they never typed.
+    // TextEditorWidget guards its own call the same way.
+    void testAnEditInABackgroundViewIsNotTheLastEdit()
+    {
+        const Core::Context editorContext(Core::Constants::C_EDITORMANAGER);
+        Core::ICore::addAdditionalContext(editorContext);
+        const QScopeGuard dropContext(
+            [editorContext] { Core::ICore::removeAdditionalContext(editorContext); });
+
+        Utils::TemporaryDirectory dir("quick-editor-lastedit-background");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath first = dir.filePath("first.cpp");
+        QString text;
+        for (int i = 0; i < 40; ++i)
+            text += QString("int line%1();\n").arg(i);
+        QVERIFY(first.writeFileContents(text.toUtf8()));
+        const Utils::FilePath second = dir.filePath("second.cpp");
+        QVERIFY(second.writeFileContents("int elsewhere();\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(first);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const background = Core::EditorManager::openEditor(first);
+        QVERIFY(background);
+        const QScopeGuard closeFirst(
+            [background] { Core::EditorManager::closeEditors({background}, false); });
+
+        auto * const qw = background->widget()->findChild<QQuickWidget *>();
+        QVERIFY(qw && qw->rootObject());
+        auto * const view = qw->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+        view->forceActiveFocus();
+
+        // The edit the reader made, while they were here.
+        background->gotoLine(5, 0);
+        QTest::keyClick(qw, 'x');
+        QCOMPARE(textCursorOf(background).blockNumber(), 4);
+
+        Core::IEditor * const front = Core::EditorManager::openEditor(second);
+        QVERIFY(front);
+        const QScopeGuard closeSecond(
+            [front] { Core::EditorManager::closeEditors({front}, false); });
+        QCOMPARE(Core::EditorManager::currentEditor(), front);
+
+        // And an edit in the first one while it is behind: not theirs to go
+        // back to, so it must not move where Go to Last Edit points.
+        background->gotoLine(30, 0);
+        QTextCursor edit = textCursorOf(background);
+        edit.insertText("y");
+
+        Core::Command * const cmd = Core::ActionManager::command(Core::Constants::GOTOLASTEDIT);
+        QVERIFY(cmd);
+        QVERIFY2(cmd->action()->isEnabled(), "the command is disabled, so this proves nothing");
+        cmd->action()->trigger();
+
+        QTRY_COMPARE(Core::EditorManager::currentEditor(), background);
+        QCOMPARE(textCursorOf(background).blockNumber(), 4);
     }
 
     // Which languages open in the Qt Quick editor, written down rather than

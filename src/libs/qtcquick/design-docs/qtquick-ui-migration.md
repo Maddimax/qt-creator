@@ -31791,3 +31791,93 @@ assumed:
 The honest summary: **a C++ file opens in the Qt Quick editor and everything
 CppEditor configures reaches it.** What is left is not a list of ports; it is
 four things that need a debugger, a project, a window manager or a person.
+
+## 2026-09-04 -- Commands can be tested after all
+
+The previous entry declared the sweep exhausted and listed four things to do
+next, in order. The first was "run the suites on a machine that can activate a
+window", because command routing was blocking Go to Last Edit from being
+tested and had made an earlier test roundabout. **That diagnosis was wrong,
+and it was written down twice.** No other machine is needed.
+
+### What the blocker actually was
+
+`GOTOLASTEDIT` is built with `setContext(Context(C_EDITORMANAGER,
+C_DESIGN_MODE))`. Its proxy action is disabled while neither context is
+active, and in `-test` this process never enters a mode. The inference from
+that - "the context follows focus, so a window has to be activated" - was
+never checked. It is wrong on both counts. Measured:
+
+    as tests run now              enabled false, landed on 29 (nowhere)
+    with the main window shown    enabled false, landed on 29 (nowhere)
+    with the context added        enabled true,  landed on 4
+
+Showing `ICore::mainWindow()` and waiting for it to be exposed changes
+nothing. Adding the context by hand is all it takes:
+
+    Core::ICore::addAdditionalContext(Core::Context(Core::Constants::C_EDITORMANAGER));
+
+**The lesson is the one this document keeps relearning from the other side:**
+an unmeasured mechanism written into a plan gets cited back as fact. This one
+was cited back twice and turned into a recommendation to go and find different
+hardware.
+
+### What that unblocked
+
+Go to Last Edit Location was shipped untested last batch, on the widget's
+word. It now has a test, and the test says the line was right: type on line 5,
+wander to line 30, trigger the command, land back on line 5 - in both views.
+
+The widget row is the control on the fixture, and the command being enabled is
+asserted before it is triggered, so a future context change fails loudly
+instead of quietly proving nothing.
+
+### Negative controls
+
+- **A -- the Quick editor never says where the last edit was** (the line from
+  the previous batch removed): quick row red, landing on 29 rather than 4;
+  widget row green. The untested line, now demonstrably load-bearing.
+- **B -- the guard removed**: **green at first.** Same shape as the last three
+  batches: the test only ever drove the editor the reader was in. So the case
+  the guard is for got its own test - edit line 5 in a file, open a second one
+  in front of it, then edit line 30 of the first while it is behind - and Go
+  to Last Edit must still return to line 5, because an edit the reader did not
+  make is not their last edit. With the guard removed it lands on 30, so B
+  bites now.
+- **C -- the test does not add the context**: both rows red, on the
+  `isEnabled()` assertion rather than on the outcome. That is the assertion
+  earning its place: without it the test would have passed while triggering a
+  disabled action and asserting a caret that never moved.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 449 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+449 is 446 plus three rows. Added up per class.
+
+One file, tests only - the production change this covers was the previous
+batch's. No new file and no `.qbs` edit.
+
+### What this leaves
+
+The list from the previous entry, with item 3 struck and item 1 withdrawn as
+a misdiagnosis:
+
+1. **The debugger's tooltips** - `slotTooltipOverrideRequested()` returns at
+   `!m_engine`. Still needs a debug session; that one *was* measured.
+2. **`restoreState()` stashing** - needs a decision about what should happen
+   when Go Back lands somewhere.
+3. **The parse-context highlight**, and the Refactor submenu's presentation -
+   both want a person at a screen.
+4. **`isChosen()` against a real project part** - needs a loaded project.
+
+And a standing note now that command routing works: **anything reachable from
+a command is testable**, which was not true of this document's assumptions for
+the last several batches. If a future gap looks blocked because "a command
+does not route", it is not - add the context. The tests that worked around
+this by calling handlers directly (Ctrl+U, the Refactor submenu) could be
+tightened to go through the command instead, which would cover the
+`ActionBuilder` wiring those tests currently skip.
