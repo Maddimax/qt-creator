@@ -110,6 +110,7 @@ void TextEditorPlugin::initialize()
     addTestCreator(createSnippetsSettingsTest);
     addTestCreator(createFormatTextTest);
     addTestCreator(createTextDocumentTest);
+    addTestCreator(createBookmarkActionTest);
     addTestCreator(createTextEditorTest);
     addTestCreator(createCleanWhitespaceTest);
     addTestCreator(createSortLinesTest);

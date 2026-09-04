@@ -29456,3 +29456,154 @@ grepping, and both need finishing rather than believing:
 
 Still unread: the call and type hierarchy pair, folding ranges, the toolbar's
 language-client selector, and semantic tokens on an editor change.
+
+## 2026-09-04 — Toggle Bookmark did nothing, and a plugin with nowhere to put a control
+
+**The gap this batch closed**: `Ctrl+M` did nothing for a file in the Qt Quick
+editor. Both actions that *create* a bookmark began
+
+    IEditor *editor = EditorManager::currentEditor();
+    auto widget = TextEditorWidget::fromEditor(editor);
+    if (widget && editor && !editor->document()->isTemporary())
+        toggleBookmark(editor->document()->filePath(), editor->currentLine());
+
+and `widget` is used for **nothing else**. The work already went through
+`Core::IEditor` - the file path and the line - so the widget was a pure gate,
+and `toggleBookmark(FilePath, int)` below it touches no view at all.
+
+The asymmetry that makes it a good bug report: Previous/Next Bookmark have no
+such gate, so in the Quick editor you could navigate to bookmarks you already
+had and not make a new one.
+
+The gate meant "this is a text editor", which is what the *document* says, so
+that is what it asks now - `qobject_cast<TextDocument *>(editor->document())`,
+the idiom 62 other sites in the tree already use. Not dropped entirely:
+without it any current editor would qualify, and while `IEditor::currentLine()`
+defaults to 0 and `toggleBookmark()` returns early on a line <= 0, relying on
+that is relying on two accidents lining up.
+
+### Where the batch started, and why it moved
+
+The next step this document had was the unexamined half of the widget-cast
+survey: Debugger (20 sites) and LanguageClient (10). LanguageClient first,
+because clangd drives C++ semantic highlighting and folding.
+
+**Two real gaps are there, and they are the same bug this document already
+diagnosed once.** In `client.cpp` there is a comment, twenty lines above one of
+them, explaining why this exact pattern is wrong - "asking only there left the
+first file opened in any other view with no highlights at all, for good,
+because nothing asks again until the caret moves". Whoever wrote it fixed
+`requestDocumentHighlights` and left two neighbours alone:
+
+    foldingrangesupport.cpp:33   currentEditorChanged -> if (auto widget = fromEditor(editor))
+                                                             requestFoldingRanges(widget->textDocument());
+    semantichighlightsupport.cpp:285  onCurrentEditorChanged -> same shape, updateSemanticTokens()
+
+Both take a `TextDocument *` and both guard internally, so the fix is the same
+two-line change as above. For a C++ file in the Quick editor with clangd on,
+**clangd's folding ranges and semantic tokens are never requested** when it
+becomes current.
+
+**They are not in this commit, and that is the finding.** Every one of those
+call sites needs a live `Client` to observe anything, and LanguageClient has
+**no client-level test infrastructure at all** - its three registered tests are
+snippet parsing, the settings page and the mime-type dialog. There is no fake
+server, and `Client`'s queues (`FoldingRangeSupportImpl::m_queued`,
+`SemanticTokenSupport::m_docReloadQueue`) are private. So the fix is four lines
+and the control is a batch of its own.
+
+Shipping it uncontrolled was the alternative and it was the wrong one: this is
+a handler that silently does nothing, which is precisely the failure mode a
+test has to pin, and it has now silently done nothing through two separate
+attempts to fix its neighbourhood.
+
+**What that batch needs, sized**: `Client(BaseClientInterface *)` takes
+ownership and never starts on its own, and `reachable()` is
+`m_state == Initialized` - so a `Client` built over a do-nothing
+`BaseClientInterface` subclass is unreachable by construction, and an
+unreachable client is exactly the case where both handlers *queue* the document
+instead of sending a request. That makes the assertion "the document reached
+the queue", with no server, no timing and no clangd. It needs a test
+subclass of `BaseClientInterface` and a `WITH_TESTS` accessor on each of the
+two queues. A real clangd is also available here (`/usr/bin/clangd`, Apple
+clangd 21) if an end-to-end check is ever wanted, but it should not be the
+first test.
+
+### What is not covered here
+
+**Edit Bookmark got the identical fix and has no test.** `editByFileAndLine()`
+ends in `edit()`, which opens a modal dialog, and a modal dialog hangs a
+headless run - this document already carries two entries about that. The change
+is character-for-character the same as the tested one; that is a reason to
+believe it, not evidence.
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 428 passed, 0 failed, 0 skipped, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+19 classes rather than 18, and 428 rather than 422. Only part of that is this
+batch: `BookmarkActionTest` is the new class and contributes three, and the
+rest came from another session's `textviewport_test.cpp` additions landing
+while this one ran - see the note below. No `.qbs` edit, no new file, no QML
+from here.
+
+**Negative control**: the widget gate put back on Toggle Bookmark gives
+
+    'bookmarkManager().hasBookmarkInPosition(file, 2)' returned FALSE
+      (Toggle Bookmark left no bookmark behind)
+
+which is the production symptom rather than a wrong answer.
+
+The test triggers the **command**, through
+`Command::actionForContext(C_EDITORMANAGER)`, because the gate lives in the
+action's handler - calling `toggleBookmark()` directly would bypass the only
+line that was wrong, which is how this survived having no test at all. It also
+checks there is no bookmark on the line *before* triggering, so a leftover from
+another test cannot pass for one this action made, and toggles a second time so
+the run leaves no bookmark behind: bookmarks outlive the editor they were set
+in and are written to the settings.
+
+An incidental measurement worth recording, since this document has twice
+concluded a suite had gone bad from one slow run: **QuickUi took 57 s here and
+2852 s two batches ago**, same 207/0/1 result both times. The difference is
+what else was running; the suite's own numbers were identical. Time is not a
+signal in this build, and the totals plus the exit code are.
+
+**Still left**:
+
+- **The two LanguageClient handlers above** - folding ranges and semantic
+  tokens - which want the client-level test fixture described here first.
+- The rest of the survey, unread: Debugger's sites - **13 now, not the 20
+  this document said an hour ago** - and LanguageClient's remaining ones
+  (`updateEditorToolBar`, the call/type hierarchy widgets, `requestLinkAt`).
+  `requestLinkAt` is a `TextEditorWidget` signal and is a design question
+  rather than a cast; the others look like the same document substitution.
+
+### The branch has more than one writer
+
+Six commits landed on `utils-drop-printsupport` from another session while this
+batch was being measured - LSP tooltips, the gutter's mark column, and debugger
+work that closed seven of the Debugger sites this document had just counted.
+Two consequences, both worth knowing before quoting this file:
+
+- **A survey count in here is a timestamp, not a fact.** "Debugger: 20 sites"
+  was true when it was written and wrong by the time the batch that wrote it
+  finished. Re-run the grep; do not cite the number.
+- **A suite total is only comparable against a total from the same tree.** The
+  422 this document quotes and the 428 above differ by two batches, not one,
+  and attributing the whole delta to the new test here would have been wrong.
+  Both were checked against what the tree actually contained.
+
+The two LanguageClient handlers above were re-checked after those commits
+landed - `client.cpp` is one of the files they touched - and both are still
+exactly as described. The hover handler they fixed is a third instance of the
+same shape, which is worth noticing: that is now three separate sessions
+finding the same bug in the same file's neighbourhood, and none of them could
+put a test on it for the reason given above.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.

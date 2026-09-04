@@ -114,4 +114,8 @@ BookmarkManager &bookmarkManager();
 void setupBookmarkManager(QObject *guard);
 void setupBookmarkView();
 
+#ifdef WITH_TESTS
+QObject *createBookmarkActionTest();
+#endif
+
 } // Bookmarks::Internal

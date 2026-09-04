@@ -38,6 +38,13 @@
 #include <QSpinBox>
 #include <QToolButton>
 
+#ifdef WITH_TESTS
+#include <coreplugin/coreconstants.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 Q_DECLARE_METATYPE(TextEditor::Internal::Bookmark*)
 
 using namespace Core;
@@ -364,9 +371,15 @@ BookmarkManager::BookmarkManager(QObject *parent)
     toggleAction.bindContextAction(&m_toggleAction);
     toggleAction.addOnTriggered(this, [this] {
         IEditor *editor = EditorManager::currentEditor();
-        auto widget = TextEditorWidget::fromEditor(editor);
-        if (widget && editor && !editor->document()->isTemporary())
+        // A bookmark is on a document at a line, and Core::IEditor answers
+        // both. The widget this used to ask for was never used for anything
+        // else - it only meant "this is a text editor", which is what the
+        // document says - so Toggle Bookmark did nothing at all in the Qt
+        // Quick editor.
+        if (editor && qobject_cast<TextDocument *>(editor->document())
+                && !editor->document()->isTemporary()) {
             toggleBookmark(editor->document()->filePath(), editor->currentLine());
+        }
     });
 
     ActionBuilder editAction(this, "Bookmarks.Edit");
@@ -377,8 +390,8 @@ BookmarkManager::BookmarkManager(QObject *parent)
     editAction.bindContextAction(&m_editAction);
     editAction.addOnTriggered(this, [this] {
         IEditor *editor = EditorManager::currentEditor();
-        auto widget = TextEditorWidget::fromEditor(editor);
-        if (widget && editor && !editor->document()->isTemporary()) {
+        if (editor && qobject_cast<TextDocument *>(editor->document())
+                && !editor->document()->isTemporary()) {
             const FilePath filePath = editor->document()->filePath();
             const int line = editor->currentLine();
             if (!hasBookmarkInPosition(filePath, line))
@@ -1076,4 +1089,65 @@ void setupBookmarkView()
     static BookmarkViewFactory theBookmarkViewFactory;
 }
 
+#ifdef WITH_TESTS
+
+// The two actions that create a bookmark were gated on the current editor
+// being a widget, and the gate was the only thing the widget was fetched for.
+// Triggering the command is the whole point: calling toggleBookmark() directly
+// bypasses exactly the line that was wrong.
+class BookmarkActionTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTogglingABookmarkWorksInAnyView()
+    {
+        Utils::TemporaryDirectory dir("bookmark-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("bookmarked.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        // Opened the ordinary way, so this is the editor a reader gets.
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        Core::Command * const command = Core::ActionManager::command("Bookmarks.Toggle");
+        QVERIFY2(command, "Toggle Bookmark is not a registered command at all");
+        QAction * const action
+            = command->actionForContext(Core::Constants::C_EDITORMANAGER);
+        QVERIFY2(action, "Toggle Bookmark is not registered in the editor manager context");
+
+        editor->gotoLine(2, 1);
+        QCOMPARE(editor->currentLine(), 2);
+        QVERIFY2(!bookmarkManager().hasBookmarkInPosition(file, 2),
+                 "the fixture starts with a bookmark, so setting one proves nothing");
+
+        action->trigger();
+        QVERIFY2(bookmarkManager().hasBookmarkInPosition(file, 2),
+                 "Toggle Bookmark left no bookmark behind");
+
+        // Toggling off again, which both asserts the other direction and
+        // leaves no bookmark for the tests after this one to trip over -
+        // bookmarks outlive the editor they were set in.
+        action->trigger();
+        QVERIFY2(!bookmarkManager().hasBookmarkInPosition(file, 2),
+                 "the second toggle did not take the bookmark away");
+    }
+};
+
+QObject *createBookmarkActionTest()
+{
+    return new BookmarkActionTest;
+}
+
+#endif // WITH_TESTS
+
 } // TextEditor::Internal
+
+#ifdef WITH_TESTS
+#include "bookmarkmanager.moc"
+#endif
