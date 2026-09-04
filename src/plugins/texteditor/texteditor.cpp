@@ -10136,6 +10136,11 @@ TextEditorFactory::LinkFinder TextEditorFactory::linkFinderFor(TextDocument *doc
 {
     if (!document)
         return {};
+    // The document's own first: a language server answers for the file it was
+    // given, and the factory that claims the file's mime type knows nothing
+    // about it - for a Python file that factory is the plain text one.
+    if (const LinkFinder own = document->linkFinder())
+        return own;
     TextEditorFactory * const factory = preferredFactoryFor(document->filePath());
     return factory ? factory->linkFinder() : LinkFinder();
 }

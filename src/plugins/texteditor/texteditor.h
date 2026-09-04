@@ -767,13 +767,8 @@ public:
     using SyntaxHighLighterCreator = std::function<SyntaxHighlighter *()>;
     using IndenterCreator = std::function<Indenter *(QTextDocument *)>;
     using AutoCompleterCreator = std::function<AutoCompleter *()>;
-    // Where the symbol at \a cursor is defined. Answered through the callback
-    // because a language server has to be asked.
-    using LinkFinder = std::function<void(TextDocument *document,
-                                          const QTextCursor &cursor,
-                                          const Utils::LinkHandler &callback,
-                                          bool resolveTarget,
-                                          bool inNextSplit)>;
+    // Declared beside TextDocument, which can also carry one.
+    using LinkFinder = TextEditor::LinkFinder;
 
     void setDocumentCreator(const DocumentCreator &creator);
     void setEditorWidgetCreator(const EditorWidgetCreator &creator);

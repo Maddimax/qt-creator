@@ -2869,6 +2869,53 @@ private slots:
                  "a view's own bracket match was published to the document");
     }
 
+    // A language server attaches to a document rather than to a language, so
+    // it cannot register a finder on a factory - and for a C++ file it has to
+    // be preferred over the one CppEditor registers, or Follow Symbol answers
+    // from the built-in model while clangd is the thing that knows.
+    void testADocumentsOwnLinkFinderBeatsItsLanguages()
+    {
+        Utils::TemporaryDirectory dir("document-link-finder");
+        QVERIFY(dir.isValid());
+
+        TextDocument document;
+        document.setFilePath(dir.filePath("thing.cpp"));
+        // Real text and a real cursor, because if the preference went the
+        // other way the *language's* finder would run instead - and CppEditor's
+        // dereferences the cursor's document, so a default-constructed one
+        // turns a clean failure into a crash.
+        document.setPlainText("int alpha() { return 0; }\n");
+        QTextCursor cursor(document.document());
+        cursor.setPosition(4);
+
+        // The control on the fixture: if no language answered for a C++ file
+        // there would be nothing to be preferred over.
+        QVERIFY2(TextEditorFactory::linkFinderFor(&document),
+                 "no language answers Follow Symbol for a C++ file, so preferring "
+                 "the document's own finder would prove nothing");
+
+        bool askedTheDocuments = false;
+        document.setLinkFinder([&askedTheDocuments](TextDocument *, const QTextCursor &,
+                                                    const Utils::LinkHandler &, bool, bool) {
+            askedTheDocuments = true;
+        });
+
+        const LinkFinder finder = TextEditorFactory::linkFinderFor(&document);
+        QVERIFY(finder);
+        finder(&document, cursor, [](const Utils::Link &) {}, false, false);
+        QVERIFY2(askedTheDocuments,
+                 "the language's finder was used for a document carrying its own");
+
+        // And cleared again, which is what a server going away has to leave
+        // behind: the language answers for its own files once more. Not
+        // invoked - what is being checked is that there is one, and running
+        // CppEditor's for real needs a project this test has no business
+        // setting up.
+        document.setLinkFinder({});
+        QVERIFY2(TextEditorFactory::linkFinderFor(&document),
+                 "clearing the document's finder left the language without one");
+    }
+
     // A census, the way the settings pages have one: every language that has
     // been moved off its findLinkAt() override has to register a finder in
     // its place, or Follow Symbol quietly stops working in that language -

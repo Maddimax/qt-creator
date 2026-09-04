@@ -12,6 +12,7 @@
 #include <coreplugin/textdocument.h>
 
 #include <utils/id.h>
+#include <utils/link.h>
 #include <utils/multitextcursor.h>
 
 #include <QList>
@@ -43,7 +44,18 @@ class IAssistProvider;
 class StorageSettingsData;
 class SyntaxHighlighter;
 class TabSettingsData;
+class TextDocument;
 class TextDocumentPrivate;
+
+// Where the symbol at \a cursor is defined. Answered through the callback
+// because a language server has to be asked. Registered on a factory for a
+// language that always answers, and on a document for one that only sometimes
+// does - a language server attaches to a document rather than to a language.
+using LinkFinder = std::function<void(TextDocument *document,
+                                      const QTextCursor &cursor,
+                                      const Utils::LinkHandler &callback,
+                                      bool resolveTarget,
+                                      bool inNextSplit)>;
 class TextMark;
 class ToolBarChoice;
 class TextSuggestion;
@@ -281,6 +293,13 @@ public:
     // document it knows nothing about - and toolBarActions() is the two of
     // them together, which is what a view should ask for.
     QList<QAction *> toolBarActions() const;
+
+    // What Ctrl+click and Follow Symbol do in *this* document, whatever its
+    // language's factory offers - which is how a language server, attached to
+    // one document rather than to a language, gets to answer them.
+    // TextEditorFactory::linkFinderFor() prefers this over the factory's.
+    LinkFinder linkFinder() const;
+    void setLinkFinder(const LinkFinder &finder);
     void addToolBarAction(QAction *action);
     void removeToolBarAction(QAction *action);
     // The choice the language offers in the toolbar, or nullptr where it

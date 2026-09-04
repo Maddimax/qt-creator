@@ -1046,6 +1046,21 @@ void Client::activateDocument(TextEditor::TextDocument *document)
         document->setQuickFixAssistProvider(d->m_clientProviders.quickFixAssistProvider);
     }
     document->setFormatter(new LanguageClientFormatter(document, this));
+    // Follow Symbol, for a language whose definitions only this server knows.
+    // On the document rather than on a factory: the factory that claims a
+    // Python file is the plain text one, which has no idea a server is here.
+    // Held by QPointer because the document can outlive the client.
+    if (symbolSupport().supportsFindLink(document, LinkTarget::SymbolDef)) {
+        document->setLinkFinder([self = QPointer(this)](
+                                    TextEditor::TextDocument *doc,
+                                    const QTextCursor &cursor,
+                                    const Utils::LinkHandler &callback,
+                                    bool resolveTarget,
+                                    bool /*inNextSplit*/) {
+            if (self)
+                self->findLinkAt(doc, cursor, callback, resolveTarget, LinkTarget::SymbolDef);
+        });
+    }
     for (Core::IEditor *editor : Core::DocumentModel::editorsForDocument(document))
         activateEditor(editor);
 }
@@ -1104,6 +1119,7 @@ void Client::deactivateDocument(TextEditor::TextDocument *document)
         d->m_diagnosticManager->hideDiagnostics(document->filePath());
     d->resetAssistProviders(document);
     document->setFormatter(nullptr);
+    document->setLinkFinder({});
     d->m_tokenSupport.deactivateDocument(document);
     d->m_foldingSupport.deactivate(document);
     for (Core::IEditor *editor : Core::DocumentModel::editorsForDocument(document))
@@ -2677,6 +2693,69 @@ private slots:
         QVERIFY2(combo, "the outline has no combo for a view that installs one");
         QVERIFY2(!combo->parentWidget(),
                  "something installed the combo in a view that has no toolbar of its own");
+    }
+
+    // Follow Symbol. The widget editor asked through its own requestLinkAt
+    // signal, which a view that is not one does not have; the client
+    // registers a finder on the document instead, and both views go through
+    // TextEditorFactory::linkFinderFor().
+    void testFollowSymbolReachesTheServerFromAnyView()
+    {
+        Utils::TemporaryDirectory dir("lsp-follow-symbol-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("followed.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        QJsonObject capabilities;
+        capabilities["definitionProvider"] = true;
+
+        auto * const server = new RecordingServer(capabilities);
+        auto * const client = new Client(server);
+        client->setName("follow symbol test client");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY(client->reachable());
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Nothing answers Follow Symbol for a plain text file, so a finder
+        // appearing can only be the client's.
+        QVERIFY2(!TextEditor::TextEditorFactory::linkFinderFor(document),
+                 "something already answered Follow Symbol before any client took the file");
+
+        LanguageClientManager::openDocumentWithClient(document, client);
+        QTRY_VERIFY(LanguageClientManager::clientForFilePath(file) == client);
+
+        TextEditor::LinkFinder finder;
+        QTRY_VERIFY2((finder = TextEditor::TextEditorFactory::linkFinderFor(document)),
+                     "the client registered no way to follow a symbol in this document");
+
+        // And asking it reaches the server, which is the half a registered
+        // finder that answers nothing would still pass.
+        server->forget();
+        QVERIFY(!server->sawMethod(GotoDefinitionRequest::methodName));
+        QTextCursor cursor(document->document());
+        cursor.setPosition(1);
+        finder(document, cursor, [](const Utils::Link &) {}, true, false);
+        QTRY_VERIFY2(server->sawMethod(GotoDefinitionRequest::methodName),
+                     "following a symbol asked the server nothing");
+
+        // Taking the document away takes the finder with it, or a dead client
+        // would go on being asked.
+        client->deactivateDocument(document);
+        QVERIFY2(!TextEditor::TextEditorFactory::linkFinderFor(document),
+                 "the finder outlived the client's interest in the document");
     }
 };
 

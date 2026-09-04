@@ -109,6 +109,7 @@ public:
     // Toolbar actions put here by something other than the document's own
     // class. Not owned - whoever added one deletes it - so held by QPointer.
     QList<QPointer<QAction>> m_extraToolBarActions;
+    LinkFinder m_linkFinder;
     Utils::Guard m_modificationChangedGuard;
 
     SyntaxHighlighter *m_highlighter = nullptr;
@@ -643,6 +644,16 @@ QList<QAction *> TextDocument::toolBarActions() const
             actions.append(action);
     }
     return actions;
+}
+
+LinkFinder TextDocument::linkFinder() const
+{
+    return d->m_linkFinder;
+}
+
+void TextDocument::setLinkFinder(const LinkFinder &finder)
+{
+    d->m_linkFinder = finder;
 }
 
 void TextDocument::addToolBarAction(QAction *action)

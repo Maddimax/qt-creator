@@ -30271,3 +30271,142 @@ No new file, so no `.qbs` edit and no qbs re-resolve.
   looked at.
 - Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — Follow Symbol for a language only a server knows
+
+**The gap this batch closed**: Follow Symbol - and Ctrl+click - did not reach
+the language server for a file in the Qt Quick editor. It is the last of the
+five things `LanguageClientManager::editorOpened()` used to connect to
+`TextEditorWidget` signals, and the most used of them.
+
+### Which of two mechanisms it belonged to
+
+This was recorded as "a decision rather than a substitution", and the decision
+turned out to be *which existing seam*, because there are two:
+
+- **`TextEditor::SymbolRequests`**, a relay a non-widget view emits on, already
+  carries `requestUsages`, `requestRename`, `requestCallHierarchy` and
+  `requestTypeAt`. A fifth signal would have fitted mechanically.
+- **`TextEditorFactory::setLinkFinder()`**, which is what Ctrl+click and Follow
+  Symbol already go through in *both* views, via
+  `TextEditorFactory::linkFinderFor(document)`.
+
+The finder is the right one, and the giveaway is that the four relay signals
+are all "ask the language to do this", while this one is "where is the symbol
+here defined" - a question the viewport already had to answer for Ctrl+click,
+through the finder. Adding a fifth relay signal would have left two ways to
+answer the same question, and Ctrl+click going through only one of them.
+
+### What had to be widened
+
+A finder is registered **per language, on a factory**. A language server
+attaches to a *document*: it is handed a Python or a Rust file whose factory
+has never heard of it - and for a plain-text-ish file that factory is the plain
+text one, which registers no finder at all. So a document can carry one too:
+
+```cpp
+// TextDocument
+LinkFinder linkFinder() const;
+void setLinkFinder(const LinkFinder &finder);
+```
+
+and `linkFinderFor()` - already the single funnel both views go through -
+prefers the document's over the factory's. Nothing else changed: the widget
+editor and the `TextViewport` both got it without being touched, which is the
+whole value of that function existing.
+
+**Preferred, not a fallback.** For a C++ file CppEditor registers
+`findCppLinkAt`, so a fallback ordering would mean that with clangd running
+Follow Symbol still answered from the built-in model - the wrong answer from
+the wrong engine, silently. That ordering is what the TextEditor-side test
+pins.
+
+The client installs it in `activateDocument()` beside the completion and
+quick-fix providers, guarded on `supportsFindLink(document, SymbolDef)`, and
+clears it in `deactivateDocument()` beside `setFormatter(nullptr)` - the
+symmetry that was already there. The lambda holds a `QPointer` to the client,
+because a document can outlive one.
+
+### Controls
+
+Three, each failing on its own assertion:
+
+    funnel's preference removed   FAIL "the language's finder was used for a
+                                       document carrying its own"           (TextEditor)
+                                  FAIL "the client registered no way to follow
+                                       a symbol in this document"          (LanguageClient)
+    client does not install       FAIL "the client registered no way to follow
+                                       a symbol in this document"
+    client does not clear         FAIL "the finder outlived the client's
+                                       interest in the document"
+
+The LanguageClient test also asks the server: a registered finder that answers
+nothing would pass a test that only checked one existed, so it invokes the
+finder and waits for `textDocument/definition` to reach `RecordingServer`.
+
+### A control has to fail cleanly
+
+The first version of the ordering test crashed instead of failing:
+
+    SEGV qtextcursor.cpp:2589 in QTextCursor::document()
+      CppEditor::Internal::findCppLinkAt
+
+It invoked the *factory's* finder - CppEditor's real one - with a
+default-constructed `QTextCursor` on a document with no text, and
+`BuiltinModelManagerSupport::followSymbol()` dereferenced the cursor's
+document. The product was fine; the test was calling real code with inputs
+nothing would ever pass it.
+
+**The lesson is about the control, not the crash.** A test whose failure mode
+is "the wrong branch runs" has to give that branch inputs it can survive, or
+the control reports a SEGV instead of the sentence that says what went wrong -
+and a SEGV in someone else's plugin is exactly the kind of thing that gets
+mis-attributed. The fixed test gives the document real text and a real cursor,
+and does not invoke the language's finder at all on the passing path.
+
+### Correcting the previous entry
+
+Two entries ago this document said the full-rebuild step count is "a free
+measurement of how far a header change reaches: 57 is two plugins include this
+header, 932 is the layout of an exported class moved". The second half is
+wrong. This batch changed `textdocument.h` and `texteditor.h` by adding
+**non-virtual** members and an alias - no layout moved, the new state lives in
+`TextDocumentPrivate` behind the d-pointer - and it still rebuilt **1144**
+steps.
+
+The count measures how widely a header is included, and nothing else.
+`textdocument.h` reaches almost everything, so it costs a full rebuild whether
+or not anything moved. What tells you a layout changed is reading the diff for
+`virtual` and for new data members in the class itself.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 431 passed, 0 failed, exit 0, no ASan report
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient  5 classes, 36 passed, 0 failed, exit 0
+
+431 and 36 rather than 430 and 35: one new test each. The census test
+`testEveryConvertedLanguageRegistersALinkFinder` still passes - no factory was
+touched, and it would have caught it if one had been. No new file, so no
+`.qbs` edit and no qbs re-resolve.
+
+**Still left**:
+
+- **Debugger's remaining sites**, unread - the last unexamined group from the
+  widget-cast survey. Re-grep before quoting a count; the last one went stale
+  inside an hour.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode, and the client's button, outline and
+  Follow Symbol in a real Qt Quick editor - all of which have tests and none
+  of which anybody has looked at.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.
+
+With this the whole `editorOpened()` group is done: all five things the widget
+editor was asked for - usages, rename, call hierarchy, type definition and now
+definition - reach the server from either view.
