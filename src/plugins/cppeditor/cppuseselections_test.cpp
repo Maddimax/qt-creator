@@ -314,7 +314,7 @@ void SelectionsTest::testSelectionFiltering()
 
     const QList<QTextEdit::ExtraSelection> expected = convertList(filtered);
     const QList<QTextEdit::ExtraSelection> actual
-            = CppEditorWidget::unselectLeadingWhitespace(convertList(original));
+            = CppEditorDocument::unselectLeadingWhitespace(convertList(original));
 
     QCOMPARE(actual.length(), expected.length());
     for (int i = 0; i < expected.length(); ++i) {

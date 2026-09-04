@@ -30748,3 +30748,104 @@ private slots and one bool behind the d-pointer. No new file, no `.qbs` edit.
   and Follow Symbol, and dragging a breakpoint in a real Qt Quick editor.
 - Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — C++ warnings, with the input measured first
+
+**The gap this batch closed**: with the built-in code model, a C++ file open in
+the Qt Quick editor got **no warning underlines and no clang fix-it markers**.
+`CppEditorDocument::codeWarningsUpdated` is a *document* signal, and
+`CppEditorWidget::onCodeWarningsUpdated` was its only listener - so a view with
+no such widget heard nothing. The document publishes them itself now, onto its
+own extra selections and refactor markers, which the previous batch taught the
+widget editor to read.
+
+### The question the last entry left, answered by reading
+
+The previous attempt failed and the entry said the sharp question was *what the
+built-in model actually reports, and when*. It suggested probing a widget
+editor. Reading the producer was cheaper and exact:
+`CheckSymbols::warning()` has four callers and no others.
+
+    "Only virtual functions can be marked 'override'"
+    "Only virtual functions can be marked 'final'"
+    "Expected a namespace-name"
+    "Too few arguments" / "Too many arguments"
+
+That is the whole list. `CheckSymbols` is not a compiler and does not diagnose
+an undeclared identifier, which is what the failed attempt used - so that test
+could never have passed, whatever the port did. The fixture is a call with one
+argument too many now, and it fires.
+
+**Read the producer, not the consumer.** The previous attempt looked at where
+warnings are *drawn* and guessed at an input that ought to produce some. Ten
+minutes on `grep warning(` in `cppchecksymbols.cpp` would have given the
+answer before the first build.
+
+### The fixture has a control of its own
+
+Two tests, and the first is about the *input*:
+
+    testTheModelWarnsAboutThisFileAtAll          the widget editor, where the path is known
+    testCodeWarningsReachTheDocumentInAnyView    the Qt Quick editor, which is the gap
+
+If the model ever stops reporting on that file - a different C++ front end, a
+changed message, an input that no longer parses that way - the first test fails
+and says so in those words, instead of the second failing and looking like the
+port broke. A fixture whose premise is only implied is how the last attempt
+spent a build finding out nothing.
+
+`unselectLeadingWhitespace()` moved with the handler: it is a transformation on
+the ranges and its only production caller is now the document.
+`cppuseselections_test.cpp` calls it by class name and was updated.
+
+### Control
+
+Disabling the document's publication fails both tests -
+
+    the built-in model warns about nothing in this file, so the Qt Quick half
+      below would prove nothing
+    the code model underlined nothing on the document
+
+- the widget half included, because this change removes the widget's own
+handler rather than leaving two publishers. That is the intended shape: one
+producer, on the document, and both views reading it.
+
+### Verification
+
+    -test CppEditor (the three touched functions)
+      2 classes, 8 passed, 0 failed, exit 0
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 433 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      208 passed, 0 failed, 0 skipped, exit 0
+
+The CppEditor run includes `SelectionsTest::testSelectionFiltering`, which is
+the existing test of `unselectLeadingWhitespace()` and the reason moving it had
+to be checked rather than assumed. Full rebuild: `cppeditordocument.h` and
+`cppeditorwidget.h` both changed, and removing a slot changes a meta-object.
+No new file, no `.qbs` edit.
+
+**Still left**:
+
+- **The debugger's tooltips** - `tooltipOverrideRequested` has no `TextViewport`
+  equivalent and the tooltip is a pinnable widget rather than text. A new seam
+  on the viewport or a port onto hover handlers; still the largest single thing
+  and still a decision rather than a substitution.
+- **The QML exception selections**, now a plain substitution: publishing them on
+  the document reaches both views since the widget reads it.
+- `disassembleragent.cpp` and `sourceagent.cpp`, which make their own editors.
+- `debuggerplugin.cpp:2021`, a small substitution on a scratch-contents editor.
+- **QmlJSEditorWidget's own warnings**, which are the same shape as the C++ ones
+  this batch moved: `qmljseditor.cpp:220` sets `CodeWarningsSelection` from a
+  widget slot. Whether a .qml file opens in the Quick editor at all has not
+  been checked, so that is the first question there rather than the port.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode, the language client's button, outline
+  and Follow Symbol, dragging a breakpoint, and now **a warning underline in a
+  real Qt Quick editor** - the tests say the ranges reach the document, not
+  that they are drawn where a reader expects.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.

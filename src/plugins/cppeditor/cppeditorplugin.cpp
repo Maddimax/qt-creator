@@ -736,6 +736,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppQuickFixSettingsTest);
     addTestCreator(createQuickFixAssistTest);
     addTestCreator(createCppOutlineTest);
+    addTestCreator(createCodeWarningsTest);
     addTestCreator(createCppIncludeHierarchyWidgetTest);
     addTestCreator(createCppEditorOutlineTest);
     addTestCreator(createCppTypeHierarchyTest);

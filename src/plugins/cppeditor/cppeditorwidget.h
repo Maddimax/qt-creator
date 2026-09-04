@@ -96,8 +96,6 @@ public:
     void invokeTextEditorWidgetAssist(TextEditor::AssistKind assistKind,
                                       TextEditor::IAssistProvider *provider);
 
-    static const QList<QTextEdit::ExtraSelection>
-    unselectLeadingWhitespace(const QList<QTextEdit::ExtraSelection> &selections);
 
     bool isInTestMode() const;
     void setProposals(const TextEditor::IAssistProposal *immediateProposal,
@@ -130,9 +128,6 @@ private:
     void updateFunctionDeclDefLinkNow();
     void abortDeclDefLink();
 
-    void onCodeWarningsUpdated(unsigned revision,
-                               const QList<QTextEdit::ExtraSelection> selections,
-                               const TextEditor::RefactorMarkers &refactorMarkers);
 
     void updateSemanticInfo(const SemanticInfo &semanticInfo,
                             bool updateUseSelectionSynchronously = false);

@@ -22,6 +22,16 @@
 #include "editordocumenthandle.h"
 #include "quickfixes/cppquickfixassistant.h"
 
+#ifdef WITH_TESTS
+#include "clangdsettings.h"
+#include "cpptoolstestcase.h"
+#include <coreplugin/editormanager/editormanager.h>
+#include <texteditor/texteditor.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 #include <coreplugin/session.h>
 
 #include <projectexplorer/projectexplorer.h>
@@ -192,6 +202,63 @@ private:
     // that un-registration happens with the path the document was registered.
     const FilePath m_registrationFilePath;
 };
+
+const QList<QTextEdit::ExtraSelection> CppEditorDocument::unselectLeadingWhitespace(
+        const QList<QTextEdit::ExtraSelection> &selections)
+{
+    QList<QTextEdit::ExtraSelection> filtered;
+    for (const QTextEdit::ExtraSelection &sel : selections) {
+        QList<QTextEdit::ExtraSelection> splitSelections;
+        int firstNonWhitespacePos = -1;
+        int lastNonWhitespacePos = -1;
+        bool split = false;
+        const QTextBlock firstBlock = sel.cursor.document()->findBlock(sel.cursor.selectionStart());
+        bool inIndentation = firstBlock.position() == sel.cursor.selectionStart();
+        const auto createSplitSelection = [&] {
+            QTextEdit::ExtraSelection newSelection;
+            newSelection.cursor = QTextCursor(sel.cursor.document());
+            newSelection.cursor.setPosition(firstNonWhitespacePos);
+            newSelection.cursor.setPosition(lastNonWhitespacePos + 1, QTextCursor::KeepAnchor);
+            newSelection.format = sel.format;
+            splitSelections << newSelection;
+        };
+        for (int i = sel.cursor.selectionStart(); i < sel.cursor.selectionEnd(); ++i) {
+            const QChar curChar = sel.cursor.document()->characterAt(i);
+            if (!curChar.isSpace()) {
+                if (firstNonWhitespacePos == -1)
+                    firstNonWhitespacePos = i;
+                lastNonWhitespacePos = i;
+            }
+            if (!inIndentation) {
+                if (curChar == QChar::ParagraphSeparator)
+                    inIndentation = true;
+                continue;
+            }
+            if (curChar == QChar::ParagraphSeparator)
+                continue;
+            if (curChar.isSpace()) {
+                if (firstNonWhitespacePos != -1) {
+                    createSplitSelection();
+                    firstNonWhitespacePos = -1;
+                    lastNonWhitespacePos = -1;
+                }
+                split = true;
+                continue;
+            }
+            inIndentation = false;
+        }
+
+        if (!split) {
+            filtered << sel;
+            continue;
+        }
+
+        if (firstNonWhitespacePos != -1)
+            createSplitSelection();
+        filtered << splitSelections;
+    }
+    return filtered;
+}
 
 CppEditorDocument::CppEditorDocument()
     : d(new CppEditorDocument::Private(this))
@@ -769,6 +836,22 @@ BaseEditorDocumentProcessor *CppEditorDocument::Private::processor()
                 [this](unsigned revision,
                        const QList<QTextEdit::ExtraSelection> selections,
                        const TextEditor::RefactorMarkers &refactorMarkers) {
+            // Published here rather than by an editor widget's slot. What the
+            // code model found is a fact about the file, and a C++ file open in
+            // the Qt Quick editor has no widget to hear it - so it used to be
+            // underlined with nothing at all.
+            if (revision == unsigned(q->document()->revision())) {
+                QList<TextEditor::TextDocument::ExtraSelection> shared;
+                const QList<QTextEdit::ExtraSelection> trimmed
+                    = CppEditorDocument::unselectLeadingWhitespace(selections);
+                shared.reserve(trimmed.size());
+                for (const QTextEdit::ExtraSelection &selection : trimmed)
+                    shared.append({selection.cursor, selection.format});
+                q->setExtraSelections(TextEditor::TextEditorWidget::CodeWarningsSelection,
+                                      shared);
+                q->setRefactorMarkers(Constants::CPP_CLANG_FIXIT_AVAILABLE_MARKER_ID,
+                                      refactorMarkers);
+            }
             emit q->codeWarningsUpdated(revision, selections, refactorMarkers);
         });
         connect(
@@ -916,6 +999,121 @@ QList<BlockRange> CppEditorDocument::ifdefedOutBlocks() const
     return d->m_ifdefedOutBlocks;
 }
 
+namespace Internal {
+
+// What the built-in code model found is a fact about the file. It used to be
+// published by CppEditorWidget's slot, so a C++ file open in the Qt Quick
+// editor - which has no such widget - was underlined with nothing at all.
+class CodeWarningsTest final : public QObject
+{
+    Q_OBJECT
+
+private:
+    // CheckSymbols warns about four things and nothing else: 'override' or
+    // 'final' on a function that is not virtual, a namespace name it expected,
+    // and a call with the wrong number of arguments. Read off its warning()
+    // callers rather than guessed - an undeclared identifier, which is the
+    // obvious guess, is not among them and reports nothing.
+    static Utils::FilePath fileThatWarns(CppEditor::Tests::TemporaryDir &dir)
+    {
+        return dir.createFile("warned.cpp",
+                              "void takesOne(int a);\n"
+                              "int main()\n"
+                              "{\n"
+                              "    takesOne(1, 2);\n"
+                              "    return 0;\n"
+                              "}\n");
+    }
+
+    static bool warningsOn(TextEditor::TextDocument *document)
+    {
+        return !document
+                    ->extraSelections(TextEditor::TextEditorWidget::CodeWarningsSelection)
+                    .isEmpty();
+    }
+
+private slots:
+    // The fixture's own control: if the model said nothing about this file
+    // there would be nothing for the Quick editor to be missing.
+    void testTheModelWarnsAboutThisFileAtAll()
+    {
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = fileThatWarns(dir);
+        QVERIFY(!file.isEmpty());
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(false);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(TextEditor::TextEditorWidget::fromEditor(editor),
+                 "this half is about the widget editor, so it has to be one");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QTRY_VERIFY2(warningsOn(document),
+                     "the built-in model warns about nothing in this file, so the "
+                     "Qt Quick half below would prove nothing");
+    }
+
+    void testCodeWarningsReachTheDocumentInAnyView()
+    {
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = fileThatWarns(dir);
+        QVERIFY(!file.isEmpty());
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QTRY_VERIFY2(warningsOn(document),
+                     "the code model underlined nothing on the document");
+    }
+};
+
+QObject *createCodeWarningsTest()
+{
+    return new CodeWarningsTest;
+}
+
+} // namespace Internal
+
 #endif
 
 } // namespace CppEditor
+
+#ifdef WITH_TESTS
+#include "cppeditordocument.moc"
+#endif

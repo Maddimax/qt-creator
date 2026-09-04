@@ -69,6 +69,12 @@ public:
     void showPreProcessorDialog();
 
     QList<QAction *> ownToolBarActions() const override;
+
+    // Diagnostics do not underline a line's leading whitespace: an error on a
+    // deeply indented line would otherwise draw a long squiggle in front of
+    // the token it is about. Static, being a transformation on the ranges.
+    static const QList<QTextEdit::ExtraSelection>
+    unselectLeadingWhitespace(const QList<QTextEdit::ExtraSelection> &selections);
     TextEditor::ToolBarChoice *toolBarChoice() const override;
 
     // the blocks list must be sorted
@@ -115,5 +121,9 @@ private:
     class Private;
     Private * const d;
 };
+
+#ifdef WITH_TESTS
+namespace Internal { QObject *createCodeWarningsTest(); }
+#endif
 
 } // namespace CppEditor
