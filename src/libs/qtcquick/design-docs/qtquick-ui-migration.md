@@ -31595,3 +31595,106 @@ was picking a *different net* - casts, then virtuals, then constructor wiring,
 now signals. The nets not yet used include the slots and Q_INVOKABLEs
 `TextEditorWidget` exposes, and what `BaseTextEditor` does that
 `QuickTextEditor` does not.
+
+## 2026-09-04 -- The other half of the navigation history
+
+The previous entry named this and gave its shape: `gotoLine()` ends with
+`saveCurrentCursorPositionForNavigation()`, which stashes the state and marks
+the next cursor move as interesting; `slotCursorPositionChanged()` then pushes
+the stash. The effect is that the place a jump *landed* is remembered once the
+reader moves off it, so Go Back returns to what a search result or a
+definition took them to.
+
+### Measured, not read off the flags
+
+Reading the widget's implementation first was a false start worth recording.
+The condition it turns on is `m_contentsChanged`, which is set on any document
+change and cleared in `TextEditorWidget::event()` for nearly every event -
+with the comment `// FIXME: That's far too heavy, and triggers e.g for
+ChildEvent` sitting on the clear. It is an event-delivery heuristic for "the
+caret moved because of an edit rather than because the reader navigated", and
+mirroring it into a class with a different event model would have been
+copying a bug's shape.
+
+So the widget was measured instead. Jump to line 20, press Down five times,
+Go Back:
+
+    widget   jumped to 19, moved to 24, back to 19
+    quick    jumped to 19, moved to 24, back to 24
+
+That is the gap, and it is what the fix is against. `QuickTextEditor::
+gotoLine()` now stashes the state it landed on, and the first cursor move
+after that pushes it - guarded, as ever, on this being the editor the reader
+is actually in.
+
+The second scenario was measured too rather than assumed, because the simpler
+rule could have diverged from the widget's flag: jump to line 30 and *type*
+there instead of moving off it.
+
+    widget   typed at 29, back to 29
+    quick    typed at 29, back to 29
+
+They agree, so the heuristic did not need reproducing to match the behaviour
+it produces. Both rows are asserted, so a future divergence shows up.
+
+### What was found on the way and shipped without a test
+
+`slotCursorPositionChanged()`'s other arm calls
+`EditorManager::setLastEditLocation()`, and **nothing in the Quick path called
+it at all** - so Go to Last Edit Location never learned anything from a C++
+file in this editor. That is a live user-facing bug, not missing
+infrastructure, so it is fixed here: an edit on the document sets it, which
+says the same thing as the widget's flag without one.
+
+It is **not covered by a test**, and the reason is worth being precise about
+rather than waving at: what reads it back is
+`EditorManagerPrivate::gotoLastEditLocation()`, private to Core and reachable
+only through a command - and a command does not route to an editor no window
+has given focus to, which is the same wall the SELECT_BLOCK_UP test hit
+several batches ago. Shipping it beats leaving a real feature broken, but it
+is one line taken on the widget's word.
+
+### Deliberately not done
+
+`TextEditorWidget::restoreState()` also ends with the stash. That was left
+out: stepping back through the history *is* a `restoreState()`, so stashing
+there risks re-recording the place Go Back just arrived at, and there is no
+measurement here saying which behaviour is wanted. Named rather than
+silently skipped.
+
+### Negative controls
+
+- **A -- a jump is never remembered**: quick row red, `afterBack` 24 against
+  19. The bug, reproduced; widget row green.
+- **B -- the guard removed**: red, and through the *background-view* test the
+  previous batch added. `IEditor::gotoLine()` on a background editor now goes
+  through this code, so that test covers this guard too rather than only the
+  one it was written for. Worth noting because it was not planned: a test
+  written for one seam earned its keep on the next.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 446 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+446 is 444 plus the two rows of the new data-driven test. Added up per class.
+
+One file, no new file and no `.qbs` edit, so nothing to re-resolve.
+
+### What this leaves
+
+1. **The debugger's tooltips** - needs a debug session; confirmed last batch.
+2. **`restoreState()` stashing**, above - needs a decision about what should
+   happen when Go Back lands somewhere.
+3. **Go to Last Edit Location under test**, which needs either a Core-side
+   accessor or a way to route a command in a headless test. The second would
+   pay for itself: it is now blocked two separate pieces of work.
+4. The parse-context highlight, and `isChosen()` against a real project part.
+
+On the "which net next" note from the last entry: signals are now used up.
+The ones still unused are the slots and `Q_INVOKABLE`s `TextEditorWidget`
+exposes, and what `BaseTextEditor` does that `QuickTextEditor` does not -
+this batch came out of the second of those, and `BaseTextEditor` has more in
+it than the three navigation methods.

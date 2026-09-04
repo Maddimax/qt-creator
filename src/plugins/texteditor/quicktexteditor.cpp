@@ -274,6 +274,8 @@ public:
             // listens to the editor rather than to a widget.
             connect(view, &TextViewport::cursorPositionChanged,
                     this, &Core::IEditor::cursorPositionChanged);
+            connect(view, &TextViewport::cursorPositionChanged,
+                    this, &QuickTextEditor::recordAJumpTheReaderHasLeft);
         }
 
         // Preferences are pushed into a document, not read from one, so an
@@ -320,6 +322,20 @@ public:
         connect(m_document.get(), &Core::IDocument::filePathChanged, this, [this] {
             configureHighlighter();
             configureLanguageServices();
+        });
+
+        // Where the reader last changed something, which is what Go to Last
+        // Edit goes to. TextEditorWidget sets this from its own cursor handler,
+        // off a flag its code calls too heavy; an edit on the document says the
+        // same thing without one.
+        //
+        // Not covered by a test: what reads it back is
+        // EditorManagerPrivate::gotoLastEditLocation(), which is private to
+        // Core and reachable only through a command, and a command does not
+        // route to an editor that no window has given focus to.
+        connect(m_document->document(), &QTextDocument::contentsChanged, this, [this] {
+            if (Core::EditorManager::currentEditor() == this)
+                Core::EditorManager::setLastEditLocation(this);
         });
         configureHighlighter();
         configureLanguageServices();
@@ -813,8 +829,34 @@ public:
     // message, go-to-definition, the locator.
     void gotoLine(int line, int column, bool centerLine) final
     {
-        if (TextViewport * const view = viewport())
+        if (TextViewport * const view = viewport()) {
             view->gotoLine(line, column, centerLine);
+            rememberThisAsSomewhereJumpedTo();
+        }
+    }
+
+    // Where a jump landed, kept until the reader moves off it. Go Back is
+    // meant to return to the place a search result or a definition took them
+    // to, and the manager only learns of it when they leave - recording it on
+    // arrival would put the entry in front of the caret that is still on it.
+    void rememberThisAsSomewhereJumpedTo()
+    {
+        m_stateOfAJumpNotYetLeft = saveState();
+        m_jumpedHereAndStillOnIt = true;
+    }
+
+    void recordAJumpTheReaderHasLeft()
+    {
+        if (!m_jumpedHereAndStillOnIt)
+            return;
+        m_jumpedHereAndStillOnIt = false;
+        // The manager records "the current position", so a view the reader is
+        // not in would push somewhere they never were. Same guard as the one
+        // on a jump inside one file.
+        if (Core::EditorManager::currentEditor() == this) {
+            Core::EditorManager::addCurrentPositionToNavigationHistory(
+                m_stateOfAJumpNotYetLeft);
+        }
     }
 
     // Where the reader was, so that closing and reopening - or stepping back
@@ -1084,6 +1126,11 @@ public:
     // widget editor uses, so that whoever wants the document need not know
     // which kind of view is showing it.
     TextDocumentPtr m_document;
+    // See rememberThisAsSomewhereJumpedTo(). BaseTextEditor keeps the same
+    // pair for the widget editor.
+    QByteArray m_stateOfAJumpNotYetLeft;
+    bool m_jumpedHereAndStillOnIt = false;
+
     QtcQuick::ActionModel m_contextActions;
     QtcQuick::ActionModel m_toolBarActions;
     bool m_outlineUpdateScheduled = false;
@@ -3288,6 +3335,87 @@ private slots:
         // the front editor's own position instead.
         Core::EditorManager::goBackInNavigationHistory();
         QTRY_COMPARE_WITH_TIMEOUT(Core::EditorManager::currentEditor(), background, 5000);
+    }
+
+    // A jump is remembered once the reader moves off it, so that Go Back
+    // returns to what a search result or a definition took them to. The widget
+    // editor does this through TextEditorWidget::slotCursorPositionChanged();
+    // a view that is not one has to do it itself.
+    //
+    // Against the widget row this is the control on the fixture: it says the
+    // jump, the move and the step back are ones Creator really does.
+    void testGoBackReturnsToAJumpTheReaderLeft_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testGoBackReturnsToAJumpTheReaderLeft()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-navprobe");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("lines.cpp");
+        QString text;
+        for (int i = 0; i < 40; ++i)
+            text += QString("int line%1();\n").arg(i);
+        QVERIFY(file.writeFileContents(text.toUtf8()));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        QWidget *keyTarget = nullptr;
+        if (quick) {
+            auto * const qw = editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(qw && qw->rootObject());
+            auto * const view = qw->rootObject()->findChild<TextViewport *>();
+            QVERIFY(view);
+            QTRY_VERIFY(view->visibleLineCount() > 0);
+            view->forceActiveFocus();
+            keyTarget = qw;
+        } else {
+            TextEditorWidget * const w = TextEditorWidget::fromEditor(editor);
+            QVERIFY(w);
+            w->setFocus();
+            keyTarget = w;
+        }
+
+        editor->gotoLine(1, 0);
+        editor->gotoLine(20, 0);
+        const int afterJump = textCursorOf(editor).blockNumber();
+
+        for (int i = 0; i < 5; ++i)
+            QTest::keyClick(keyTarget, Qt::Key_Down);
+        const int afterMove = textCursorOf(editor).blockNumber();
+
+        Core::EditorManager::goBackInNavigationHistory();
+        const int afterBack = textCursorOf(editor).blockNumber();
+
+        QCOMPARE(afterJump, 19);
+        QCOMPARE(afterMove, 24);
+        QCOMPARE(afterBack, 19);
+
+        // And typing at the destination instead of moving off it, which the
+        // widget editor treats differently: an edit is not the reader leaving.
+        editor->gotoLine(30, 0);
+        QTest::keyClick(keyTarget, 'x');
+        const int afterTyping = textCursorOf(editor).blockNumber();
+        Core::EditorManager::goBackInNavigationHistory();
+        QCOMPARE(afterTyping, 29);
+        // Neither view moves: an edit is not the reader leaving, so there is
+        // no entry to step back to. Measured on both rather than reasoned
+        // from the widget's flags, which its own code calls too heavy.
+        QCOMPARE(textCursorOf(editor).blockNumber(), 29);
     }
 
     // Which languages open in the Qt Quick editor, written down rather than
