@@ -3166,6 +3166,90 @@ class ValueAnnotationTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The tooltip manager decides whether to take a tooltip over from the
+    // editor, and it declines unless an engine is stopped at a frame. That was
+    // written down as needing a debug session; it needs a DebuggerEngine whose
+    // state is InferiorStopOk, and an engine is nine stubs and a setState().
+    //
+    // This drives the manager through the widget editor's own signal, which is
+    // the only view it listens to. It is the control the Qt Quick side needs:
+    // when that view gets a seam of its own, this says what "handled" looks
+    // like when the machinery is working.
+    void testTheTooltipManagerTakesOverWhenAnEngineIsStopped()
+    {
+        class StubEngine final : public DebuggerEngine
+        {
+        public:
+            explicit StubEngine(DebuggerState state) { setState(state, true); }
+            bool hasCapability(unsigned) const override { return true; }
+            bool acceptsBreakpoint(const BreakpointParameters &) const override { return false; }
+            void insertBreakpoint(const Breakpoint &) override {}
+            void removeBreakpoint(const Breakpoint &) override {}
+            void updateBreakpoint(const Breakpoint &) override {}
+            void selectThread(const Thread &) override {}
+            void setupEngine() override {}
+            void shutdownInferior() override {}
+            void shutdownEngine() override {}
+        };
+
+        Utils::BoolAspect &useTooltips = settings().useToolTipsInMainEditor;
+        const bool wasUsing = useTooltips();
+        const QScopeGuard restore([&useTooltips, wasUsing] { useTooltips.setValue(wasUsing); });
+        useTooltips.setValue(true);
+
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.createFile("hovered.cpp",
+                                                    "int main()\n"
+                                                    "{\n"
+                                                    "    int alpha = 1;\n"
+                                                    "    return alpha;\n"
+                                                    "}\n");
+        QVERIFY(!file.isEmpty());
+
+        // Forced to the widget editor: a C++ file opens in the Qt Quick one
+        // now, and that is the view the manager does not listen to - which is
+        // the gap this is the control for, not something to skip over.
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restoreView(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(false);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const widget = TextEditor::TextEditorWidget::fromEditor(editor);
+        QVERIFY2(widget, "the widget editor was asked for and did not arrive");
+
+        // On "alpha" in the return, which is a name the manager can work with.
+        const int position = widget->textDocument()->plainText().indexOf("alpha;");
+        QVERIFY(position > 0);
+
+        // Stopped: the manager takes the tooltip over.
+        {
+            StubEngine engine(InferiorStopOk);
+            QVERIFY(engine.canDisplayTooltip());
+            DebuggerToolTipManager manager(&engine);
+            bool handled = false;
+            emit widget->tooltipOverrideRequested(widget, QPoint(0, 0), position, &handled);
+            QVERIFY2(handled, "an engine is stopped and the tooltip was left to the editor");
+        }
+
+        // And running: it declines, so the editor's own hover handlers answer.
+        {
+            StubEngine engine(InferiorRunOk);
+            QVERIFY(!engine.canDisplayTooltip());
+            DebuggerToolTipManager manager(&engine);
+            bool handled = false;
+            emit widget->tooltipOverrideRequested(widget, QPoint(0, 0), position, &handled);
+            QVERIFY2(!handled, "the tooltip was taken over with nothing stopped to show");
+        }
+    }
+
     void testValueAnnotationsAreMadeForAViewThatIsNotAWidget()
     {
         CppEditor::Tests::TemporaryDir dir;

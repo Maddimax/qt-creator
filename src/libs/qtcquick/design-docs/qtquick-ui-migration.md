@@ -32422,3 +32422,89 @@ For (1) the honest next step is to check what the debugger's own tests do
 about `m_engine` before believing the label - the same ten minutes that
 turned up the constructor above. For (2) there is nothing to check; it wants
 somebody to look at it.
+
+## 2026-09-05 -- A debug session is nine stubs and a setState()
+
+The previous entry's named next step was to check what the debugger's own
+tests do about `m_engine` before believing that the tooltips need a debug
+session. They do not. **That is the fourth entry running where a "blocked"
+label turned out to be a hypothesis nobody had measured** - focus, then a
+decision, then a project, now a debugger.
+
+`DebuggerEngine` is `DEBUGGER_EXPORT`, default-constructible, and has nine
+pure virtuals, all of which take arguments and return nothing much:
+`hasCapability`, four breakpoint calls, `selectThread`, `setupEngine`,
+`shutdownInferior`, `shutdownEngine`. `canDisplayTooltip()` is
+`state() == InferiorStopOk`, and `setState()` is protected with a `forced`
+flag that reduces an unexpected transition to a `qDebug`. So:
+
+    StubEngine engine(InferiorStopOk);   // nine one-line overrides
+    QVERIFY(engine.canDisplayTooltip()); // true
+
+### What this batch shipped
+
+Not the port - see below - but the thing the port needs and did not have: a
+test that drives the real `DebuggerToolTipManager` with such an engine, and
+says what "the machinery is working" looks like. Both answers, because one of
+them alone is satisfied by a constant:
+
+- stopped at a frame, the manager takes the tooltip over (`handled` true);
+- running, it declines and leaves the editor's hover handlers to answer.
+
+It drives the **widget** editor, which is the only view the manager listens
+to - `slotEditorOpened()` gates on `qobject_cast<BaseTextEditor *>`. That is
+the gap, so the test forces the widget factory rather than skipping: a C++
+file opens in the Quick editor now, and a `QSKIP` there would have been a test
+that never runs. It skipped exactly once before that was noticed.
+
+### Negative controls
+
+- **A -- the manager stops asking whether the engine is stopped**: red on the
+  running case being taken over.
+- **B -- the manager never takes a tooltip over**: red on the stopped case.
+- **C -- the test does not turn `useToolTipsInMainEditor` on**: red, so the
+  setting is part of what is being asserted rather than incidental.
+
+### Why not the port
+
+Sized honestly, it is bigger than it looks and bigger than the end of a long
+session should start. `slotTooltipOverrideRequested()` is twelve widget-typed
+lines that all have view-agnostic equivalents already in the tree -
+`textCursorOf()`, `Text::convertPosition()`, `IEditor::widget()` - but
+`DebuggerToolTip` also keeps a `QPointer<TextEditorWidget>` and positions
+itself with `editorWidget->toolTipPosition(cursor)`, which has no seam yet.
+Half-porting it would leave a Quick editor answering `handled = true` and then
+showing a tooltip that cannot place itself, which is worse than the gap.
+
+So the next batch is: a `toolTipPositionIn(IEditor *, cursor)` seam beside the
+other editor-level ones, `DebuggerToolTip::editorWidget` widened to `QWidget *`,
+the slot's parameter changed to `IEditor *`, and `slotEditorOpened()` connecting
+for any text editor. The control above is what it should be measured against,
+and `TextViewport::askForTooltipAt()` is where the view side emits from -
+immediately before `m_hoverRunner->startChecking()`, which is the same place
+the widget's `processTooltipRequest()` asks.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 452 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Unchanged: the new test is in Debugger. It was run with the value-annotation
+test beside it - 4 passed, 0 failed.
+
+One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+1. **The tooltip port**, specified above. No longer blocked on anything but
+   the work.
+2. **The parse-context highlight and the Refactor submenu's presentation** -
+   still the only two things here that want a person rather than a
+   measurement, because both ask what a reader should see.
+
+Four labels in four entries. The pattern is specific enough to name: each one
+was written from what the *production* path needs - a focused window, a real
+project, a live debugger - rather than from what the *seam* needs, and the
+seam always needed less. The two that remain are not of that kind.
