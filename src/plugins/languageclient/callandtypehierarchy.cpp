@@ -24,6 +24,15 @@
 #include <QMenu>
 #include <QToolButton>
 
+#ifdef WITH_TESTS
+#include "client.h"
+#include <coreplugin/editormanager/ieditor.h>
+#include <texteditor/textdocument.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 using namespace Core;
 using namespace Utils;
 using namespace TextEditor;
@@ -365,11 +374,16 @@ public:
     {
         m_model.clear();
 
-        TextEditorWidget *editorWidget = TextEditorWidget::currentTextEditorWidget();
-        if (!editorWidget)
+        // The document and the caret, both of which any view answers.
+        // textCursorOf() asks the widget where there is one and the viewport
+        // otherwise, so it carries the selection too; asking for the current
+        // *widget* left a file in the Qt Quick editor with an empty hierarchy
+        // whatever the caret was on.
+        IEditor * const editor = EditorManager::currentEditor();
+        IDocument * const document = qobject_cast<TextEditor::TextDocument *>(
+            editor ? editor->document() : nullptr);
+        if (!document)
             return;
-
-        IDocument *document = editorWidget->textDocument();
 
         Client *client = LanguageClientManager::clientForFilePath(document->filePath());
         if (!client)
@@ -377,7 +391,7 @@ public:
 
         TextDocumentPositionParams params;
         params.setTextDocument(TextDocumentIdentifier(client->hostPathToServerUri(document->filePath())));
-        params.setPosition(Position(editorWidget->textCursor()));
+        params.setPosition(Position(TextEditor::textCursorOf(editor)));
         sendRequest(client, params, document);
     }
 
@@ -539,13 +553,17 @@ public:
 
 class TypeHierarchyFactory final : public TypeHierarchyWidgetFactory
 {
+public:
     TypeHierarchyWidget *createWidget(IEditor *editor) final
     {
-        const auto editorWidget = TextEditorWidget::fromEditor(editor);
-        if (!editorWidget)
+        // The document: every view has one, and the widget was only ever a way
+        // of reaching it. CppEditor's own factory steps aside when clangd is in
+        // use, so returning nullptr here meant a C++ file in the Qt Quick
+        // editor was offered no type hierarchy by anybody.
+        IDocument * const document = qobject_cast<TextEditor::TextDocument *>(
+            editor ? editor->document() : nullptr);
+        if (!document)
             return nullptr;
-
-        IDocument *document = editorWidget->textDocument();
         Client *const client = LanguageClientManager::clientForFilePath(document->filePath());
         if (!client || !supportsTypeHierarchy(client, document))
             return nullptr;
@@ -601,4 +619,104 @@ bool supportsTypeHierarchy(Client *client, const IDocument *document)
                              client->capabilities().typeHierarchyProvider());
 }
 
+
+#ifdef WITH_TESTS
+
+namespace Internal {
+
+// Both hierarchies were keyed on the editor being a TextEditorWidget: the type
+// hierarchy factory returned nullptr, and updateHierarchyAtCursorPosition()
+// returned before asking. CppEditor's own type hierarchy factory steps aside
+// when clangd is in use, so a C++ file in the Qt Quick editor was offered no
+// type hierarchy by anybody.
+class HierarchyInAnyViewTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheHierarchiesReachAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("lsp-hierarchy-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("hierarchy.txt");
+        QVERIFY(file.writeFileContents("struct Base {};\nstruct Derived : Base {};\n"));
+
+        QJsonObject capabilities;
+        capabilities["typeHierarchyProvider"] = true;
+        capabilities["callHierarchyProvider"] = true;
+
+        auto * const server = new RecordingServer(capabilities);
+        auto * const client = new Client(server);
+        client->setName("hierarchy test");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY2(client->reachable(),
+                     "the fake server never got the client as far as Initialized");
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Through the manager rather than Client::openDocument(): it is
+        // LanguageClientManager that keeps the document-to-client map, and
+        // clientForFilePath() answers from that map alone.
+        LanguageClientManager::openDocumentWithClient(document, client);
+        QTRY_VERIFY2(LanguageClientManager::clientForFilePath(file) == client,
+                     "the manager never associated the document with the client");
+
+        // The type hierarchy has to be offered at all.
+        TypeHierarchyFactory typeFactory;
+        const std::unique_ptr<TypeHierarchyWidget> typeWidget(typeFactory.createWidget(editor));
+        QVERIFY2(typeWidget.get(),
+                 "no type hierarchy was offered for a file in the Qt Quick editor");
+
+        // And the call hierarchy has to ask about where the caret is. Line 2 is
+        // Derived, so what is asserted is a request being sent at all; the
+        // position it carries is checked below.
+        editor->gotoLine(2, 8);
+        QCOMPARE(editor->currentLine(), 2);
+        server->forget();
+        QVERIFY(!server->sawMethod(PrepareCallHierarchyRequest::methodName));
+
+        CallHierarchy callHierarchy;
+        callHierarchy.updateHierarchyAtCursorPosition();
+
+        QTRY_VERIFY2(server->sawMethod(PrepareCallHierarchyRequest::methodName),
+                     "the call hierarchy asked the server nothing about the caret");
+        // The caret's value rather than just a request having happened - a
+        // cursor that is non-null but wrong fails here. Compared against what
+        // the editor itself says rather than against numbers written out here:
+        // the request's position comes from textCursorOf() and this comes from
+        // IEditor's own accessors, so the two paths have to agree. The
+        // protocol counts from zero and currentLine()/currentColumn() from
+        // one.
+        const QPair<int, int> asked
+            = server->positionOf(PrepareCallHierarchyRequest::methodName);
+        QCOMPARE(asked.first, editor->currentLine() - 1);
+        QCOMPARE(asked.second, editor->currentColumn() - 1);
+    }
+};
+
+} // namespace Internal
+
+QObject *createHierarchyInAnyViewTest()
+{
+    return new Internal::HierarchyInAnyViewTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace LanguageClient
+
+#ifdef WITH_TESTS
+#include "callandtypehierarchy.moc"
+#endif

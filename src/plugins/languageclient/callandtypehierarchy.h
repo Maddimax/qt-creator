@@ -3,6 +3,10 @@
 
 #pragma once
 
+#ifdef WITH_TESTS
+#include <QObject>
+#endif
+
 namespace Core { class IDocument; }
 
 namespace LanguageClient {
@@ -14,5 +18,9 @@ bool supportsCallHierarchy(Client *client, const Core::IDocument *document);
 
 void setupTypeHierarchyFactory();
 bool supportsTypeHierarchy(Client *client, const Core::IDocument *document);
+
+#ifdef WITH_TESTS
+QObject *createHierarchyInAnyViewTest();
+#endif
 
 } // namespace LanguageClient

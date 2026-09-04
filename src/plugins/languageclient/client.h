@@ -10,6 +10,14 @@
 
 #include <texteditor/refactoringchanges.h>
 
+#ifdef WITH_TESTS
+#include "languageclientinterface.h"
+#include <utils/algorithm.h>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#endif
+
 namespace Core { class IDocument; }
 
 namespace ProjectExplorer {
@@ -266,6 +274,76 @@ private:
 };
 
 #ifdef WITH_TESTS
+namespace Internal {
+
+// A server that never runs. It answers the initialize handshake with the
+// capabilities it was given - which is the only answer a Client needs to reach
+// Initialized - and records what it was asked to send. Reaching Initialized is
+// the point: an unreachable Client queues its requests instead of sending
+// them, so "the request was sent" is only an observable question once the
+// handshake has happened.
+class RecordingServer : public BaseClientInterface
+{
+public:
+    explicit RecordingServer(const QJsonObject &capabilities)
+        : m_capabilities(capabilities)
+    {}
+
+    Utils::FilePath serverDeviceTemplate() const override { return {}; }
+
+    bool sawMethod(const QString &method) const
+    {
+        return Utils::contains(m_sent, [&method](const QJsonObject &message) {
+            return message.value("method").toString() == method;
+        });
+    }
+
+    // The position a request carried, so a test can pin what the caret was
+    // taken to be rather than only that something was asked. Both numbers are
+    // as the protocol counts them, from zero.
+    QPair<int, int> positionOf(const QString &method) const
+    {
+        for (const QJsonObject &message : m_sent) {
+            if (message.value("method").toString() != method)
+                continue;
+            const QJsonObject position
+                = message.value("params").toObject().value("position").toObject();
+            return {position.value("line").toInt(-1), position.value("character").toInt(-1)};
+        }
+        return {-1, -1};
+    }
+
+    void forget() { m_sent.clear(); }
+
+protected:
+    void sendData(const QByteArray &data) override
+    {
+        // sendMessage() hands the header and the content over as two separate
+        // calls, so the content arrives as plain JSON with no framing to strip.
+        const QJsonDocument document = QJsonDocument::fromJson(data);
+        if (!document.isObject())
+            return;
+        const QJsonObject message = document.object();
+        m_sent.append(message);
+        if (message.value("method").toString() != "initialize")
+            return;
+
+        QJsonObject result;
+        result["capabilities"] = m_capabilities;
+        QJsonObject response;
+        response["jsonrpc"] = "2.0";
+        response["id"] = message.value("id");
+        response["result"] = result;
+        emit messageReceived(LanguageServerProtocol::JsonRpcMessage(response));
+    }
+
+private:
+    const QJsonObject m_capabilities;
+    QList<QJsonObject> m_sent;
+};
+
+} // namespace Internal
+
 QObject *createClientEditorHandlerTest();
 #endif
 

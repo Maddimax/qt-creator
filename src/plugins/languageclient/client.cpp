@@ -2505,60 +2505,6 @@ void Client::registerCustomMethod(const QString &method, const CustomMethodHandl
 
 namespace Internal {
 
-// A server that never runs. It answers the initialize handshake - which is the
-// only answer a Client needs to reach Initialized - and records what it was
-// asked to send. Reaching Initialized is the point: an unreachable Client
-// queues its requests instead of sending them, so "the request was sent" is
-// only an observable question once the handshake has happened.
-class RecordingServer : public BaseClientInterface
-{
-public:
-    Utils::FilePath serverDeviceTemplate() const override { return {}; }
-
-    bool sawMethod(const QString &method) const
-    {
-        return Utils::contains(m_sent, [&method](const QJsonObject &message) {
-            return message.value("method").toString() == method;
-        });
-    }
-
-    void forget() { m_sent.clear(); }
-
-protected:
-    void sendData(const QByteArray &data) override
-    {
-        // sendMessage() hands the header and the content over as two separate
-        // calls, so the content arrives as plain JSON with no framing to strip.
-        const QJsonDocument document = QJsonDocument::fromJson(data);
-        if (!document.isObject())
-            return;
-        const QJsonObject message = document.object();
-        m_sent.append(message);
-        if (message.value("method").toString() != "initialize")
-            return;
-
-        QJsonObject legend;
-        legend["tokenTypes"] = QJsonArray{"variable"};
-        legend["tokenModifiers"] = QJsonArray{};
-        QJsonObject semanticTokens;
-        semanticTokens["legend"] = legend;
-        semanticTokens["full"] = true;
-        QJsonObject capabilities;
-        capabilities["foldingRangeProvider"] = true;
-        capabilities["semanticTokensProvider"] = semanticTokens;
-        QJsonObject result;
-        result["capabilities"] = capabilities;
-        QJsonObject response;
-        response["jsonrpc"] = "2.0";
-        response["id"] = message.value("id");
-        response["result"] = result;
-        emit messageReceived(LanguageServerProtocol::JsonRpcMessage(response));
-    }
-
-private:
-    QList<QJsonObject> m_sent;
-};
-
 // Both of these are handlers on EditorManager::currentEditorChanged that used
 // to do their work only when the editor was a TextEditorWidget, so a C++ file
 // in the Qt Quick editor was never asked about. The client has to be really
@@ -2577,7 +2523,17 @@ private slots:
         const Utils::FilePath other = dir.filePath("elsewhere.txt");
         QVERIFY(other.writeFileContents("elsewhere\n"));
 
-        auto * const server = new RecordingServer;
+        QJsonObject legend;
+        legend["tokenTypes"] = QJsonArray{"variable"};
+        legend["tokenModifiers"] = QJsonArray{};
+        QJsonObject semanticTokens;
+        semanticTokens["legend"] = legend;
+        semanticTokens["full"] = true;
+        QJsonObject capabilities;
+        capabilities["foldingRangeProvider"] = true;
+        capabilities["semanticTokensProvider"] = semanticTokens;
+
+        auto * const server = new RecordingServer(capabilities);
         auto * const client = new Client(server);
         client->setName("editor handler test");
         LanguageFilter filter;

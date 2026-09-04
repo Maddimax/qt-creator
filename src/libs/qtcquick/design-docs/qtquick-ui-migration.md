@@ -29760,3 +29760,113 @@ not about anything here.
   highlight, the caret shape per mode.
 - Somebody else's to fix, found here: `CodeAssistTests::cleanupTestCase()`
   closing editors with the ask-about-modified default.
+
+## 2026-09-04 — Both hierarchies, and a column counted from the other end
+
+**The gap this batch closed**: with clangd on, a C++ file in the Qt Quick
+editor was offered **no type hierarchy at all**, and its **call hierarchy was
+always empty**.
+
+- `TypeHierarchyFactory::createWidget()` began
+  `const auto editorWidget = TextEditorWidget::fromEditor(editor); if
+  (!editorWidget) return nullptr;` and used the widget only to reach
+  `textDocument()`.
+- `HierarchyWidgetHelper::updateHierarchyAtCursorPosition()` asked
+  `TextEditorWidget::currentTextEditorWidget()` and returned before sending
+  anything.
+
+The type hierarchy is the sharper of the two, because **CppEditor's own factory
+deliberately steps aside**: `CppTypeHierarchyFactory::createWidget()` returns
+nullptr when `cppDoc->usesClangd()`, on the understanding that the language
+client's factory takes over. It did not, so with clangd on the menu entry was
+live and nobody answered it. Two correct-looking pieces of code, and the hole
+was between them.
+
+Both fixes are the established substitution: `editor->document()` for the
+document, and `TextEditor::textCursorOf(editor)` - written for this migration
+two batches before - for the caret, which also carries the selection.
+`createWidget()` became public so a test can build one directly, the same
+concession `CppTypeHierarchyFactory` already made for the same reason.
+
+### The fixture earned its keep
+
+The previous entry claimed `RecordingServer` would unlock the rest of
+LanguageClient. It did, and generalising it cost three small changes: it moved
+from `client.cpp` to `client.h` under `WITH_TESTS`, it takes its capabilities
+as a constructor argument rather than hard-coding folding and semantic tokens,
+and it grew `positionOf(method)` so a test can ask **what position a request
+carried** rather than only whether one was sent.
+
+One thing needed for these two that the previous test did not:
+`LanguageClientManager::openDocumentWithClient(document, client)`, not
+`Client::openDocument(document)`. `clientForFilePath()` answers from the
+manager's document-to-client map, and only the manager's function fills it in -
+so a test using `openDocument()` gets a client that is running, has the
+document open, and is still not found.
+
+### A column counted from the other end
+
+The first version of the position assertion said "line 2, column 8, so the
+protocol's (1, 7)" and failed with **8**. The code was right and the assertion
+wrong, and the reason is a genuine asymmetry that this document had recorded
+imprecisely:
+
+    TextEditorWidget::gotoLine(line, column)   line from 1, column from 0
+    BaseTextEditor::currentColumn()            from 1  (positionInBlock() + 1)
+
+`gotoLine()` does `movePosition(Right, MoveAnchor, column)` from the start of
+the block, so its column is a distance, not an ordinal. An earlier entry here
+says "`IEditor` counts the line *and* the column from one" - true of
+`currentLine()` and `currentColumn()`, **not** of `gotoLine()`'s column. The
+tree already encodes the asymmetry in a test nobody had connected to this:
+
+    editor->gotoLine(120, 3);
+    QCOMPARE(editor->currentColumn(), 4);
+
+**So the assertion does not write the numbers out at all now.** It compares the
+position the request carried against `editor->currentLine() - 1` and
+`editor->currentColumn() - 1`. Those are two different paths -
+`textCursorOf()` through the production code on one side, `IEditor`'s
+accessors on the other - so they have to agree, and a cursor that is non-null
+but in the wrong place still fails. Writing a conversion out by hand is how the
+test ends up asserting the author's confusion.
+
+### Two fixes, two controls, for the second batch running
+
+The run with the fixture in and neither fix applied failed on the type
+hierarchy and **never reached the call-hierarchy assertion**. Same shape as
+last time, so the second half was reverted on its own:
+
+    type hierarchy reverted  FAIL  "no type hierarchy was offered for a file in the Qt Quick editor"
+    call hierarchy reverted  FAIL  "the call hierarchy asked the server nothing about the caret"
+
+### Verification
+
+    -test LanguageClient  5 classes, 33 passed, 0 failed, exit 0
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 428 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+LanguageClient is 5 classes and 33 rather than 4 and 30: `HierarchyInAnyViewTest`
+is new. No new file, so no `.qbs` edit and no qbs re-resolve. One build lesson,
+since it cost a cycle: a `Q_OBJECT` class added to a `.cpp` that had none needs
+`#include "<file>.moc"`, and AutoMoc's error says so clearly - it is worth
+reading rather than re-running.
+
+**Still left**:
+
+- LanguageClient, still: `updateEditorToolBar()` and
+  `sendPostponedDocumentUpdates()` - the latter is the `client.cpp:2027`
+  unused-variable warning. Both are now testable the same way.
+- `requestLinkAt`, which is a `TextEditorWidget` *signal* rather than a cast,
+  so it wants a decision about what a view offers rather than a substitution.
+- Debugger's remaining sites, unread.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.
+- Somebody else's, found two batches ago:
+  `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.
