@@ -192,6 +192,8 @@ Item {
                     }
                     if (root.contextActions) {
                         root.contextActions.refresh()
+                        contextMenu.extraItems = []
+                        viewport.requestContextFixes()
                         contextMenu.popup(mouse.x, mouse.y)
                     }
                     return
@@ -514,6 +516,8 @@ Item {
                     if (!root.contextActions)
                         return
                     root.contextActions.refresh()
+                    contextMenu.extraItems = []
+                    viewport.requestContextFixes()
                     contextMenu.popup(viewport.x + viewport.cursorRectangle.x
                                           - viewport.scrollX,
                                       viewport.y + viewport.cursorRectangle.y
@@ -522,6 +526,13 @@ Item {
 
                 function onQuickFixesAvailable(fixes: list<string>): void {
                     quickFixes.fixes = fixes
+                }
+
+                // A second event, and usually after the menu has opened: the
+                // language works these out in a thread. A Menu takes entries
+                // appearing under it while it is up.
+                function onContextFixesAvailable(fixes: list<string>): void {
+                    contextMenu.extraItems = fixes
                 }
 
                 function onFunctionHintAvailable(signatures: list<string>,
@@ -1071,5 +1082,7 @@ Item {
         objectName: "editorContextMenu"
 
         actions: root.contextActions
+        extraTitle: qsTr("Refactor")
+        onExtraTriggered: (index) => viewport.applyQuickFix(index)
     }
 }

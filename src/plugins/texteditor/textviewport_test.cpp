@@ -5347,6 +5347,45 @@ private slots:
         QVERIFY(offered.at(1).at(0).toStringList().isEmpty());
     }
 
+    // The right-click menu wants the same fixes the popup does, and asking for
+    // them must not answer the popup's question: routed to one signal for both,
+    // opening the menu opened the popup over it.
+    void testAskingForTheMenusFixesLeavesThePopupShut()
+    {
+        TemporaryDirectory dir("qtc-viewport-menufix");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("broken\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        OneFixProvider provider;
+        viewport->textDocument()->setQuickFixAssistProvider(&provider);
+
+        QSignalSpy popup(viewport, &TextViewport::quickFixesAvailable);
+        QSignalSpy menu(viewport, &TextViewport::contextFixesAvailable);
+        viewport->setCursorPosition(6);
+        viewport->requestContextFixes();
+
+        QTRY_COMPARE(menu.size(), 1);
+        QCOMPARE(menu.at(0).at(0).toStringList(), QStringList({"Replace with fixed"}));
+
+        // Not a bare check that nothing happened: both signals are emitted from
+        // the same delivery, so the answer above having arrived is what says the
+        // other one is not still on its way.
+        QVERIFY2(popup.isEmpty(), "asking for the menu's fixes also opened the popup");
+
+        // And they are the same fixes, so the menu applies them by index the
+        // way the popup does.
+        viewport->applyQuickFix(0);
+        QCOMPARE(viewport->textDocument()->document()->findBlockByNumber(0).text(),
+                 QString("fixed"));
+    }
+
     // A buffer that cannot be edited is not fixed either.
     void testQuickFixesAreNotOfferedForAReadOnlyBuffer()
     {

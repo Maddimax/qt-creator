@@ -12,7 +12,13 @@
 #include "textindenter.h"
 #include "codestylepool.h"
 #include "autocompleter.h"
+#include "codeassist/assistproposalitem.h"
+#include "codeassist/assisttarget.h"
 #include "codeassist/documentcontentcompletion.h"
+#include "codeassist/genericproposal.h"
+#include "codeassist/genericproposalmodel.h"
+#include "codeassist/iassistprocessor.h"
+#include "codeassist/iassistprovider.h"
 #include "completionsettings.h"
 #include "behaviorsettings.h"
 #include "displaysettings.h"
@@ -3083,6 +3089,100 @@ private slots:
         QCOMPARE(document->plainText(),
                  QString("const char *a = \"one two\";\n"
                          "const char *b = \"three\"\n                \" four\";\n"));
+    }
+
+    // What the language offers at the caret, in the right-click menu. The fixes
+    // arrive on their own signal after the menu is already up, so what this
+    // checks is that the form is listening and that picking one reaches the
+    // view.
+    void testTheMenuOffersWhatTheLanguageWouldFix()
+    {
+        class OneFixItem final : public AssistProposalItem
+        {
+        public:
+            void apply(AssistTarget &target, int basePosition) const override
+            {
+                target.replace(basePosition, target.position() - basePosition, "fixed");
+            }
+        };
+        class OneFixProcessor final : public IAssistProcessor
+        {
+        public:
+            IAssistProposal *perform() override
+            {
+                auto * const item = new OneFixItem;
+                item->setText("Replace with fixed");
+                QSharedPointer<GenericProposalModel> model(new GenericProposalModel);
+                model->loadContent({item});
+                return new GenericProposal(0, model);
+            }
+        };
+        class OneFixProvider final : public IAssistProvider
+        {
+        public:
+            IAssistProcessor *createProcessor(const AssistInterface *) const override
+            {
+                return new OneFixProcessor;
+            }
+        };
+
+        Utils::TemporaryDirectory dir("quick-editor-menu-fixes");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("broken\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        QObject * const menu = quick->rootObject()->findChild<QObject *>("editorContextMenu");
+        QVERIFY2(menu, "the form drew no context menu at all");
+        QVERIFY2(menu->property("extraItems").toStringList().isEmpty(),
+                 "the menu offered the language's fixes before anything asked for them");
+
+        // Not there at all yet, rather than there and greyed out: only
+        // CppEditorWidget builds a Refactor menu in the widget editor, and a
+        // language with nothing to offer here should leave the menu as it
+        // found it.
+        QVERIFY2(!menu->findChild<QObject *>("languageSubmenu"),
+                 "the menu had a submenu for a language that offered nothing");
+        const int entriesBefore = menu->property("count").toInt();
+
+        OneFixProvider provider;
+        document->setQuickFixAssistProvider(&provider);
+        view->setCursorPosition(6);
+        view->requestContextFixes();
+
+        QTRY_COMPARE(menu->property("extraItems").toStringList(),
+                     QStringList({"Replace with fixed"}));
+
+        // In the menu, and not merely made: findChild() finds the submenu as
+        // an object whether or not addMenu() ever put it in front of anybody,
+        // so the menu's own entry count is what says it is there.
+        QTRY_COMPARE(menu->property("count").toInt(), entriesBefore + 1);
+
+        // And the entries themselves, not just the property they came from: a
+        // submenu that drew nothing would leave that looking right.
+        QObject * const submenu = menu->findChild<QObject *>("languageSubmenu");
+        QVERIFY2(submenu, "the menu drew no submenu for the language's fixes");
+        QTRY_COMPARE(submenu->property("count").toInt(), 1);
+        QVERIFY2(!submenu->property("visible").toBool(),
+                 "the submenu opened itself instead of waiting to be picked");
+
+        // And picking one is what the view is told to apply, which is the other
+        // half of the wiring: the entries are the language's, the doing is not.
+        QMetaObject::invokeMethod(menu, "extraTriggered", Q_ARG(int, 0));
+        QTRY_COMPARE(document->document()->findBlockByNumber(0).text(), QString("fixed"));
     }
 
     // Which languages open in the Qt Quick editor, written down rather than

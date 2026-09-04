@@ -321,13 +321,27 @@ void TextViewport::requestCompletions()
 
 void TextViewport::requestQuickFixes(IAssistProvider *asked)
 {
+    startFixes(asked, [this](const QStringList &fixes) { emit quickFixesAvailable(fixes); });
+}
+
+void TextViewport::requestContextFixes()
+{
+    startFixes(nullptr, [this](const QStringList &fixes) { emit contextFixesAvailable(fixes); });
+}
+
+// The fixes at the caret, handed to whoever asked rather than to a fixed
+// consumer: the popup and the right-click menu want the same list and must not
+// answer each other's question - asking for the menu used to open the popup.
+void TextViewport::startFixes(IAssistProvider *asked,
+                              const std::function<void(const QStringList &)> &deliver)
+{
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     IAssistProvider * const provider = asked ? asked
                                              : (doc ? doc->quickFixAssistProvider() : nullptr);
     const QTextCursor cursor = textCursor();
     m_quickFixProposal.reset();
     if (!provider || cursor.isNull() || !canEdit()) {
-        emit quickFixesAvailable({});
+        deliver({});
         return;
     }
 
@@ -340,11 +354,11 @@ void TextViewport::requestQuickFixes(IAssistProvider *asked)
         = doc->createAssistInterface(cursor, QuickFix, ExplicitlyInvoked, m_editor);
     m_quickFixProcessor.reset(provider->createProcessor(interface.get()));
     if (!m_quickFixProcessor) {
-        emit quickFixesAvailable({});
+        deliver({});
         return;
     }
 
-    const auto deliver = [this](IAssistProposal *proposal) {
+    const auto handle = [this, deliver](IAssistProposal *proposal) {
         m_quickFixProposal.reset(proposal);
         QStringList fixes;
         if (m_quickFixProposal) {
@@ -354,14 +368,14 @@ void TextViewport::requestQuickFixes(IAssistProvider *asked)
                     fixes.append(model->text(i));
             }
         }
-        emit quickFixesAvailable(fixes);
+        deliver(fixes);
     };
-    m_quickFixProcessor->setAsyncCompletionAvailableHandler(deliver);
+    m_quickFixProcessor->setAsyncCompletionAvailableHandler(handle);
 
     // A proposal now means the language answered on the spot; a null one means
     // it will answer through the handler above, or not at all.
     if (IAssistProposal * const immediate = m_quickFixProcessor->start(std::move(interface)))
-        deliver(immediate);
+        handle(immediate);
 }
 
 void TextViewport::applyQuickFix(int index)

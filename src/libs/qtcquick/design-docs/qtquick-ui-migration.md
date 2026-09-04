@@ -31381,3 +31381,110 @@ Nothing of the substitution shape that can be closed here. Concretely:
 If the next batch wants a target rather than a survey, (1) is the one with a
 user-visible outcome, and the first question it has to answer is whether the
 fixes nest or go inline.
+
+## 2026-09-04 -- The Refactor submenu, and two tests that agreed with nothing
+
+The previous entry left this as the one remaining item with a user-visible
+outcome, and said the first question was whether the fixes nest or go inline.
+Reading `ActionMenu.qml` answers it: a `Menu` can hold a nested `Menu`
+alongside its `Repeater`, so nesting is available and matches what
+`CppEditorWidget::contextMenuEvent()` builds. Inline was never needed.
+
+### No new language seam
+
+The fixes were already there. `TextViewport::requestQuickFixes()` builds the
+assist interface from the document, runs the processor, handles the answer
+whenever it arrives and hands the list out; `applyQuickFix(index)` performs
+one. That is the whole of what `CppEditorWidget::addRefactoringActions()`
+does. The menu needed none of it rebuilt - only a way to ask without being
+answered in the popup's name.
+
+So `startFixes()` now takes the delivery, and there are two entry points over
+it:
+
+    requestQuickFixes()  -> quickFixesAvailable()    the popup, as before
+    requestContextFixes() -> contextFixesAvailable()  the right-click menu
+
+Routed through one signal, opening the menu opened the quick-fix popup on top
+of it. That is control A below, and it is the bug the split exists to prevent
+rather than a hypothetical.
+
+### Two tests that would have passed without the feature
+
+Both were caught by controls, and both are the same mistake in different
+clothes: **asserting on the thing you built rather than on what a reader would
+see.**
+
+The first version of the QML test read `extraItems` off the menu and invoked
+its `extraTriggered` signal. Both are `ActionMenu`'s own interface - delete
+the nested `Menu` entirely and the test still passes. Control D (the
+submenu's `Repeater` given an empty model) is what said so, and the fix was
+to assert the submenu's `count`.
+
+Then control E - never calling `addMenu()` - **still passed**, because
+`findChild<QObject *>("languageSubmenu")` finds the submenu as an *object*
+whether or not it was ever put in the menu. `createObject(root)` parents it
+either way. What distinguishes them is the outer menu's own entry count, so
+that is what the test compares now, against a count taken before the request
+rather than a hardcoded one. Only then did E bite: 11 entries against 12.
+
+That is twice in three batches that a test held for a reason unrelated to its
+claim, and both times a control found it. Worth stating as a rule: **when a
+control does not bite, suspect the assertion before suspecting the control.**
+
+### The static child that was wrong, and how the suite said so
+
+The submenu started as a static `Menu` child, enabled when there were fixes
+and greyed out otherwise. That looked harmless and was not:
+`testTheContextMenuShowsWhatItWasGiven` went red with **4 entries against 3**.
+
+`ActionMenu` is not the C++ editor's menu - it is *any* menu over an
+`ActionModel`, including the gutter's - so a static submenu put a greyed-out
+"Refactor" in front of every language and every menu, when in the widget
+editor only `CppEditorWidget` builds one at all. A binding cannot take it
+away either: on a `Menu`, `visible` is whether the popup is *open*, so
+binding it to the entries would have made the submenu open itself the moment
+the language answered.
+
+The answer is `addMenu()` and `removeMenu()` from a `Component`, so the entry
+exists only while there is something in it. The suite caught this without
+being asked, which is the argument for running it whole rather than running
+the tests the batch touched.
+
+### Negative controls
+
+- **A -- the menu's fixes go to the popup's signal**: both tests red; the
+  separation test never sees its answer at all.
+- **B -- the form does not listen** (`onContextFixesAvailable` emptied): the
+  QML test red, the C++ one green, which is the seam being tested from both
+  ends.
+- **C -- picking a fix reaches nothing**: red on the text still reading
+  `broken`.
+- **D -- the submenu drawn with nothing in it**: red on the submenu's count.
+- **E -- the submenu never added to the menu**: red on the outer menu's count,
+  after the test was fixed to look at it.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 441 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+441 is 439 plus the two new slots. Added up per class.
+
+Six files, no new file and no `.qbs` edit, so nothing to re-resolve.
+
+### What this leaves
+
+The list from the previous entry, less this one:
+
+1. **The debugger's tooltips**, wanting a debug session.
+2. **The parse-context highlight** in the widget's own style, if the Clear
+   button added last batch is judged not to say enough.
+3. **`isChosen()` against a real project part**, with the rest of what needs a
+   project.
+
+Nothing on that list can be closed on this machine without either a debug
+session or a loaded project, so the next batch is a judgement about which of
+those to arrange rather than a piece of work to pick up.

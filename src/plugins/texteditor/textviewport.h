@@ -438,6 +438,9 @@ public:
     // \a provider of nullptr asks the document's own, which is the ordinary
     // case; the clipboard history brings one of its own instead.
     Q_INVOKABLE void requestQuickFixes(IAssistProvider *provider = nullptr);
+    // The same fixes, for the right-click menu rather than the popup. Its own
+    // entry point so that opening the menu does not also open the popup.
+    Q_INVOKABLE void requestContextFixes();
     Q_INVOKABLE void applyQuickFix(int index);
 
     // The signature of the call the caret is inside. Unlike the other two
@@ -931,6 +934,7 @@ signals:
     // when it offered nothing, which the form shows as no list rather than an
     // empty one.
     void quickFixesAvailable(const QStringList &fixes);
+    void contextFixesAvailable(const QStringList &fixes);
     // The signatures the call could have, and which argument the caret is
     // in. Empty when there is no call to describe any more, which is how the
     // form knows to take the hint away.
@@ -1163,6 +1167,9 @@ private:
     std::unique_ptr<IAssistProposal> m_completionProposal;
     // The fixes on offer are kept, not just their words: applying one asks
     // the item to do it, and the item belongs to the proposal.
+    void startFixes(IAssistProvider *asked,
+                    const std::function<void(const QStringList &)> &deliver);
+
     std::unique_ptr<IAssistProcessor> m_quickFixProcessor;
     std::unique_ptr<IAssistProposal> m_quickFixProposal;
     // Kept while the hint is up: what argument the caret is in has to be
