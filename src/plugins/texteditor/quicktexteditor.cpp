@@ -2916,6 +2916,54 @@ private slots:
                  "clearing the document's finder left the language without one");
     }
 
+    // Which languages open in the Qt Quick editor, written down rather than
+    // grepped for. Three times in this migration a gap has been "closed" in
+    // code that nothing reaches, because the language's files still open in
+    // the widget editor: dragging a mark, the QML debugger's exception
+    // highlight, and QmlJSEditor's own warnings. Telling meant finding every
+    // setUsesQuickEditor() call, and the single production one is easy to miss
+    // among forty test scope guards.
+    //
+    // So: ask what a file of each language actually opens in. A language
+    // moving is a deliberate act, and moving it should change this list in the
+    // same commit.
+    void testWhichLanguagesOpenInTheQuickEditor()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-census");
+        QVERIFY(dir.isValid());
+
+        struct Expectation { const char *name; bool quick; };
+        const QList<Expectation> expected{
+            {"main.cpp", true},
+            {"header.h", true},
+            {"notes.txt", true},
+            {"Thing.qml", false},
+            {"project.pro", false},
+        };
+
+        QStringList wrong;
+        int checked = 0;
+        for (const Expectation &e : expected) {
+            const Utils::FilePath file = dir.filePath(QString::fromLatin1(e.name));
+            QVERIFY(file.writeFileContents(""));
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            if (!editor) {
+                wrong << QString("%1: nothing opened it").arg(e.name);
+                continue;
+            }
+            const bool isQuick = !TextEditorWidget::fromEditor(editor);
+            Core::EditorManager::closeEditors({editor}, false);
+            ++checked;
+            if (isQuick != e.quick) {
+                wrong << QString("%1 opened in the %2 editor")
+                             .arg(QString::fromLatin1(e.name),
+                                  isQuick ? QString("Qt Quick") : QString("widget"));
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
+        QCOMPARE(checked, expected.size());
+    }
+
     // A census, the way the settings pages have one: every language that has
     // been moved off its findLinkAt() override has to register a finder in
     // its place, or Follow Symbol quietly stops working in that language -

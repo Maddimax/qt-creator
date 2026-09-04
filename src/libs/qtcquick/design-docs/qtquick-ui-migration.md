@@ -30849,3 +30849,113 @@ No new file, no `.qbs` edit.
   that they are drawn where a reader expects.
 - Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — Which languages are actually on the Qt Quick editor
+
+**This batch closes no feature gap.** It closes a *mistake* that this document
+has now made three times, and it corrects two entries.
+
+### The mistake
+
+Three times a "remaining substitution" was listed here on the strength of a
+widget-typed cast, and each time the code it was in could not be reached from a
+Qt Quick view at all:
+
+- `LocationMark::dragToLine()` - called only from the widget's gutter, and the
+  Quick gutter could not drag. Caught before shipping; the batch that fixed it
+  added the dragging instead.
+- **The QML debugger's exception highlight** - listed last batch as "now a plain
+  substitution".
+- **QmlJSEditorWidget's own warnings** - listed last batch as "the same shape as
+  the C++ ones".
+
+The last two are **not gaps**, and would have been dead code. A `.qml` file does
+not open in the Qt Quick editor. Only one production call to
+`setUsesQuickEditor()` exists in the whole tree -
+`cppeditorplugin.cpp:163` - and every other occurrence of that name is a test
+scope guard. Forty of them, which is why grepping for it reads as "lots of
+languages" at a glance.
+
+### The measurement, and why it is a test
+
+    main.cpp        Qt Quick
+    header.h        Qt Quick
+    notes.txt       Qt Quick        (the Quick factory claims text/plain)
+    Thing.qml       widget
+    project.pro     widget
+
+Not grepped - opened. `testWhichLanguagesOpenInTheQuickEditor` writes each file,
+opens it the ordinary way, and asks whether the editor has a
+`TextEditorWidget`. The expectation is a list in the test, so moving a language
+is a deliberate act that changes this list in the same commit.
+
+The control is flipping one row: claiming `.qml` is on the Quick editor fails
+with *"Thing.qml opened in the widget editor"*, which is the sentence that was
+missing every one of the three times above.
+
+**Why a test rather than a note here.** A note in this file is what the last two
+entries already were, and they were wrong. The question "can a Qt Quick view
+reach this code?" has to be answerable by running something, because it is
+asked once per batch and answered from memory.
+
+### What is actually left, pruned
+
+With those two struck, the stated goal - a C++ file opening in the Qt Quick
+editor - has **no substitution-shaped work left that can be done here**:
+
+- **The debugger's tooltips.** The only remaining C++ feature gap.
+  `DebuggerToolTipManagerPrivate::slotEditorOpened()` connects
+  `TextEditorWidget::tooltipOverrideRequested`, which `TextViewport` has no
+  equivalent of. Sized below.
+- `debuggerplugin.cpp:2021` is **not** a gap either: it opens its scratch
+  buffer with `K_DEFAULT_TEXT_EDITOR_ID`, naming the plain text editor, so the
+  cast that follows always succeeds. Struck from the list too.
+- `disassembleragent.cpp` and `sourceagent.cpp` make their own editors, which
+  is a separate question from this migration's.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode, the language client's button, outline
+  and Follow Symbol, dragging a breakpoint, and a warning underline.
+
+### The tooltips, sized rather than deferred again
+
+This has been "the large one" for four entries. What it needs, having read it:
+
+1. **A seam that is not widget-typed.** The widget emits
+   `tooltipOverrideRequested(widget, globalPos, position, bool *handled)` from
+   `processTooltipRequest()`, as a first refusal before the hover handlers.
+   `TextViewport::askForTooltipAt()` has exactly the same shape and the same
+   place to put it, immediately before `m_hoverRunner->startChecking()`. A
+   signal on `TextDocument` carrying (document, the view's QWidget, global
+   point, position, handled) suits both.
+2. **The tooltip stores a view.** `DebuggerToolTipWidget::editorWidget` and the
+   visible-editor match at `debuggertooltipmanager.cpp:768` compare against
+   `TextEditorWidget::fromEditor()`. Both want `IEditor::widget()`, which is a
+   `QWidget` in either view.
+3. **Following a scroll.** The manager connects the widget's vertical scroll
+   bar to reposition open tooltips. A `TextViewport` has no scroll bar; it has
+   its own scroll notion, so this wants a per-view "the view scrolled" signal
+   rather than a document one.
+
+**And the reason it is still not this batch**: a tooltip only appears with a
+debugger stopped at a breakpoint, so the *consumer* cannot be tested here. The
+seam alone can be - a test can connect to the signal, call
+`askForTooltipAt()`, and check that `handled` suppresses the hover handlers -
+but shipping a seam with no reachable consumer is the "primitive with no
+consumer" this document already calls a design smell. The honest order is: a
+machine that can run a debug session, or a decision to accept the seam
+untested, and that is a judgement for whoever owns the tooltip rather than one
+to make quietly in a batch.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 434 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+One `.cpp` changed and no header, so `--target TextEditor` was the whole build
+- checked with `git diff --name-only`, not assumed. No new file, no `.qbs`
+edit.
