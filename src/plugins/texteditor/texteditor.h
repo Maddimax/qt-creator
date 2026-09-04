@@ -970,6 +970,14 @@ public:
 TEXTEDITOR_EXPORT void pasteIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void cutIn(Core::IEditor *editor);
 
+// Add or remove a hover handler on whichever view \a editor has. A language's
+// own handlers are registered on its editor factory and reach every view from
+// there; these are the ones that arrive later - a language server's tooltips,
+// which come and go with a project - and only the widget editor could be told
+// about them. Not owned.
+TEXTEDITOR_EXPORT void addHoverHandlerIn(Core::IEditor *editor, BaseHoverHandler *handler);
+TEXTEDITOR_EXPORT void removeHoverHandlerIn(Core::IEditor *editor, BaseHoverHandler *handler);
+
 // Whether \a editor's view refuses edits. Not the file's own read-only state,
 // which the document answers - this is a caller saying that what it put in a
 // scratch editor is there to be read. Both views have the notion; only the

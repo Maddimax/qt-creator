@@ -293,6 +293,13 @@ public:
     // The handlers to ask on hover, in the order the editor factory listed
     // them. Not owned - they are the plugins' singletons.
     void setHoverHandlers(const QList<BaseHoverHandler *> &handlers);
+    // One more, or one fewer, after the fact. A language's own handlers are
+    // on its factory and reach every view from there; a language server's
+    // arrives with the client, which is created with a project and destroyed
+    // with it, so it has to be handed to views that are already open and
+    // taken back before it dies.
+    void addHoverHandler(BaseHoverHandler *handler);
+    void removeHoverHandler(BaseHoverHandler *handler);
 
     // Follow Symbol. What is under the cursor is the language's business -
     // the view only asks and opens what comes back.

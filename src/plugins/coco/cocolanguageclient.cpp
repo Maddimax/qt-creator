@@ -3,6 +3,7 @@
 
 #include "cocolanguageclient.h"
 
+#include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 
 #include <languageclient/diagnosticmanager.h>
@@ -228,8 +229,12 @@ void CocoLanguageClient::handleDiagnostics(const PublishDiagnosticsParams &param
     using namespace TextEditor;
     Client::handleDiagnostics(params);
     TextDocument *document = documentForFilePath(serverUriToHostPath(params.uri()));
-    for (BaseTextEditor *editor : BaseTextEditor::textEditorsForDocument(document))
-        editor->editorWidget()->addHoverHandler(hoverHandler());
+    if (!document)
+        return;
+    // Every view of the document, not only the ones that are widgets: the
+    // coverage tooltip is the whole point of this client.
+    for (Core::IEditor * const editor : Core::DocumentModel::editorsForDocument(document))
+        addHoverHandlerIn(editor, hoverHandler());
 }
 
 class CocoTextDocumentCapabilities : public TextDocumentClientCapabilities
@@ -267,10 +272,10 @@ void CocoLanguageClient::onDocumentClosed(IDocument *document)
 
 void CocoLanguageClient::handleEditorOpened(IEditor *editor)
 {
-    if (auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-            textEditor && hasDiagnostics(textEditor->textDocument())) {
-        textEditor->editorWidget()->addHoverHandler(hoverHandler());
-    }
+    const auto document = qobject_cast<TextEditor::TextDocument *>(
+        editor ? editor->document() : nullptr);
+    if (document && hasDiagnostics(document))
+        TextEditor::addHoverHandlerIn(editor, hoverHandler());
 }
 
 } // namespace Coco

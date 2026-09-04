@@ -1050,8 +1050,26 @@ void Client::activateEditor(Core::IEditor *editor)
     // view with no highlights at all, for good, because nothing asks again
     // until the caret moves.
     d->requestDocumentHighlights(editor);
+
+    // The server's tooltips, in whichever view. The language's own handlers
+    // sit on its editor factory; this one belongs to a client that was
+    // created with a project, so it has to be handed to the view that is
+    // already open.
+    TextEditor::addHoverHandlerIn(editor, &d->m_hoverHandler);
+
+    // Tracked whatever the view, and not only inside the widget branch below.
+    // Shutting the client down deactivates every editor in this set, and that
+    // is what takes the handler above back out again - so a view left out of
+    // it would go on holding a pointer to a handler its client had destroyed.
+    d->m_activeEditors.insert(editor);
+    connect(editor, &QObject::destroyed, this, [this, editor]() {
+        d->m_activeEditors.remove(editor);
+    });
+
     if (TextEditor::TextEditorWidget *widget = TextEditor::TextEditorWidget::fromEditor(editor)) {
-        widget->addHoverHandler(&d->m_hoverHandler);
+        // Still widget-only: QuickTextEditor takes its mask from the factory
+        // that built it and keeps it, so there is nowhere to put what the
+        // server turns out to support. See the design doc.
         uint optionalActions = widget->optionalActions();
         if (symbolSupport().supportsFindUsages(widget->textDocument()))
             optionalActions |= TextEditor::OptionalActions::FindUsage;
@@ -1066,10 +1084,6 @@ void Client::activateEditor(Core::IEditor *editor)
         if (supportsTypeHierarchy(this, widget->textDocument()))
             optionalActions |= TextEditor::OptionalActions::TypeHierarchy;
         widget->setOptionalActions(optionalActions);
-        d->m_activeEditors.insert(editor);
-        connect(editor, &QObject::destroyed, this, [this, editor]() {
-            d->m_activeEditors.remove(editor);
-        });
     }
 }
 
@@ -1088,9 +1102,9 @@ void Client::deactivateDocument(TextEditor::TextDocument *document)
 void Client::deactivateEditor(Core::IEditor *editor)
 {
     d->m_activeEditors.remove(editor);
+    TextEditor::removeHoverHandlerIn(editor, &d->m_hoverHandler);
     TextEditor::TextEditorWidget *widget = TextEditor::TextEditorWidget::fromEditor(editor);
     if (widget) {
-        widget->removeHoverHandler(&d->m_hoverHandler);
         widget->setExtraSelections(TextEditor::TextEditorWidget::CodeSemanticsSelection, {});
         widget->clearRefactorMarkers(id());
     }

@@ -4941,6 +4941,94 @@ private slots:
 
 
     }
+
+    // A hover handler handed to an editor that is already open gets asked
+    // what to show. This is how a language server's tooltips arrive: a
+    // language registers its own handlers on its editor factory and the view
+    // picks them up when it is built, but a Client is created with a project
+    // and has to hand its handler to whatever is open at the time.
+    //
+    // Driven by Alt on its own, which is the "show help tooltips using the
+    // keyboard" gesture, so no pointer and no hover timer are involved.
+    void testAHoverHandlerAddedLaterIsAsked()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-hover");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("hovered.txt");
+        // Four words, because each ask has to be about a different one: the
+        // runner short-circuits to the handler that won last time when the
+        // document revision and the *word start* both repeat, and then nobody
+        // is asked anything.
+        QVERIFY(file.writeFileContents("alpha beta gamma delta\n"));
+
+        // A setting the gesture is gated on, put back afterwards: a test that
+        // applies one has to un-apply it or the next run reads what this one
+        // chose.
+        const bool wasOn = globalBehaviorSettings().keyboardTooltips();
+        globalBehaviorSettings().keyboardTooltips.setValue(true);
+        const QScopeGuard restoreSetting(
+            [wasOn] { globalBehaviorSettings().keyboardTooltips.setValue(wasOn); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "a text file no longer opens in the Quick editor");
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        class CountingHoverHandler final : public BaseHoverHandler
+        {
+        public:
+            int asked = 0;
+
+        protected:
+            void identifyMatch(HoverTarget *target, int pos, ReportPriority report) override
+            {
+                Q_UNUSED(target)
+                Q_UNUSED(pos)
+                ++asked;
+                // Nothing to show - the assertion is that the question was
+                // put, not what the answer was. Reporting is not optional:
+                // the runner waits for it before asking anyone else.
+                report(Priority_None);
+            }
+        };
+        CountingHoverHandler mine;
+        CountingHoverHandler other;
+
+        // Alt on its own, about the word containing \a position.
+        const auto askAbout = [view](int position) {
+            view->setCursorPosition(position);
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_Alt, Qt::AltModifier);
+            QCoreApplication::sendEvent(view, &press);
+            QKeyEvent release(QEvent::KeyRelease, Qt::Key_Alt, Qt::NoModifier);
+            QCoreApplication::sendEvent(view, &release);
+        };
+
+        addHoverHandlerIn(editor, &mine);
+        addHoverHandlerIn(editor, &other);
+        askAbout(1); // alpha
+        QTRY_COMPARE(mine.asked, 1);
+        QTRY_COMPARE(other.asked, 1);
+
+        // Adding the same one twice must not ask it twice, the way the widget
+        // editor's list does not grow either.
+        addHoverHandlerIn(editor, &mine);
+        askAbout(7); // beta
+        QTRY_COMPARE(other.asked, 2);
+        QCOMPARE(mine.asked, 2);
+
+        // And taken back out it stops being asked. "Nothing happens" has no
+        // event of its own to wait for, so the handler still registered is
+        // the event: they are asked in list order and `mine` was added first,
+        // so once `other` has answered a third time, `mine` would already
+        // have been asked had it still been there.
+        removeHoverHandlerIn(editor, &mine);
+        askAbout(12); // gamma
+        QTRY_COMPARE(other.asked, 3);
+        QCOMPARE(mine.asked, 2);
+    }
 };
 
 QObject *createQuickTextEditorTest()

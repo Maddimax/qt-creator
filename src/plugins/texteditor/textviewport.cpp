@@ -1160,6 +1160,21 @@ void TextViewport::setHoverHandlers(const QList<BaseHoverHandler *> &handlers)
     m_hoverHandlers = handlers;
 }
 
+void TextViewport::addHoverHandler(BaseHoverHandler *handler)
+{
+    if (!m_hoverHandlers.contains(handler))
+        m_hoverHandlers.append(handler);
+}
+
+void TextViewport::removeHoverHandler(BaseHoverHandler *handler)
+{
+    // The runner reads the list by reference, so dropping the handler here is
+    // enough for it not to be asked again - but a check already in flight
+    // holds the pointer, and only the runner can let go of that.
+    if (m_hoverHandlers.removeAll(handler) > 0)
+        m_hoverRunner->handlerRemoved(handler);
+}
+
 void TextViewport::followSymbolUnderCursor(bool inNextSplit)
 {
     followSymbolAt(cursorPosition(), inNextSplit);

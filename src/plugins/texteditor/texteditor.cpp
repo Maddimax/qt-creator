@@ -10292,6 +10292,30 @@ QObject *keyTargetOf(Core::IEditor *editor)
     return Internal::viewportForEditor(editor);
 }
 
+void addHoverHandlerIn(Core::IEditor *editor, BaseHoverHandler *handler)
+{
+    if (!editor || !handler)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->addHoverHandler(handler);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->addHoverHandler(handler);
+}
+
+void removeHoverHandlerIn(Core::IEditor *editor, BaseHoverHandler *handler)
+{
+    if (!editor || !handler)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->removeHoverHandler(handler);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->removeHoverHandler(handler);
+}
+
 void setReadOnlyIn(Core::IEditor *editor, bool readOnly)
 {
     if (!editor)
