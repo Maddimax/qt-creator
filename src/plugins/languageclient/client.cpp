@@ -1049,11 +1049,6 @@ void Client::activateEditor(Core::IEditor *editor)
     // widget's - asking only there left the first file opened in any other
     // view with no highlights at all, for good, because nothing asks again
     // until the caret moves.
-    // Before the widget branch: the first thing a reader sees when a file is
-    // activated is the symbol under the caret marked, and that is not the
-    // widget's - asking only there left the first file opened in any other
-    // view with no highlights at all, for good, because nothing asks again
-    // until the caret moves.
     d->requestDocumentHighlights(editor);
     if (TextEditor::TextEditorWidget *widget = TextEditor::TextEditorWidget::fromEditor(editor)) {
         widget->addHoverHandler(&d->m_hoverHandler);
