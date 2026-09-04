@@ -32077,3 +32077,100 @@ A new item, better specified than most of what is left:
 And the four from before, unchanged: the debugger's tooltips (a debug
 session), `restoreState()` stashing (a decision), the parse-context highlight
 and the Refactor submenu's presentation (a person), `isChosen()` (a project).
+
+## 2026-09-05 -- The viewport's own context: written, and unverifiable here
+
+**No code changed in this batch.** The previous entry named the next step -
+give the viewport its own `IContext` so `C_TEXTEDITOR` can be declared on the
+editor without shadowing the per-editor handlers - and it turns out to be
+blocked in a way that only shows up once it is written. This entry records the
+mechanism precisely so the next attempt does not start from scratch.
+
+### The mechanism, pinned
+
+Two functions decide everything here, and neither was read before this batch:
+
+- `CommandPrivate::setCurrentContext()` (`command.cpp:351`) walks the
+  ActionManager's current context list and takes the **first** context that has
+  an action registered for the command. First match wins, then it stops.
+- `ICorePrivate::updateContext()` (`icore.cpp:2483`) builds that list as
+  `highPrioAdditionalContexts` + each active `IContext`'s contexts, in
+  `m_activeContext` order + `lowPrioAdditionalContexts`.
+
+So the conflict is exact: `texteditorplugin.cpp` registers **handler-less**
+actions against `C_TEXTEDITOR` - the menu text and shortcut - for commands the
+per-editor code also registers with a handler. Whichever context comes first
+in that list wins, and the handler-less one doing so is Ctrl+U doing nothing.
+
+The widget editor escapes it by putting its per-instance commands on a context
+attached to the *widget* (`texteditor.cpp:1206-1209`), which is active when
+that widget has focus and therefore ahead of the editor's own contexts.
+
+### The change, and why it could not be checked
+
+Giving the Quick editor the same shape is small and it compiles: attach
+`m_editorContext` to the view's widget with an `IContext`, and put
+`C_TEXTEDITOR` on the editor. It does not work here, and three measurements
+say why rather than one:
+
+1. **As written, seven tests fail.** Six look an action up by walking
+   `editor->context()`, which no longer carries the per-editor context, and the
+   Ctrl+U guard fails with an empty selection.
+2. **Simulating focus does not reproduce it.** Adding the widget's contexts
+   with `ContextPriority::High` - which `updateContext()` puts ahead of
+   everything - still resolves to the handler-less action. Instrumented, the
+   per-editor uuid context *is* first in the list handed over and *does* have
+   an action, so the model above is not the whole story and the next attempt
+   needs a Core-side answer rather than a fourth guess.
+3. **Real focus is not available.** `editor->widget()->show()`,
+   `qWaitForWindowExposed()` and `activateWindow()` still leave
+   `hasFocus()` false, so the focus-attached context is never active in this
+   process at all.
+
+(3) is the one that settles it: the whole point of the widget-attached context
+is that focus activates it, and nothing here can give a widget focus. This is
+the same class of blocker as the debugger's tooltips - not a thing to work
+around, a thing this machine cannot do.
+
+### Why nothing was shipped
+
+The change is unverifiable here and breaks seven tests as written. Shipping it
+green by rewriting those seven to look the way it wants would be fitting the
+tests to the change - which is exactly what the previous batch caught itself
+doing, one step before the guard said the behaviour was still broken.
+
+The gap stays guarded: the census from the previous batch lists the four macro
+commands as known-missing, so if this is fixed the census fails and says so.
+
+### Negative controls
+
+None to report, and that is the honest answer: no change was kept, so there is
+nothing for a control to bite. The measurements above are the batch's output.
+Both suites were re-run at HEAD to confirm the tree is where it was.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 450 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+### What this leaves
+
+The macro item is now specified well enough to hand over:
+
+1. **The viewport's own `IContext`.** Write it as above; it needs either a
+   machine where a widget can take focus, or an answer to why a High-priority
+   additional context does not win in `setCurrentContext()` when it is first in
+   the list and has an action. The census is the acceptance test and the Ctrl+U
+   guard is the safety one.
+
+And the four unchanged: the debugger's tooltips (a debug session),
+`restoreState()` stashing (a decision), the parse-context highlight and the
+Refactor submenu's presentation (a person), `isChosen()` (a project).
+
+**Three of the five now want the same thing: a machine that can show and focus
+a window.** That was dismissed two entries ago as a misdiagnosis of the command
+routing - which it was, for commands whose context is a *mode*. For commands
+whose context is attached to a *widget* it is exactly the blocker, and it is
+worth arranging on its own account rather than per item.
