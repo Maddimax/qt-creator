@@ -10233,6 +10233,43 @@ QTextCursor textCursorOf(Core::IEditor *editor)
     return {};
 }
 
+static void changeSelectionSizeIn(Core::IEditor *editor, bool grow)
+{
+    if (!editor)
+        return;
+
+    // The language first, where it has said something. A widget editor has no
+    // expander because the language overrides selectBlockUp() on it instead.
+    if (auto * const expander = editor->findChild<SelectionExpander *>()) {
+        if (grow ? expander->grow() : expander->shrink())
+            return;
+    }
+
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        if (grow)
+            widget->selectBlockUp();
+        else
+            widget->selectBlockDown();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        if (grow)
+            view->selectBlockUp();
+        else
+            view->selectBlockDown();
+    }
+}
+
+void growSelectionIn(Core::IEditor *editor)
+{
+    changeSelectionSizeIn(editor, true);
+}
+
+void shrinkSelectionIn(Core::IEditor *editor)
+{
+    changeSelectionSizeIn(editor, false);
+}
+
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)
 {
     if (!editor)

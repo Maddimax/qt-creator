@@ -30959,3 +30959,163 @@ to make quietly in a batch.
 One `.cpp` changed and no header, so `--target TextEditor` was the whole build
 - checked with `git diff --name-only`, not assumed. No new file, no `.qbs`
 edit.
+
+## 2026-09-04 -- Ctrl+U in a C++ file walks the syntax tree again
+
+The previous entry said the goal had "no substitution-shaped work left". That
+was true and still misleading, because it was the answer to a survey of
+*casts*. A language does not only reach the view by casting to it: it also
+reaches it by **overriding a `TextEditorWidget` virtual**, and no cast survey
+sees those. Reading `cppeditorwidget.h` top to bottom instead turned up one
+override that nothing on the Quick side answered:
+
+    bool selectBlockUp() override;      // cppeditorwidget.h:88
+    bool selectBlockDown() override;    // cppeditorwidget.h:89
+
+These are Ctrl+U and Ctrl+Shift+U. `CppEditorWidget` implements them with
+`CppSelectionChanger`, which walks the C++ syntax tree; `TextViewport` has its
+own pair that walks brackets. The commands were registered in the Quick editor
+already, so the keys worked -- they just quietly gave the bracket walk.
+
+That is worth being blunt about: **`setUsesQuickEditor()` is already on for
+C++** (`cppeditorplugin.cpp:215`, since two entries ago), so this was not a
+gap standing between us and a switch. It was a live regression for anyone on
+this branch, and the comment above that call listed what had been carried over
+without noticing this was missing.
+
+### What the difference actually looks like
+
+Measured rather than described. Caret on `b` in `return a + b * 2;`, four
+presses:
+
+| | first | second | third | fourth |
+|---|---|---|---|---|
+| syntax walk | `b` | `b * 2` | `a + b * 2` | `return a + b * 2;` |
+| bracket walk | `{ ... }` | `{ ... }` | `{ ... }` | `{ ... }` |
+
+They disagree on the very first press and the bracket walk never moves again.
+This is why the test compares the whole four-step list: there is no threshold
+to argue about.
+
+### The seam
+
+`SelectionExpander`, beside `ToolBarOutline` in `texteditor.h` and found the
+same way -- the language makes one, parents it to the editor, a view finds it
+with `findChild`. An object and not a `std::function` because **the walk is
+stateful**: repeated presses walk further out, and moving the caret starts it
+again. That state belongs to a view, and two views of one file have two.
+
+Dispatch is an editor-level pair beside `textCursorOf()`:
+
+    TEXTEDITOR_EXPORT void growSelectionIn(Core::IEditor *editor);
+    TEXTEDITOR_EXPORT void shrinkSelectionIn(Core::IEditor *editor);
+
+The language first, then `TextEditorWidget::selectBlockUp()`, then
+`TextViewport::selectBlockUp()`. A widget editor has no expander -- the
+language overrides the virtual on it instead -- so the same call is correct
+for both views, which is what let the test run one code path against both.
+
+### The mistake worth writing down: a guard that looked like it held
+
+The first version had `changeSelectionSizeIn()` write the new cursor back:
+
+    if (grow ? expander->expand(cursor) : expander->shrink(cursor)) {
+        setTextCursorOf(editor, cursor);   // outside the changer's guard
+
+`CppEditorWidget` writes it *inside* `startChangeSelection()` /
+`stopChangeSelection()`, and the reason is not decoration:
+`onCursorPositionChanged()` resets the walk unless that flag is set. Writing
+outside it means every step is seen as the reader moving the caret.
+
+**It passed.** All four grow steps matched the widget exactly, because the
+changer re-derives a plausible next node from the selection it finds. What
+gave it away was instrumenting the order rather than trusting the green:
+
+    caretMoved
+    change() begin
+    change() end, changed = true
+    caretMoved            <- the walk being reset, every step
+
+So: **a green test on a stateful thing says the output matched, not that the
+state machine ran.** The fix moves the write inside the guard, which is why
+`SelectionExpander::grow()`/`shrink()` take no cursor -- the expander moves
+the caret itself, because a caller that did it would reset the walk it is in
+the middle of.
+
+The behaviour that actually catches this is **shrink**, not grow: Ctrl+Shift+U
+has to retrace the walk it is in, and a reset walk has nothing to retrace.
+Control C below is that, and it fails at the second shrink with an empty
+selection while grow stays green.
+
+### Negative controls
+
+All three bite, and each one fails where it should. The widget row stays green
+in all of them, which is what says the test is about the view:
+
+- **A -- no expander is created** (`cppeditorplugin.cpp`): quick row red,
+  actual `"{     return a + b * 2; }"` against expected `"b"`. That
+  is the bug this batch fixes, reproduced.
+- **B -- the dispatcher never looks for one** (`texteditor.cpp`): same
+  failure, same values, from the other end.
+- **C -- the caret written back outside the guard**: grow stays green; shrink
+  fails at index 1, `""` against `"b * 2"`.
+
+`testTheSettingStillTurnsItOff()` passes under all three, as it should -- it
+asserts the *fallback*, so it is a control on the setting and not on the
+feature. Worth stating so it is not miscounted as coverage.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 434 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Both totals are unchanged from the previous entry, as expected: the new tests
+are in CppEditor.
+
+The new tests themselves, run on their own:
+
+    -test CppEditor,testGrowingASelection,testTheSettingStillTurnsItOff
+      5 passed, 0 failed, exit 0
+
+**The whole `-test CppEditor` suite is red on this branch and was before this
+batch.** It aborts, exit 134. That is worth writing down with its measurement
+rather than as an impression, because the first run looked like this batch had
+broken something:
+
+|  | exit | failures |
+|---|---|---|
+| with this change | 134 | 12 |
+| reverted to HEAD~1 | 134 | 11 |
+
+Nine of the rows are the same in both. The differences were two
+`FollowSymbolTest::testFollowSymbolMultipleDocuments` rows on one side and
+`LanguageToolBarTest::testTheLanguagesButtonIsInTheToolBar` on the other, so
+the sets were measured rather than compared once. Running that FollowSymbol
+function alone, three times per tree:
+
+    with this change   10, 9, 6 failures   exits 10, 9, 134
+    reverted           6, 9, 10 failures   exits 134, 9, 10
+
+The same multiset, down to the run that takes 302 s and aborts. It is not this
+change, and a single full-suite run cannot tell the difference - which is the
+whole reason the batch rules name `TextEditor` and `QuickUi` rather than this
+suite.
+
+Four files, no new file and no `.qbs` edit, so nothing to re-resolve. A header
+changed but only by adding a class and two free functions, so no existing
+layout moved; the full build was run anyway and was clean.
+
+### What this leaves
+
+The tooltips, unchanged from the previous entry and for the same reason.
+
+But the method note is the more useful leftover: **the cast survey is not a
+census of what a language does to its view.** The other half is the virtuals
+it overrides, and `cppeditorwidget.h` still lists several this batch did not
+follow up -- `paste`, `cut`, `selectAll`, `event`, `contextMenuEvent`,
+`keyPressEvent`. Each needs the same question asked of it that
+`selectBlockUp` got: does the Quick side reach the same code, or does it
+silently get the base-class one? That is a concrete next batch, and it is
+reading rather than guessing.

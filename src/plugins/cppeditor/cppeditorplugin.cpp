@@ -10,6 +10,7 @@
 #include "cppeditorconstants.h"
 #include "cpppreprocessordialog.h"
 #include "cppeditordocument.h"
+#include "cppselectionchanger.h"
 #include "cppeditoroutline.h"
 #include "cppeditortr.h"
 #include "cppeditorwidget.h"
@@ -32,6 +33,9 @@
 
 #ifdef WITH_TESTS
 #include "compileroptionsbuilder_test.h"
+#include "cpptoolstestcase.h"
+
+#include <QtTest>
 #include "cppcodegen_test.h"
 #include "cppcompletion_test.h"
 #include "cppdoxygen_test.h"
@@ -80,6 +84,7 @@
 #include <texteditor/colorpreviewhoverhandler.h>
 #include <texteditor/fontsettings.h>
 #include <texteditor/snippets/snippetprovider.h>
+#include <texteditor/behaviorsettings.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/symbolrequests.h>
 #include <texteditor/texteditorconstants.h>
@@ -108,6 +113,63 @@ using namespace TextEditor;
 using namespace Utils;
 
 namespace CppEditor::Internal {
+
+#ifdef WITH_TESTS
+QObject *createCppSelectionExpansionTest();
+#endif
+
+// Ctrl+U and Ctrl+Shift+U for C++, for a view that is not a CppEditorWidget.
+// The changer is stateful - repeated presses walk further out and moving the
+// caret starts the walk again - so there is one of these per editor, which is
+// why it is an object rather than a function the factory registers.
+class CppSelectionExpander final : public TextEditor::SelectionExpander
+{
+public:
+    CppSelectionExpander(Core::IEditor *editor, CppEditorDocument *document)
+        : m_editor(editor)
+        , m_document(document)
+    {}
+
+    bool grow() override { return change(CppSelectionChanger::ExpandSelection); }
+
+    bool shrink() override { return change(CppSelectionChanger::ShrinkSelection); }
+
+    // The walk is relative to where it started, so a caret the reader moved
+    // has to start it again. CppEditorWidget tells its own changer the same.
+    void caretMoved()
+    {
+        if (m_editor)
+            m_changer.onCursorPositionChanged(TextEditor::textCursorOf(m_editor));
+    }
+
+private:
+    // The caret is written back inside the changer's own guard, the way
+    // CppEditorWidget does it: outside, the write is a caret move like any
+    // other and starts the walk again at every step.
+    bool change(CppSelectionChanger::Direction direction)
+    {
+        if (!m_editor || !m_document
+            || !TextEditor::globalBehaviorSettings().data().m_smartSelectionChanging) {
+            return false;
+        }
+        const CPlusPlus::Document::Ptr doc = m_document->semanticInfo().doc;
+        if (!doc)
+            return false;
+
+        QTextCursor cursor = TextEditor::textCursorOf(m_editor);
+        m_changer.startChangeSelection();
+        const bool changed = m_changer.changeSelection(direction, cursor, doc);
+        if (changed)
+            TextEditor::setTextCursorOf(m_editor, cursor);
+        m_changer.stopChangeSelection();
+        return changed;
+    }
+
+    CppSelectionChanger m_changer;
+    QPointer<Core::IEditor> m_editor;
+    QPointer<CppEditorDocument> m_document;
+};
+
 
 //////////////////////////// CppEditorFactory /////////////////////////////
 
@@ -554,6 +616,15 @@ void CppEditorPlugin::addPerSymbolActions()
                 connect(editor, &IEditor::cursorPositionChanged, outline,
                         [outline] { outline->updateIndex(); });
 
+                // What Ctrl+U encloses next. CppEditorWidget answers this by
+                // overriding selectBlockUp(), which a view that is not one
+                // cannot do - so a C++ file here used to get the plain bracket
+                // walk instead of the syntax tree.
+                auto * const expander = new CppSelectionExpander(editor, document);
+                expander->setParent(editor);
+                connect(editor, &IEditor::cursorPositionChanged, expander,
+                        [expander] { expander->caretMoved(); });
+
                 // A function whose declaration and definition have drifted
                 // apart, and the offer to bring the other one along.
                 // CppEditorWidget owns one of these itself.
@@ -740,6 +811,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppIncludeHierarchyWidgetTest);
     addTestCreator(createCppEditorOutlineTest);
     addTestCreator(createCppTypeHierarchyTest);
+    addTestCreator(createCppSelectionExpansionTest);
     addTest<LocalSymbolsTest>();
     addTest<LocatorFilterTest>();
     addTest<ModelManagerTest>();
@@ -777,6 +849,169 @@ void CppEditorPluginPrivate::onAllTasksFinished(Id type)
         m_reparseExternallyChangedFiles->setEnabled(true);
     }
 }
+
+#ifdef WITH_TESTS
+
+// Ctrl+U in a C++ file grows the selection along the syntax tree. The widget
+// editor gets that from a CppEditorWidget override; a view that is not one has
+// to be given it, or the reader silently gets the bracket walk instead.
+class CppSelectionExpansionTest : public QObject
+{
+    Q_OBJECT
+
+    static Utils::FilePath fileWithANestedExpression(CppEditor::Tests::TemporaryDir &dir)
+    {
+        return dir.createFile("expand.cpp",
+                              "int compute(int a, int b)\n"
+                              "{\n"
+                              "    return a + b * 2;\n"
+                              "}\n");
+    }
+
+    // On \a b in "b * 2" - inside an expression that is nested several nodes
+    // deep inside the function body, so the syntax walk and the bracket walk
+    // give visibly different answers.
+    static bool putCaretOnTheInnerOperand(Core::IEditor *editor)
+    {
+        editor->gotoLine(3, 15);
+        const QTextCursor cursor = TextEditor::textCursorOf(editor);
+        QTextCursor probe = cursor;
+        probe.select(QTextCursor::WordUnderCursor);
+        return probe.selectedText() == "b";
+    }
+
+    static Core::IEditor *openWith(const Utils::FilePath &file, bool quick)
+    {
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        if (!factory)
+            return nullptr;
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        return Core::EditorManager::openEditor(file);
+    }
+
+private slots:
+    // Four presses of Ctrl+U from the same caret, as text. The syntax walk and
+    // the bracket walk disagree on the very first one, so this reads as the
+    // whole difference between them rather than as a threshold.
+    static QStringList walkFrom(Core::IEditor *editor)
+    {
+        QStringList walk;
+        for (int i = 0; i < 4; ++i) {
+            TextEditor::growSelectionIn(editor);
+            walk << TextEditor::textCursorOf(editor).selectedText();
+        }
+        return walk;
+    }
+
+    static QStringList theSyntaxWalk()
+    {
+        return {"b", "b * 2", "a + b * 2", "return a + b * 2;"};
+    }
+
+private slots:
+    void testGrowingASelection_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Ctrl+U walks the syntax tree in both views. Against the widget editor
+    // this is the fixture's control: it says the file, the caret and the
+    // expected walk are ones the C++ model really produces, so a failure in
+    // the Quick row is about the view and not about the expectation.
+    void testGrowingASelection()
+    {
+        QFETCH(bool, quick);
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = fileWithANestedExpression(dir);
+        QVERIFY(!file.isEmpty());
+
+        Core::IEditor * const editor = openWith(file, quick);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(document->semanticInfo().doc,
+                     "the code model never parsed the file, so there is no tree to walk");
+
+        QVERIFY2(putCaretOnTheInnerOperand(editor), "the caret is not where the test needs it");
+        QCOMPARE(walkFrom(editor), theSyntaxWalk());
+
+        // Ctrl+Shift+U retraces the walk it is in the middle of, which is the
+        // part that needs the walk's own state to have survived: re-deriving
+        // it from the selection would give the enclosing node again, not the
+        // step before.
+        QStringList back;
+        for (int i = 0; i < 3; ++i) {
+            TextEditor::shrinkSelectionIn(editor);
+            back << TextEditor::textCursorOf(editor).selectedText();
+        }
+        QStringList retraced = theSyntaxWalk();
+        retraced.removeLast();
+        std::reverse(retraced.begin(), retraced.end());
+        QCOMPARE(back, retraced);
+    }
+
+    // The setting the reader has for this, in the view that used to ignore it:
+    // turning the syntax walk off has to leave the bracket walk, not leave the
+    // syntax walk running because nothing consults the setting any more.
+    void testTheSettingStillTurnsItOff()
+    {
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        auto &smart = TextEditor::globalBehaviorSettings().smartSelectionChanging;
+        const bool wasSmart = smart();
+        const QScopeGuard restoreSmart([&smart, wasSmart] { smart.setValue(wasSmart); });
+
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = fileWithANestedExpression(dir);
+        QVERIFY(!file.isEmpty());
+
+        Core::IEditor * const editor = openWith(file, true);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY(document->semanticInfo().doc);
+
+        smart.setValue(false);
+        QVERIFY(putCaretOnTheInnerOperand(editor));
+        const QStringList walk = walkFrom(editor);
+        QVERIFY2(walk.first() != theSyntaxWalk().first(),
+                 "the syntax walk ran with the setting turned off");
+        QVERIFY2(walk.first().contains("return"),
+                 qPrintable("expected the bracket walk to take the whole body, got "
+                            + walk.first()));
+    }
+};
+
+QObject *createCppSelectionExpansionTest()
+{
+    return new CppSelectionExpansionTest;
+}
+
+#endif // WITH_TESTS
 
 } // CppEditor::Internal
 

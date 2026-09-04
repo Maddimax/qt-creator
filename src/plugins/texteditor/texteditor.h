@@ -890,6 +890,31 @@ signals:
     void currentIndexChanged();
 };
 
+// How a selection grows and shrinks in this language - what Ctrl+U and
+// Ctrl+Shift+U do. C++ walks the syntax tree; a language with no opinion gets
+// the bracket walk the viewport does itself.
+//
+// An object rather than a function, because it is stateful: repeated presses
+// walk further out, and the walk starts again when the reader moves the caret.
+// That belongs to a view, so it is parented to the editor by whoever makes it,
+// the way ToolBarOutline is.
+class TEXTEDITOR_EXPORT SelectionExpander : public QObject
+{
+    Q_OBJECT
+
+public:
+    using QObject::QObject;
+
+    // Whether the selection moved. False means the language had nothing to say
+    // here and the view should fall back to its own walk.
+    //
+    // Moving the caret is the expander's own job rather than the caller's: the
+    // walk resets when the reader moves the caret, so a caller writing the new
+    // one back would reset the walk it is in the middle of.
+    virtual bool grow() = 0;
+    virtual bool shrink() = 0;
+};
+
 // A choice the language offers in the toolbar: which of several ways this file
 // is being parsed, say. Kept by the *document*, unlike the outline above -
 // which of several project parts a file belongs to is a fact about the file,
@@ -1014,6 +1039,17 @@ TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);
 // Put the caret in \a editor's view where \a cursor is, and ask its language
 // for \a kind. Both dispatch on the view the same way the pair above does.
 TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
+
+// One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
+// to what encloses it, or give back the last step. Along the language's syntax
+// tree where it has an opinion - a SelectionExpander parented to \a editor -
+// and along brackets otherwise.
+//
+// View-agnostic because both views do this and neither should have to be
+// asked for by name: the widget editor lets the language override
+// selectBlockUp(), which is not something a view that is not a widget can be.
+TEXTEDITOR_EXPORT void growSelectionIn(Core::IEditor *editor);
+TEXTEDITOR_EXPORT void shrinkSelectionIn(Core::IEditor *editor);
 // \a provider is the one to ask, where the caller has a particular one in
 // mind - the choice of override behind a virtual call is a proposal from a
 // provider of its own rather than the document's.

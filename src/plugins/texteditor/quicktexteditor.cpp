@@ -515,16 +515,10 @@ public:
         block(Constants::GOTO_BLOCK_END_WITH_SELECTION, &TextViewport::gotoBlockEnd, true);
         Core::ActionBuilder(this, Constants::SELECT_BLOCK_UP)
             .setContext(Core::Context(m_editorContext))
-            .addOnTriggered(this, [this] {
-                if (TextViewport * const view = viewport())
-                    view->selectBlockUp();
-            });
+            .addOnTriggered(this, [this] { growSelectionIn(this); });
         Core::ActionBuilder(this, Constants::SELECT_BLOCK_DOWN)
             .setContext(Core::Context(m_editorContext))
-            .addOnTriggered(this, [this] {
-                if (TextViewport * const view = viewport())
-                    view->selectBlockDown();
-            });
+            .addOnTriggered(this, [this] { shrinkSelectionIn(this); });
         command(Constants::VIEW_PAGE_UP, &TextViewport::viewPageUp);
         command(Constants::VIEW_PAGE_DOWN, &TextViewport::viewPageDown);
         command(Constants::VIEW_LINE_UP, &TextViewport::viewLineUp);
