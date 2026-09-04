@@ -1045,6 +1045,12 @@ TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);
 // for \a kind. Both dispatch on the view the same way the pair above does.
 TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
 
+// Where on screen a tooltip about \a position in \a editor belongs: just
+// under and right of the character, so that it does not cover what it is
+// about. Only the view can say, because it is the one that laid the text out.
+// Null where \a editor shows no text.
+TEXTEDITOR_EXPORT QPoint toolTipPositionIn(Core::IEditor *editor, int position);
+
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax
 // tree where it has an opinion - a SelectionExpander parented to \a editor -

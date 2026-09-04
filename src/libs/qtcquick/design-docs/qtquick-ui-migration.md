@@ -32508,3 +32508,88 @@ Four labels in four entries. The pattern is specific enough to name: each one
 was written from what the *production* path needs - a focused window, a real
 project, a live debugger - rather than from what the *seam* needs, and the
 seam always needed less. The two that remain are not of that kind.
+
+## 2026-09-05 -- The debugger's tooltips, which were never blocked on a debugger
+
+The previous entry specified this batch and it went as specified. The last
+feature gap between the two views is closed: **hovering a variable in a C++
+file open in the Qt Quick editor while the debugger is stopped now shows its
+value.** It could not before, and not because of anything hard - the manager
+listened to `TextEditorWidget::tooltipOverrideRequested` and
+`slotEditorOpened()` gated on `qobject_cast<BaseTextEditor *>`, so the Quick
+editor was never offered the question.
+
+### The four pieces
+
+1. **`toolTipPositionIn(IEditor *, int position)`**, beside the other
+   editor-level seams. The widget answers with `toolTipPosition(cursor)`; the
+   viewport already had `rectangleAt(position)`, which is the same measurement
+   from the other side.
+2. **`TextDocument::tooltipOverrideRequested(IEditor *, globalPos, position,
+   bool *handled)`** - the question, on the document because both views ask it
+   and whoever answers should not have to know which one is showing the file.
+3. **Both views emit it.** `TextViewport::askForTooltipAt()` immediately
+   before `m_hoverRunner->startChecking()`, and
+   `TextEditorWidgetPrivate::processTooltipRequest()` after its own signal, so
+   there is one path rather than two.
+4. **The debugger listens to the document**, and `DebuggerToolTip` holds a
+   `QPointer<Core::IEditor>` rather than a `QPointer<TextEditorWidget>` -
+   which also simplifies the two window-tracking loops, because comparing
+   editors is what they wanted in the first place.
+
+The scroll-following connection stays widget-only and says so: the Quick view
+scrolls without a scroll bar, and following that is its own small piece.
+
+### The control from the previous batch did its job
+
+That batch shipped a test driving the manager with a stub engine through
+`TextEditorWidget`'s signal, and called it "the control the Qt Quick side
+needs". Routing the widget through the document seam turned it red
+immediately - the path had moved and the test said so before anything else
+did. It is now data-driven over both views and drives the document seam, which
+is what it should have been once there was one.
+
+### Negative controls
+
+- **A -- the debugger listens only to the widget editor again**: quick row
+  red, widget row green. The gap, reproduced.
+- **B -- the view never asks anyone before its hover handlers**: red, the
+  question never reaching the document.
+- **C -- the view asks but ignores the answer**: red on the hover handler
+  running twice, so "handled" is what stops it rather than luck.
+
+The view-side test drives the real gesture - Alt on its own asks for a tooltip
+at the caret when it is let go - rather than calling the private
+`askForTooltipAt()`. It needed one line of fixture: without a tooltip host the
+view does not ask at all, which is worth knowing for the next test in that
+area.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 453 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+453 is 452 plus the view-side test. The debugger's two were run beside each
+other - 4 passed, 0 failed.
+
+Seven files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**Nothing that is a gap.** Everything CppEditor configures on a
+`TextEditorWidget` now has somewhere to go on the Quick side, and the mime
+default has been flipped for C++ since well before this entry.
+
+Two things remain and both are questions for a person rather than work:
+
+1. Whether the Clear button beside the parse-context chooser says enough on
+   its own, or whether that chooser wants the highlight the widget editor
+   gives it.
+2. Whether the Refactor submenu should nest, as it does now, or show its
+   fixes inline.
+
+And one small piece of work with no urgency: following the Quick view's scroll
+so an open tooltip moves with the text, which the widget editor does through
+its scroll bar.

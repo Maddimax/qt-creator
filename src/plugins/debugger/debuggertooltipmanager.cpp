@@ -82,7 +82,7 @@ public:
             slotEditorOpened(e);
     }
 
-    void slotTooltipOverrideRequested(TextEditor::TextEditorWidget *editorWidget,
+    void slotTooltipOverrideRequested(Core::IEditor *editor,
                                       const QPoint &point, int pos, bool *handled);
     void slotEditorOpened(Core::IEditor *e);
     void hideAllToolTips();
@@ -106,7 +106,7 @@ public:
 
     bool debugModeActive() const { return ModeManager::currentModeId() == Constants::MODE_DEBUG; }
 
-    DebuggerToolTip *findToolTip(TextEditorWidget *editorWidget,
+    DebuggerToolTip *findToolTip(Core::IEditor *editor,
                                  const DebuggerToolTipContext &context);
 
 public:
@@ -347,7 +347,7 @@ class DebuggerToolTip : public QWidget
 public:
     DebuggerToolTip(DebuggerEngine *engine,
                     const DebuggerToolTipContext &context,
-                    TextEditorWidget *editorWidget);
+                    Core::IEditor *editor);
 
     ~DebuggerToolTip() override { DEBUG("DESTROY DEBUGGERTOOLTIP WIDGET"); }
 
@@ -435,13 +435,13 @@ public:
     DraggableLabel *titleLabel;
     DebuggerToolTipTreeView *treeView;
     ToolTipModel model;
-    QPointer<TextEditorWidget> editorWidget;
+    QPointer<Core::IEditor> editor;
 };
 
 DebuggerToolTip::DebuggerToolTip(DebuggerEngine *engine,
                                  const DebuggerToolTipContext &context,
-                                 TextEditorWidget *editorWidget)
-    : engine(engine), context(context), editorWidget(editorWidget)
+                                 Core::IEditor *editor)
+    : engine(engine), context(context), editor(editor)
 {
     setObjectName("DebuggerTreeViewToolTipWidget: " + context.iname);
     setAttribute(Qt::WA_DeleteOnClose);
@@ -686,8 +686,8 @@ void DebuggerToolTip::positionShow()
 {
     // Figure out new position of tooltip using the text edit.
     // If the line changed too much, close this tip.
-    QTC_ASSERT(editorWidget, return);
-    QTextCursor cursor = editorWidget->textCursor();
+    QTC_ASSERT(editor, return);
+    QTextCursor cursor = TextEditor::textCursorOf(editor);
     cursor.setPosition(context.position);
     const int line = cursor.blockNumber();
     if (qAbs(context.line - line) > 2) {
@@ -695,10 +695,12 @@ void DebuggerToolTip::positionShow()
         return ;
     }
 
-    const QPoint screenPos = editorWidget->toolTipPosition(cursor) + titleLabel->m_offset;
+    QWidget * const view = editor->widget();
+    QTC_ASSERT(view, return);
+    const QPoint screenPos
+        = TextEditor::toolTipPositionIn(editor, context.position) + titleLabel->m_offset;
     const QRect toolTipArea = QRect(screenPos, QSize(sizeHint()));
-    const QRect plainTextArea = QRect(editorWidget->mapToGlobal(QPoint(0, 0)),
-                                      editorWidget->size());
+    const QRect plainTextArea = QRect(view->mapToGlobal(QPoint(0, 0)), view->size());
     const bool visible = plainTextArea.intersects(toolTipArea);
     //    DEBUG("DebuggerToolTip::positionShow() " << this << m_context
     //             << " line: " << line << " plainTextPos " << toolTipArea
@@ -765,8 +767,7 @@ void DebuggerToolTipManagerPrivate::updateVisibleToolTips()
         QTC_ASSERT(tooltip, continue);
         bool found = false;
         for (const IEditor *editor : visibleEditors) {
-            QWidget *w = TextEditorWidget::fromEditor(editor);
-            if (w == tooltip->editorWidget) {
+            if (editor == tooltip->editor) {
                 found = true;
                 break;
             }
@@ -847,15 +848,18 @@ void DebuggerToolTipManager::resetLocation()
 }
 
 void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
-    (TextEditorWidget *editorWidget, const QPoint &point, int pos, bool *handled)
+    (Core::IEditor *editor, const QPoint &point, int pos, bool *handled)
 {
     QTC_ASSERT(handled, return);
-    QTC_ASSERT(editorWidget, return);
+    QTC_ASSERT(editor, return);
 
     if (!settings().useToolTipsInMainEditor())
         return;
 
-    TextDocument * const document = editorWidget->textDocument();
+    auto * const document = qobject_cast<TextDocument *>(editor->document());
+    QTC_ASSERT(document, return);
+    QWidget * const view = editor->widget();
+    QTC_ASSERT(view, return);
     if (!m_engine || !m_engine->canDisplayTooltip())
         return;
 
@@ -863,9 +867,9 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
     context.engineType = m_engine->objectName();
     context.fileName = document->filePath();
     context.position = pos;
-    editorWidget->convertPosition(pos, &context.line, &context.column);
+    Utils::Text::convertPosition(document->document(), pos, &context.line, &context.column);
     ++context.column;
-    QString raw = cppExpressionAt(document, editorWidget->textCursor(), context.position,
+    QString raw = cppExpressionAt(document, TextEditor::textCursorOf(editor), context.position,
                                   &context.line, &context.column, &context.function,
                                   &context.scopeFromLine, &context.scopeToLine);
     context.expression = fixCppExpression(raw);
@@ -873,7 +877,7 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
                             != CppEditor::ProjectFile::Unsupported;
 
     if (context.expression.isEmpty()) {
-        ToolTip::show(point, Tr::tr("No valid expression"), editorWidget);
+        ToolTip::show(point, Tr::tr("No valid expression"), view);
         *handled = true;
         return;
     }
@@ -888,7 +892,7 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
             context.expression = localVariable->name;
         context.iname = localVariable->iname;
 
-        DebuggerToolTip *tooltip = findToolTip(editorWidget, context);
+        DebuggerToolTip *tooltip = findToolTip(editor, context);
 
         if (tooltip) {
             DEBUG("REUSING LOCALS TOOLTIP");
@@ -896,10 +900,10 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
             ToolTip::move(point);
         } else {
             DEBUG("CREATING LOCALS, WAITING...");
-            tooltip = new DebuggerToolTip(m_engine, context, editorWidget);
+            tooltip = new DebuggerToolTip(m_engine, context, editor);
             tooltip->setState(Acquired);
             m_tooltips.append(tooltip);
-            ToolTip::show(point, tooltip, editorWidget);
+            ToolTip::show(point, tooltip, view);
         }
         DEBUG("SYNC IN STATE" << tooltip->state);
         tooltip->updateTooltip();
@@ -908,7 +912,7 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
 
         context.iname = "tooltip." + toHex(context.expression);
 
-        DebuggerToolTip *tooltip = findToolTip(editorWidget, context);
+        DebuggerToolTip *tooltip = findToolTip(editor, context);
 
         if (tooltip) {
             tooltip->context.mousePosition = point;
@@ -916,14 +920,14 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
             DEBUG("UPDATING DELAYED.");
         } else {
             DEBUG("CREATING DELAYED.");
-            tooltip = new DebuggerToolTip(m_engine, context, editorWidget);
+            tooltip = new DebuggerToolTip(m_engine, context, editor);
             tooltip->context.mousePosition = point;
             m_tooltips.append(tooltip);
             tooltip->setState(PendingUnshown);
             if (m_engine->canHandleToolTip(context.isCppEditor)) {
                 m_engine->updateItem(context.iname);
             } else {
-                ToolTip::show(point, Tr::tr("Expression too complex"), editorWidget);
+                ToolTip::show(point, Tr::tr("Expression too complex"), view);
                 tooltip->close();
             }
         }
@@ -934,22 +938,33 @@ void DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested
 
 void DebuggerToolTipManagerPrivate::slotEditorOpened(IEditor *e)
 {
-    // Move tooltip along when scrolled.
-    if (auto textEditor = qobject_cast<BaseTextEditor *>(e)) {
-        TextEditorWidget *widget = textEditor->editorWidget();
-        QObject::connect(widget->verticalScrollBar(), &QScrollBar::valueChanged,
-                         this, &DebuggerToolTipManagerPrivate::updateVisibleToolTips);
-        QObject::connect(widget, &TextEditorWidget::tooltipOverrideRequested,
-                         this, &DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested);
+    // Whichever view shows the text: the document is what both ask through,
+    // so a file open in the Qt Quick editor is offered a tooltip too. It used
+    // to be gated on BaseTextEditor, which is one of the two.
+    auto * const document = qobject_cast<TextDocument *>(e->document());
+    if (!document)
+        return;
 
-        // Apparently the widget's window is still the original one once the
-        // EditorManager::editorOpened() is fired.
-        QTimer::singleShot(0, this, [this, widgetp = QPointer<QWidget>(widget)] {
-            QTC_ASSERT(widgetp, return);
-            QTC_ASSERT(widgetp->window(), return);
-            widgetp->window()->installEventFilter(this);
-        });
+    QObject::connect(document, &TextDocument::tooltipOverrideRequested,
+                     this, &DebuggerToolTipManagerPrivate::slotTooltipOverrideRequested,
+                     Qt::UniqueConnection);
+
+    // Move tooltip along when scrolled. Only the widget editor has a scroll
+    // bar to follow; the Quick view scrolls without one, and following that is
+    // its own piece of work.
+    if (auto textEditor = qobject_cast<BaseTextEditor *>(e)) {
+        QObject::connect(textEditor->editorWidget()->verticalScrollBar(),
+                         &QScrollBar::valueChanged,
+                         this, &DebuggerToolTipManagerPrivate::updateVisibleToolTips);
     }
+
+    // Apparently the widget's window is still the original one once the
+    // EditorManager::editorOpened() is fired.
+    QTimer::singleShot(0, this, [this, widgetp = QPointer<QWidget>(e->widget())] {
+        QTC_ASSERT(widgetp, return);
+        QTC_ASSERT(widgetp->window(), return);
+        widgetp->window()->installEventFilter(this);
+    });
 }
 
 DebuggerToolTipContexts DebuggerToolTipManager::pendingTooltips() const
@@ -975,7 +990,8 @@ bool DebuggerToolTipManagerPrivate::eventFilter(QObject *o, QEvent *e)
         purgeClosedToolTips();
         QList<QPointer<DebuggerToolTip>> affectedTooltips;
         for (auto &tooltip : m_tooltips) {
-            if (tooltip && tooltip->editorWidget && tooltip->editorWidget->window() == o)
+            if (tooltip && tooltip->editor && tooltip->editor->widget()
+                    && tooltip->editor->widget()->window() == o)
                 affectedTooltips.append(tooltip);
         }
         for (const QPointer<DebuggerToolTip> &tooltip : std::as_const(affectedTooltips)) {
@@ -992,7 +1008,8 @@ bool DebuggerToolTipManagerPrivate::eventFilter(QObject *o, QEvent *e)
             purgeClosedToolTips();
             QList<QPointer<DebuggerToolTip>> affectedTooltips;
             for (auto &tooltip : m_tooltips) {
-                if (tooltip && tooltip->editorWidget && tooltip->editorWidget->window() == o)
+                if (tooltip && tooltip->editor && tooltip->editor->widget()
+                    && tooltip->editor->widget()->window() == o)
                     affectedTooltips.append(tooltip);
             }
             for (DebuggerToolTip *tooltip : std::as_const(affectedTooltips))
@@ -1006,11 +1023,11 @@ bool DebuggerToolTipManagerPrivate::eventFilter(QObject *o, QEvent *e)
     return false;
 }
 
-DebuggerToolTip *DebuggerToolTipManagerPrivate::findToolTip(TextEditorWidget *editorWidget,
+DebuggerToolTip *DebuggerToolTipManagerPrivate::findToolTip(Core::IEditor *editor,
                                                             const DebuggerToolTipContext &context)
 {
     for (const auto &tooltip : std::as_const(m_tooltips)) {
-        if (tooltip && tooltip->editorWidget == editorWidget && tooltip->context.isSame(context))
+        if (tooltip && tooltip->editor == editor && tooltip->context.isSame(context))
             return tooltip;
     }
     return nullptr;

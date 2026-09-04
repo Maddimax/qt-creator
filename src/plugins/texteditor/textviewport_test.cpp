@@ -5386,6 +5386,83 @@ private slots:
                  QString("fixed"));
     }
 
+    // Whoever wants first refusal at a tooltip is asked before the view's own
+    // hover handlers - the debugger answers with the value of an expression
+    // while it is stopped. Both views ask through the document, so the thing
+    // answering does not have to know which one is showing the file.
+    void testTheDocumentIsAskedBeforeTheHoverHandlers()
+    {
+        class CountingHandler final : public TextEditor::BaseHoverHandler
+        {
+        public:
+            int asked = 0;
+
+        protected:
+            void identifyMatch(HoverTarget *, int, ReportPriority report) override
+            {
+                ++asked;
+                report(Priority_None);
+            }
+        };
+
+        TemporaryDirectory dir("qtc-viewport-tooltipseam");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("alpha beta\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // Without somewhere to put a tooltip the view does not ask for one. In
+        // the editor that is the widget the QQuickWidget lives in; here it
+        // only has to exist, since nothing is placed.
+        QWidget host;
+        viewport->setTooltipHost(&host);
+
+        CountingHandler handler;
+        viewport->addHoverHandler(&handler);
+
+        TextDocument * const document = viewport->textDocument();
+        QVERIFY(document);
+
+        // Alt on its own asks for a tooltip at the caret when it is let go,
+        // which is the way in that does not need a mouse.
+        auto &keyboardTooltips = globalBehaviorSettings().keyboardTooltips;
+        const bool wasAsking = keyboardTooltips();
+        const QScopeGuard restore(
+            [&keyboardTooltips, wasAsking] { keyboardTooltips.setValue(wasAsking); });
+        keyboardTooltips.setValue(true);
+
+        viewport->forceActiveFocus();
+        viewport->setCursorPosition(6);
+        const auto tapAlt = [viewport] {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_Alt, Qt::NoModifier);
+            QKeyEvent release(QEvent::KeyRelease, Qt::Key_Alt, Qt::NoModifier);
+            QCoreApplication::sendEvent(viewport, &press);
+            QCoreApplication::sendEvent(viewport, &release);
+        };
+
+        // Declined: the question was asked, and the hover handlers still ran.
+        int askedAt = -1;
+        auto declining = connect(document, &TextDocument::tooltipOverrideRequested, document,
+                                 [&askedAt](Core::IEditor *, const QPoint &, int position, bool *) {
+                                     askedAt = position;
+                                 });
+        tapAlt();
+        QCOMPARE(askedAt, 6);
+        QTRY_COMPARE(handler.asked, 1);
+        disconnect(declining);
+
+        // And taken: the hover handlers are not asked at all, which is what
+        // stops two tooltips racing for the same spot.
+        connect(document, &TextDocument::tooltipOverrideRequested, document,
+                [](Core::IEditor *, const QPoint &, int, bool *handled) { *handled = true; });
+        tapAlt();
+        QCOMPARE(handler.asked, 1);
+    }
+
     // A buffer that cannot be edited is not fixed either.
     void testQuickFixesAreNotOfferedForAReadOnlyBuffer()
     {

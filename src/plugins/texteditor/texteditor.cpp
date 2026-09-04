@@ -4660,6 +4660,13 @@ void TextEditorWidgetPrivate::processTooltipRequest(const QTextCursor &c)
     const QPoint toolTipPoint = q->toolTipPosition(c);
     bool handled = false;
     emit q->tooltipOverrideRequested(q, toolTipPoint, c.position(), &handled);
+    // And through the document, which is where a view that is not a widget
+    // asks: whoever wants first refusal should not have to know which of the
+    // two is showing the file. The debugger listens here.
+    if (!handled) {
+        emit m_document->tooltipOverrideRequested(editorForWidget(q), toolTipPoint,
+                                                  c.position(), &handled);
+    }
     if (handled)
         return;
 
@@ -10268,6 +10275,28 @@ void growSelectionIn(Core::IEditor *editor)
 void shrinkSelectionIn(Core::IEditor *editor)
 {
     changeSelectionSizeIn(editor, false);
+}
+
+QPoint toolTipPositionIn(Core::IEditor *editor, int position)
+{
+    if (!editor || position < 0)
+        return {};
+
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        QTextCursor cursor = widget->textCursor();
+        cursor.setPosition(position);
+        return widget->toolTipPosition(cursor);
+    }
+
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        const QRectF box = view->rectangleAt(position);
+        if (box.isNull())
+            return {};
+        // The same corner the widget editor measures from, and the same nudge
+        // down that askForTooltipAt() uses when the pointer is what asked.
+        return view->mapToGlobal(box.bottomRight()).toPoint() + QPoint(1, 1);
+    }
+    return {};
 }
 
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)

@@ -282,6 +282,18 @@ public:
     // one, and several would each want their own answer.
     virtual bool handleKeyPress(QKeyEvent *event, const QTextCursor &cursor);
 
+signals:
+    // Somebody's chance to answer a tooltip about \a position instead of the
+    // view's own hover handlers - the debugger shows the value of the
+    // expression under the pointer this way. Set \a handled to say so.
+    //
+    // On the document because both views ask it, and carrying the editor
+    // because what answers has to know which view to place a tooltip over.
+    void tooltipOverrideRequested(Core::IEditor *editor, const QPoint &globalPos,
+                                  int position, bool *handled);
+
+public:
+
     // What this language wants in the toolbar row beside what the editor puts
     // there itself - the button that opens the preprocessor dialog for a C++
     // file, say. Actions rather than widgets, so that whichever view is

@@ -1435,6 +1435,15 @@ void TextViewport::askForTooltipAt(int position, const QPointF &at)
     // Below and right of the place asked about, the way Qt places a widget's
     // tooltip, so that the tooltip does not sit on top of what it is about.
     const QPoint point = mapToGlobal(at).toPoint() + QPoint(2, 16);
+
+    // Whoever wants first refusal gets it before the hover handlers run - the
+    // debugger answers with the value of the expression while it is stopped.
+    // The widget editor asks at the same point, from processTooltipRequest().
+    bool handled = false;
+    emit doc->tooltipOverrideRequested(m_editor, point, position, &handled);
+    if (handled)
+        return;
+
     m_hoverRunner->startChecking(
         cursor,
         [point](HoverTarget *target, BaseHoverHandler *handler, int) {
