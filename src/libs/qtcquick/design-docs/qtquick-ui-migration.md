@@ -31973,3 +31973,107 @@ submenu's test invokes `extraTriggered` on the menu rather than opening the
 menu through `SHOWCONTEXTMENU`. That would cover the command that opens it,
 which nothing does today. It is smaller than this batch was and worth folding
 into whatever touches that area next rather than being a batch of its own.
+
+## 2026-09-04 -- A census of commands, and a one-line fix that was not one
+
+The previous entry left a small tightening: the Refactor submenu's test opens
+the menu directly rather than through `SHOWCONTEXTMENU`. Rather than do that
+one command, this batch asks the question for all of them at once - and the
+answer was worth having.
+
+### The census
+
+`ActionManager::commands()` lists every command; `Command::actionForContext()`
+says whether one is registered for a context, without that context being
+active. Together they make a runtime census: open the same file in each view,
+collect the commands registered for that editor, and compare.
+
+Not a written-down list of ids - there are 120 and it would be churn. What is
+written down is the **difference**, so a command that stops reaching this
+editor shows up as a failure rather than as a bug report. That is the same
+argument as the language census, applied to a set that is far too big to read.
+
+It immediately found five:
+
+    Macros.StartMacro   Macros.EndMacro
+    Macros.SaveLastMacro   Macros.ExecuteLastMacro
+    QtCreator.Print
+
+Print is not a gap: Core registers it in the File menu disabled and with no
+handler, and neither editor implements it. **The four macro commands are.**
+They are registered against `C_TEXTEDITOR` - "a text editor is current" -
+which this editor does not declare, so recording and replaying a macro was
+dead over a file it was showing. The machinery behind them already works:
+`macrooptions_test.cpp` has a test that a macro reaches a view that is not a
+widget. Only the commands were unreachable.
+
+### The fix that was not a fix
+
+`BaseTextEditor` adds `C_TEXTEDITOR` in its constructor, so adding it here
+looked like one line. It is not, and the way that came out is the point.
+
+Adding it made the census pass and **five other tests fail**. Those tests look
+up an action by walking `editor->context()` and taking the first that has one,
+and `C_TEXTEDITOR` carries handler-less entries for commands this editor
+answers itself - the menu text and shortcut `texteditorplugin.cpp` registers.
+Putting it first shadowed the real handlers.
+
+Reordering the list, most specific first, made all five pass again. **And that
+was wrong.** The suites were green and the behaviour was still broken: the
+Ctrl+U-through-the-command test added last batch went red, selecting nothing,
+because actual dispatch does not resolve in the order of that list. The
+reorder had fitted the lookup-based tests and left the real path shadowed.
+
+Two things worth keeping from that:
+
+- **A green suite after a change that a guard says is broken means the suite
+  is measuring the wrong thing.** The guard existed only because last batch
+  went through the command rather than calling the handler - one batch later
+  it caught a regression that six tests could not see.
+- The widget editor escapes this because its per-instance commands live on the
+  *widget*, which outranks the editor, while its `C_TEXTEDITOR` lives on the
+  editor. This editor keeps both on the editor, so there is nothing to
+  outrank. Giving the viewport its own `IContext` would mirror the widget and
+  is the real fix - a restructuring, not a line, and not one to start at the
+  end of a batch that has already broken something once.
+
+So the change is reverted, and the census records the four macro commands as
+known-missing with the reason next to them. The gap is now written down and
+guarded rather than invisible: if it is fixed, this test fails and says so.
+
+### Negative controls
+
+- **A -- the editor does not declare C_TEXTEDITOR** (i.e. today): census red,
+  5 missing against the 5 written down... which is the shipped state, so the
+  control that bites is the opposite one:
+- **A' -- C_TEXTEDITOR declared**: census red, 1 missing against 5. The gap
+  closing is a failure, deliberately, so that closing it is a deliberate act.
+- **B -- the census expects nothing missing**: red, 5 against 0. The
+  assertion is not vacuous.
+- **C -- C_TEXTEDITOR first in the context list**: five unrelated tests red,
+  which is how the shadowing was found in the first place.
+- **The guard** -- `testCtrlUReachesTheLanguageThroughTheCommand` - green as
+  shipped, red under every version of the "fix".
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 450 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+450 is 449 plus the census. One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+A new item, better specified than most of what is left:
+
+1. **Give the viewport its own `IContext`** so that `C_TEXTEDITOR` can be
+   declared on the editor without shadowing the per-editor handlers. That
+   closes the macro gap and makes this editor's context structure match the
+   widget's. The census is the test for it: it fails until the four commands
+   arrive, and the Ctrl+U guard fails if they arrive the wrong way.
+
+And the four from before, unchanged: the debugger's tooltips (a debug
+session), `restoreState()` stashing (a decision), the parse-context highlight
+and the Refactor submenu's presentation (a person), `isChosen()` (a project).

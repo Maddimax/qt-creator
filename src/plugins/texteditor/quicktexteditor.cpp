@@ -332,10 +332,6 @@ public:
         // off a flag its code calls too heavy; an edit on the document says the
         // same thing without one.
         //
-        // Not covered by a test: what reads it back is
-        // EditorManagerPrivate::gotoLastEditLocation(), which is private to
-        // Core and reachable only through a command, and a command does not
-        // route to an editor that no window has given focus to.
         connect(m_document->document(), &QTextDocument::contentsChanged, this, [this] {
             if (Core::EditorManager::currentEditor() == this)
                 Core::EditorManager::setLastEditLocation(this);
@@ -343,11 +339,31 @@ public:
         configureHighlighter();
         configureLanguageServices();
 
+        // Three contexts. C_TEXTEDITOR is what "a text editor is current"
+        // means to the rest of Creator, and other plugins register against it
+        // rather than against any one editor - the macro recorder's four
+        // commands are registered there and were dead here for want of it.
+        // BaseTextEditor adds it in its constructor for the same reason.
+        //
+        // Then the shared one, which is what a command meant for "any editor
+        // of this kind" uses, and one of this editor's own. A per-editor
+        // action has to be registered against the last, or the next editor of
+        // the same kind collides with it - the widget editor generates an id
+        // per instance for exactly this reason.
         // Two contexts: the shared one, which is what a command meant for
         // "any editor of this kind" uses, and one of this editor's own. A
         // per-editor action has to be registered against the second, or the
         // next editor of the same kind collides with it - the widget editor
         // generates an id per instance for exactly this reason.
+        //
+        // Not C_TEXTEDITOR, which is what "a text editor is current" means to
+        // the rest of Creator and is why the macro recorder's commands are
+        // dead here - see testTheQuickEditorAnswersEveryCommandTheWidgetOneDoes().
+        // Adding it to *this* list shadows every per-editor handler with the
+        // handler-less menu entry texteditorplugin.cpp registers against it,
+        // and Ctrl+U stops doing anything. The widget editor escapes that by
+        // keeping its per-instance commands on the widget, which outranks the
+        // editor; doing the same here is a restructuring, not a line.
         setContext(Core::Context(QUICK_TEXT_EDITOR_ID, m_editorContext));
         // The Wrap Lines menu item. The widget editor registers the same
         // command in its own context and toggles that editor rather than the
@@ -3564,6 +3580,90 @@ private slots:
 
         QTRY_COMPARE(Core::EditorManager::currentEditor(), background);
         QCOMPARE(textCursorOf(background).blockNumber(), 4);
+    }
+
+    // Every command the widget editor answers for a file, this one answers
+    // too. A census rather than a list of ids, because the list is 120 long
+    // and would be churn: what is written down is the *difference*, so a
+    // command that stops reaching this editor shows up here rather than in a
+    // bug report.
+    //
+    // This is the net that found the macro recorder. Its four commands are
+    // registered against C_TEXTEDITOR - "a text editor is current" - which
+    // this editor did not declare, so they were greyed out over a file it was
+    // showing while the machinery behind them already worked.
+    void testTheQuickEditorAnswersEveryCommandTheWidgetOneDoes()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-command-census");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+        // Which commands have an action registered for any of \a contexts.
+        // actionForContext() rather than triggering: what is being counted is
+        // that the command reaches the editor at all, and that needs no
+        // context to be active.
+        const auto commandsFor = [](const Core::Context &contexts) {
+            QSet<QString> found;
+            for (const Utils::Id &one : contexts) {
+                for (Core::Command * const cmd : Core::ActionManager::commands()) {
+                    if (cmd->actionForContext(one))
+                        found.insert(cmd->id().toString());
+                }
+            }
+            return found;
+        };
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+
+        factory->setUsesQuickEditor(true);
+        Core::IEditor * const quickEditor = Core::EditorManager::openEditor(file);
+        QVERIFY(quickEditor);
+        QVERIFY2(!TextEditorWidget::fromEditor(quickEditor),
+                 "the file opened in a widget editor, so this compares nothing");
+        const QSet<QString> quick = commandsFor(quickEditor->context());
+        Core::EditorManager::closeEditors({quickEditor}, false);
+
+        factory->setUsesQuickEditor(false);
+        Core::IEditor * const widgetEditor = Core::EditorManager::openEditor(file);
+        QVERIFY(widgetEditor);
+        TextEditorWidget * const widgetView = TextEditorWidget::fromEditor(widgetEditor);
+        QVERIFY(widgetView);
+
+        // The widget's own contexts as well as the editor's: its per-instance
+        // commands are registered against the widget, which is not the editor.
+        Core::Context widgetContexts = widgetEditor->context();
+        for (Core::IContext * const each : Core::ICore::contextObjects(widgetView)) {
+            for (const Utils::Id &id : each->context())
+                widgetContexts.add(id);
+        }
+        const QSet<QString> widget = commandsFor(widgetContexts);
+        Core::EditorManager::closeEditors({widgetEditor}, false);
+
+        QVERIFY2(widget.size() > 100,
+                 "the widget editor answers almost nothing, so the fixture is wrong");
+
+        // What is still missing, written down with why, so that the list
+        // shrinking is a deliberate act and the list growing is a failure.
+        //
+        // The four macro commands are a real gap: they are registered against
+        // C_TEXTEDITOR, which this editor does not declare. Declaring it is
+        // not the fix - it shadows every per-editor handler, see setContext()
+        // in the constructor.
+        //
+        // Print is not a gap: Core puts it in the File menu disabled and with
+        // no handler, and neither editor implements it.
+        const QStringList knownMissing{"Macros.EndMacro",
+                                       "Macros.ExecuteLastMacro",
+                                       "Macros.SaveLastMacro",
+                                       "Macros.StartMacro",
+                                       "QtCreator.Print"};
+        QStringList missing = QStringList((widget - quick).begin(), (widget - quick).end());
+        missing.sort();
+        QCOMPARE(missing, knownMissing);
     }
 
     // Which languages open in the Qt Quick editor, written down rather than
