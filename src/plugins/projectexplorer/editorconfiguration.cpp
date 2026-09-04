@@ -92,11 +92,15 @@ EditorConfiguration::EditorConfiguration()
         d->m_defaultCodeStyle.setCurrentDelegate(use ? &globalCodeStyle() : nullptr);
         const QList<Core::IEditor *> editors = Core::DocumentModel::editorsForOpenedDocuments();
         for (Core::IEditor *editor : editors) {
-            if (auto widget = TextEditorWidget::fromEditor(editor)) {
-                Project *project = ProjectManager::projectForFile(editor->document()->filePath());
-                if (project && project->editorConfiguration() == this)
-                    switchSettings(widget);
-            }
+            Project * const project
+                = ProjectManager::projectForFile(editor->document()->filePath());
+            if (!project || project->editorConfiguration() != this)
+                continue;
+            // Whichever view: what a document carries reaches either one.
+            if (auto * const document = qobject_cast<TextDocument *>(editor->document()))
+                applySettings(document);
+            if (auto widget = TextEditorWidget::fromEditor(editor))
+                switchSettings(widget);
         }
     });
 }
@@ -206,23 +210,73 @@ void EditorConfiguration::fromMap(const Store &map)
 
 void EditorConfiguration::configureEditor(Core::IEditor *editor) const
 {
-    TextEditorWidget *widget = TextEditorWidget::fromEditor(editor);
-    if (widget) {
-        TextDocument *document = widget->textDocument();
-        document->setCodeStyle(codeStyle(widget->languageSettingsId()));
-        if (!useGlobalSettings()) {
-            // On session restore, editors are reopened before the project has
-            // finished loading, so a file may have been decoded with the global
-            // default encoding instead of the project's. Re-read unmodified,
-            // undecodable files now.
-            const bool reloadWithProjectEncoding = document->hasDecodingError()
-                    && !document->isModified()
-                    && document->encoding() != d->m_textEncoding;
-            document->setEncoding(d->m_textEncoding);
+    // Whichever view shows the file. It used to give up unless there was a
+    // widget, so a project's own code style, encoding and typing settings were
+    // ignored for anything open in the Qt Quick editor - which is every C++
+    // file.
+    TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+    auto * const document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
+    if (!document)
+        return;
+
+    // The language the style belongs to. A widget is told which by its
+    // language; a view that is not one has only the file's mime type, which is
+    // what the Qt Quick editor asks itself.
+    const Utils::Id language = widget ? widget->languageSettingsId()
+                                      : TextEditor::languageId(document->mimeType());
+    document->setCodeStyle(codeStyle(language));
+
+    if (!useGlobalSettings()) {
+        // On session restore, editors are reopened before the project has
+        // finished loading, so a file may have been decoded with the global
+        // default encoding instead of the project's. Re-read unmodified,
+        // undecodable files now.
+        const bool reloadWithProjectEncoding = document->hasDecodingError()
+                && !document->isModified()
+                && document->encoding() != d->m_textEncoding;
+        document->setEncoding(d->m_textEncoding);
+        applySettings(document);
+        if (widget)
             switchSettings(widget);
-            if (reloadWithProjectEncoding)
-                document->reload(d->m_textEncoding);
-        }
+        if (reloadWithProjectEncoding)
+            document->reload(d->m_textEncoding);
+    }
+}
+
+void EditorConfiguration::applySettings(TextDocument *document) const
+{
+    if (useGlobalSettings()) {
+        document->setTypingSettings(globalTypingSettings().data());
+        document->setStorageSettings(globalStorageSettings().data());
+        document->setExtraEncodingSettings(globalExtraEncodingSettings().data());
+        QObject::disconnect(&typingSettings, &AspectContainer::changed, document, nullptr);
+        QObject::disconnect(&storageSettings, &AspectContainer::changed, document, nullptr);
+        QObject::disconnect(&extraEncodingSettings, &AspectContainer::changed, document, nullptr);
+        QObject::connect(&globalTypingSettings(), &AspectContainer::changed, document,
+                         [document] { document->setTypingSettings(globalTypingSettings().data()); });
+        QObject::connect(&globalStorageSettings(), &AspectContainer::changed, document,
+                         [document] { document->setStorageSettings(globalStorageSettings().data()); });
+        QObject::connect(&globalExtraEncodingSettings(), &AspectContainer::changed, document,
+                         [document] {
+                             document->setExtraEncodingSettings(
+                                 globalExtraEncodingSettings().data());
+                         });
+    } else {
+        document->setTypingSettings(typingSettings.data());
+        document->setStorageSettings(storageSettings.data());
+        document->setExtraEncodingSettings(extraEncodingSettings.data());
+        QObject::disconnect(&globalTypingSettings(), &AspectContainer::changed, document, nullptr);
+        QObject::disconnect(&globalStorageSettings(), &AspectContainer::changed, document, nullptr);
+        QObject::disconnect(&globalExtraEncodingSettings(), &AspectContainer::changed,
+                            document, nullptr);
+        QObject::connect(&typingSettings, &AspectContainer::changed, document,
+                         [this, document] { document->setTypingSettings(typingSettings.data()); });
+        QObject::connect(&storageSettings, &AspectContainer::changed, document,
+                         [this, document] { document->setStorageSettings(storageSettings.data()); });
+        QObject::connect(&extraEncodingSettings, &AspectContainer::changed, document,
+                         [this, document] {
+                             document->setExtraEncodingSettings(extraEncodingSettings.data());
+                         });
     }
 }
 
@@ -230,40 +284,16 @@ void EditorConfiguration::switchSettings(TextEditorWidget *widget) const
 {
     if (useGlobalSettings()) {
         widget->setMarginSettings(TextEditor::marginSettings().data());
-        widget->setTypingSettings(globalTypingSettings().data());
-        widget->setStorageSettings(globalStorageSettings().data());
         widget->setBehaviorSettings(globalBehaviorSettings().data());
-        widget->setExtraEncodingSettings(globalExtraEncodingSettings().data());
-        QObject::disconnect(&typingSettings, &AspectContainer::changed, widget, nullptr);
-        QObject::disconnect(&storageSettings, &AspectContainer::changed, widget, nullptr);
         QObject::disconnect(&behaviorSettings, &AspectContainer::changed, widget, nullptr);
-        QObject::disconnect(&extraEncodingSettings, &AspectContainer::changed, widget, nullptr);
-        QObject::connect(&globalTypingSettings(), &AspectContainer::changed,
-                         widget, [widget] { widget->setTypingSettings(globalTypingSettings().data()); });
-        QObject::connect(&globalStorageSettings(), &AspectContainer::changed,
-                         widget, [widget] { widget->setStorageSettings(globalStorageSettings().data()); });
         QObject::connect(&globalBehaviorSettings(), &AspectContainer::changed,
                          widget, [widget] { widget->setBehaviorSettings(globalBehaviorSettings().data()); });
-        QObject::connect(&globalExtraEncodingSettings(), &AspectContainer::changed,
-                         widget, [widget] { widget->setExtraEncodingSettings(globalExtraEncodingSettings().data()); });
     } else {
         widget->setMarginSettings(marginSettings.data());
-        widget->setTypingSettings(typingSettings.data());
-        widget->setStorageSettings(storageSettings.data());
         widget->setBehaviorSettings(behaviorSettings.data());
-        widget->setExtraEncodingSettings(extraEncodingSettings.data());
-        QObject::disconnect(&globalTypingSettings(), &AspectContainer::changed, widget, nullptr);
-        QObject::disconnect(&globalStorageSettings(), &AspectContainer::changed, widget, nullptr);
         QObject::disconnect(&globalBehaviorSettings(), &AspectContainer::changed, widget, nullptr);
-        QObject::disconnect(&globalExtraEncodingSettings(), &AspectContainer::changed, widget, nullptr);
-        QObject::connect(&typingSettings, &AspectContainer::changed,
-                         widget, [this, widget] { widget->setTypingSettings(typingSettings.data()); });
-        QObject::connect(&storageSettings, &AspectContainer::changed,
-                         widget, [this, widget] { widget->setStorageSettings(storageSettings.data()); });
         QObject::connect(&behaviorSettings, &AspectContainer::changed,
                          widget, [this, widget] { widget->setBehaviorSettings(behaviorSettings.data()); });
-        QObject::connect(&extraEncodingSettings, &AspectContainer::changed,
-                         widget, [this, widget] { widget->setExtraEncodingSettings(extraEncodingSettings.data()); });
     }
 }
 
@@ -298,3 +328,84 @@ TabSettingsData actualTabSettings(const FilePath &file, const TextDocument *base
 }
 
 } // ProjectExplorer
+
+#ifdef WITH_TESTS
+
+#include <coreplugin/editormanager/editormanager.h>
+#include <texteditor/texteditor.h>
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
+
+namespace ProjectExplorer::Internal {
+
+// A project can keep its own code style, encoding and typing settings instead
+// of the global ones. Applying them used to give up unless the file was open
+// in a TextEditorWidget, so a C++ file - which opens in the Qt Quick editor -
+// was edited with the global settings whatever the project said.
+class EditorConfigurationTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testAProjectsSettingsReachEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAProjectsSettingsReachEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("editorconfig-views");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("configured.cpp");
+        QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // A project that keeps its own, and says something the global settings
+        // do not: leave trailing whitespace alone when saving.
+        EditorConfiguration config;
+        config.useGlobalSettings.setValue(false);
+        TextEditor::StorageSettingsData mine = config.storageSettings.data();
+        mine.m_cleanWhitespace = !TextEditor::globalStorageSettings().data().m_cleanWhitespace;
+        config.storageSettings.setData(mine);
+
+        QCOMPARE(document->storageSettings().m_cleanWhitespace,
+                 TextEditor::globalStorageSettings().data().m_cleanWhitespace);
+
+        config.configureEditor(editor);
+
+        QCOMPARE(document->storageSettings().m_cleanWhitespace, mine.m_cleanWhitespace);
+        QVERIFY2(document->codeStyle(), "the project left the document with no code style");
+    }
+};
+
+QObject *createEditorConfigurationTest()
+{
+    return new EditorConfigurationTest;
+}
+
+} // namespace ProjectExplorer::Internal
+
+#include "editorconfiguration.moc"
+
+#endif // WITH_TESTS

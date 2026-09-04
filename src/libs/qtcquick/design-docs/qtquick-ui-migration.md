@@ -32752,3 +32752,89 @@ census of commands is a permanent test and cannot go stale; the cast survey is
 a grep somebody has to remember to repeat. Before the next "nothing left",
 re-run the cast net rather than trusting this entry: it is one command, and it
 has now found something twice.
+
+## 2026-09-05 -- A project's own settings reach either view
+
+The previous entry ended by telling the next batch to re-run the cast net.
+That net was run last batch and its one finding fixed, so this batch followed
+the *lesson* rather than the letter: a grep goes stale, a test cannot. The
+obvious move - make the cast net a permanent test - turns out not to fit.
+There is no source directory available to a test at runtime here and no
+precedent for one reading the tree; a lint belongs in CI tooling, not in a
+unit test, and inventing build plumbing for it would be worse than the grep.
+
+So instead: the three non-test sites last batch's sweep turned up and did not
+examine. One of them was the largest gap found in a long while.
+
+### What was broken
+
+`EditorConfiguration::configureEditor()` began:
+
+    TextEditorWidget *widget = TextEditorWidget::fromEditor(editor);
+    if (widget) { ... }
+
+and did nothing at all otherwise. That function is how a **project's own
+editor settings** are applied - the ones behind "Use Customized Settings" in
+a project's Editor page. So for every C++ file, which opens in the Qt Quick
+editor:
+
+- the project's code style was not applied - its indent size, tabs or spaces;
+- its text encoding was not applied, and an undecodable file was not re-read;
+- its typing settings were not applied;
+- its storage settings were not applied - including *clean whitespace on
+  save*, which silently reverted to whatever the global setting said.
+
+A project that sets tabs where the global default is spaces was simply
+ignored. That is not a subtle gap.
+
+### The split it wanted
+
+Of the five settings `switchSettings()` pushed at the widget, three -
+typing, storage, extra encoding - are forwarded straight to the **document**,
+which is where the Qt Quick editor sets its own. Two are genuinely the view's:
+margins, and the behaviour settings the widget's own code reads.
+
+So `applySettings(TextDocument *)` now carries the document half for either
+view, `switchSettings(TextEditorWidget *)` keeps the two that are a widget's,
+and `configureEditor()` does the code style and encoding on the document
+before either. The language a code style belongs to comes from the widget
+where there is one and from the file's mime type otherwise, which is the same
+question the Quick editor already asks itself.
+
+The "use global settings" toggle had the same widget-only loop and now
+re-applies to both.
+
+### Negative controls
+
+- **A -- `configureEditor()` gives up without a widget, as before**: quick row
+  red, widget row green. The gap, reproduced exactly.
+- **B -- the project's settings never reach the document**: both rows red, so
+  the assertion is about the settings arriving rather than about which view
+  arrived.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 455 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+`-test ProjectExplorer` is where the new test lives and it exits 2, with two
+failures - `testSourceToBinaryMapping(qbs)` and `RunWorkerConflictTest`.
+Attributed rather than assumed: reverting this batch and re-running gives 47
+classes, 523 passed and **the same two failures**. With it, 48 classes and 527
+passed. Neither is this change.
+
+Three files, no new file and no `.qbs` edit - the test lives in
+`editorconfiguration.cpp` behind `WITH_TESTS` for that reason.
+
+### What this leaves
+
+The two presentation questions, unchanged, still for a person.
+
+And the margin and behaviour settings, which a project can also override and
+which still reach only the widget editor. That is a real remainder rather than
+a question: it wants per-view settings on `TextViewport`, which does not have
+them - the Qt Quick editor reads display and behaviour settings from the
+globals. It is the same shape as everything else that has been ported here,
+and it is the honest next piece of work.
