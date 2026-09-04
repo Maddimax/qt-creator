@@ -31488,3 +31488,110 @@ The list from the previous entry, less this one:
 Nothing on that list can be closed on this machine without either a debug
 session or a loaded project, so the next batch is a judgement about which of
 those to arrange rather than a piece of work to pick up.
+
+## 2026-09-04 -- Go Back after a jump inside one file
+
+The previous entry said everything left needed a debug session, a loaded
+project or a judgement call. **That was the third time this document has
+declared the list empty and been wrong**, so this batch started by checking
+rather than repeating it.
+
+First the two claims that did hold up. `DebuggerToolTipManagerPrivate::
+slotEditorOpened()` gates on `qobject_cast<BaseTextEditor *>`, so the Quick
+editor is skipped outright; and `slotTooltipOverrideRequested()` returns at
+`if (!m_engine || !m_engine->canDisplayTooltip())`. The consumer really cannot
+run without a debug session - that one is confirmed, not assumed.
+
+### The sweep that found something
+
+The nets used so far were casts to `TextEditorWidget`, the virtuals
+`cppeditorwidget.h` overrides, and `finalizeInitialization()`. The one not
+used: **the signals `TextEditorWidget` emits**, and whether the Quick view has
+an equivalent for each. Most were already covered - the `request*` family by
+the `SymbolRequests` relay, `toolbarOutlineChanged` by `ToolBarOutline`. Two
+were not:
+
+- `tooltipRequested` - consumers are the diff editor and the GLSL editor,
+  neither of which opens in the Quick editor. Not a gap.
+- **`saveCurrentStateForNavigationHistory` and its two siblings** - nothing in
+  the Quick path calls `EditorManager::addCurrentPositionToNavigationHistory()`
+  at all. `markdowneditor.cpp` does, which is the tell: it is another editor
+  that is not a `TextEditorWidget` and it had to solve exactly this.
+
+### What was actually broken
+
+`TextEditorWidget::openLink()` emits `addCurrentStateToNavigationHistory()`
+before jumping when the target is in the same file. `TextViewport::openLink()`
+had the same branch and just called `gotoLine()`.
+
+So: **follow a symbol to something in the same file, press Go Back, and
+nothing happened.** A jump to another file is an open and the editor manager
+records that itself, which is why only the same-file case was broken - and why
+it would be easy to miss by trying Follow Symbol across headers.
+
+The fix is the call the widget makes, with the guard the widget has:
+
+    if (m_editor && Core::EditorManager::currentEditor() == m_editor)
+        Core::EditorManager::addCurrentPositionToNavigationHistory();
+
+### The guard, which was copied and then understood
+
+Two controls, and the second is the interesting one again.
+
+- **A -- the Quick view records nothing**: quick row red, `blockNumber` 0
+  against 4 - Go Back stayed at the jump target. Widget row green. That is the
+  bug, reproduced.
+- **B -- the guard removed**: **green.** The test only ever drove the editor
+  the reader was in, so it could not tell.
+
+`BaseTextEditor::addCurrentStateToNavigationHistory()` has the same guard, and
+copying it is not a reason. What it is *for*: the manager records "the current
+position", so a jump driven in a view the reader is not looking at - a split,
+or a language client working in the background - would push the **other**
+editor's position, and Go Back would be spent there instead of returning.
+
+That is now a test: open one file, open a second so the first goes to the
+background, jump inside the background one, and check that one step back
+reaches the editor the reader left. With the guard removed it lands on the
+front editor instead, so B bites now.
+
+Third batch running where the second control was the one that taught
+something. The rule from last time held again: **when a control does not bite,
+suspect the assertion before the fix.**
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 444 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+444 is 441 plus three rows: two for the data-driven jump test, one for the
+background-view one. Added up per class.
+
+Two files, no new file and no `.qbs` edit, so nothing to re-resolve.
+
+### What this leaves
+
+Navigation history is **not** finished, and the rest of it has a shape worth
+writing down rather than a name. The widget has a second mechanism:
+`gotoLine()` ends with `saveCurrentCursorPositionForNavigation()`, which marks
+the next cursor move as interesting and stashes the state; `slotCursorPosition
+Changed()` then pushes that stashed state. The effect is that the place you
+*jumped to* is remembered once you wander off it, so Go Forward and Go Back
+step through jump destinations and not only origins. The Quick editor does
+none of that. It is a real difference, it is testable without a project, and
+it is the obvious next batch.
+
+Otherwise, unchanged and all still blocked here:
+
+1. The debugger's tooltips - confirmed above to need a debug session.
+2. The parse-context highlight in the widget's own style, a judgement call.
+3. `isChosen()` against a real project part.
+
+And a note for whoever declares the list empty next: three of the last four
+"nothing left" claims were wrong, and each time the thing that found the gap
+was picking a *different net* - casts, then virtuals, then constructor wiring,
+now signals. The nets not yet used include the slots and Q_INVOKABLEs
+`TextEditorWidget` exposes, and what `BaseTextEditor` does that
+`QuickTextEditor` does not.

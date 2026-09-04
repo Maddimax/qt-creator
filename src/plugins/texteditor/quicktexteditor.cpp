@@ -3185,6 +3185,111 @@ private slots:
         QTRY_COMPARE(document->document()->findBlockByNumber(0).text(), QString("fixed"));
     }
 
+    void testGoBackReturnsFromAJumpInsideOneFile_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Following a symbol to somewhere in the same file is a jump and not an
+    // open, so the editor manager never sees it and never records it. The
+    // widget editor tells it; a view that is not one has to as well, or Go
+    // Back walks past the place the reader came from.
+    //
+    // Against the widget row this is the control on the fixture: it says the
+    // jump and the walk back are ones Creator really does.
+    void testGoBackReturnsFromAJumpInsideOneFile()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-goback");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("jump.cpp");
+        QVERIFY(file.writeFileContents("int target();\n\nint caller()\n{\n"
+                                       "    return target();\n}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+
+        // On the call, which is where following the symbol starts from.
+        editor->gotoLine(5, 11);
+        QCOMPARE(textCursorOf(editor).blockNumber(), 4);
+
+        // The jump the language would have asked for, to the declaration on
+        // line 1 of this same file.
+        const Utils::Link here(file, 1, 4);
+        if (quick) {
+            TextViewport * const view = viewportForEditor(editor);
+            QVERIFY(view);
+            QVERIFY(view->openLink(here, false));
+        } else {
+            TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+            QVERIFY(widget);
+            QVERIFY(widget->openLink(here, false));
+        }
+        QTRY_COMPARE(textCursorOf(editor).blockNumber(), 0);
+
+        Core::EditorManager::goBackInNavigationHistory();
+        QTRY_COMPARE_WITH_TIMEOUT(textCursorOf(editor).blockNumber(), 4, 5000);
+    }
+
+    // And only for the editor the reader is actually in. The manager records
+    // "the current position", so a jump driven in a view the reader is not
+    // looking at - a split, or a language client working in the background -
+    // would push the *other* editor's position and Go Back would stop there.
+    // BaseTextEditor guards its own call the same way.
+    void testAJumpInABackgroundViewRecordsNothing()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-goback-background");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath first = dir.filePath("first.cpp");
+        QVERIFY(first.writeFileContents("int target();\n\nint caller()\n{\n"
+                                        "    return target();\n}\n"));
+        const Utils::FilePath second = dir.filePath("second.cpp");
+        QVERIFY(second.writeFileContents("int elsewhere() { return 0; }\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(first);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const background = Core::EditorManager::openEditor(first);
+        QVERIFY(background);
+        const QScopeGuard closeFirst(
+            [background] { Core::EditorManager::closeEditors({background}, false); });
+        background->gotoLine(5, 11);
+
+        // Opening this one is what puts the first into the background, and is
+        // also the history entry Go Back is expected to land on.
+        Core::IEditor * const front = Core::EditorManager::openEditor(second);
+        QVERIFY(front);
+        const QScopeGuard closeSecond(
+            [front] { Core::EditorManager::closeEditors({front}, false); });
+        QCOMPARE(Core::EditorManager::currentEditor(), front);
+
+        TextViewport * const view = viewportForEditor(background);
+        QVERIFY(view);
+        QVERIFY(view->openLink(Utils::Link(first, 1, 4), false));
+
+        // One step back reaches the editor the reader left, because the jump
+        // above added nothing. Were it recorded, that step would be spent on
+        // the front editor's own position instead.
+        Core::EditorManager::goBackInNavigationHistory();
+        QTRY_COMPARE_WITH_TIMEOUT(Core::EditorManager::currentEditor(), background, 5000);
+    }
+
     // Which languages open in the Qt Quick editor, written down rather than
     // grepped for. Three times in this migration a gap has been "closed" in
     // code that nothing reaches, because the language's files still open in

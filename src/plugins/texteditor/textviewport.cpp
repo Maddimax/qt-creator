@@ -1348,6 +1348,11 @@ bool TextViewport::openLink(const Utils::Link &link, bool inNextSplit)
     // Within this very file it is a jump, not an open: the editor manager
     // would hand back the editor this already is.
     if (!inNextSplit && doc->filePath() == link.targetFilePath) {
+        // Which is also why Go Back has to be told where the reader came from
+        // here. A jump to another file is an open, and the editor manager
+        // records that itself; this one it never sees.
+        if (m_editor && Core::EditorManager::currentEditor() == m_editor)
+            Core::EditorManager::addCurrentPositionToNavigationHistory();
         gotoLine(link.target.line, link.target.column);
         forceActiveFocus();
         return true;
