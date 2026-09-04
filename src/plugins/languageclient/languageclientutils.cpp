@@ -210,7 +210,10 @@ public:
 
     QPointer<QAction> m_popupAction;
     QPointer<Client> m_client;
+    // The combo, which a widget editor takes over, and the description of the
+    // outline, which any view can draw.
     QPointer<QWidget> m_outline;
+    QPointer<TextEditor::ToolBarOutline> m_toolBarOutline;
 };
 
 void updateEditorToolBar(Core::IEditor *editor)
@@ -301,25 +304,30 @@ void updateEditorToolBar(Core::IEditor *editor)
         document->addToolBarAction(popup);
     }
 
-    // The outline is still a widget - a combo box over the document symbols -
-    // so it goes where there is one. The Qt Quick editor has a ToolBarOutline
-    // seam of its own that this has not been moved onto yet; see the design
-    // doc.
+    // The outline is made for the *editor* rather than for a widget: the row
+    // it shows follows a caret, so it belongs to a view, and a view that draws
+    // its own toolbar looks for one among the editor's children. The combo it
+    // fills is what the widget editor installs.
     TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
-    if (!widget)
-        return;
 
     if (!extras->m_client || !client || extras->m_client != client
         || !client->supportsDocumentSymbols(document)) {
-        if (extras->m_outline && widget->toolbarOutlineWidget() == extras->m_outline)
+        if (widget && extras->m_outline
+            && widget->toolbarOutlineWidget() == extras->m_outline) {
             widget->setToolbarOutline(nullptr);
+        }
+        delete extras->m_toolBarOutline;
+        extras->m_outline = nullptr;
         extras->m_client.clear();
     }
 
     if (!extras->m_client) {
-        extras->m_outline = createOutlineComboBox(client, widget);
-        if (extras->m_outline) {
-            widget->setToolbarOutline(extras->m_outline);
+        TextEditor::ToolBarOutline * const outline = createToolBarOutline(client, editor);
+        extras->m_toolBarOutline = outline;
+        if (outline) {
+            extras->m_outline = outlineWidget(outline);
+            if (widget)
+                widget->setToolbarOutline(extras->m_outline);
             extras->m_client = client;
         }
     }

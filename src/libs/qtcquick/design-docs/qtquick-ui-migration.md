@@ -30032,3 +30032,149 @@ After a **full** rebuild, not a per-plugin one:
   highlight, the caret shape per mode.
 - Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — The client's outline, and a downcast that wanted no meta-object
+
+**The gap this batch closed**: for a file in the Qt Quick editor the language
+client made **no outline at all** - not one that drew badly, none.
+`createOutlineComboBox(Client *, TextEditorWidget *)` needed a widget to
+construct, so `updateEditorToolBar()` never got as far as asking.
+
+It is a `ToolBarOutline` now, parented to the editor, in exactly the division
+`CppEditorOutline` already uses: the outline *describes* the model, the current
+row and what activating one means, and it also owns the `TreeViewComboBox` that
+the widget editor installs. One description, two views.
+
+The five things it wanted a widget for all had answers:
+
+| was | is |
+| --- | --- |
+| `editorWidget->textDocument()` | `editor->document()`, cast to `TextDocument` |
+| `TextEditorWidget::cursorPositionChanged` | `Core::IEditor::cursorPositionChanged` |
+| `editorWidget->textCursor()` | `TextEditor::textCursorOf(editor)` |
+| `editorWidget->gotoLine(l, c, true, true)` | `editor->gotoLine(l, c, true)` |
+| `emit editorWidget->activateEditor()` | `Core::EditorManager::activateEditor(editor)` |
+
+The `gotoLine` column needed no conversion, which is worth saying because the
+last batch got the opposite case wrong: the protocol's `character` counts from
+zero and `gotoLine()`'s column counts from zero, so `pos.character()` goes
+straight through. It is `currentColumn()` that counts from one.
+
+### Reaching the combo without widening the base
+
+`updateEditorToolBar()` needs the combo to install it, and the concrete class
+is local to `languageclientoutline.cpp`, so the caller cannot see its
+`widget()`. Three ways out, and the reason for the one taken:
+
+- **A virtual `widget()` on `ToolBarOutline`** - rejected twice over. It is
+  another layout change to an exported class, which means another full-tree
+  rebuild, and it is the wrong shape: a `ToolBarOutline` exists so that a view
+  which draws the outline *itself* needs no widget from anybody.
+- **Declaring the class in the header** - drags `TreeViewComboBox`,
+  `QSortFilterProxyModel` and the delegate into a header two other plugins
+  include.
+- **A free `outlineWidget(ToolBarOutline *)`**, which is what it does. The
+  class stays private and the caller gets the one thing it needs.
+
+**And it downcasts with `dynamic_cast`, not `qobject_cast`.** `qobject_cast`
+would need a meta-object, so `Q_OBJECT` on the class, so
+`#include "languageclientoutline.moc"` in a file that has never had one - all
+to identify a type that has no signals of its own and only inherits the base's.
+`dynamic_cast` is what the file already uses for `ClientExtras`.
+
+### Who owns the combo when nobody installs it
+
+The widget editor's `setToolbarOutline()` takes the combo over -
+`CppEditorOutline::widget()` says "must be deleted by client" and means it. A
+view that draws the outline itself installs nothing, so the combo would leak.
+
+It is deleted by the outline's destructor **only if nothing took it**:
+
+```cpp
+~LanguageClientOutline() override
+{
+    if (m_combo && !m_combo->parentWidget())
+        delete m_combo;
+}
+```
+
+which is safe in both directions because installing a widget reparents it, and
+`m_combo` is a `QPointer` so a toolbar that outlives the outline - or the other
+way about - leaves no dangling raw pointer. The guards that follow from that
+are in every method that touches it.
+
+### Control
+
+Restoring the `if (!widget) return;` in front of the outline section gives
+
+    '(outline = editor->findChild<TextEditor::ToolBarOutline *>())' returned FALSE
+      (no outline was made for a file in the Qt Quick editor)
+
+The test also asserts the editor has **no** outline before the client takes the
+document, so it cannot pass on one that was there all along, and that nothing
+has installed the combo - there is no widget editor in that test to install it,
+which is the case that used to mean no outline at all.
+
+### What is deliberately not finished
+
+`QuickTextEditor::toolBar()` reads the outline **once**, as an initial property,
+when the row is built. A client attaches after a file is open, so the outline it
+makes arrives later and is not drawn yet. This is the same "arrives later"
+problem the toolbar *actions* had in the previous batch, and it has the same
+answer - the property has to be set rather than only provided - but the
+mechanism differs: an action list has `toolBarActionsChanged()` on the document,
+while an outline is a child of the editor, so what says "there is one now" is
+most naturally the child arriving. Doing it properly is the next batch; what
+this one delivers is that there is an outline to draw.
+
+### Two edits that went to the wrong place
+
+Both caught by the compiler, both worth avoiding:
+
+- **A thirty-line exact-match replacement failed** and reported nothing about
+  why. Redone as fifteen one- and two-line replacements, each asserting its own
+  count, which located the mismatch immediately. Large `old` strings fail as a
+  unit and tell you only that something in them differs.
+- **`replace(old, new, 1)` edited the wrong site.**
+  `m_proxyModel.setSourceModel(&m_model);` appears in two classes in that file,
+  and the first is the navigation panel, which has no combo at all. It compiled
+  straight into an error, but a pattern that happens to occur twice can just as
+  easily land somewhere that still compiles. **Count first, then replace** -
+  the per-edit counts that found the previous problem would have found this one
+  before it was written.
+
+### A cheap check that no layout changed
+
+The full rebuild after this batch was **57 steps**; the one after the previous
+batch, which added a virtual to `TextDocument`, was **932**. Same command, same
+tree. The step count is a free measurement of how far a header change reaches:
+57 is "two plugins include this header", 932 is "the layout of an exported
+class moved". Worth glancing at before wondering whether a full rebuild was
+really necessary - and worth remembering when it is small, because that is the
+case where building only the edited plugin would also have been correct.
+
+### Verification
+
+    -test LanguageClient  5 classes, 35 passed, 0 failed, exit 0
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 429 passed, 0 failed, exit 0, no ASan report
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+35 rather than 34: one new test. No new file, so no `.qbs` edit and no qbs
+re-resolve.
+
+**Still left**:
+
+- **Drawing** the client's outline in the Qt Quick toolbar - the property is
+  read once when the row is built, and the outline arrives after that. See
+  above; it is the next batch and it is small.
+- `requestLinkAt`, a `TextEditorWidget` signal rather than a cast.
+- Debugger's remaining sites, unread.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.

@@ -8,7 +8,12 @@
 #include <languageserverprotocol/lsptypes.h>
 #include <utils/treemodel.h>
 
-namespace TextEditor { class TextEditorWidget; }
+QT_BEGIN_NAMESPACE
+class QWidget;
+QT_END_NAMESPACE
+
+namespace Core { class IEditor; }
+namespace TextEditor { class ToolBarOutline; }
 namespace Utils { class TreeViewComboBox; }
 
 namespace LanguageClient {
@@ -54,7 +59,13 @@ private:
     QList<LanguageServerProtocol::SymbolTag> m_tags;
 };
 
-Utils::TreeViewComboBox *createOutlineComboBox(Client *client, TextEditor::TextEditorWidget *editorWidget);
+// The outline for a file a language server knows about, or nullptr where it
+// offers none. Parented to \a editor, which is where a view that draws its own
+// toolbar looks for one. Its widget() is the combo the widget editor installs.
+TextEditor::ToolBarOutline *createToolBarOutline(Client *client, Core::IEditor *editor);
+// The combo \a outline fills, for a view that installs a widget rather than
+// drawing the outline itself. Whoever installs it takes it over.
+QWidget *outlineWidget(TextEditor::ToolBarOutline *outline);
 
 void setupLanguageClientOutline();
 

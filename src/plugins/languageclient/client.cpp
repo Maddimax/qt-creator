@@ -62,6 +62,7 @@
 #include <QJsonDocument>
 
 #ifdef WITH_TESTS
+#include "languageclientoutline.h"
 #include <coreplugin/editormanager/editormanager.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
@@ -2621,6 +2622,61 @@ private slots:
 
         QTRY_COMPARE(document->toolBarActions().size(), 1);
         QCOMPARE(document->toolBarActions().first()->text(), client->name());
+    }
+
+    // The outline the toolbar shows. createOutlineComboBox() took a
+    // TextEditorWidget, so for a file in the Qt Quick editor nothing was made
+    // at all - not an outline that drew badly, none. It is a ToolBarOutline
+    // parented to the editor now, which is where a view drawing its own
+    // toolbar looks for one.
+    void testTheOutlineIsMadeForAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("lsp-outline-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("outlined.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        QJsonObject capabilities;
+        capabilities["documentSymbolProvider"] = true;
+
+        auto * const server = new RecordingServer(capabilities);
+        auto * const client = new Client(server);
+        client->setName("outline test client");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY(client->reachable());
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QVERIFY2(!editor->findChild<TextEditor::ToolBarOutline *>(),
+                 "the editor already had an outline before any client took the document");
+
+        LanguageClientManager::openDocumentWithClient(document, client);
+        QTRY_VERIFY(LanguageClientManager::clientForFilePath(file) == client);
+
+        TextEditor::ToolBarOutline *outline = nullptr;
+        QTRY_VERIFY2((outline = editor->findChild<TextEditor::ToolBarOutline *>()),
+                     "no outline was made for a file in the Qt Quick editor");
+        QVERIFY2(outline->model(), "the outline describes no model");
+
+        // The combo it fills still exists, and nothing has taken it over -
+        // there is no widget editor here to install it, which is the case that
+        // used to mean no outline at all.
+        QWidget * const combo = outlineWidget(outline);
+        QVERIFY2(combo, "the outline has no combo for a view that installs one");
+        QVERIFY2(!combo->parentWidget(),
+                 "something installed the combo in a view that has no toolbar of its own");
     }
 };
 
