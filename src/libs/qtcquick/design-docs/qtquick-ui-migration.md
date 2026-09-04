@@ -31698,3 +31698,96 @@ The ones still unused are the slots and `Q_INVOKABLE`s `TextEditorWidget`
 exposes, and what `BaseTextEditor` does that `QuickTextEditor` does not -
 this batch came out of the second of those, and `BaseTextEditor` has more in
 it than the three navigation methods.
+
+## 2026-09-04 -- The sweep is exhausted: no next step that can be closed here
+
+**No code changed in this batch.** The previous entry named the net to use
+next - what `BaseTextEditor` does that `QuickTextEditor` does not - and said
+`BaseTextEditor` had more in it than the three navigation methods. It does
+not, in any way that matters. This entry records that, and the three other
+things measured on the way, so that none of it is investigated a sixth time.
+
+### The nets, and what is left in them
+
+| net | result |
+|---|---|
+| casts to `TextEditorWidget` | clean (several batches ago) |
+| virtuals `cppeditorwidget.h` overrides | clean, closed the last one |
+| `finalizeInitialization()` line by line | clean |
+| signals `TextEditorWidget` emits | closed navigation history |
+| **`IEditor` overrides on `BaseTextEditor`** | **clean** |
+| **per-editor commands** | **clean** |
+
+`BaseTextEditor` overrides `document`, `duplicate`, `saveState`,
+`restoreState`, `toolBar`, `currentLine`, `currentColumn`, `gotoLine` and
+`selectedText`. `QuickTextEditor` has every one of them. The rest of the class
+is convenience text access - `characterAt`, `textAt`, `insert`, `replace` -
+which is reached by casting to `BaseTextEditor`, and the cast net covered that.
+
+For commands: every constant in `texteditorconstants.h` that names an editor
+command is mentioned in `quicktexteditor.cpp`. The three that are not are
+`CREATE_SCRATCH_BUFFER` and the `BOOKMARKS_*` family, both registered globally
+rather than per editor, and `REFORMAT_FILE`, which only QmlJSEditor registers
+- and a `.qml` file opens in the widget editor, so it is not reachable from
+here at all.
+
+### Three measurements worth keeping
+
+**The syntax-definition info bar is not a gap, because it does not happen.**
+`TextEditorWidgetPrivate::updateSyntaxInfoBar()` offers to download a missing
+highlight definition, or to choose between several. Nothing in the Quick path
+does that, and `highlighterhelper.cpp:292` even says so in a comment. But the
+only thing that calls it on open is `TextEditorWidgetPrivate::reconfigure()`,
+and **`reconfigure()` is declared, defined and never called** - dead code. So
+the widget does not show the info bar on open either: measured, opening a file
+with no definition (`.zzz`, and there are 49 definitions in the build, so the
+repository is not empty) leaves the info bar empty in *both* views. There is
+no failing measurement to fix. Fixing the widget's dead code is a different
+job from this migration's.
+
+**Commands cannot be triggered in these tests, in either view.** The previous
+entry inferred this from a batch-15 attempt; it is now measured. Open an
+editor, focus it, and ask the ActionManager for `GOTO_DOCUMENT_START`:
+
+    widget   enabled false, caret 1 -> 1
+    quick    enabled false, caret 1 -> 1
+
+The proxy action is disabled because the context follows focus and no window
+here is ever activated. This is a property of the test environment and not of
+either editor, which is why the Ctrl+U test several batches ago had to call
+the handler directly, and why Go to Last Edit Location shipped untested.
+
+**The `IEditor` interface is fully implemented.** Worth stating positively:
+whatever remains, it is not that Core asks the Quick editor something it
+cannot answer.
+
+### So: nothing left that can be closed on this machine
+
+Every remaining item is blocked, and each blocker has been checked rather than
+assumed:
+
+1. **Debugger tooltips** - `slotTooltipOverrideRequested()` returns at
+   `!m_engine`; needs a debug session.
+2. **`restoreState()` stashing** - needs a decision about what should happen
+   when Go Back lands somewhere, not a measurement.
+3. **Go to Last Edit Location under test** - blocked by the command routing
+   above.
+4. **The parse-context highlight** - a judgement about whether the Clear
+   button says enough.
+5. **`isChosen()` against a real project part** - needs a loaded project.
+
+### What is worth doing next, in order
+
+1. **Run the suites on a machine that can activate a window.** Command routing
+   blocks item 3 outright and would have made several earlier tests direct
+   rather than roundabout. It is the cheapest unblock and it compounds.
+2. **A debug session against a small C++ project**, which closes item 1 - the
+   last C++ feature gap - and item 5 at the same time.
+3. **Someone at a screen for item 4**, and for the Refactor submenu's
+   presentation, which was shipped inline-with-a-title rather than judged.
+4. Only then, `reconfigure()` and the syntax info bar, as a widget-side bug
+   that predates this work.
+
+The honest summary: **a C++ file opens in the Qt Quick editor and everything
+CppEditor configures reaches it.** What is left is not a list of ports; it is
+four things that need a debugger, a project, a window manager or a person.
