@@ -303,6 +303,36 @@ bool handleDoxygenContinuation(QTextCursor &cursor,
 
 } // anonymous namespace
 
+bool trySplitString(TextEditor::TextDocument *document, QKeyEvent *event, QTextCursor cursor)
+{
+    if (!globalCompletionSettings().autoSplitStrings())
+        return false;
+    if (event->key() != Qt::Key_Return && event->key() != Qt::Key_Enter)
+        return false;
+
+    const Kind stringKind = CPlusPlus::MatchingText::stringKindAtCursor(cursor);
+    if (stringKind < T_FIRST_STRING_LITERAL || stringKind >= T_FIRST_RAW_STRING_LITERAL)
+        return false;
+
+    cursor.beginEditBlock();
+    if (cursor.positionInBlock() > 0
+        && cursor.block().text().at(cursor.positionInBlock() - 1) == QLatin1Char('\\')) {
+        // Already escaped: simply go back to line, but do not indent.
+        cursor.insertText(QLatin1String("\n"));
+    } else if (event->modifiers() & Qt::ShiftModifier) {
+        // With 'shift' modifier, escape the end of line character
+        // and start at beginning of next line.
+        cursor.insertText(QLatin1String("\\\n"));
+    } else {
+        // End the current string, and start a new one on the line, properly indented.
+        cursor.insertText(QLatin1String("\"\n\""));
+        document->autoIndent(cursor);
+    }
+    cursor.endEditBlock();
+    event->accept();
+    return true;
+}
+
 // What Enter does inside a comment: write the doxygen block, or carry the
 // leading asterisk down. Takes the document and the caret rather than a view,
 // because it is neither - it edits the file the reader is in.
@@ -1152,35 +1182,7 @@ void CppEditorWidget::keyPressEvent(QKeyEvent *e)
 
 bool CppEditorWidget::handleStringSplitting(QKeyEvent *e) const
 {
-    if (!globalCompletionSettings().autoSplitStrings())
-        return false;
-
-    if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
-        QTextCursor cursor = textCursor();
-
-        const Kind stringKind = CPlusPlus::MatchingText::stringKindAtCursor(cursor);
-        if (stringKind >= T_FIRST_STRING_LITERAL && stringKind < T_FIRST_RAW_STRING_LITERAL) {
-            cursor.beginEditBlock();
-            if (cursor.positionInBlock() > 0
-                && cursor.block().text().at(cursor.positionInBlock() - 1) == QLatin1Char('\\')) {
-                // Already escaped: simply go back to line, but do not indent.
-                cursor.insertText(QLatin1String("\n"));
-            } else if (e->modifiers() & Qt::ShiftModifier) {
-                // With 'shift' modifier, escape the end of line character
-                // and start at beginning of next line.
-                cursor.insertText(QLatin1String("\\\n"));
-            } else {
-                // End the current string, and start a new one on the line, properly indented.
-                cursor.insertText(QLatin1String("\"\n\""));
-                textDocument()->autoIndent(cursor);
-            }
-            cursor.endEditBlock();
-            e->accept();
-            return true;
-        }
-    }
-
-    return false;
+    return Internal::trySplitString(textDocument(), e, textCursor());
 }
 
 void CppEditorWidget::updateSemanticInfo()

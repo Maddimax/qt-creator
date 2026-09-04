@@ -38,6 +38,11 @@ namespace Internal {
 bool trySplitComment(TextEditor::TextDocument *document,
                      QTextCursor cursor,
                      const CPlusPlus::Snapshot &snapshot);
+
+// What Enter does inside a string literal, which is end it and start another
+// on the next line. Here for the same reason as trySplitComment(), and called
+// from the same place.
+bool trySplitString(TextEditor::TextDocument *document, QKeyEvent *event, QTextCursor cursor);
 } // namespace Internal
 
 class CPPEDITOR_EXPORT CppEditorWidget : public TextEditor::TextEditorWidget

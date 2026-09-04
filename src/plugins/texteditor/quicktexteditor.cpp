@@ -2910,6 +2910,181 @@ private slots:
                  "clearing the document's finder left the language without one");
     }
 
+    void testSplittingAStringLiteral_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Enter inside a string literal ends it and opens another on the next
+    // line. CppEditorWidget did this in its own keyPressEvent(), so a C++ file
+    // in this editor got a plain newline in the middle of a string.
+    //
+    // Against the widget row this is the control on the fixture: it says the
+    // file, the caret and the expected text are ones C++ really produces.
+    void testSplittingAStringLiteral()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-string-split");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("split.cpp");
+        QVERIFY(file.writeFileContents("const char *s = \"alpha beta\";\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // The key goes in through the view that has focus, not into the
+        // document behind it: what is being tested is that the reader pressing
+        // Enter reaches the language.
+        QWidget *keyTarget = nullptr;
+        if (quick) {
+            auto * const quickWidget = editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(quickWidget && quickWidget->rootObject());
+            auto * const viewport = quickWidget->rootObject()->findChild<TextViewport *>();
+            QVERIFY(viewport);
+            QTRY_VERIFY(viewport->visibleLineCount() > 0);
+            viewport->forceActiveFocus();
+            QVERIFY2(viewport->hasActiveFocus(), "the viewport never took focus");
+            keyTarget = quickWidget;
+        } else {
+            TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+            QVERIFY(widget);
+            widget->setFocus();
+            keyTarget = widget;
+        }
+
+        // Just after "alpha", inside the literal.
+        editor->gotoLine(1, 22);
+        const QTextCursor caret = textCursorOf(editor);
+        QCOMPARE(document->plainText().mid(caret.position() - 5, 5), QString("alpha"));
+
+        QTest::keyClick(keyTarget, Qt::Key_Return);
+
+        QCOMPARE(document->plainText(),
+                 QString("const char *s = \"alpha\"\n                \" beta\";\n"));
+    }
+
+    // The two branches of the moved code that a careless extraction would
+    // drop: Shift escapes the line ending instead of closing the literal, and
+    // the setting turns the whole thing off. Both in the Quick view, which is
+    // the one that had neither until now.
+    void testTheOtherWaysEnterTreatsAString_data()
+    {
+        QTest::addColumn<bool>("shift");
+        QTest::addColumn<bool>("splitting");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("shift escapes the line ending")
+            << true << true << QString("const char *s = \"alpha\\\n beta\";\n");
+        QTest::newRow("setting off, no splitting")
+            << false << false << QString("const char *s = \"alpha\n        beta\";\n");
+    }
+
+    void testTheOtherWaysEnterTreatsAString()
+    {
+        QFETCH(bool, shift);
+        QFETCH(bool, splitting);
+        QFETCH(QString, expected);
+
+        auto &setting = globalCompletionSettings().autoSplitStrings;
+        const bool wasSplitting = setting();
+        const QScopeGuard restoreSetting(
+            [&setting, wasSplitting] { setting.setValue(wasSplitting); });
+        setting.setValue(splitting);
+
+        Utils::TemporaryDirectory dir("quick-editor-string-split-modes");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("split.cpp");
+        QVERIFY(file.writeFileContents("const char *s = \"alpha beta\";\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        auto * const quickWidget = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quickWidget && quickWidget->rootObject());
+        auto * const viewport = quickWidget->rootObject()->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        viewport->forceActiveFocus();
+        QVERIFY(viewport->hasActiveFocus());
+
+        editor->gotoLine(1, 22);
+        QTest::keyClick(quickWidget, Qt::Key_Return,
+                        shift ? Qt::ShiftModifier : Qt::NoModifier);
+
+        QCOMPARE(document->plainText(), expected);
+    }
+
+    // Why CppEditorWidget still calls the split itself, rather than leaving it
+    // to the document like every other view: with several carets the document
+    // is not asked at all - keyPressEvent() gates it on a single one - and the
+    // widget's own call site is not gated. Pinned so that removing the
+    // override is a decision rather than an accident.
+    void testSeveralCaretsStillSplitInTheWidget()
+    {
+        Utils::TemporaryDirectory dir("widget-string-split-multi");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("split.cpp");
+        QVERIFY(file.writeFileContents("const char *a = \"one two\";\n"
+                                       "const char *b = \"three four\";\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(false);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        QVERIFY(widget);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        widget->setFocus();
+
+        // Just after "one" and just after "three". The last one is the main
+        // caret, which is the one the widget's own call site edits at.
+        QTextCursor first(document->document());
+        first.setPosition(20);
+        QTextCursor second(document->document());
+        second.setPosition(22 + QString("const char *a = \"one two\";\n").size());
+        widget->setMultiTextCursor(Utils::MultiTextCursor({first, second}));
+        QVERIFY(widget->multiTextCursor().hasMultipleCursors());
+
+        QTest::keyClick(widget, Qt::Key_Return);
+
+        // Only the main caret: the other line is untouched, and the key was
+        // swallowed rather than reaching it. Not a defence of that - it is
+        // what the widget has always done, and what the document path would
+        // change if the override went away.
+        QCOMPARE(document->plainText(),
+                 QString("const char *a = \"one two\";\n"
+                         "const char *b = \"three\"\n                \" four\";\n"));
+    }
+
     // Which languages open in the Qt Quick editor, written down rather than
     // grepped for. Three times in this migration a gap has been "closed" in
     // code that nothing reaches, because the language's files still open in

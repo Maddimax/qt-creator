@@ -449,6 +449,8 @@ bool CppEditorDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &curs
 {
     if (event->key() != Qt::Key_Return && event->key() != Qt::Key_Enter)
         return false;
+    if (Internal::trySplitString(this, event, cursor))
+        return true;
     return Internal::trySplitComment(this, cursor, semanticInfo().snapshot);
 }
 

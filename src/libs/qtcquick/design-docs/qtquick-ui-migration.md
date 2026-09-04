@@ -31119,3 +31119,131 @@ follow up -- `paste`, `cut`, `selectAll`, `event`, `contextMenuEvent`,
 `selectBlockUp` got: does the Quick side reach the same code, or does it
 silently get the base-class one? That is a concrete next batch, and it is
 reading rather than guessing.
+
+## 2026-09-04 -- Enter inside a string, and the rest of the override list
+
+The previous entry left a concrete list: the `TextEditorWidget` virtuals that
+`cppeditorwidget.h` still overrides, each needing the question "does the Quick
+side reach the same code, or does it silently get the base-class one?" This
+batch asked it of all six. The answer is better than expected -- five are
+already reached -- and one was not.
+
+### The census
+
+| override | how the Quick view reaches it |
+|---|---|
+| `paste` | `EditHandler::handlePaste()`, `textviewport.cpp:2739` |
+| `cut` | `EditHandler::handleCut()`, `textviewport.cpp:2718` |
+| `selectAll` | `EditHandler::handleSelectAll()`, `textviewport.cpp:2697` |
+| `event` (Escape while renaming) | `EditHandler::wantsKeyBeforeShortcuts()` |
+| `keyPressEvent` -> local renaming | `EditHandler::handleKeyPress()`, `textviewport.cpp:1908` |
+| `keyPressEvent` -> `cppEditorDocument()->handleKeyPress()` | `textviewport.cpp:1899` |
+| **`keyPressEvent` -> `handleStringSplitting()`** | **nothing** |
+
+All of the `EditHandler` ones work because `CppLocalRenaming` was already
+given an `IEditor` constructor and CppEditor already parents one to every
+non-widget editor (`cppeditorplugin.cpp:576`). That was done in an earlier
+batch; this one only had to check it, which took one grep per row.
+
+`contextMenuEvent` is a seventh and is **not** closed:
+`TextViewport::showContextMenu()` emits `contextMenuRequested()` and nothing
+in the tree connects to it. That is a whole context menu -- standard actions
+plus the refactoring submenu -- and is its own batch, not a footnote to this
+one.
+
+### The gap that was real
+
+`CppEditorWidget::handleStringSplitting()` existed only there. Enter inside a
+string literal should end it and open another on the next line; in the Quick
+editor it inserted a plain newline, breaking the literal.
+
+The home for it was already obvious from its neighbour.
+`CppEditorDocument::handleKeyPress()` filters on Return/Enter and calls
+`Internal::trySplitComment()`, whose declaration in `cppeditorwidget.h` says
+why it lives where it does: *"Lives here because its helpers do; the document
+is what calls it, so that either view gets the same answer."* Splitting a
+string is the same shape as splitting a comment, so `trySplitString()` went
+next to it, and the document calls both.
+
+Measured, both views, caret just after `alpha` in
+`const char *s = "alpha beta";`:
+
+    const char *s = "alpha"
+                    " beta";
+
+Driven by a real key through the real window - `QTest::keyClick()` on the
+`QQuickWidget`, following the precedent at `quicktexteditor.cpp:2082` - not by
+calling the document directly.
+
+### Where the test had to live, and why
+
+It is a C++ test but it is in `quicktexteditor.cpp`, because CppEditor cannot
+see the Quick view at all: `textviewport.h` includes `QQuickItem`, and
+CppEditor has no `Qt::Quick` dependency. Adding one so that a test could
+`findChild<TextViewport *>()` would be a CMake and qbs change for a test's
+convenience. The census test from two entries ago already opens C++ files
+from this file, so the precedent was there.
+
+### The control that did not bite, and what it turned out to mean
+
+Three controls, and the second one was the interesting one.
+
+- **A -- the document never tries to split** (`cppeditordocument.cpp`): quick
+  row red with `"alpha\n        beta"`, the plain newline. The bug,
+  reproduced. Widget row green.
+- **B -- the widget's own call site removed** (`cppeditorwidget.cpp`):
+  **everything stayed green.** By the rule in the working notes, that means
+  the change is unnecessary *or* the test is wrong *or* it is not the whole
+  cause -- and here it was the middle one.
+- **C -- the Shift branch dropped**: the shift row red. The escaped line
+  ending survived the move.
+
+B did not bite because with a single caret the widget now reaches the split
+through the document too, so its override is redundant *there*. The one case
+it still serves is several carets: `keyPressEvent()` gates
+`cppEditorDocument()->handleKeyPress()` on `!hasMultipleCursors()`, and the
+widget's own call site is not gated.
+
+So rather than delete the override on a hunch, the case it serves is now
+pinned by a test. Measured with two carets, one in each of two literals:
+
+    const char *a = "one two";          <- untouched, the key was swallowed
+    const char *b = "three"
+                    " four";            <- the main caret, split
+
+With B applied that test goes red, and informatively: *both* carets get plain
+newlines and *both* literals break. That is what deleting the override would
+do, so it stays, and the reason is written down rather than remembered.
+
+This is worth keeping as a method note: **a control that does not bite is a
+question, not a pass.** The first reading was "the override is dead code".
+The second, after asking what it still does that the document path cannot,
+was "it is dead for one caret and load-bearing for several" - and that turned
+a silent redundancy into a test.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 439 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+TextEditor is up by five from the previous entry's 434, which is exactly the
+five new rows: two of `testSplittingAStringLiteral`, two of
+`testTheOtherWaysEnterTreatsAString`, and
+`testSeveralCaretsStillSplitInTheWidget`. The counts were added up rather
+than eyeballed, because a total that nearly matches is how a silently
+skipped test hides.
+
+Four files, no new file and no `.qbs` edit, so nothing to re-resolve.
+
+### What this leaves
+
+Two things, now that the override list is answered:
+
+1. **The context menu.** `contextMenuRequested()` has no listener, so
+   right-clicking in the Quick editor offers nothing -- no standard actions,
+   no refactoring submenu. `CppEditorWidget::contextMenuEvent()` builds both.
+   This is the largest remaining C++ gap and it is testable without a project.
+2. **The debugger's tooltips**, unchanged and for the same reason as the last
+   three entries: the consumer needs a debug session.
