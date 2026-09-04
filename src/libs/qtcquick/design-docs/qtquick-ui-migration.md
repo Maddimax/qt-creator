@@ -30541,3 +30541,108 @@ Qt on `PATH` and there is one in this shell.
   outline and Follow Symbol in a real Qt Quick editor.
 - Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
   ask-about-modified default and can hang a headless run.
+
+## 2026-09-04 — Dragging a mark, and two guesses this document had wrong
+
+**The gap this batch closed**: a mark could not be **dragged** in the Qt Quick
+gutter. That is how a breakpoint is moved to another line, and how the
+current-location marker jumps the debugger; `TextMark::dragToLine()` is what
+both do. The widget editor has had it since forever. A Quick view had no way
+to start one - so every `dragToLine()` override in the tree was unreachable
+from it.
+
+### The previous entry guessed twice and was wrong twice
+
+That entry listed Debugger's remaining sites with a shape for each. Two were
+wrong, and reading them is what produced this batch:
+
+- **"`LocationMark::dragToLine()` - a substitution, and small."** The
+  substitution is right and it *is* three lines, but fixing it alone would
+  have changed nothing: `dragToLine()` is called from exactly one place,
+  `texteditor.cpp`'s gutter drag handling, and `EditorGutter.qml` has no drag
+  at all. It would have been dead code, tested by nothing, and it would have
+  looked like progress.
+- **"the QML exception highlighting - likely a substitution too."** It is not.
+  `TextEditorWidget::setExtraSelections()` forwards document-wide kinds -
+  including `DebuggerExceptionSelection` - *to* the document, and nothing
+  reads them back: only `TextViewport` listens to
+  `TextDocument::extraSelectionsChanged`. So publishing on the document alone
+  would leave the widget editor drawing nothing, which is a regression rather
+  than a port. It needs either a dual path at each call site or the widget
+  learning to read document-wide selections, and that is a decision.
+
+**The lesson is about how those guesses were made**: both came from looking at
+the *cast* and asking what it was reaching for, without asking who calls the
+function or who reads the result. A cast that is easy to replace is not the
+same as a change that does anything.
+
+### What dragging needed
+
+`TextViewport` grows three invokables - `beginMarkDrag(y)`, `endMarkDrag(y)`,
+`cancelMarkDrag()` - and the gutter's mark column grows press/move/release
+around the click it already had. The mark is picked the way the widget editor
+picks it: the block's marks walked **backwards** for the first `isDraggable()`
+one, because the last added is the one drawn on top and so the one being
+grabbed. It is hidden while carried, or it looks as though it is in two
+places, and restored on drop or cancel.
+
+**Breakpoints needed nothing else.** `BreakpointMarker::dragToLine()` and its
+global sibling are already view-independent, so moving a breakpoint by
+dragging works in the Qt Quick editor with only the gutter change.
+`LocationMark::dragToLine()` was the one that asked
+`BaseTextEditor::currentTextEditor()`, and it asks its own
+`baseTextDocument()` now - which is also more correct than "current",
+since the mark is being dragged in a view showing its own file.
+
+### Control
+
+Making the gutter never decide a press has become a drag gives
+
+    Actual   (mark.droppedOn): -1
+    Expected (12)            : 12
+
+and `testClickingTheMarkColumnAsksForAMarkOnThatLine` still passes under it, so
+the drag handling did not swallow the click that was already there. The test
+also clicks the mark first and asserts it did *not* move, which is what says
+the threshold means something rather than every touch moving a mark.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 432 passed, 0 failed, exit 0, no ASan report
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test FakeVim   5 classes, 264 passed, 0 failed, exit 0
+    -test Debugger 15 classes, 130 passed, 0 failed, exit 0
+
+**FakeVim was run on purpose.** `TextViewport` gained a *data member* this
+time - the mark being carried - which moves the layout of an exported class,
+and `fakevim/fakevimplugin.cpp` is the one file outside TextEditor that
+includes `textviewport.h`. So: full rebuild, and the plugin that would have
+been left dispatching into the old layout run explicitly. This is the check
+the vtable entry two batches ago says to make, made rather than assumed.
+
+**Still left**:
+
+- **The debugger's tooltips** - the large one. It hangs off
+  `TextEditorWidget::tooltipOverrideRequested`, which has no `TextViewport`
+  equivalent, and the tooltip is a pinnable widget rather than text. A new
+  "override the tooltip" seam or a port onto hover handlers; a decision either
+  way.
+- **The QML exception selections**, which the previous entry called a likely
+  substitution and this one shows are not: the widget writes document-wide
+  selections and never reads them, so the widget would stop drawing.
+- `disassembleragent.cpp` and `sourceagent.cpp`, which make their own editors -
+  a separate question from this migration's.
+- `debuggerplugin.cpp:2021`, a genuine small substitution on a scratch-contents
+  editor.
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode, the language client's button, outline
+  and Follow Symbol, and now **dragging a breakpoint in a real Qt Quick
+  editor** - the drag cursor showing the mark's icon, which the widget editor
+  sets and this does not, is the visible difference and wants an eye on it.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.

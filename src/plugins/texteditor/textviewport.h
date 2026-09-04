@@ -154,6 +154,10 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     Q_PROPERTY(QAbstractItemModel *visibleRows READ visibleRows CONSTANT)
     Q_PROPERTY(QVariantList refactorMarkers READ refactorMarkers NOTIFY refactorMarkersChanged)
     // What the gutter's mark column offers when it is right-clicked, for the
+    // The mark being carried by a gutter drag, if any. Not owned, and not a
+    // QObject to hold by QPointer - cleared when the document changes.
+    TextMark *m_draggedMark = nullptr;
+
     // line it was clicked on. Filled by prepareMarkMenu() rather than bound to
     // anything: which actions there are depends on the line, and the plugins
     // are only asked when a reader has actually asked to see them.
@@ -513,6 +517,18 @@ public:
     // What a click there means is the document's to decide, so that both views
     // answer it the same way - see TextDocument::clickMark().
     Q_INVOKABLE void clickMarkColumn(qreal y, Qt::KeyboardModifiers modifiers);
+
+    // The gutter's mark column, dragged. A breakpoint is moved by dragging it
+    // to another line and the current-location marker jumps the debugger
+    // there; TextMark::dragToLine() is what both do. The widget editor has
+    // always been able to start one - a Quick view could not, so every
+    // dragToLine() override was unreachable here.
+    //
+    // beginMarkDrag() answers whether the line at \a y has a mark that can be
+    // dragged, and takes it up if so.
+    Q_INVOKABLE bool beginMarkDrag(qreal y);
+    Q_INVOKABLE void endMarkDrag(qreal y);
+    Q_INVOKABLE void cancelMarkDrag();
     // The same column, right-clicked: fills markActions() with what is on
     // offer for the line under \a y, and answers whether anything is. The
     // gutter opens its menu only when something is, the way the widget editor

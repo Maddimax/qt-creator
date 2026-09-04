@@ -4241,6 +4241,49 @@ void TextViewport::clickMarkColumn(qreal y, Qt::KeyboardModifiers modifiers)
     doc->requestMark(line, modifiers);
 }
 
+bool TextViewport::beginMarkDrag(qreal y)
+{
+    cancelMarkDrag();
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    const int line = lineNumberAt(this, doc, y);
+    if (line < 1)
+        return false;
+
+    // Backwards, which is the order the widget editor picks in: the last mark
+    // added to a line is the one drawn on top, so it is the one being grabbed.
+    const TextMarks marks = doc->marksAt(line);
+    for (int i = marks.size(); --i >= 0; ) {
+        TextMark * const mark = marks.at(i);
+        if (!mark->isDraggable())
+            continue;
+        m_draggedMark = mark;
+        // Hidden while it is carried, the way the widget editor hides it -
+        // otherwise it looks as though it is in two places at once.
+        mark->setVisible(false);
+        return true;
+    }
+    return false;
+}
+
+void TextViewport::endMarkDrag(qreal y)
+{
+    TextMark * const mark = m_draggedMark;
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    cancelMarkDrag();
+    if (!mark)
+        return;
+    const int line = lineNumberAt(this, doc, y);
+    if (line >= 1)
+        mark->dragToLine(line);
+}
+
+void TextViewport::cancelMarkDrag()
+{
+    if (TextMark * const mark = m_draggedMark)
+        mark->setVisible(true);
+    m_draggedMark = nullptr;
+}
+
 bool TextViewport::prepareMarkMenu(qreal y)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -4335,6 +4378,9 @@ int TextViewport::positionAt(qreal x, qreal y) const
 
 void TextViewport::documentChangedInternal()
 {
+    // Whatever was being carried belonged to the document that is going away.
+    cancelMarkDrag();
+
     // The QTextDocument only exists once the file has opened, and it is a
     // different one each time it reopens, so the connection to it is made here
     // rather than in setDocument(). Nothing is cached across the signal - the

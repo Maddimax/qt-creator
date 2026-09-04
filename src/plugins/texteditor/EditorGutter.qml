@@ -63,10 +63,59 @@ Item {
         enabled: root.requestMarks
         acceptedButtons: Qt.LeftButton | Qt.RightButton
 
-        onClicked: (mouse) => {
+        // A mark can be dragged to another line - that is how a breakpoint is
+        // moved. Whether the press took one up, and whether the pointer has
+        // since moved far enough to call it a drag rather than a click.
+        property bool holdingMark: false
+        property bool draggingMark: false
+        property real pressedY: 0
+
+        function viewportY(y) {
             // In the viewport's coordinates, not the gutter's: the two are
             // laid out separately and only happen to line up.
-            const at = markColumn.mapToItem(root.viewport, 0, mouse.y).y
+            return markColumn.mapToItem(root.viewport, 0, y).y
+        }
+
+        onPressed: (mouse) => {
+            markColumn.draggingMark = false
+            markColumn.holdingMark = false
+            if (mouse.button !== Qt.LeftButton)
+                return
+            markColumn.pressedY = mouse.y
+            markColumn.holdingMark = root.viewport.beginMarkDrag(markColumn.viewportY(mouse.y))
+        }
+
+        onPositionChanged: (mouse) => {
+            if (!markColumn.holdingMark || markColumn.draggingMark)
+                return
+            if (Math.abs(mouse.y - markColumn.pressedY) >= Qt.styleHints.startDragDistance)
+                markColumn.draggingMark = true
+        }
+
+        onReleased: (mouse) => {
+            if (!markColumn.holdingMark)
+                return
+            markColumn.holdingMark = false
+            if (markColumn.draggingMark)
+                root.viewport.endMarkDrag(markColumn.viewportY(mouse.y))
+            else
+                root.viewport.cancelMarkDrag()
+        }
+
+        onCanceled: {
+            markColumn.holdingMark = false
+            markColumn.draggingMark = false
+            root.viewport.cancelMarkDrag()
+        }
+
+        onClicked: (mouse) => {
+            // A drag ends in a release and a click both; what moved a mark is
+            // not also a click on the line it was dropped on.
+            if (markColumn.draggingMark) {
+                markColumn.draggingMark = false
+                return
+            }
+            const at = markColumn.viewportY(mouse.y)
             if (mouse.button === Qt.RightButton) {
                 // Only when there is something to show. An empty menu drawn
                 // as a sliver is what the widget editor avoids too.

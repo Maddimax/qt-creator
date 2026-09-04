@@ -2078,6 +2078,87 @@ private slots:
     // assembled into a QMenu the way the widget editor assembles it, and
     // listed as the model the gutter's menu draws - so the bridge between the
     // two is what this covers, along with the line everyone is asked about.
+    // A mark is moved by dragging it to another line - that is how a
+    // breakpoint is moved, and how the current-location marker jumps the
+    // debugger. The gutter could only click, so every TextMark::dragToLine()
+    // override in the tree was unreachable from a Quick view.
+    void testDraggingAMarkInTheGutterMovesItToTheDroppedLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-markdrag");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "draggable.txt", 40);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 500);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 500\n"
+                                     "    showLineNumbers: true\n"
+                                     "    requestMarks: true\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/MarkDragTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 16);
+
+        auto * const markColumn = item->findChild<QQuickItem *>("gutterMarkColumn");
+        QVERIFY(markColumn);
+        TextDocument * const document = viewport->document()->textDocument();
+        QVERIFY(document);
+
+        auto pointForLine = [&](int line) {
+            const qreal y = (line - 1 + 0.5) * viewport->lineHeight() - viewport->scrollY();
+            const QPointF inColumn(markColumn->width() / 2,
+                                   markColumn->mapFromItem(viewport, QPointF(0, y)).y());
+            return view.contentItem()->mapFromItem(markColumn, inColumn).toPoint();
+        };
+
+        class DraggableMark final : public TextMark
+        {
+        public:
+            DraggableMark(TextDocument *document, int line)
+                : TextMark(document, line, {"Draggable", "TextEditor.Test.Draggable"})
+            {}
+            bool isDraggable() const override { return true; }
+            void dragToLine(int line) override { droppedOn = line; }
+            int droppedOn = -1;
+        };
+
+        DraggableMark mark(document, 7);
+        QVERIFY2(document->marks().contains(&mark), "the fixture never attached the mark");
+
+        // A click is not a drag. Without this the test would pass on a gutter
+        // that moved a mark whenever the column was touched.
+        QTest::mouseClick(&view, Qt::LeftButton, {}, pointForLine(7));
+        QCOMPARE(mark.droppedOn, -1);
+        QVERIFY2(mark.isVisible(), "a click left the mark hidden");
+
+        // Press on it, carry it down the gutter, drop it.
+        QTest::mousePress(&view, Qt::LeftButton, {}, pointForLine(7));
+        QTest::mouseMove(&view, pointForLine(12));
+        // Hidden while it is carried, or it appears to be in two places.
+        QTRY_VERIFY2(!mark.isVisible(), "the mark stayed put while being dragged");
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, pointForLine(12));
+
+        QTRY_COMPARE(mark.droppedOn, 12);
+        QVERIFY2(mark.isVisible(), "the mark was left hidden after the drop");
+    }
+
     void testTheMarkColumnOffersWhatThereIsToSayAboutTheLine()
     {
         TemporaryDirectory dir("qtc-viewport-markmenu");

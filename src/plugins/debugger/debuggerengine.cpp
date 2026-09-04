@@ -561,13 +561,17 @@ bool LocationMark::isDraggable() const
 
 void LocationMark::dragToLine(int line)
 {
-    if (m_engine) {
-        if (BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor()) {
-            ContextData location = getLocationContext(textEditor->textDocument(), line);
-            if (location.isValid())
-                m_engine->executeJumpToLine(location);
-        }
-    }
+    if (!m_engine)
+        return;
+    // The document this mark is on rather than whichever editor is current:
+    // the mark is being dragged in a view showing its own file, and asking for
+    // the current *widget* editor answered nothing at all in the Qt Quick one.
+    TextEditor::TextDocument * const document = baseTextDocument();
+    if (!document)
+        return;
+    const ContextData location = getLocationContext(document, line);
+    if (location.isValid())
+        m_engine->executeJumpToLine(location);
 }
 
 //////////////////////////////////////////////////////////////////////
