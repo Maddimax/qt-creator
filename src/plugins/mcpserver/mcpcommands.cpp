@@ -4108,14 +4108,18 @@ void McpCommands::registerCommands()
                 filePath, Utils::Id(),
                 Core::EditorManager::DoNotChangeCurrentEditor
                     | Core::EditorManager::DoNotMakeVisible);
-            TextEditor::TextEditorWidget *widget
-                = TextEditor::TextEditorWidget::fromEditor(editor);
-            if (!widget) {
+            // The document rather than a widget: all this needs is the text,
+            // and which view the file landed in is none of its business - a
+            // C++ file opens in the Qt Quick editor, which has no widget to
+            // ask.
+            auto * const textDocument = editor
+                ? qobject_cast<TextEditor::TextDocument *>(editor->document()) : nullptr;
+            if (!textDocument) {
                 return fail(QString("Could not open \"%1\" in a text editor.")
                                 .arg(filePath.toUserOutput()));
             }
 
-            QTextDocument *doc = widget->document();
+            QTextDocument *doc = textDocument->document();
             const QTextBlock block = doc->findBlockByNumber(line - 1);
             if (!block.isValid()) {
                 return fail(QString("Line %1 is out of range in \"%2\".")
@@ -4123,28 +4127,26 @@ void McpCommands::registerCommands()
             }
 
             TextEditor::CompletionAssistProvider * const provider
-                = widget->textDocument()->completionAssistProvider();
+                = textDocument->completionAssistProvider();
             if (!provider) {
                 return fail(QString("No completions are offered for \"%1\".")
                                 .arg(filePath.toUserOutput()));
             }
 
-            // The interface takes its position from the widget's cursor and keeps a
-            // copy, so the caret moves there and straight back.
+            // The document builds the interface from a cursor it is handed, so
+            // no caret has to be moved there and back - and there may be no
+            // caret to move.
             const int cursorPos = block.position() + qMin(column - 1, block.length() - 1);
-            const QTextCursor savedCursor = widget->textCursor();
             QTextCursor cursor(doc);
             cursor.setPosition(cursorPos);
-            widget->setTextCursor(cursor);
             std::unique_ptr<TextEditor::AssistInterface> interface
-                = widget->createAssistInterface(TextEditor::Completion,
-                                                TextEditor::ExplicitlyInvoked);
-            widget->setTextCursor(savedCursor);
+                = textDocument->createAssistInterface(cursor, TextEditor::Completion,
+                                                      TextEditor::ExplicitlyInvoked, editor);
 
             TextEditor::IAssistProcessor * const processor = provider->createProcessor(
                 interface.get());
             const auto report = [toolInterface, limit, cursorPos, processor,
-                                 widget = QPointer(widget),
+                                 document = QPointer(textDocument),
                                  answered = std::make_shared<bool>(false)](
                                     TextEditor::IAssistProposal *proposal) {
                 const std::unique_ptr<TextEditor::IAssistProposal> proposalHolder(proposal);
@@ -4169,8 +4171,8 @@ void McpCommands::registerCommands()
                     if (const auto model
                         = proposal->model().dynamicCast<TextEditor::GenericProposalModel>()) {
                         const int base = proposal->basePosition();
-                        const QString prefix = widget
-                            ? Utils::Text::textAt(widget->document(), base, cursorPos - base)
+                        const QString prefix = document
+                            ? Utils::Text::textAt(document->document(), base, cursorPos - base)
                             : QString();
                         if (!prefix.isEmpty())
                             model->filter(prefix);

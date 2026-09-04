@@ -20,6 +20,8 @@ private slots:
     void testGetIncludeHierarchy();
     void testFindSignalConnections();
     void testGetQuickFixes();
+    void testGetCompletions_data();
+    void testGetCompletions();
     void testRenameSymbolDryRun();
     void testRenameSymbolClashCheck();
     void testResultCap();

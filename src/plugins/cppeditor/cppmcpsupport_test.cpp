@@ -3,6 +3,10 @@
 
 #include "cppmcpsupport_test.h"
 
+#include <texteditor/texteditor.h>
+
+#include <QScopeGuard>
+
 #include "cppeditordocument.h"
 #include "cpptoolstestcase.h"
 
@@ -217,6 +221,57 @@ void CppMcpSupportTest::testGetQuickFixes()
     QVERIFY2(offered.contains("Convert to Stack Variable"),
              qPrintable("nothing offered to make the pointer a stack variable; got: "
                         + offered.join(", ")));
+}
+
+void CppMcpSupportTest::testGetCompletions_data()
+{
+    QTest::addColumn<bool>("quick");
+    QTest::newRow("widget") << false;
+    QTest::newRow("quick") << true;
+}
+
+// The tool opens the file to get at its text, and which view that lands in is
+// none of its business - a C++ file opens in the Qt Quick editor now, and the
+// tool used to answer "Could not open in a text editor" for every one of them.
+void CppMcpSupportTest::testGetCompletions()
+{
+    QFETCH(bool, quick);
+
+    CppEditor::Tests::TestCase testCase;
+    QVERIFY(testCase.succeededSoFar());
+    CppEditor::Tests::TemporaryDir dir;
+    Utils::FilePath file;
+    QVERIFY(writeAndParse(dir,
+                          "struct Point { int alpha; int beta; };\n"
+                          "void use(Point p) { p.; }\n",
+                          &file));
+
+    TextEditor::TextEditorFactory * const factory
+        = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+    QVERIFY(factory);
+    const bool wasQuick = factory->usesQuickEditor();
+    const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+    factory->setUsesQuickEditor(quick);
+
+    // The tool opens the file and leaves it open; the fixture's snapshot check
+    // wants it gone again.
+    const QScopeGuard closeThem([] { Core::EditorManager::closeAllEditors(false); });
+
+    // Just after "p.", which is where the members are on offer.
+    QString error;
+    const QJsonObject result = callTool("get_completions",
+                                        QJsonObject{{"file", file.toUserOutput()},
+                                                    {"line", 2},
+                                                    {"column", 23}},
+                                        &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    const QJsonArray completions = result.value("completions").toArray();
+    QStringList offered;
+    for (const QJsonValue &one : completions)
+        offered << one.toObject().value("text").toString();
+    QVERIFY2(offered.contains("alpha") && offered.contains("beta"),
+             qPrintable("offered: " + offered.join(", ")));
 }
 
 void CppMcpSupportTest::testRenameSymbolDryRun()

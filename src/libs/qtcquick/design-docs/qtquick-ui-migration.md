@@ -32671,3 +32671,84 @@ five labels this document got wrong - focus, a decision, a project, a
 debugger, and a scroll bar. Each of those named something the *production*
 path needs and the *seam* did not; these two name a judgement about what a
 reader should see, and no amount of reading the code settles it.
+
+## 2026-09-05 -- The cast net, run again, finds the MCP server
+
+The previous entry said there was nothing left that is work. Before writing
+that down a second time it was worth checking, because of one detail: the
+debugger's `slotEditorOpened()` gate was **a cast** - `qobject_cast<
+BaseTextEditor *>(e)` - and the cast survey, run several entries earlier,
+missed it. A net that misses one thing of its kind may miss others.
+
+Run again across every plugin, most of what it turns up is test fixtures
+asserting which view a file opened in, and two production sites that already
+handle both - `cpprefactoringchanges.cpp` prefers a widget and falls back to
+the document, `declDefLinkControllerFor()` likewise. One did not.
+
+### What was broken
+
+`mcpsupport.cpp:1387`, the `get_completions` tool:
+
+    TextEditorWidget *widget = TextEditorWidget::fromEditor(editor);
+    if (!widget)
+        return ... "Could not open \"%1\" in a text editor."
+
+A C++ file opens in the Qt Quick editor, so **that tool answered an error for
+every C++ file**, which is every file it is for. It had no test at all.
+
+All it wanted from the widget was `widget->document()` - the `QTextDocument`.
+The editor's `TextDocument` has the same thing and does not care which view is
+showing it.
+
+That this went unnoticed is worth a note of its own: the MCP server is how an
+agent drives this editor, and the project's own instructions say to use it. A
+tool that fails for every C++ file is the kind of breakage that gets worked
+around rather than reported.
+
+### Measured before it was fixed
+
+The test was written first and run against the unfixed code:
+
+    testGetCompletions(widget)  PASS
+    testGetCompletions(quick)   FAIL - Could not open "..." in a text editor.
+
+Then fixed, and both rows pass and see `alpha` and `beta` offered after `p.`.
+
+### Negative controls
+
+- **A -- the tool asks for a widget again**: quick row red with the same
+  message, widget row green. The bug, reproduced.
+- **B -- the test expects members the struct does not have**: both rows red,
+  so the assertion is about what was offered rather than merely that something
+  was.
+
+B was botched on the first attempt - written as `contains("nosuchmember") ||
+true`, which is a tautology, and passing proved nothing. A control that cannot
+fail is the same mistake as an assertion that cannot fail, and it is easier to
+make when writing the control quickly at the end.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 455 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Unchanged: the new test is in CppEditor. It was run beside two other MCP tests
+- 6 passed, 0 failed.
+
+Three files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The two presentation questions, unchanged and still for a person: whether the
+parse-context chooser wants a highlight as well as its Clear button, and
+whether the Refactor submenu should nest or go inline.
+
+**And a correction to how "nothing left" gets decided here.** Twice now the
+list has been declared empty and something has turned up - both times because
+a net had been run once, long ago, against a tree that has changed since. The
+census of commands is a permanent test and cannot go stale; the cast survey is
+a grep somebody has to remember to repeat. Before the next "nothing left",
+re-run the cast net rather than trusting this entry: it is one command, and it
+has now found something twice.

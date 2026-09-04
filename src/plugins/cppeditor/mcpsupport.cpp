@@ -28,6 +28,7 @@
 #include <projectexplorer/projectmanager.h>
 
 #include <texteditor/refactoringchanges.h>
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/codeassist/assistenums.h>
 #include <texteditor/quickfix.h>
