@@ -29,6 +29,7 @@
 #include <texteditor/texteditor.h>
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
+#include <QSignalSpy>
 #include <QTest>
 #endif
 
@@ -1105,6 +1106,75 @@ private slots:
                      "the code model underlined nothing on the document");
     }
 };
+
+// Which of several project parts the file is parsed as, and whether the reader
+// picked it. isChosen() is what a view offers to undo a pick from - see the
+// Clear button in EditorToolBar.qml - and it was the one line of that seam
+// nothing exercised, on the grounds that it needs a loaded project. It needs a
+// ProjectPartInfo, which is a constructor.
+class ParseContextChoiceTest final : public QObject
+{
+    Q_OBJECT
+
+    static ProjectPart::ConstPtr partNamed(const QString &name)
+    {
+        return ProjectPart::create({}, {}, name);
+    }
+
+private slots:
+    void testTheChoiceSaysWhetherTheReaderPickedIt()
+    {
+        CppEditorDocument document;
+        TextEditor::ToolBarChoice * const choice = document.toolBarChoice();
+        QVERIFY2(choice, "the document offers no choice for a view to draw");
+
+        const QList<ProjectPart::ConstPtr> two{partNamed("Debug"), partNamed("Release")};
+
+        // What the code model works out on its own: several to choose between,
+        // and none of them the reader's doing.
+        document.parseContextModel().update(
+            ProjectPartInfo(two.first(), two, ProjectPartInfo::NoHint));
+        QVERIFY2(choice->isAvailable(), "two parts to choose between and nothing offered");
+        QVERIFY2(!choice->isChosen(),
+                 "the part the code model picked is reported as the reader's");
+
+        // And what a pick looks like: the same list, with the hint that says
+        // the current one was preferred rather than worked out.
+        document.parseContextModel().update(
+            ProjectPartInfo(two.last(), two, ProjectPartInfo::IsPreferredMatch));
+        QVERIFY2(choice->isChosen(), "a preferred part is not reported as a pick");
+
+        // Only one to be had is nothing to choose between, which is what hides
+        // the combo - and then there is no pick either.
+        const QList<ProjectPart::ConstPtr> one{partNamed("Debug")};
+        document.parseContextModel().update(
+            ProjectPartInfo(one.first(), one, ProjectPartInfo::NoHint));
+        QVERIFY2(!choice->isAvailable(), "one part is still offered as a choice");
+        QVERIFY(!choice->isChosen());
+    }
+
+    // The view redraws off changed(); without it the Clear button would appear
+    // and disappear a beat late, or not at all.
+    void testTheChoiceSaysWhenItHasChanged()
+    {
+        CppEditorDocument document;
+        TextEditor::ToolBarChoice * const choice = document.toolBarChoice();
+        QVERIFY(choice);
+
+        QSignalSpy changed(choice, &TextEditor::ToolBarChoice::changed);
+        const QList<ProjectPart::ConstPtr> two{partNamed("Debug"), partNamed("Release")};
+        document.parseContextModel().update(
+            ProjectPartInfo(two.first(), two, ProjectPartInfo::IsPreferredMatch));
+
+        QTRY_VERIFY2(!changed.isEmpty(), "the choice changed and said nothing");
+        QVERIFY(choice->isChosen());
+    }
+};
+
+QObject *createParseContextChoiceTest()
+{
+    return new ParseContextChoiceTest;
+}
 
 QObject *createCodeWarningsTest()
 {

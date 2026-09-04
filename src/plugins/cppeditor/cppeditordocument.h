@@ -123,7 +123,10 @@ private:
 };
 
 #ifdef WITH_TESTS
-namespace Internal { QObject *createCodeWarningsTest(); }
+namespace Internal {
+QObject *createCodeWarningsTest();
+QObject *createParseContextChoiceTest();
+}
 #endif
 
 } // namespace CppEditor

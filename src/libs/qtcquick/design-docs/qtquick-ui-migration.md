@@ -32348,3 +32348,77 @@ name a thing that is *absent* (a debugger, a project, a person) rather than a
 mechanism that is believed to be in the way, which is a different kind of
 claim; but the record here says to spend ten minutes checking before accepting
 any of them either.
+
+## 2026-09-05 -- The parse-context pick, and a third label that did not hold
+
+The previous entry ended with an instruction to itself: three items remain,
+each naming something *absent* rather than a mechanism believed to be in the
+way, but spend ten minutes checking before accepting any of them. Ten minutes
+was enough for one of them.
+
+**`isChosen()` against a real project part does not need a loaded project.**
+It needs a `ProjectPartInfo`, which is a three-argument constructor, and a
+`ProjectPart::ConstPtr`, which `ProjectPart::create()` hands back from all
+defaults - `compileroptionsbuilder_test.cpp:50` has been doing exactly that
+with no project for years. The label was written from what the *production*
+path needs, not from what the *seam* needs, and nobody checked.
+
+That is three entries running: focus, then a decision, now a project. All
+three were hypotheses recorded as constraints.
+
+### What is now covered
+
+`ParseContextChoice` is what a view draws when a C++ file could be parsed as
+one of several project parts, and `isChosen()` is what says the current one is
+the reader's pick rather than the code model's - which is what the Clear
+button in `EditorToolBar.qml` appears for. That one line was the last of the
+seam nothing exercised.
+
+Two tests, both driving `ParseContextModel::update()` with a hand-built
+`ProjectPartInfo`:
+
+- two parts and `NoHint` - something to choose between, nothing picked;
+- two parts and `IsPreferredMatch` - a pick;
+- one part - nothing to choose between and no pick;
+- and that `changed()` fires, which is what redraws the button.
+
+### Negative controls
+
+Both polarities of `isChosen()`, because a constant satisfies one of them:
+
+- **A -- `isChosen()` always false**: both tests red.
+- **B -- `isChosen()` always true**: red on the code model's own pick being
+  reported as the reader's.
+- **C -- `isAvailable()` always true**: red on the single-part case, so the
+  two properties are not being confused for one another.
+- **D -- the `updated` connection removed**: red on `changed()` never firing.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 452 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Unchanged: the new tests are in CppEditor. They were run on their own - 4
+passed, 0 failed - because that suite is red at baseline for reasons measured
+several entries ago.
+
+Three files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Two, and both name something genuinely absent rather than a mechanism:
+
+1. **The debugger's tooltips.** `slotTooltipOverrideRequested()` returns at
+   `!m_engine || !m_engine->canDisplayTooltip()`, and an engine is a debug
+   session. The seam on the view side is sized in an earlier entry.
+2. **The parse-context highlight and the Refactor submenu's presentation.**
+   Both are questions about what a reader should see, not about what the code
+   does: whether the Clear button says enough on its own, and whether the
+   fixes should nest or go inline. Neither is answerable by measurement.
+
+For (1) the honest next step is to check what the debugger's own tests do
+about `m_engine` before believing the label - the same ten minutes that
+turned up the constructor above. For (2) there is nothing to check; it wants
+somebody to look at it.
