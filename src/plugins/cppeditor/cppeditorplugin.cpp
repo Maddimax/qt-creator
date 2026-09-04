@@ -997,11 +997,25 @@ private slots:
         QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
                  "the file opened in a widget editor, so this tests nothing");
 
-        // The editor's own context, which its commands are registered in and
-        // which nothing activates in a test process.
-        Core::ICore::addAdditionalContext(editor->context());
+        // What focus would do. This editor's per-editor commands live on a
+        // context attached to its widget, and C_TEXTEDITOR - which is on the
+        // editor and carries a handler-less entry for this very command - must
+        // be looked at after it.
+        //
+        // Added one at a time and back to front, because
+        // ICore::updateAdditionalContexts() *prepends* each id: a Context
+        // handed over in one call comes out reversed, which put the
+        // handler-less entry first and cost this test a batch.
+        Core::Context wanted;
+        for (Core::IContext * const each : Core::ICore::contextObjects(editor->widget())) {
+            for (const Utils::Id &id : each->context())
+                wanted.add(id);
+        }
+        QVERIFY2(!wanted.isEmpty(), "the view has no context of its own to activate");
+        for (int i = wanted.size() - 1; i >= 0; --i)
+            Core::ICore::addAdditionalContext(Core::Context(wanted.at(i)));
         const QScopeGuard dropContext(
-            [editor] { Core::ICore::removeAdditionalContext(editor->context()); });
+            [wanted] { Core::ICore::removeAdditionalContext(wanted); });
 
         auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
         QVERIFY(document);

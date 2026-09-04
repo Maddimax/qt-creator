@@ -350,21 +350,26 @@ public:
         // action has to be registered against the last, or the next editor of
         // the same kind collides with it - the widget editor generates an id
         // per instance for exactly this reason.
-        // Two contexts: the shared one, which is what a command meant for
-        // "any editor of this kind" uses, and one of this editor's own. A
-        // per-editor action has to be registered against the second, or the
-        // next editor of the same kind collides with it - the widget editor
-        // generates an id per instance for exactly this reason.
+        // What "a text editor is current" means to the rest of Creator - the
+        // macro recorder registers its commands against it - and the shared
+        // one a command meant for "any editor of this kind" uses.
         //
-        // Not C_TEXTEDITOR, which is what "a text editor is current" means to
-        // the rest of Creator and is why the macro recorder's commands are
-        // dead here - see testTheQuickEditorAnswersEveryCommandTheWidgetOneDoes().
-        // Adding it to *this* list shadows every per-editor handler with the
-        // handler-less menu entry texteditorplugin.cpp registers against it,
-        // and Ctrl+U stops doing anything. The widget editor escapes that by
-        // keeping its per-instance commands on the widget, which outranks the
-        // editor; doing the same here is a restructuring, not a line.
-        setContext(Core::Context(QUICK_TEXT_EDITOR_ID, m_editorContext));
+        // C_TEXTEDITOR also carries handler-less entries for commands this
+        // editor answers itself: the menu text and shortcut that
+        // texteditorplugin.cpp registers. CommandPrivate::setCurrentContext()
+        // takes the first context that has an action at all, so this editor's
+        // own context has to be looked at before C_TEXTEDITOR or every
+        // handler is shadowed by an entry that does nothing.
+        //
+        // That is what the widget-attached context below is for: contexts on
+        // the focus widget come before the editor's own. The widget editor has
+        // had this shape all along - see TextEditorWidgetPrivate's ctor.
+        setContext(Core::Context(QUICK_TEXT_EDITOR_ID, Constants::C_TEXTEDITOR));
+
+        auto * const perEditor = new Core::IContext(this);
+        perEditor->setWidget(widget);
+        perEditor->setContext(Core::Context(m_editorContext));
+        Core::ICore::addContextObject(perEditor);
         // The Wrap Lines menu item. The widget editor registers the same
         // command in its own context and toggles that editor rather than the
         // preference, so this does the same: without it the menu entry is
@@ -1288,6 +1293,26 @@ static QQuickItem *itemNamed(QQuickItem *root, const QString &name)
     return nullptr;
 }
 
+// Every context this editor's commands can be registered against, in the order
+// CommandPrivate::setCurrentContext() would look at them: those attached to the
+// view's widget first, then the editor's own. A view that is not a widget keeps
+// its per-editor commands on the first and C_TEXTEDITOR is on the second, and
+// C_TEXTEDITOR has a handler-less entry for several of the same commands - so
+// looking at the editor's contexts alone finds the entry that does nothing.
+static Core::Context commandContextsOf(Core::IEditor *editor)
+{
+    Core::Context all;
+    if (editor->widget()) {
+        for (Core::IContext * const each : Core::ICore::contextObjects(editor->widget())) {
+            for (const Utils::Id &id : each->context())
+                all.add(id);
+        }
+    }
+    for (const Utils::Id &id : editor->context())
+        all.add(id);
+    return all;
+}
+
 class QuickTextEditorTest final : public QObject
 {
     Q_OBJECT
@@ -1362,7 +1387,7 @@ private slots:
         // Every id the editor carries, not the first: an editor's context is
         // the editor type and an id of its own, and the commands are
         // registered against the second.
-        const Core::Context context = editor->context();
+        const Core::Context context = commandContextsOf(editor);
         QVERIFY2(!context.isEmpty(), "the editor has no context of its own");
         QAction *action = nullptr;
         for (const Utils::Id &id : context) {
@@ -1475,7 +1500,7 @@ private slots:
         QCOMPARE(qvariant_cast<QTextCursor>(usages.at(0).at(0)).position(), 6);
 
         // And reachable as commands, not only as methods.
-        const Core::Context context = editor->context();
+        const Core::Context context = commandContextsOf(editor);
         const auto inContext = [&context](const Utils::Id &id) -> QAction * {
             Core::Command * const cmd = Core::ActionManager::command(id);
             if (!cmd)
@@ -1656,7 +1681,7 @@ private slots:
         QVERIFY(view);
         QTRY_VERIFY(view->visibleLineCount() > 1);
 
-        const Core::Context context = editor->context();
+        const Core::Context context = commandContextsOf(editor);
         const auto inContext = [&context](const Utils::Id &id) -> QAction * {
             Core::Command * const cmd = Core::ActionManager::command(id);
             if (!cmd)
@@ -1752,7 +1777,7 @@ private slots:
         QVERIFY(view);
         QTRY_VERIFY(view->visibleLineCount() > 0);
 
-        const Core::Context context = editor->context();
+        const Core::Context context = commandContextsOf(editor);
         QAction *action = nullptr;
         if (Core::Command * const cmd = Core::ActionManager::command(Constants::COMPLETE_THIS)) {
             for (const Utils::Id &id : context) {
@@ -2843,7 +2868,7 @@ private slots:
         // Wrap Lines goes through, which is the one the command holds for
         // this editor's context.
         QAction *wrap = nullptr;
-        for (const Utils::Id context : editor->context()) {
+        for (const Utils::Id context : commandContextsOf(editor)) {
             if (QAction * const forContext = command->actionForContext(context)) {
                 wrap = forContext;
                 break;
@@ -2870,7 +2895,7 @@ private slots:
         const QScopeGuard closeSecond(
             [second] { Core::EditorManager::closeEditors({second}, false); });
         QAction *secondWrap = nullptr;
-        for (const Utils::Id context : second->context()) {
+        for (const Utils::Id context : commandContextsOf(second)) {
             if (QAction * const forContext = command->actionForContext(context)) {
                 secondWrap = forContext;
                 break;
@@ -3624,7 +3649,7 @@ private slots:
         QVERIFY(quickEditor);
         QVERIFY2(!TextEditorWidget::fromEditor(quickEditor),
                  "the file opened in a widget editor, so this compares nothing");
-        const QSet<QString> quick = commandsFor(quickEditor->context());
+        const QSet<QString> quick = commandsFor(commandContextsOf(quickEditor));
         Core::EditorManager::closeEditors({quickEditor}, false);
 
         factory->setUsesQuickEditor(false);
@@ -3649,18 +3674,9 @@ private slots:
         // What is still missing, written down with why, so that the list
         // shrinking is a deliberate act and the list growing is a failure.
         //
-        // The four macro commands are a real gap: they are registered against
-        // C_TEXTEDITOR, which this editor does not declare. Declaring it is
-        // not the fix - it shadows every per-editor handler, see setContext()
-        // in the constructor.
-        //
         // Print is not a gap: Core puts it in the File menu disabled and with
         // no handler, and neither editor implements it.
-        const QStringList knownMissing{"Macros.EndMacro",
-                                       "Macros.ExecuteLastMacro",
-                                       "Macros.SaveLastMacro",
-                                       "Macros.StartMacro",
-                                       "QtCreator.Print"};
+        const QStringList knownMissing{"QtCreator.Print"};
         QStringList missing = QStringList((widget - quick).begin(), (widget - quick).end());
         missing.sort();
         QCOMPARE(missing, knownMissing);
@@ -5727,7 +5743,7 @@ private slots:
             Core::Command * const cmd = Core::ActionManager::command(id);
             if (!cmd)
                 return nullptr;
-            for (const Utils::Id &each : editor->context()) {
+            for (const Utils::Id &each : commandContextsOf(editor)) {
                 if (QAction * const a = cmd->actionForContext(each))
                     return a;
             }

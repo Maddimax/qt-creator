@@ -32174,3 +32174,101 @@ a window.** That was dismissed two entries ago as a misdiagnosis of the command
 routing - which it was, for commands whose context is a *mode*. For commands
 whose context is attached to a *widget* it is exactly the blocker, and it is
 worth arranging on its own account rather than per item.
+
+## 2026-09-05 -- The macro commands, and the prepend that hid the answer
+
+The previous entry left this blocked on one of two things: a machine where a
+widget can take focus, or an answer to why a High-priority additional context
+did not win when it was first in the list and had an action. **The second was
+a code-reading question, and the answer is one line of Core:**
+
+    // ICore::updateAdditionalContexts()
+    for (const Id id : add) {
+        ...
+        cref.prepend(id);
+    }
+
+Each id is *prepended*, so a `Context` handed over in one call comes out
+**reversed**. The list built as `[per-editor uuid, ..., C_TEXTEDITOR, ...]`
+became `[..., C_TEXTEDITOR, ..., uuid]`, and `setCurrentContext()` - which
+takes the first context with an action - found the handler-less entry. The
+model in the previous entry was right; what was wrong was the assumption that
+adding a Context preserves its order. Measured twice as "does not win", and
+neither time was `updateAdditionalContexts()` actually read.
+
+### The gap this batch closed
+
+The four macro recorder commands - Start, End, Save Last, Execute Last - are
+registered against `C_TEXTEDITOR`, which this editor did not declare, so
+recording and replaying a macro was dead over a file it was showing. The
+machinery already worked with a view that is not a widget;
+`macrooptions_test.cpp` has had a test for that. Only the commands were
+unreachable.
+
+The editor now has the shape the widget editor has had all along:
+
+- `C_TEXTEDITOR` and the shared type id on the **editor**;
+- the per-editor context on an `IContext` attached to the **view's widget**,
+  which `updateContext()` puts ahead of the editor's own.
+
+That ordering is the whole point: `C_TEXTEDITOR` also carries handler-less
+entries - the menu text and shortcut `texteditorplugin.cpp` registers - for
+commands this editor answers itself, so its own context has to be looked at
+first or every handler is shadowed by an entry that does nothing.
+
+### The seven tests, and why changing them is not fitting
+
+Moving the per-editor context off the editor broke seven tests, all of which
+found an action by walking `editor->context()` and taking the first with one.
+They now go through `commandContextsOf()`, which returns the widget's attached
+contexts followed by the editor's - the same order Core resolves in.
+
+This is the opposite of the previous batch's mistake. There, the tests were
+reordered to accommodate a change while the *behaviour* stayed broken, and the
+guard said so. Here the guard - `testCtrlUReachesTheLanguageThroughTheCommand`,
+which presses the command rather than calling the handler - **passes**, and it
+is the thing that says the lookup change reflects the behaviour rather than
+hiding it. The widget side of the census already looked this way; the quick
+side now matches it.
+
+### Negative controls
+
+- **A -- back to the old shape**: census red, 5 missing against 1. The macro
+  gap, reproduced.
+- **B -- `C_TEXTEDITOR` on the editor with no widget context to outrank it**:
+  guard red, empty selection. This is the shadowing, isolated: it says the
+  widget-attached context is what prevents it, not the declaration order.
+- **C -- the guard adds its contexts front to back**: guard red. The prepend
+  above, as a test that fails when someone "simplifies" the loop.
+- **D -- the census expects nothing missing**: red, 1 against 0.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 450 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+450 is unchanged: no test was added, seven were pointed at the right contexts
+and the census's expectation shrank by four. The CppEditor guard was run on
+its own - 5 passed, 0 failed.
+
+Two files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The macro item is done, and with it the last thing on the list that did not
+need hardware or a person:
+
+1. **The debugger's tooltips** - a debug session.
+2. **`restoreState()` stashing** - a decision about what should happen when Go
+   Back lands somewhere.
+3. **The parse-context highlight and the Refactor submenu's presentation** - a
+   person at a screen.
+4. **`isChosen()` against a real project part** - a loaded project.
+
+The "three of five want a machine that can focus a window" note from the
+previous entry is **withdrawn**. It was true of the attempt, not of the
+problem: focus was never needed, only the right context order, and a test can
+build that itself. If something else looks blocked on focus, read
+`updateAdditionalContexts()` before believing it.
