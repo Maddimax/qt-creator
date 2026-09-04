@@ -40,6 +40,7 @@
 #include "textsuggestion.h"
 #include "textviewport.h"
 #include "textmark.h"
+#include "bookmarkmanager.h"
 
 #include <qtcquick/qtciconprovider.h>
 
@@ -70,6 +71,7 @@
 #include <QGuiApplication>
 #include <QScopeGuard>
 #include <QElapsedTimer>
+#include <QMenu>
 #include <QSignalSpy>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -1965,6 +1967,159 @@ private slots:
         // The mark is gone with its object, and so is what the gutter shows.
         QTRY_VERIFY2(viewport->visibleLine(2).value("markIcon").toString().isEmpty(),
                      "the gutter still shows a mark that no longer exists");
+    }
+
+    // Clicking the gutter's mark column asks for a mark on the line that was
+    // clicked - which is how a breakpoint gets set. Nothing inside TextEditor
+    // answers the request, so what is asserted is the request itself and the
+    // line it names: that is exactly what the debugger connects to.
+    void testClickingTheMarkColumnAsksForAMarkOnThatLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-markclick");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "clickable.txt", 40);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 500);
+        QQmlComponent component(view.engine());
+        // requestMarks, because a viewport is a preview until told otherwise
+        // and a preview must not offer to put a breakpoint in a file that
+        // does not exist.
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 500\n"
+                                     "    showLineNumbers: true\n"
+                                     "    requestMarks: true\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/MarkClickTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 16);
+
+        auto * const markColumn = item->findChild<QQuickItem *>("gutterMarkColumn");
+        QVERIFY2(markColumn, "the gutter offers nothing in its mark column to click");
+        QVERIFY(markColumn->width() > 0);
+
+        TextDocument * const document = viewport->document()->textDocument();
+        QVERIFY(document);
+
+        // Where a line is, as a point inside the mark column. The gutter and
+        // the viewport are laid out separately and only happen to line up, so
+        // the y is mapped through both rather than assumed to agree.
+        auto pointForLine = [&](int line) {
+            const qreal y = (line - 1 + 0.5) * viewport->lineHeight() - viewport->scrollY();
+            const QPointF inColumn(markColumn->width() / 2,
+                                   markColumn->mapFromItem(viewport, QPointF(0, y)).y());
+            return view.contentItem()->mapFromItem(markColumn, inColumn).toPoint();
+        };
+
+        QSignalSpy requested(document, &TextDocument::markRequested);
+        QVERIFY(requested.isValid());
+
+        QTest::mouseClick(&view, Qt::LeftButton, {}, pointForLine(7));
+        QTRY_COMPARE(requested.size(), 1);
+        QCOMPARE(requested.first().at(1).toInt(), 7);
+        // BreakpointRequest is zero, and so is what an argument the spy could
+        // not record answers - hence the validity check beside the value.
+        QVERIFY(requested.first().at(2).isValid());
+        QCOMPARE(requested.first().at(2).toInt(), int(BreakpointRequest));
+
+        // A second line, so that a mapping which always lands on the same row
+        // cannot pass this.
+        QTest::mouseClick(&view, Qt::LeftButton, {}, pointForLine(12));
+        QTRY_COMPARE(requested.size(), 2);
+        QCOMPARE(requested.last().at(1).toInt(), 12);
+
+        // A mark already on the line takes the click instead, which is how
+        // clicking a breakpoint's own icon acts on it rather than asking for
+        // a second one.
+        class ClickCountingMark final : public TextMark
+        {
+        public:
+            using TextMark::TextMark;
+            bool isClickable() const override { return true; }
+            void clicked() override { ++clicks; }
+            int clicks = 0;
+        };
+        ClickCountingMark mark(document, 9,
+                               TextMarkCategory{"Test", "TextEditor.Test.MarkClick"});
+        QTest::mouseClick(&view, Qt::LeftButton, {}, pointForLine(9));
+        QTRY_COMPARE(mark.clicks, 1);
+        QCOMPARE(requested.size(), 2);
+
+        // Shift makes it a bookmark rather than a request - the same key the
+        // widget editor's column reads.
+        BookmarkManager &bookmarks = bookmarkManager();
+        QVERIFY(!bookmarks.hasBookmarkInPosition(file, 5));
+        QTest::mouseClick(&view, Qt::LeftButton, Qt::ShiftModifier, pointForLine(5));
+        QTRY_VERIFY(bookmarks.hasBookmarkInPosition(file, 5));
+        QCOMPARE(requested.size(), 2);
+
+        // Bookmarks are global state that outlives this test, so put it back.
+        bookmarks.toggleBookmark(file, 5);
+        QVERIFY(!bookmarks.hasBookmarkInPosition(file, 5));
+    }
+
+    // The same column, right-clicked. What is on offer for the line is
+    // assembled into a QMenu the way the widget editor assembles it, and
+    // listed as the model the gutter's menu draws - so the bridge between the
+    // two is what this covers, along with the line everyone is asked about.
+    void testTheMarkColumnOffersWhatThereIsToSayAboutTheLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-markmenu");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "menu.txt", 40);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 8);
+
+        TextDocument * const document = viewport->document()->textDocument();
+        QVERIFY(document);
+
+        int askedAbout = 0;
+        connect(document, &TextDocument::markContextMenuRequested, this,
+                [&](TextDocument *, int line, QMenu *menu) {
+                    askedAbout = line;
+                    menu->addAction("Set Breakpoint");
+                });
+
+        QtcQuick::ActionModel * const actions = viewport->markActions();
+        QVERIFY(actions);
+        QCOMPARE(actions->rowCount(), 0);
+
+        QVERIFY(viewport->prepareMarkMenu((6 - 1 + 0.5) * viewport->lineHeight()));
+        QCOMPARE(askedAbout, 6);
+
+        // What the bookmark manager put in, and what the handler above did.
+        QVERIFY(actions->rowCount() >= 2);
+        const QString last = actions->index(actions->rowCount() - 1, 0)
+                                 .data(QtcQuick::ActionModel::TextRole).toString();
+        QCOMPARE(last, QString("Set Breakpoint"));
+
+        // A different line, so that a lookup answering a fixed one fails here.
+        // On screen, and asserted to be: positionAt() clamps to what is laid
+        // out, so a line below the fold would quietly resolve to the last row
+        // and this would be measuring the clamp.
+        QVERIFY(viewport->visibleLineCount() > 3);
+        QVERIFY(viewport->prepareMarkMenu((3 - 1 + 0.5) * viewport->lineHeight()));
+        QCOMPARE(askedAbout, 3);
     }
 
     // The other half of a diagnostic: what it says, beside the line it is

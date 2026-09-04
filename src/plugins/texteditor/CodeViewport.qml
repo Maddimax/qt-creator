@@ -51,6 +51,12 @@ Item {
     // settings preview has no Find Usages to give.
     property ActionModel contextActions: null
 
+    // Whether clicking the gutter's mark column asks for a mark on that line.
+    // Off by default for the same reason the numbers are: a settings preview
+    // is a demonstration, and offering to put a breakpoint or a bookmark in
+    // one would be offering it about a file that does not exist.
+    property bool requestMarks: false
+
     // Whether long lines are broken across rows. Off for a preview, and the
     // viewport's own default, because with it on the cost of showing a file
     // stops being what is on screen.
@@ -111,6 +117,7 @@ Item {
             objectName: "codeGutter"
             viewport: viewport
             showFoldMarkers: root.showFoldMarkers
+            requestMarks: root.requestMarks
             visible: root.showLineNumbers || root.showFoldMarkers
             // No width when it is not shown, so the text starts where it would
             // have without a gutter rather than indented by an invisible one.
@@ -1057,60 +1064,12 @@ Item {
         }
     }
 
-    // The right-click menu. Qt Creator's menus are QActions assembled by the
-    // ActionManager out of every plugin that wants a say, so this lists what
-    // that produced rather than naming any of it - see QtcQuick::ActionModel.
-    Menu {
+    // The right-click menu, over what the ActionManager assembled.
+    ActionMenu {
         id: contextMenu
 
         objectName: "editorContextMenu"
 
-        Repeater {
-            model: root.contextActions
-
-            delegate: MenuItem {
-                id: entry
-
-                required property int index
-                required property string actionText
-                required property string actionShortcut
-                required property bool actionEnabled
-                required property bool actionVisible
-                required property bool actionCheckable
-                required property bool actionChecked
-                required property bool actionSeparator
-
-                text: entry.actionSeparator ? "" : entry.actionText
-                enabled: !entry.actionSeparator && entry.actionEnabled
-                visible: entry.actionVisible
-                checkable: entry.actionCheckable
-                checked: entry.actionChecked
-
-                // A separator is an entry with nothing in it and a rule drawn
-                // through it, rather than a MenuSeparator: a Repeater's
-                // delegate is one type, and a Menu treats its MenuItems
-                // specially enough that swapping the type is not worth it.
-                //
-                // A Binding rather than a conditional: the other arm would be
-                // "whatever the style says", and there is no way to write that
-                // - assigning undefined to a double is an error, not a reset.
-                Binding on implicitHeight {
-                    when: entry.actionSeparator
-                    value: Spacing.GapVM
-                    restoreMode: Binding.RestoreBindingOrValue
-                }
-
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: 1
-                    visible: entry.actionSeparator
-                    color: Tokens.strokeSubtle
-                }
-
-                onTriggered: root.contextActions.trigger(entry.index)
-            }
-        }
+        actions: root.contextActions
     }
 }

@@ -22,6 +22,10 @@ Item {
     // demonstration, and nothing there is foldable anyway.
     property bool showFoldMarkers: false
 
+    // Whether the mark column answers a click. Off by default, for a preview
+    // whose text is not a file - see CodeViewport.requestMarks.
+    property bool requestMarks: false
+
     // Room for a mark and for the highest number the document can reach,
     // measured in the font the numbers are drawn in. Both are reserved whether
     // or not anything is in them: a gutter that grew when the first error
@@ -39,6 +43,39 @@ Item {
 
         font: root.viewport.font
         text: String(Math.max(1, root.viewport.lineCount))
+    }
+
+    // The mark column, as something to click. Underneath what the gutter draws
+    // rather than over it: the icons and the numbers accept no mouse buttons,
+    // so a press reaches this regardless, and a mark's own hover tooltip is
+    // not swallowed on the way.
+    //
+    // What a click here means is not the gutter's business. The document
+    // decides, so that this column and the widget editor's answer alike.
+    MouseArea {
+        id: markColumn
+
+        objectName: "gutterMarkColumn"
+
+        x: Spacing.PaddingHS
+        width: root.markWidth
+        height: root.height
+        enabled: root.requestMarks
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+        onClicked: (mouse) => {
+            // In the viewport's coordinates, not the gutter's: the two are
+            // laid out separately and only happen to line up.
+            const at = markColumn.mapToItem(root.viewport, 0, mouse.y).y
+            if (mouse.button === Qt.RightButton) {
+                // Only when there is something to show. An empty menu drawn
+                // as a sliver is what the widget editor avoids too.
+                if (root.viewport.prepareMarkMenu(at))
+                    markMenu.popup(markColumn.mapToItem(root, mouse.x, mouse.y))
+                return
+            }
+            root.viewport.clickMarkColumn(at, mouse.modifiers)
+        }
     }
 
     // How the line differs from the file on disk, drawn hard against the text
@@ -192,5 +229,15 @@ Item {
                     root.viewport.clearScopeHighlight()
             }
         }
+    }
+
+    // What the mark column offers on a right click - a bookmark, and whatever
+    // the debugger and the analysers have to say about the line.
+    ActionMenu {
+        id: markMenu
+
+        objectName: "gutterMarkMenu"
+
+        actions: root.viewport.markActions
     }
 }

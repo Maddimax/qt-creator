@@ -41,6 +41,9 @@ Item {
         // is a separate question, and the viewport asks the document that one
         // itself.
         readOnly: false
+        // The gutter of an editor answers a click with a breakpoint or a
+        // bookmark; a preview's has no file to put one in.
+        requestMarks: true
         // What the user asked for in Preferences, and what the Wrap Lines
         // action toggles. A preview keeps its own answer; an editor follows
         // the setting like every other editor does.

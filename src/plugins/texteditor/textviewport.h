@@ -8,6 +8,8 @@
 #include "textdocumentlayout.h"
 #include "texteditor_global.h"
 
+#include <qtcquick/actionmodel.h>
+
 #include <utils/id.h>
 #include <utils/multitextcursor.h>
 #include <utils/link.h>
@@ -28,6 +30,7 @@
 
 QT_BEGIN_NAMESPACE
 class QHoverEvent;
+class QMenu;
 class QSequentialAnimationGroup;
 class QTimer;
 class QWidget;
@@ -150,6 +153,11 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // rather than the whole row.
     Q_PROPERTY(QAbstractItemModel *visibleRows READ visibleRows CONSTANT)
     Q_PROPERTY(QVariantList refactorMarkers READ refactorMarkers NOTIFY refactorMarkersChanged)
+    // What the gutter's mark column offers when it is right-clicked, for the
+    // line it was clicked on. Filled by prepareMarkMenu() rather than bound to
+    // anything: which actions there are depends on the line, and the plugins
+    // are only asked when a reader has actually asked to see them.
+    Q_PROPERTY(QtcQuick::ActionModel *markActions READ markActions CONSTANT)
     // The selection, as positions in the document. Both -1 for none.
     Q_PROPERTY(int selectionStart READ selectionStart WRITE setSelectionStart
                    NOTIFY selectionChanged)
@@ -493,6 +501,16 @@ public:
     // visibleLine() reports it. Does nothing for a line that starts no fold,
     // so a gutter may call it for whatever the user clicked.
     Q_INVOKABLE void toggleFold(int lineNumber);
+
+    // The gutter's mark column, clicked at \a y in this item's coordinates.
+    // What a click there means is the document's to decide, so that both views
+    // answer it the same way - see TextDocument::clickMark().
+    Q_INVOKABLE void clickMarkColumn(qreal y, Qt::KeyboardModifiers modifiers);
+    // The same column, right-clicked: fills markActions() with what is on
+    // offer for the line under \a y, and answers whether anything is. The
+    // gutter opens its menu only when something is, the way the widget editor
+    // leaves an empty one unshown.
+    Q_INVOKABLE bool prepareMarkMenu(qreal y);
     // Folding at the caret rather than at a line the pointer landed on.
     Q_INVOKABLE void foldCurrentBlock(bool recursive = false);
     Q_INVOKABLE void unfoldCurrentBlock(bool recursive = false);
@@ -674,6 +692,8 @@ public:
     // and change when a producer says so, and the form has to follow both.
     QVariantList refactorMarkers() const;
     Q_INVOKABLE bool applyRefactorMarkerAt(int position);
+
+    QtcQuick::ActionModel *markActions() { return &m_markActions; }
 
     // Selecting by pointer rather than by caret: the word under a double
     // click, the line under a triple one.
@@ -1223,6 +1243,11 @@ private:
     };
     std::optional<PendingPage> m_pendingPage;
     QPointer<TextDocument> m_connectedMarkSource;
+    QtcQuick::ActionModel m_markActions;
+    // Owns the QActions m_markActions lists. They are built for one line and
+    // one opening of the menu, and the model only points at them, so the menu
+    // has to outlive the popup rather than the call that filled it.
+    std::unique_ptr<QMenu> m_markMenu;
     QColor m_currentLine = Qt::transparent;
     QColor m_indentGuide = Qt::transparent;
     qreal m_indentWidth = 0;

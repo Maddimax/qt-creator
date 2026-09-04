@@ -198,8 +198,14 @@ if(TARGET TextEditor)
     VERSION 1.0
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
+    # TextViewport hands out a QtcQuick::ActionModel. Without this, qmllint
+    # cannot resolve the type - and an unresolved one silences every check on
+    # the bindings that name it, which is worse than not typing it at all.
+    DEPENDENCIES
+      QtCreator.Ui
     QML_FILES
       ${TEXTEDITOR_TEST_QML_FILES}
+      ActionMenu.qml
       BehaviorSettingsForm.qml
       BehaviorSettingsPage.qml
       CodeEditor.qml

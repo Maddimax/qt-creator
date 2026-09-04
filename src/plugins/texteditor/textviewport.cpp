@@ -56,6 +56,7 @@
 
 #include <QApplication>
 #include <QDesktopServices>
+#include <QMenu>
 #include <QStyle>
 #include <utils/utilsicons.h>
 
@@ -4196,6 +4197,48 @@ void TextViewport::toggleFoldAll()
             TextBlockUserData::doFoldOrUnfold(block, unfold);
     }
     foldingChanged();
+}
+
+// The line under \a y in this item's coordinates, counting from one the way
+// the marks do. -1 when nothing is laid out there.
+static int lineNumberAt(const TextViewport *view, TextDocument *document, qreal y)
+{
+    if (!document)
+        return -1;
+    const int position = view->positionAt(0, y);
+    if (position < 0)
+        return -1;
+    return document->document()->findBlock(position).blockNumber() + 1;
+}
+
+void TextViewport::clickMarkColumn(qreal y, Qt::KeyboardModifiers modifiers)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    const int line = lineNumberAt(this, doc, y);
+    if (line < 1)
+        return;
+
+    // The marks already there get the click first - that is how clicking a
+    // breakpoint's own icon disables it - and only what none of them wanted
+    // becomes a request for a new one.
+    if (doc->clickMark(line))
+        return;
+    doc->requestMark(line, modifiers);
+}
+
+bool TextViewport::prepareMarkMenu(qreal y)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    const int line = lineNumberAt(this, doc, y);
+    if (line < 1)
+        return false;
+
+    // A fresh one each time: the actions are built for this line, and the
+    // model lists what the menu holds rather than owning any of it.
+    m_markMenu = std::make_unique<QMenu>();
+    doc->fillMarkContextMenu(line, m_markMenu.get());
+    m_markActions.setActions(m_markMenu->actions());
+    return !m_markMenu->isEmpty();
 }
 
 void TextViewport::highlightScopeAt(qreal y)
