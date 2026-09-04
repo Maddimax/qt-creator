@@ -470,6 +470,59 @@ public:
 //
 ///////////////////////////////////////////////////////////////////////
 
+// The value annotations for \a values in the file \a loc names, as marks on
+// its document. Free rather than a member of WatchModel so a test can ask for
+// them without an engine, and it works from the *document*: asking for a
+// TextEditorWidget left a C++ file open in the Qt Quick editor with no value
+// annotations at all.
+static QList<DebuggerValueMark *> valueAnnotationsFor(const Location &loc,
+                                                      QMap<QString, QString> values)
+{
+    const FilePath filePath = loc.fileName();
+    const Snapshot snapshot = CppEditor::CppModelManager::snapshot();
+    const Document::Ptr cppDocument = snapshot.document(filePath);
+    if (!cppDocument) // For non-C++ documents.
+        return {};
+
+    const int firstLine = firstRelevantLine(cppDocument, loc.textPosition().line, 1);
+    if (firstLine < 1)
+        return {};
+
+    // Once per document however many views are showing it. The marks belong to
+    // the document, so a file open in a split used to get two sets of them.
+    QList<TextDocument *> documents;
+    for (Core::IEditor * const editor : Core::EditorManager::visibleEditors()) {
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        if (document && document->filePath() == filePath && !documents.contains(document))
+            documents.append(document);
+    }
+
+    QList<DebuggerValueMark *> marks;
+    for (TextDocument * const document : documents) {
+        CPlusPlus::ExpressionUnderCursor expressionUnderCursor(cppDocument->languageFeatures());
+        // Any cursor on the document. The loop puts it at the start of each
+        // line itself, so where a view's caret happens to be is irrelevant -
+        // and that is the only thing the widget was ever fetched for here.
+        QTextCursor tc(document->document());
+        for (int lineNumber = loc.textPosition().line; lineNumber >= firstLine; --lineNumber) {
+            const QTextBlock block = document->document()->findBlockByNumber(lineNumber - 1);
+            tc.setPosition(block.position());
+            for (; !tc.atBlockEnd(); tc.movePosition(QTextCursor::NextCharacter)) {
+                const QString expression = expressionUnderCursor(tc);
+                if (expression.isEmpty())
+                    continue;
+                // Show each value once only.
+                const QString value = escapeUnprintable(values.take(expression));
+                if (value.isEmpty())
+                    continue;
+                marks.append(new DebuggerValueMark(
+                    filePath, lineNumber, QString("%1: %2").arg(expression, value)));
+            }
+        }
+    }
+    return marks;
+}
+
 class WatchModel : public WatchModelBase
 {
     typedef QSet<WatchItem *> WatchItemSet;
@@ -534,54 +587,13 @@ public:
     void ungrabWidget();
     void timerEvent(QTimerEvent *event) override;
 
-    void setValueAnnotationsHelper(BaseTextEditor *textEditor,
-                                   const Location &loc,
-                                   QMap<QString, QString> values)
-    {
-        TextEditorWidget *widget = textEditor->editorWidget();
-        TextDocument *textDocument = widget->textDocument();
-        const FilePath filePath = loc.fileName();
-        const Snapshot snapshot = CppEditor::CppModelManager::snapshot();
-        const Document::Ptr cppDocument = snapshot.document(filePath);
-        if (!cppDocument) // For non-C++ documents.
-            return;
-
-        const int firstLine = firstRelevantLine(cppDocument, loc.textPosition().line, 1);
-        if (firstLine < 1)
-            return;
-
-        CPlusPlus::ExpressionUnderCursor expressionUnderCursor(cppDocument->languageFeatures());
-        QTextCursor tc = widget->textCursor();
-        for (int lineNumber = loc.textPosition().line; lineNumber >= firstLine; --lineNumber) {
-            const QTextBlock block = textDocument->document()->findBlockByNumber(lineNumber - 1);
-            tc.setPosition(block.position());
-            for (; !tc.atBlockEnd(); tc.movePosition(QTextCursor::NextCharacter)) {
-                const QString expression = expressionUnderCursor(tc);
-                if (expression.isEmpty())
-                    continue;
-                const QString value = escapeUnprintable(values.take(expression)); // Show value one only once.
-                if (value.isEmpty())
-                    continue;
-                const QString annotation = QString("%1: %2").arg(expression, value);
-                m_valueMarks.append(new DebuggerValueMark(filePath, lineNumber, annotation));
-            }
-        }
-    }
-
     void setValueAnnotations(const QMap<QString, QString> &values)
     {
         qDeleteAll(m_valueMarks);
         m_valueMarks.clear();
         if (values.isEmpty())
             return;
-
-        const QList<Core::IEditor *> editors = Core::EditorManager::visibleEditors();
-        for (Core::IEditor *editor : editors) {
-            if (auto textEditor = qobject_cast<BaseTextEditor *>(editor)) {
-                if (textEditor->textDocument()->filePath() == m_location.fileName())
-                    setValueAnnotationsHelper(textEditor, m_location, values);
-            }
-        }
+        m_valueMarks = valueAnnotationsFor(m_location, values);
     }
 
 private:
@@ -3132,5 +3144,68 @@ static QVariant createItemDelegate()
 }
 
 } // namespace Debugger::Internal
+
+
+#ifdef WITH_TESTS
+
+#include <cppeditor/cpptoolstestcase.h>
+#include <texteditor/texteditor.h>
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
+
+namespace Debugger::Internal {
+
+// "Show Value Annotations in Editor" writes each variable's current value at
+// the end of its line while the debugger is stopped. It used to look for a
+// TextEditorWidget among the visible editors, so a C++ file in the Qt Quick
+// editor was annotated with nothing at all.
+class ValueAnnotationTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testValueAnnotationsAreMadeForAViewThatIsNotAWidget()
+    {
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.createFile(
+            "annotated.cpp",
+            "int main()\n"
+            "{\n"
+            "    int alpha = 1;\n"
+            "    return alpha;\n"
+            "}\n");
+        QVERIFY(!file.isEmpty());
+
+        Core::IEditor *editor = nullptr;
+        QVERIFY(CppEditor::Tests::TestCase::openCppEditorInAnyView(file, &editor));
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        QVERIFY(CppEditor::Tests::TestCase::parseFiles({file}));
+
+        // Stopped on "return alpha;", with one value to show.
+        const Location loc(file, 4);
+        const QList<DebuggerValueMark *> marks
+            = valueAnnotationsFor(loc, {{"alpha", "42"}});
+        const QScopeGuard dropMarks([&marks] { qDeleteAll(marks); });
+
+        QCOMPARE(marks.size(), 1);
+        QCOMPARE(marks.first()->lineNumber(), 4);
+        QCOMPARE(marks.first()->lineAnnotation(), QString("alpha: 42"));
+    }
+};
+
+QObject *createValueAnnotationTest()
+{
+    return new ValueAnnotationTest;
+}
+
+} // namespace Debugger::Internal
+
+#endif // WITH_TESTS
 
 #include "watchhandler.moc"

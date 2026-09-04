@@ -30410,3 +30410,134 @@ touched, and it would have caught it if one had been. No new file, so no
 With this the whole `editorOpened()` group is done: all five things the widget
 editor was asked for - usages, rename, call hierarchy, type definition and now
 definition - reach the server from either view.
+
+## 2026-09-04 — Value annotations, and a cursor that was never the caret
+
+**The gap this batch closed**: "Show Value Annotations in Editor" - the values
+the debugger writes at the end of each line while stopped - produced nothing
+for a C++ file in the Qt Quick editor. `WatchModel::setValueAnnotations()`
+walked the visible editors, cast each to `BaseTextEditor`, and skipped
+whatever was not one.
+
+### The widget was fetched for a cursor that is not the caret
+
+The helper used the widget for two things, and the second is the interesting
+one:
+
+```cpp
+TextEditorWidget *widget = textEditor->editorWidget();
+TextDocument *textDocument = widget->textDocument();
+...
+QTextCursor tc = widget->textCursor();
+for (int lineNumber = ...; ...) {
+    tc.setPosition(block.position());
+```
+
+It takes the *view's* cursor and then immediately moves it to the start of each
+line in turn. Where the caret actually is never mattered: the widget was being
+used as a way to get **a** cursor on the document. `QTextCursor tc(document->document())`
+is the whole replacement.
+
+That is worth writing down because it is the second time in this migration that
+a `textCursor()` call turned out not to be about the caret, and the two want
+opposite fixes: one wants `textCursorOf(editor)`, which carries the selection,
+and this one wants any cursor at all. Reading what the cursor is *used for*
+tells them apart; the call looks identical.
+
+### Extracted so a test can ask
+
+`setValueAnnotations()` is a `WatchModel` member, and a `WatchModel` needs an
+engine. The logic is a free `valueAnnotationsFor(loc, values)` now, returning
+the marks rather than storing them, so a test can ask for them with no debugger
+running at all. `setValueAnnotations()` is three lines around it.
+
+**And the port fixed a duplicate.** The old loop called the helper once per
+visible *editor*, so a file open in a split got two sets of marks for the same
+document - and the helper's `values.take()`, which exists to show each value
+once, ran twice over the same map. Annotations are marks on a document, so it
+collects documents and asks each once.
+
+### Debugger is testable, which I had assumed it was not
+
+After LanguageClient needed a fixture built from scratch, I expected the same
+here. It was already there: `src/plugins/debugger/debuggertest.cpp` includes
+`<cppeditor/cpptoolstestcase.h>`, so `TestCase::parseFiles()` and
+`openCppEditorInAnyView()` are available in this plugin, and Debugger already
+registers fourteen test classes. The test parses a four-line C++ file, opens it
+in the Qt Quick editor, and asks for the annotations at line 4.
+
+**Check what a plugin already links before deciding it has no way in.** One
+grep for the test helper's header would have answered it, and the same grep is
+worth running before the next "this cannot be tested here".
+
+### Control
+
+Putting the `BaseTextEditor` cast back into the editor scan gives
+
+    Actual   (marks.size()): 0
+    Expected (1)           : 1
+
+which is the production symptom exactly: not a wrong annotation, none.
+
+### The big one in Debugger, diagnosed and not attempted
+
+`DebuggerToolTipManagerPrivate::slotEditorOpened()` also tests for a
+`BaseTextEditor`, and it is the entry point for **debugger value tooltips** -
+hovering a variable while stopped. In the Qt Quick editor it connects nothing,
+so nothing is shown, nothing follows a scroll, and no window filter is
+installed.
+
+**It is not a substitution, and the reason is worth recording.** It hangs off
+`TextEditorWidget::tooltipOverrideRequested`, a signal that lets the debugger
+take the tooltip over entirely, and `TextViewport` has no equivalent - what it
+has is the `BaseHoverHandler`/`HoverTarget` mechanism, which produces a
+tooltip rather than handing over the request. The debugger's tooltip is not
+text: it is a pinnable, draggable widget that survives the session. Making it
+work in the Quick editor is either a new "override the tooltip" seam on the
+viewport or a port of the tooltip itself onto hover handlers, and either is a
+batch of its own rather than the tail of this one.
+
+### Verification
+
+    -test Debugger        15 classes, 130 passed, 0 failed, exit 0
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 431 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+15 Debugger classes rather than 14: `ValueAnnotationTest` is new. `watchhandler.h`
+is included nowhere outside this plugin, so `--target Debugger` was the whole
+build. No new file, so no `.qbs` edit and no qbs re-resolve.
+
+Note the Debugger suite is 0 failed here, where this document has carried
+`testStateMachine` as an environment failure for several entries - it wants a
+Qt on `PATH` and there is one in this shell.
+
+**Still left in Debugger**, having now read all of it:
+
+- **The tooltips**, above - the large one, and a design question rather than a
+  substitution.
+- `debuggerengine.cpp:490`, `LocationMark::dragToLine()` - asks
+  `currentTextEditor()` for a document so it can jump to a line. A
+  substitution, and small.
+- `qml/qmlengineutils.cpp:217,231` - exception highlighting for the QML
+  debugger, which sets extra selections through the widget. The
+  `DebuggerExceptionSelection` kind is already published on `TextDocument`, so
+  this is likely a substitution too, but it is QML debugging rather than C++.
+- `disassembleragent.cpp` and `sourceagent.cpp` - both make their *own*
+  editor for generated contents, so whether they should ever be anything but a
+  widget editor is a separate question from this migration's.
+- `debuggerplugin.cpp:2021` - opens a scratch copy of a view's contents with
+  `K_DEFAULT_TEXT_EDITOR_ID` and casts to set two document properties. The
+  cast is a substitution; the pinned editor id is deliberate.
+
+**Still left elsewhere**, unchanged:
+
+- Needs a working project: the kit-requiring classes on their merits, the
+  clangd override proposal, `adjustedCursor()`, `FollowSymbolTest`'s clangd
+  rows.
+- Needs a person at a screen: vim's mode line, the FakeVim selection
+  highlight, the caret shape per mode, and the language client's button,
+  outline and Follow Symbol in a real Qt Quick editor.
+- Somebody else's: `CodeAssistTests::cleanupTestCase()` closes editors with the
+  ask-about-modified default and can hang a headless run.

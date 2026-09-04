@@ -15,6 +15,7 @@
 #include "debuggerrunconfigurationaspect.h"
 #include "debuggerruncontrol.h"
 #include "debuggertest.h"
+#include "watchhandler.h"
 #include "cdbpaths_test.h"
 #include "shared/cdbsymbolpathlisteditor.h"
 #include "shared/symbolpathsdialog.h"
@@ -2156,6 +2157,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
 #ifdef WITH_TESTS
     addTestCreator(createDebuggerRunSettingsTest);
     addTestCreator(createDebuggerTest);
+    addTestCreator(createValueAnnotationTest);
     addTestCreator(createLogWindowTest);
     addTestCreator(createConsoleItemModelTest);
     addTestCreator(createSourcePathMapTest);

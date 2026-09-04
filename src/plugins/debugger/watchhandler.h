@@ -106,6 +106,10 @@ private:
     WatchModel *m_model; // Owned.
 };
 
+#ifdef WITH_TESTS
+QObject *createValueAnnotationTest();
+#endif
+
 } // Debugger::Internal
 
 Q_DECLARE_METATYPE(Debugger::Internal::DisplayFormat)
