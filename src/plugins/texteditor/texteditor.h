@@ -928,6 +928,10 @@ class TEXTEDITOR_EXPORT ToolBarChoice : public QObject
     // False where there is nothing to choose between, which is the usual case
     // and is why the widget editor hides its combo.
     Q_PROPERTY(bool available READ isAvailable NOTIFY changed)
+    // Whether what is current was picked by the reader rather than worked out
+    // by the language. A view offers to undo a pick; there is nothing to undo
+    // where the language chose, so this is what says the offer is worth making.
+    Q_PROPERTY(bool chosen READ isChosen NOTIFY changed)
 
 public:
     using QObject::QObject;
@@ -936,6 +940,7 @@ public:
     virtual int currentIndex() const = 0;
     virtual QString toolTip() const = 0;
     virtual bool isAvailable() const = 0;
+    virtual bool isChosen() const = 0;
     Q_INVOKABLE virtual void choose(int index) = 0;
     // Forget the choice and go back to what the code model would pick.
     Q_INVOKABLE virtual void clearChoice() = 0;

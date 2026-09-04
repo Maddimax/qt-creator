@@ -31247,3 +31247,137 @@ Two things, now that the override list is answered:
    This is the largest remaining C++ gap and it is testable without a project.
 2. **The debugger's tooltips**, unchanged and for the same reason as the last
    three entries: the consumer needs a debug session.
+
+## 2026-09-04 -- Undoing a parse-context pick, and two gaps that were not
+
+The previous entry named the context menu as "the largest remaining C++ gap".
+**That was wrong, and it was wrong because I grepped C++ and called it a
+census.** `TextViewport::showContextMenu()` does have a listener - it is in
+QML, at `CodeViewport.qml:513` - and a right click already opens a menu built
+from `M_STANDARDCONTEXTMENU`, taken from the same container the widget editor
+takes it from. Correcting that here rather than leaving it to be cited back.
+
+What the widget's `contextMenuEvent()` adds on top is the **Refactor
+submenu**, and that turns out to be a second route to something that already
+works: `TextViewport::requestQuickFixes()` builds the same assist interface
+from the document, runs the same processor, handles the async answer, and
+shows the fixes in a popup on Alt+Enter. So the submenu is parity, not
+function - and it needs either nesting in `ActionModel`, which is a flat list
+of `QAction *`, or a decision to show the fixes inline. That is a call for
+somebody looking at the screen, not one to make quietly in a batch.
+
+### The one that was also not a gap
+
+With the override list answered, the remaining unexamined place was
+`CppEditorWidget::finalizeInitialization()`. Going through it line by line,
+everything is already reached: the outline, local renaming, the use-selections
+updater, the decl/def link, the parse-context model, and the `#` preprocessor
+button, which is on `CppEditorDocument::ownToolBarActions()` with the
+command's tooltip and all.
+
+`setLanguageSettingsId(CPP_SETTINGS_ID)` looked like the exception. It is a
+*widget* call, it is what binds a code style to the document, and
+`TextDocument`'s own `m_codeStylePreferences` starts as `nullptr` - so a C++
+file in the Quick editor should have had no code style, and wrong
+indentation. It has one. `quicktexteditor.cpp:883` calls
+`setCodeStyle(languageCodeStyle())`, which asks the mime type instead of the
+widget, and the comment above it says why. An earlier batch closed this and I
+re-derived the gap from the widget's side without checking the other.
+
+**Measure before believing a gap.** Two hypotheses this batch, both from
+reading only one side, both wrong.
+
+### The test that could not be made to fail
+
+Having measured it, the obvious move was to keep the measurement as a
+regression test: set a distinctive indent width on the C++ code style, open a
+C++ file in each view, assert both documents report it.
+
+It passed in both views. Then the control - force the Quick view onto the
+generic `globalCodeStyle()` instead of the language's - **also passed**, which
+means the test never distinguished them.
+
+The reason was in the probe output all along and I read past it: the code
+style's `displayName()` was `"Global"` in both rows.
+`codeStyleForLanguage("Cpp")->currentPreferences()` *is* the shared global
+entry, so writing the distinctive width there writes it somewhere both the C++
+style and the generic style delegate to. The assertion held for a reason that
+had nothing to do with what it claimed.
+
+So the test was dropped rather than committed. Telling the two apart needs a
+C++-specific entry in the pool that is current, which is project-shaped setup;
+until then this is better recorded here than pinned by an assertion that
+cannot fail. Note also the trap one level up: `ICodeStylePreferences::
+currentTabSettings()` reads through to `currentPreferences()`, so
+`setTabSettings()` on the parent changes nothing while a delegate is in
+charge - the first version of the probe set the width on the wrong object and
+silently measured the default.
+
+### The gap that was real
+
+A C++ file can belong to several project parts, and the toolbar combo lets the
+reader pick which one it is parsed as. `ToolBarChoice` carried `model`,
+`currentIndex`, `toolTip`, `available` and `choose()` - and `clearChoice()`,
+**which nothing called**. The QML never offered it, and nothing said whether
+there was a pick to undo. So in the Quick editor a parse context could be
+picked and then never un-picked; the widget editor has had "Clear Preferred
+Parse Context" in the combo's menu all along.
+
+One property closes it, and it is the same one the widget uses for both of its
+jobs (`cppparsecontext.cpp:150-151` enables the clear action and highlights
+the combo from the same `isCurrentPreferred()`):
+
+    Q_PROPERTY(bool chosen READ isChosen NOTIFY changed)
+
+`ParseContextChoice::isChosen()` answers from
+`ParseContextModel::isCurrentPreferred()`. The toolbar shows a Clear button
+only while there is a pick, so its being there is also what says the current
+part was picked rather than worked out - which is the state the widget shows
+by highlighting. No colour was invented for it; the button is a `QtcButton`
+with the design system's own `SmallList` role.
+
+### Negative controls
+
+- **A -- the button ignores whether anything was picked** (drop
+  `&& root.choice.chosen`): red on "a way back was offered before anything had
+  been picked".
+- **B -- clicking it does not reach the language** (`onClicked: {}`): red,
+  `m_clears` 0 against 1.
+- **C -- the Quick view falls back to the generic code style**: **green**, and
+  that is what killed the code-style test above rather than something to work
+  around.
+
+Not covered: `ParseContextChoice::isChosen()` itself is exercised only through
+the test double, because `isCurrentPreferred()` is set from a real parse of a
+real project part. The one line that reads the model is unguarded, and saying
+so is better than implying the C++ side is tested.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 439 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Unchanged from the previous entry, and that is the expected number rather than
+a coincidence: the Clear button's checks were added to an existing slot rather
+than as new ones, and the code-style test was dropped before it was ever
+committed. Added up per class, not eyeballed.
+
+Four files, no new file and no `.qbs` edit, so nothing to re-resolve.
+
+### What this leaves
+
+Nothing of the substitution shape that can be closed here. Concretely:
+
+1. **The Refactor submenu**, wanting a nesting decision - parity with a route
+   that already works.
+2. **The debugger's tooltips**, wanting a debug session.
+3. **The parse-context highlight in the widget's own style**, if the Clear
+   button is judged not to say enough on its own.
+4. **`isChosen()` against a real project part**, with everything else on the
+   list that needs a project.
+
+If the next batch wants a target rather than a survey, (1) is the one with a
+user-visible outcome, and the first question it has to answer is whether the
+fixes nest or go inline.

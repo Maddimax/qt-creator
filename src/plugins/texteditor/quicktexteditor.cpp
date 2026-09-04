@@ -5205,18 +5205,26 @@ private slots:
             int currentIndex() const override { return m_current; }
             QString toolTip() const override { return "How this file is parsed"; }
             bool isAvailable() const override { return m_available; }
+            bool isChosen() const override { return m_chosen >= 0; }
             void choose(int index) override
             {
                 m_chosen = index;
                 m_current = index;
                 emit changed();
             }
-            void clearChoice() override { m_current = 0; emit changed(); }
+            void clearChoice() override
+            {
+                m_chosen = -1;
+                m_current = 0;
+                ++m_clears;
+                emit changed();
+            }
             void offer(bool available) { m_available = available; emit changed(); }
 
             QStandardItemModel m_model;
             int m_current = 0;
             int m_chosen = -1;
+            int m_clears = 0;
             bool m_available = false;
         };
 
@@ -5264,10 +5272,24 @@ private slots:
         QTRY_VERIFY2(drawn->isVisible(), "the combo stayed hidden with a choice to make");
         QCOMPARE(drawn->property("currentIndex").toInt(), 0);
 
+        // What the language worked out is not a pick, so there is nothing to
+        // undo yet and nothing offering to.
+        QQuickItem *clear = nullptr;
+        QTRY_VERIFY2((clear = itemNamed(quick->rootObject(), "clearParseContextButton")),
+                     "the toolbar drew no way to undo a pick at all");
+        QVERIFY2(!clear->isVisible(), "a way back was offered before anything had been picked");
+
         // And picking one is what the language is told.
         QMetaObject::invokeMethod(drawn, "activated", Q_ARG(int, 1));
         QTRY_COMPARE(document->m_choice->m_chosen, 1);
         QTRY_COMPARE(drawn->property("currentIndex").toInt(), 1);
+
+        // Now there is: a pick is the reader's, and left alone the language
+        // would go on choosing the same part, so only they can take it back.
+        QTRY_VERIFY2(clear->isVisible(), "picking a parse context offered no way back");
+        QMetaObject::invokeMethod(clear, "clicked");
+        QTRY_COMPARE(document->m_choice->m_clears, 1);
+        QTRY_VERIFY2(!clear->isVisible(), "the way back stayed after the pick was undone");
     }
 
     // The provider is on the document, and asking it is what turns that into

@@ -402,6 +402,7 @@ public:
     int currentIndex() const override { return m_model.currentIndex(); }
     QString toolTip() const override { return m_model.currentToolTip(); }
     bool isAvailable() const override { return m_model.areMultipleAvailable(); }
+    bool isChosen() const override { return m_model.isCurrentPreferred(); }
     void choose(int index) override { m_model.setPreferred(index); }
     void clearChoice() override { m_model.clearPreferred(); }
 

@@ -59,6 +59,22 @@ Row {
         }
     }
 
+    // Undoing a pick, which only the reader can do - left alone the language
+    // goes on choosing the same part. Shown only while there is a pick, so its
+    // being there is also what says the current part is one rather than what
+    // the language worked out.
+    QtcButton {
+        objectName: "clearParseContextButton"
+
+        anchors.verticalCenter: parent.verticalCenter
+        visible: root.choice !== null && root.choice.available && root.choice.chosen
+        role: QtcButton.Role.SmallList
+        text: qsTr("Clear")
+        ToolTip.text: qsTr("Parse this file the way the code model would")
+        ToolTip.visible: hovered
+        onClicked: root.choice.clearChoice()
+    }
+
     // Which function the caret is in, and a way to go to another. A button
     // rather than a ComboBox, because what it opens is a tree and a combo's
     // popup is a list.
