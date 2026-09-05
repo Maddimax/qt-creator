@@ -38550,3 +38550,119 @@ After it, and unchanged: the **`QuickUi` sort flake**, which is now the second
 unmeasured failing thing rather than the first, and **an arbitrary widget in a
 Quick toolbar**, which should be struck from this list if nobody is going to
 do it.
+
+## 2026-09-05 (35) -- Cancelling an assist does not stop it
+
+The last entry ended with a crash, a rate and one wrong sentence: *"It is not
+a Quick-editor defect - the assist framework and CppEditor own it."* **It is a
+Quick-editor defect.** I had read the use stack and not the free stack. The
+free stack says it in one line:
+
+    freed by thread T0:
+      InternalCppCompletionAssistProcessor::~InternalCppCompletionAssistProcessor()
+      unique_ptr<IAssistProcessor>::reset()
+      TextEditor::TextViewport::requestCompletions()   textviewport.cpp:390
+
+Reading half an ASan report is how a defect in the code under migration gets
+written down as somebody else's.
+
+### Which gap this batch closed
+
+`IAssistProcessor::cancel()` **does not cancel anything.** An `AsyncProcessor`
+is already on a thread pool and there is no taking that back, so all `cancel()`
+can do is swap in a handler that throws the answer away and does `delete this`
+when it lands:
+
+    void AsyncProcessor::cancel()
+    {
+        setAsyncCompletionAvailableHandler([this](IAssistProposal *proposal) {
+            delete proposal;
+            QMetaObject::invokeMethod(qApp, [this] { delete this; }, Qt::QueuedConnection);
+        });
+    }
+
+So after `cancel()` the processor owns itself, and deleting it is a
+use-after-free on the worker thread *and* a double free later.
+`CodeAssistant` gets this right in three lines, which is where the contract is
+actually written down:
+
+    m_processor->cancel();
+    if (!m_processor->running())
+        delete m_processor;
+
+`TextViewport` called `cancel()` and then deleted unconditionally, at **all
+three** of its request sites - completions, quick fixes, function hints - and
+`~TextViewport() = default` deleted whatever was still running when a file was
+closed, which is the reader-closes-a-file-mid-completion case.
+
+All four now go through one `retireProcessor()` that says the rule once.
+
+### Rates, because a verdict would have been worthless
+
+    isolated repro, before   8 crashes / 8 runs
+    isolated repro, after    0 crashes / 10 runs
+    under control A          4 crashes / 4 runs
+
+The whole-suite runs stayed green throughout - which is exactly why five
+batches of exit-0 never found it, and why the isolated repro was worth
+building before anything was changed.
+
+### Tests that do not need a sanitizer
+
+ASan is a fine control and a poor test: it only speaks in a sanitizer build
+and it says "crash" rather than what the rule is. Two tests say the rule with
+a fake processor that reports `running()` and records its own destruction:
+
+- asking again while it is still answering must cancel it and **not** delete
+  it, and one that has finished must be deleted or every abandoned request
+  leaks;
+- closing the view while it is still answering, same rule.
+
+The second is built by hand rather than on `ViewportFixture`, because that
+fixture **does not own the viewport it makes**: after it goes out of scope the
+item is still alive, event loop turn or not. A destructor is the one thing it
+cannot test - measured with a `QPointer`, after the first version of the test
+failed for that reason and not for the reason it was written for.
+
+The first version of the fake also had `cancel()` set `running` to true, which
+is not what `AsyncProcessor::cancel()` does; it made the leak half of the test
+fail. **A fake is a claim about the thing it stands in for, and that one was
+wrong.**
+
+### Negative controls
+
+- **A -- a running processor is deleted anyway** (the defect restored): the
+  unit test red, and the ASan repro back to **4 crashes out of 4**.
+- **B -- nothing is ever deleted**: red on the leak half alone, which is the
+  half A does not cover.
+- **C -- `~TextViewport() = default`**: red on the closing test alone.
+
+Three controls for three separately-wrong things.
+
+### Verification
+
+    -test TextEditor    536 passed, 0 failed, exit 0, 0 warnings   (534 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0
+
+Two files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The crash is gone and the contract is written down in the one place that
+needed it. What is left is short and none of it is a defect anybody has
+measured:
+
+- **The `QuickUi` sort flake**, now the only unmeasured failing thing on this
+  list. It has been carried for a dozen entries. Next batch should either
+  measure its rate and fix it or say what it actually is.
+- **`QUnifiedTimer::stopAnimationDriver: driver is not running`**, one run in
+  three of `QuickUi`, in a button test that touches no editor. Recorded in
+  entry 30 and seen again today; still nobody's.
+- **An arbitrary widget in a Quick toolbar**, unchanged for twenty-six
+  entries. Nothing has needed it in all that time. **I would strike it** and
+  let it come back as a requirement if something ever asks for it.
+
+Beyond those the list is empty, which is worth saying plainly: the four things
+the standing warning names all have Quick-side homes and tests, C++ files open
+in this editor by default, and the differential typing test now covers fifteen
+scripts in both views without a divergence left in it.

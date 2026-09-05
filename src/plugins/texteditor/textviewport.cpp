@@ -236,7 +236,35 @@ void TextViewport::applyGlobalFontSettings()
         doc->setFontSettings(globalFontSettings().data());
 }
 
-TextViewport::~TextViewport() = default;
+// What happens to a request nobody is waiting for any more.
+//
+// IAssistProcessor::cancel() does not stop anything: an AsyncProcessor is
+// already on a thread pool, and all cancel() can do is arrange for the answer
+// to be thrown away and for the processor to delete *itself* once it lands.
+// So a processor that is still running must be let go of rather than deleted -
+// deleting it here frees what the worker thread is still reading, and leaves
+// it to be freed a second time when the answer arrives.
+//
+// TextEditorWidget reaches the same conclusion through CodeAssistant, which
+// deletes a processor only when it is not running.
+static void retireProcessor(std::unique_ptr<IAssistProcessor> &processor)
+{
+    if (!processor)
+        return;
+    processor->cancel();
+    if (processor->running())
+        processor.release();
+    else
+        processor.reset();
+}
+
+TextViewport::~TextViewport()
+{
+    // Before the members go, because a unique_ptr would just delete them.
+    retireProcessor(m_completionProcessor);
+    retireProcessor(m_quickFixProcessor);
+    retireProcessor(m_functionHintProcessor);
+}
 
 CodeSource *TextViewport::document() const
 {
@@ -382,8 +410,7 @@ void TextViewport::requestCompletions()
     }
 
     // Whatever the last request is still doing, nobody is waiting for it now.
-    if (m_completionProcessor)
-        m_completionProcessor->cancel();
+    retireProcessor(m_completionProcessor);
 
     std::unique_ptr<AssistInterface> interface
         = doc->createAssistInterface(cursor, Completion, ExplicitlyInvoked, m_editor);
@@ -428,8 +455,7 @@ void TextViewport::startFixes(IAssistProvider *asked,
         return;
     }
 
-    if (m_quickFixProcessor)
-        m_quickFixProcessor->cancel();
+    retireProcessor(m_quickFixProcessor);
 
     // Asked of the document: a C++ quick fix needs the semantic info, and
     // only the document can hand it over without being a particular view.
@@ -497,8 +523,7 @@ void TextViewport::requestFunctionHint()
         return;
     }
 
-    if (m_functionHintProcessor)
-        m_functionHintProcessor->cancel();
+    retireProcessor(m_functionHintProcessor);
 
     std::unique_ptr<AssistInterface> interface
         = doc->createAssistInterface(cursor, FunctionHint, ExplicitlyInvoked, m_editor);

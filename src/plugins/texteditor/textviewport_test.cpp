@@ -411,6 +411,48 @@ public:
 };
 
 
+// A processor that is still working, and says so. Real ones are on a thread
+// pool; this only has to answer running() the way one of those would, because
+// that is the whole of the contract the view has to honour.
+struct StillWorking
+{
+    bool running = false;
+    bool cancelled = false;
+    bool deleted = false;
+};
+
+class StillWorkingProcessor final : public TextEditor::IAssistProcessor
+{
+public:
+    explicit StillWorkingProcessor(StillWorking *state) : m_state(state) {}
+    ~StillWorkingProcessor() override { m_state->deleted = true; }
+
+    TextEditor::IAssistProposal *perform() override { return nullptr; }
+    // Nothing here changes running(): AsyncProcessor::cancel() does not stop
+    // the thread, it only arranges for the answer to be dropped and for the
+    // processor to see itself out once it lands.
+    void cancel() override { m_state->cancelled = true; }
+    bool running() override { return m_state->running; }
+
+private:
+    StillWorking * const m_state;
+};
+
+class StillWorkingProvider final : public TextEditor::CompletionAssistProvider
+{
+public:
+    explicit StillWorkingProvider(StillWorking *state) : m_state(state) {}
+    TextEditor::IAssistProcessor *createProcessor(
+        const TextEditor::AssistInterface *) const override
+    {
+        return new StillWorkingProcessor(m_state);
+    }
+
+private:
+    StillWorking * const m_state;
+};
+
+
 // An indenter that puts every line it is given four spaces in. Real ones ask
 // the language; this is here so that a test can tell whether the command
 // reached the indenter at all, which is the only thing the view decides.
@@ -5600,6 +5642,94 @@ private slots:
         QTRY_COMPARE(offered.size(), 1);
         QVERIFY2(offered.at(0).at(0).toStringList().isEmpty(),
                  "a read only buffer was offered a fix");
+    }
+
+    // Asking again while the language is still answering must not delete the
+    // processor that is answering. IAssistProcessor::cancel() does not stop
+    // anything - an AsyncProcessor is already on a thread pool - so all it can
+    // do is arrange for the answer to be dropped and for the processor to
+    // delete itself when it lands. Deleting it here frees what a worker thread
+    // is still reading, and then frees it a second time.
+    //
+    // The ASan repro is
+    // testTypingALineOfCppLeavesTheSameFileInEitherView: eight crashes out of
+    // eight before this. That needs a sanitizer to say anything, so this says
+    // the same thing without one.
+    void testAskingAgainDoesNotDeleteWhatIsStillAnswering()
+    {
+        TemporaryDirectory dir("qtc-viewport-stillworking");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        StillWorking working;
+        StillWorkingProvider provider(&working);
+        viewport->textDocument()->setCompletionAssistProvider(&provider);
+
+        viewport->setCursorPosition(5);
+        viewport->requestCompletions();
+        QVERIFY2(!working.deleted, "the first request was thrown away before it answered");
+
+        // Still answering, so asking again has to let go of it rather than
+        // delete it - and has to say so, because a processor nobody cancelled
+        // never sees itself out and the letting go is a leak.
+        working.running = true;
+        viewport->requestCompletions();
+        QVERIFY2(working.cancelled, "a request nobody is waiting for was not cancelled");
+        QVERIFY2(!working.deleted,
+                 "a processor that was still answering was deleted under its own thread");
+
+        // And one that has finished is this view's to delete, or every
+        // abandoned request would be a leak. A fresh state, because the one
+        // above is deliberately still alive.
+        StillWorking done;
+        StillWorkingProvider finished(&done);
+        viewport->textDocument()->setCompletionAssistProvider(&finished);
+        viewport->requestCompletions();
+        QVERIFY2(!done.deleted, "the finished-processor fixture starts out already deleted");
+        viewport->requestCompletions();
+        QVERIFY2(done.deleted, "a processor that had finished was leaked instead of deleted");
+    }
+
+    // The same rule when the view goes away rather than when it asks again,
+    // which is what a reader closing a file just after typing "(" does. The
+    // members are unique_ptrs and would simply have deleted what was still
+    // being worked on.
+    //
+    // Built by hand rather than through ViewportFixture, because that one does
+    // not own the viewport it makes - after the fixture goes out of scope the
+    // item is still alive, so a destructor is exactly what it cannot test.
+    void testClosingTheViewDoesNotDeleteWhatIsStillAnswering()
+    {
+        TemporaryDirectory dir("qtc-viewport-closing");
+        const FilePath file = dir.filePath("code.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        // Outlives the view on purpose: what is being asked is what the view's
+        // destructor did to it.
+        StillWorking working;
+        {
+            CodeDocument source;
+            source.setFilePath(file);
+            StillWorkingProvider provider(&working);
+
+            const std::unique_ptr<TextViewport> viewport(new TextViewport);
+            viewport->setDocument(&source);
+            QTRY_VERIFY(viewport->textDocument());
+            viewport->textDocument()->setCompletionAssistProvider(&provider);
+            viewport->setCursorPosition(1);
+            viewport->requestCompletions();
+            QVERIFY2(!working.deleted, "the request was thrown away before it answered");
+            working.running = true;
+        }
+        QVERIFY2(working.cancelled, "the view went without cancelling what it had asked for");
+        QVERIFY2(!working.deleted,
+                 "closing the view deleted a processor its own thread was still in");
     }
 
     // A function hint is not a list to choose from: it says what the call
