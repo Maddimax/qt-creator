@@ -199,6 +199,21 @@ static void findCppLinkAt(TextEditor::TextDocument *document,
                                   FollowSymbolMode::Fuzzy);
 }
 
+// Where the *type* of the symbol under \a cursor is defined. What
+// CppEditorWidget::findTypeAt() does, minus the widget.
+static void findCppTypeAt(TextEditor::TextDocument *document,
+                          const QTextCursor &cursor,
+                          const Utils::LinkHandler &processLinkCallback,
+                          bool /*resolveTarget*/,
+                          bool inNextSplit)
+{
+    if (!CppModelManager::instance())
+        return processLinkCallback(Utils::Link());
+
+    const CursorInEditor data(cursor, document->filePath(), nullptr, document);
+    CppModelManager::followSymbolToType(data, processLinkCallback, inNextSplit);
+}
+
 class CppEditorFactory : public TextEditorFactory
 {
 public:
@@ -230,6 +245,7 @@ public:
         setEditorWidgetCreator([]() { return new CppEditorWidget; });
         setAutoCompleterCreator([]() { return new CppAutoCompleter; });
         setLinkFinder(&findCppLinkAt);
+        setTypeFinder(&findCppTypeAt);
         setCommentDefinition(CommentDefinition::CppStyle);
         setCodeFoldingSupported(true);
         setParenthesesMatchingEnabled(true);

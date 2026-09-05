@@ -3079,13 +3079,23 @@ void TextViewport::followTypeUnderCursor(bool inNextSplit)
     const QTextCursor cursor = textCursor();
     if (cursor.isNull())
         return;
-    symbolRequests()->askForTypeAt(
-        cursor,
-        [self = QPointer<TextViewport>(this), inNextSplit](const Utils::Link &link) {
-            if (self)
-                self->openLink(link, inNextSplit);
-        },
-        true, inNextSplit);
+    const Utils::LinkHandler callback
+        = [self = QPointer<TextViewport>(this), inNextSplit](const Utils::Link &link) {
+              if (self)
+                  self->openLink(link, inNextSplit);
+          };
+    // The language's own answer where it registered one - it knows how to
+    // reach a server as well as its own model, and asking the server directly
+    // would be less than it does. Otherwise the relay, for a language whose
+    // only answer is whichever server is running.
+    if (TextDocument * const doc = textDocument()) {
+        if (const TextEditorFactory::LinkFinder finder
+            = TextEditorFactory::typeFinderFor(doc)) {
+            finder(doc, cursor, callback, true, inNextSplit);
+            return;
+        }
+    }
+    symbolRequests()->askForTypeAt(cursor, callback, true, inNextSplit);
 }
 
 void TextViewport::openCallHierarchy()

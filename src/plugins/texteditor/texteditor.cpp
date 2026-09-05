@@ -7707,6 +7707,13 @@ void TextEditorWidget::findTypeAt(const QTextCursor &cursor,
                                   bool resolveTarget,
                                   bool inNextSplit)
 {
+    // Same order as findLinkAt() above, so that both views ask the language
+    // the same way. A widget subclass that overrides this never gets here.
+    if (const TextEditorFactory::LinkFinder finder
+        = TextEditorFactory::typeFinderFor(textDocument())) {
+        finder(textDocument(), cursor, callback, resolveTarget, inNextSplit);
+        return;
+    }
     emit requestTypeAt(cursor, callback, resolveTarget, inNextSplit);
 }
 
@@ -10063,6 +10070,7 @@ public:
     QList<BaseHoverHandler *> m_hoverHandlers; // not owned
     Context m_editorContexts;
     TextEditorFactory::LinkFinder m_linkFinder;
+    TextEditorFactory::LinkFinder m_typeFinder;
     std::unique_ptr<CompletionAssistProvider> m_completionAssistProvider; // owned
     int m_optionalActionMask = 0;
     bool m_usesQuickEditor = false;
@@ -10189,6 +10197,24 @@ TextEditorFactory::LinkFinder TextEditorFactory::linkFinder() const
 void TextEditorFactory::setLinkFinder(const LinkFinder &finder)
 {
     d->m_linkFinder = finder;
+}
+
+TextEditorFactory::LinkFinder TextEditorFactory::typeFinder() const
+{
+    return d->m_typeFinder;
+}
+
+void TextEditorFactory::setTypeFinder(const LinkFinder &finder)
+{
+    d->m_typeFinder = finder;
+}
+
+TextEditorFactory::LinkFinder TextEditorFactory::typeFinderFor(TextDocument *document)
+{
+    if (!document)
+        return {};
+    TextEditorFactory * const factory = preferredFactoryFor(document->filePath());
+    return factory ? factory->typeFinder() : LinkFinder();
 }
 
 TextEditorFactory::LinkFinder TextEditorFactory::linkFinderFor(TextDocument *document)

@@ -33618,3 +33618,93 @@ Two files, no new file and no `.qbs` edit.
 - Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- Follow Symbol to Type, the same gap one question later
+
+The last entry asked which of `CppEditorWidget`'s `virtual` overrides are
+behaviour the language needs rather than painting. Going down the list, most
+already have seams from earlier batches - `paste()`/`cut()`, `findUsages()`
+and rename through `SymbolRequests`, `selectBlockUp/Down()` through
+`SelectionExpander`, the assist interface on the document. **`findTypeAt()`
+did not**, and it had the identical shape to the Follow Symbol bug:
+
+    widget:  CppEditorWidget::findTypeAt -> CppModelManager::followSymbolToType
+    quick:   SymbolRequests::requestTypeAt -> LanguageClientManager
+                 -> client->findLinkAt(SymbolTypeDef)
+
+So Follow Symbol to Type in the Qt Quick editor was a **bare LSP
+typeDefinition**. It never reached `CppModelManager::followSymbolToType()`,
+which dispatches to clangd through `ClangdFollowSymbol` - cursor adjustment,
+abort-on-edit and all - and which, without clangd, says so
+("Follow Symbol to Type is only available when using clangd") rather than
+failing silently.
+
+The gap this closed: `TextEditorFactory` now has a **type finder** beside its
+link finder - `setTypeFinder()` / `typeFinder()` / `typeFinderFor(document)` -
+`CppEditorFactory` registers `findCppTypeAt()`, and both views ask it before
+falling back. The relay stays exactly where it was needed: a language that
+answers nothing of its own still reaches whichever server is running.
+
+Smaller than the link-finder case, because no *document*-level type finder is
+needed. The client never installed one - it uses the relay - so
+`typeFinderFor()` only has to consult the factory, and the two mechanisms do
+not have to be ordered against each other.
+
+`TextEditorWidget::findTypeAt()` consults it too, in the same order as
+`findLinkAt()` above it. No change for C++, whose widget overrides both, but
+the two views now ask the language the same way, which is the whole point.
+
+### A fixture that contradicted its own comments
+
+`testTheSymbolCommandsAskThroughTheRelay` went red on `typeAsked.size()`.
+Its fixture was **`code.cpp`**, while its own assertions read *"this is a
+plain text file, whose factory asks for no symbol command at all"*. Both were
+true at once only because nothing looked up C++ by mime type on that path;
+`typeFinderFor()` does, so a `.cpp` file now gets C++'s answer whichever
+factory built the view - which is right, and is what the new test asserts.
+
+Renamed to `code.txt`, which is what every assertion in it already claimed.
+**Not the same move as fitting a test to a change**: the fixture disagreed
+with its own comments before this batch, and the change only made the
+disagreement observable. The way to tell the two apart is whether the test
+still says what it said before - this one says exactly what it always claimed
+to, for the first time.
+
+### Negative controls
+
+- **A -- the view goes straight to the relay again**: red, the relay asked
+  once where it should not be asked at all.
+- **B -- C++ registers no type finder**: red the same way, so the finder
+  being *registered* is load-bearing and not just consulted.
+
+The plain-text half is pinned by the same test asserting the relay **is**
+asked for a `.txt` file, so neither "always ask the language" nor "always ask
+the relay" passes.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      458 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,FollowSymbolTest ...  155 passed, 0 failed, exit 0
+    -test CppEditor,SymbolJumpTest ...      7 passed, 0 failed, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **`followUrl()` and the `ui_*.h` designer redirect**, still widget-only:
+  they live in `CppEditorWidget::findLinkAt()`'s body rather than in
+  `findCppLinkAt()`, so the Quick editor follows neither a URL in a comment
+  nor a generated header back to its `.ui` file. Both are small and belong in
+  the factory finder; the designer one needs `ProjectManager`, which the
+  factory function can reach as easily as the widget can.
+- `createAssistInterface()`, `encourageApply()` and `inInlineRename()` are the
+  remaining overrides not yet traced to a seam. The first two look answered by
+  `CppEditorDocument`; **that is a guess, not a measurement.**
+- Unchanged: the clang-tools toolbar button, the parse-context highlight,
+  Refactor submenu nesting - one presentation question in three places.
+- Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

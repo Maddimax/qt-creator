@@ -801,6 +801,14 @@ public:
     // language has none.
     static LinkFinder linkFinderFor(TextDocument *document);
 
+    // The same for Follow Symbol to *Type*, which asks a different question of
+    // the same language. Registered here for the same reason: CppEditor used
+    // to answer it by overriding findTypeAt() on its widget, which left a view
+    // that is not one asking whichever language server happened to be running.
+    LinkFinder typeFinder() const;
+    void setTypeFinder(const LinkFinder &finder);
+    static LinkFinder typeFinderFor(TextDocument *document);
+
     // The one that would build an editor for \a filePath, or nullptr where no
     // factory claims it. Walks the mime type's parents, so a C++ file finds
     // the C++ factory and a plain text file finds the plain one.

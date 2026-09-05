@@ -1485,7 +1485,11 @@ private slots:
     {
         Utils::TemporaryDirectory dir("quick-editor-symbols");
         QVERIFY(dir.isValid());
-        const Utils::FilePath file = dir.filePath("code.cpp");
+        // Plain text on purpose, as the assertions below say: this is about
+        // the relay, which is what a file whose language answers nothing has.
+        // A .cpp file reaches CppEditor's own answers - see
+        // testFollowingATypeAsksTheLanguageBeforeTheRelay.
+        const Utils::FilePath file = dir.filePath("code.txt");
         QVERIFY(file.writeFileContents("int value = 1;\n"));
 
         Core::IEditor * const editor
@@ -3980,6 +3984,68 @@ private slots:
         }
         QVERIFY2(missing.isEmpty(), qPrintable("no link finder for: " + missing.join(", ")));
         QCOMPARE(checked, names.size());
+    }
+
+    // Follow Symbol to Type had the same shape one step later: CppEditor
+    // answered it by overriding findTypeAt() on its widget, so the Qt Quick
+    // editor fell through to the relay and asked whichever language server
+    // was running - a bare typeDefinition instead of CppModelManager, which
+    // knows both the server and the built-in model.
+    void testFollowingATypeAsksTheLanguageBeforeTheRelay()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-follow-type");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath cpp = dir.filePath("typed.cpp");
+        QVERIFY(cpp.writeFileContents("struct S {};\n\nS value;\n"));
+        const Utils::FilePath txt = dir.filePath("plain.txt");
+        QVERIFY(txt.writeFileContents("alpha beta\n"));
+
+        // The fixture only means anything if the two differ in exactly the way
+        // under test: one language answers Follow Type, the other does not.
+        QVERIFY2(TextEditorFactory::typeFinderFor(nullptr) == nullptr,
+                 "a null document was given a type finder");
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        TextEditorFactory * const cppFactory = TextEditorFactory::preferredFactoryFor(cpp);
+        QVERIFY(cppFactory);
+        const bool wasQuick = cppFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [cppFactory, wasQuick] { cppFactory->setUsesQuickEditor(wasQuick); });
+        cppFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const cppEditor = Core::EditorManager::openEditor(cpp);
+        QVERIFY(cppEditor);
+        QVERIFY2(!TextEditorWidget::fromEditor(cppEditor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        TextViewport * const cppView = viewportForEditor(cppEditor);
+        QVERIFY(cppView);
+        SymbolRequests * const cppRelay = symbolRequestsForEditor(cppEditor);
+        QVERIFY(cppRelay);
+
+        // The language answers, so the relay is never asked.
+        QSignalSpy cppRelayAsked(cppRelay, &SymbolRequests::requestTypeAt);
+        cppEditor->gotoLine(3, 1);
+        cppView->followTypeUnderCursor(false);
+        QCOMPARE(cppRelayAsked.count(), 0);
+        QVERIFY2(TextEditorFactory::typeFinderFor(
+                     qobject_cast<TextDocument *>(cppEditor->document())),
+                 "no C++ factory answers Follow Symbol to Type");
+
+        // And where no language answers, the relay still is - that is what it
+        // is for, and a language server is the only thing that knows.
+        Core::IEditor * const txtEditor
+            = Core::EditorManager::openEditor(txt, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(txtEditor);
+        TextViewport * const txtView = viewportForEditor(txtEditor);
+        SymbolRequests * const txtRelay = symbolRequestsForEditor(txtEditor);
+        QVERIFY(txtView && txtRelay);
+        QVERIFY2(!TextEditorFactory::typeFinderFor(
+                     qobject_cast<TextDocument *>(txtEditor->document())),
+                 "the plain text factory grew a type finder");
+        QSignalSpy txtRelayAsked(txtRelay, &SymbolRequests::requestTypeAt);
+        txtEditor->gotoLine(1, 1);
+        txtView->followTypeUnderCursor(false);
+        QCOMPARE(txtRelayAsked.count(), 1);
     }
 
     // Following a symbol used to be a virtual on a TextEditorWidget subclass,
