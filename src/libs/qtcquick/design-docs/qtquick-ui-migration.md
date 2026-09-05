@@ -37038,3 +37038,91 @@ as the Qt Quick editor has been drawing diagnostics - and no batch read it,
 because every suite the standing rules require was green and the totals said
 nothing. Reading a run's warnings is in this project's own testing notes, and
 this is the second finding in a row that came from doing it.
+
+## 2026-09-05 (19) -- Reading the log the suites already print
+
+The last entry ended on a general note: the polish loop printed 350 times a
+run, for as long as the Qt Quick editor had been drawing diagnostics, and no
+batch read it. This batch took that seriously and read the warnings the two
+required suites print. There were sixteen.
+
+**Which gap this batch closed:** none in the port. It lowers the noise floor,
+which is the thing that let a thirty-fold regression hide in plain sight.
+
+### What was in there
+
+**A `-1` from production code.** `TextEditor::joinLines()` works out the last
+character *of* the selection as `selectionEnd() - 1`. With no selection at the
+start of the file that is `-1`, which Qt refuses with
+
+    QTextCursor::setPosition: Position '-1' out of range
+
+The join is right anyway - the line count below it is `qMax(1, ...)` - so this
+is a warning about an intermediate rather than a wrong answer. It is shared
+code, so the widget editor printed it too. Clamped, with a test.
+
+**Two tests asking for a position the file does not have.**
+`setSelectionEnd(200)` in a document of about thirty characters, twice, meaning
+"to the end". Now the document's actual end.
+
+**A row written twice.** `testFollowCall` had two `charPtr-to-constCharPtr`
+rows, identical in tag *and* in all three values, so QTest warned "Duplicate
+data tag - please rename" and ran the same case twice. Worth being precise,
+because the first reading of it here was wrong: **nothing was being silently
+skipped**, it was redundancy. `FollowSymbolTest` is 154 rather than 155 now,
+and the missing one is the copy.
+
+### The guard, and not writing the collector a third time
+
+`ActionCollisions` (commands registered twice) and last entry's
+`PolishLoopWarnings` already install a message handler to see a warning Qt
+gives no other way. Rather than add a third, they are now one class -
+`WarningsSaying`, taking the substrings to listen for - and the new joinLines
+test uses it with `"out of range"`.
+
+- **Control -- the clamp removed**: red, "joining asked for a position that is
+  not there". The test also checks the join still happened, so it cannot go
+  quiet by doing nothing.
+
+### What the log says now
+
+    -test TextEditor    5 warnings -> 1
+    -test CppEditor,FollowSymbolTest    1 -> 0
+
+The one left in `TextEditor` is
+`CodeAssistTests::initTestCase() QFSFileEngine::open: No file name specified`,
+which is a fixture opening a file it has not named. Left alone: it is in a
+plugin test's setup rather than in the editor, and this batch was already
+three fixes wide.
+
+**`QuickUi` still prints ten, and they are not noise.**
+`ProjectExplorer/ProjectCommentsPanel.qml` reports `Unable to assign` at 21:32
+and `TypeError: Cannot read property` at lines 23, 27, 30 and 31 - a panel
+whose bindings are failing every time it is drawn. That is a real defect,
+outside the text editor and so outside this plan's remit, but it is written
+down here because nobody else has a reason to look at that log.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      482 passed, 0 failed, exit 0     (481 before; the new guard)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,FollowSymbolTest
+      154 passed, 0 failed, exit 0, 43 763 ms, 0 warnings
+
+Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Two entries running, the log has been the source of the finding. It is worth
+saying what that means as a method rather than as luck: **a green suite is not
+a quiet one, and the totals do not carry what the run printed.** Counting
+`QWARN` lines takes one `grep` and would have caught the polish loop the day
+it appeared.
+
+Open, and none of it C++-blocking:
+
+- **The `ProjectCommentsPanel` bindings**, above. Someone else's, but real.
+- **The `QuickUi` sort flake**, still not reproducing.
+- **An arbitrary widget in a Quick toolbar**, unchanged for fifteen entries.

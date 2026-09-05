@@ -28,7 +28,11 @@ void joinLines(Utils::MultiTextCursor &cursor)
         QTextCursor end = c;
 
         start.setPosition(c.selectionStart());
-        end.setPosition(c.selectionEnd() - 1);
+        // The last character *of* the selection, so that one ending exactly at
+        // a block start does not count that block. Clamped: with no selection
+        // at the start of the document that is position -1, which Qt refuses
+        // with a warning and leaves the cursor where it was.
+        end.setPosition(qMax(0, c.selectionEnd() - 1));
 
         int lineCount = qMax(1, end.blockNumber() - start.blockNumber());
 

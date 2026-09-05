@@ -1311,24 +1311,36 @@ private:
 // calls polish() from inside its own updatePolish(), and again once it has
 // happened often enough to look like a loop. The first is the one worth
 // catching - it needs a single pass rather than a thousand.
-class PolishLoopWarnings
+class WarningsSaying
 {
 public:
-    PolishLoopWarnings() { s_hits = &m_hits; s_previous = qInstallMessageHandler(collect); }
-    ~PolishLoopWarnings() { qInstallMessageHandler(s_previous); s_hits = nullptr; }
+    explicit WarningsSaying(const QStringList &needles)
+    {
+        s_needles = needles;
+        s_hits = &m_hits;
+        s_previous = qInstallMessageHandler(collect);
+    }
+    ~WarningsSaying() { qInstallMessageHandler(s_previous); s_hits = nullptr; }
 
     QStringList hits() const { return m_hits; }
 
 private:
     static void collect(QtMsgType type, const QMessageLogContext &context, const QString &message)
     {
-        if (s_hits && (message.contains("updatePolish") || message.contains("polish() loop")))
-            s_hits->append(message);
+        if (s_hits) {
+            for (const QString &needle : std::as_const(s_needles)) {
+                if (message.contains(needle)) {
+                    s_hits->append(message);
+                    break;
+                }
+            }
+        }
         if (s_previous)
             s_previous(type, context, message);
     }
 
     QStringList m_hits;
+    static inline QStringList s_needles;
     static inline QStringList *s_hits = nullptr;
     static inline QtMessageHandler s_previous = nullptr;
 };
@@ -3261,7 +3273,7 @@ private slots:
         // complaints in its own order does.
         const QList<TextDocument::ExtraSelection> outOfOrder{rangeAt(12, 17), rangeAt(0, 5)};
 
-        PolishLoopWarnings warnings;
+        WarningsSaying warnings({"updatePolish", "polish() loop"});
         QSignalSpy laidOut(view, &TextViewport::metricsChanged);
         document->setExtraSelections(TextEditorWidget::CodeWarningsSelection, outOfOrder);
 
@@ -3281,6 +3293,49 @@ private slots:
         QCOMPARE(drawn.size(), 2);
         QCOMPARE(drawn.first().start, 0);
         QCOMPARE(drawn.at(1).start, 12);
+    }
+
+    // Joining lines with the caret at the very start of the file. The shared
+    // joinLines() works out the last character *of* the selection as
+    // selectionEnd() - 1, which with no selection at position zero is -1 - a
+    // position Qt refuses, with a warning, leaving the cursor where it was.
+    //
+    // The join is right either way, because the line count below it is clamped
+    // to at least one. What is wrong is the warning: a log with warnings
+    // nobody means in it is a log nobody reads, and a polish loop printing 350
+    // times a run went unnoticed for exactly that reason.
+    void testJoiningAtTheStartOfTheFileSaysNothingAboutPositionMinusOne()
+    {
+        Utils::TemporaryDirectory dir("join-at-start");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("two.txt");
+        QVERIFY(file.writeFileContents("first\n      second\nthird\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 2);
+        view->setReadOnly(false);
+        view->setCursorPosition(0);
+
+        WarningsSaying warnings({"out of range"});
+        view->joinLines();
+
+        QVERIFY2(warnings.hits().isEmpty(),
+                 qPrintable(QString("joining asked for a position that is not there: %1")
+                                .arg(warnings.hits().value(0))));
+
+        // And it still joined, so this did not go quiet by doing nothing.
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(document->document()->findBlockByNumber(0).text(), QString("first second"));
     }
 
     // A language server attaches to a document rather than to a language, so

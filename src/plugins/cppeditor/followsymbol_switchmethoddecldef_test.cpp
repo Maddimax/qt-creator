@@ -1433,10 +1433,6 @@ void FollowSymbolTest::testFollowCall_data()
             << _("char *var = \"var\"")
             << _("var")
             << _("const char *");
-    QTest::newRow("charPtr-to-constCharPtr")
-            << _("char *var = \"var\"")
-            << _("var")
-            << _("const char *");
     QTest::newRow("constCharPtr-to-constCharPtr")
             << _("const char *var = \"var\"")
             << _("var")

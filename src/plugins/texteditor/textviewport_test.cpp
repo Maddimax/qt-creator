@@ -6813,7 +6813,11 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 0);
 
         viewport->setSelectionStart(0);
-        viewport->setSelectionEnd(200);
+        // The end of what is there, rather than a number past it: asking for
+        // a position the document does not have is a warning, and a log full
+        // of warnings nobody means is one nobody reads.
+        viewport->setSelectionEnd(
+            viewport->textDocument()->document()->characterCount() - 1);
 
         // Everything, rather than nothing.
         QCOMPARE(viewport->selectedText(), QString("alpha\nbeta\n"));
@@ -7461,7 +7465,11 @@ private slots:
 
         // Everything, so row 2 - "    int a = 1;" - is selected end to end.
         viewport->setSelectionStart(0);
-        viewport->setSelectionEnd(200);
+        // The end of what is there, rather than a number past it: asking for
+        // a position the document does not have is a warning, and a log full
+        // of warnings nobody means is one nobody reads.
+        viewport->setSelectionEnd(
+            viewport->textDocument()->document()->characterCount() - 1);
         // The fill is built in updatePolish, so wait for it rather than for the
         // property that changes straight away.
         QTRY_VERIFY(!fillOn(2).isEmpty());
