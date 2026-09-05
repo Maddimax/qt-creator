@@ -104,8 +104,7 @@ EditorConfiguration::EditorConfiguration()
             if (auto * const document = qobject_cast<TextDocument *>(editor->document()))
                 applySettings(document);
             applyBehaviorSettings(editor);
-            if (auto widget = TextEditorWidget::fromEditor(editor))
-                switchSettings(widget);
+            applyMarginSettings(editor);
         }
     });
 }
@@ -242,8 +241,7 @@ void EditorConfiguration::configureEditor(Core::IEditor *editor) const
         document->setEncoding(d->m_textEncoding);
         applySettings(document);
         applyBehaviorSettings(editor);
-        if (widget)
-            switchSettings(widget);
+        applyMarginSettings(editor);
         if (reloadWithProjectEncoding)
             document->reload(d->m_textEncoding);
     }
@@ -303,12 +301,20 @@ void EditorConfiguration::applyBehaviorSettings(Core::IEditor *editor) const
     }
 }
 
-void EditorConfiguration::switchSettings(TextEditorWidget *widget) const
+void EditorConfiguration::applyMarginSettings(Core::IEditor *editor) const
 {
     if (useGlobalSettings()) {
-        widget->setMarginSettings(TextEditor::marginSettings().data());
+        TextEditor::setMarginSettingsIn(editor, {});
+        QObject::disconnect(&marginSettings, &AspectContainer::changed, editor, nullptr);
+        QObject::connect(&TextEditor::marginSettings(), &AspectContainer::changed, editor,
+                         [editor] { TextEditor::setMarginSettingsIn(editor, {}); });
     } else {
-        widget->setMarginSettings(marginSettings.data());
+        TextEditor::setMarginSettingsIn(editor, marginSettings.data());
+        QObject::disconnect(&TextEditor::marginSettings(), &AspectContainer::changed,
+                            editor, nullptr);
+        QObject::connect(&marginSettings, &AspectContainer::changed, editor, [this, editor] {
+            TextEditor::setMarginSettingsIn(editor, marginSettings.data());
+        });
     }
 }
 
@@ -322,14 +328,21 @@ void EditorConfiguration::slotAboutToRemoveProject(Project *project)
     if (project->editorConfiguration() != this)
         return;
 
+    // Whichever view the file is in: a C++ file is in the Qt Quick one, and
+    // keeping the closed project's code style would outlive the project.
     for (Core::IEditor *editor : Core::DocumentModel::editorsForOpenedDocuments()) {
-        if (auto widget = TextEditorWidget::fromEditor(editor)) {
-            const Utils::FilePath filePath = editor->document()->filePath();
-            if (project->isKnownFile(filePath) || ProjectManager::isInProjectSourceDir(filePath, *project)) {
-                widget->textDocument()->setCodeStyle(
-                    codeStyleForLanguage(widget->languageSettingsId()));
-            }
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        if (!document)
+            continue;
+        const Utils::FilePath filePath = document->filePath();
+        if (!project->isKnownFile(filePath)
+            && !ProjectManager::isInProjectSourceDir(filePath, *project)) {
+            continue;
         }
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        const Utils::Id language = widget ? widget->languageSettingsId()
+                                          : TextEditor::languageId(document->mimeType());
+        document->setCodeStyle(codeStyleForLanguage(language));
     }
 }
 
@@ -407,6 +420,9 @@ private slots:
         mine2.m_camelCaseNavigation
             = !TextEditor::globalBehaviorSettings().data().m_camelCaseNavigation;
         config.behaviorSettings.setData(mine2);
+        TextEditor::MarginSettingsData mine3 = config.marginSettings.data();
+        mine3.m_marginColumn = TextEditor::marginSettings().data().m_marginColumn + 13;
+        config.marginSettings.setData(mine3);
 
         QCOMPARE(document->storageSettings().m_cleanWhitespace,
                  TextEditor::globalStorageSettings().data().m_cleanWhitespace);
@@ -435,6 +451,20 @@ private slots:
         };
         QCOMPARE(behaviourHere().m_camelCaseNavigation, mine2.m_camelCaseNavigation);
 
+        // Where the right margin sits, which is the other half of what a view
+        // owns rather than the document.
+        const auto marginHere = [editor, quick] {
+            if (quick) {
+                auto * const quickWidget = editor->widget()->findChild<QQuickWidget *>();
+                auto * const view = quickWidget && quickWidget->rootObject()
+                    ? quickWidget->rootObject()->findChild<TextEditor::TextViewport *>()
+                    : nullptr;
+                return view ? view->marginSettings() : TextEditor::MarginSettingsData{};
+            }
+            return TextEditor::TextEditorWidget::fromEditor(editor)->marginSettings();
+        };
+        QCOMPARE(marginHere().m_marginColumn, mine3.m_marginColumn);
+
         // And handing over nothing puts the view back to following the
         // globals, which is what "use global settings" asks for. Asserted
         // through the seam rather than through configureEditor(), which only
@@ -443,6 +473,9 @@ private slots:
         TextEditor::setBehaviorSettingsIn(editor, {});
         QCOMPARE(behaviourHere().m_camelCaseNavigation,
                  TextEditor::globalBehaviorSettings().data().m_camelCaseNavigation);
+        TextEditor::setMarginSettingsIn(editor, {});
+        QCOMPARE(marginHere().m_marginColumn,
+                 TextEditor::marginSettings().data().m_marginColumn);
     }
 };
 

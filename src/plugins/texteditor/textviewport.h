@@ -6,6 +6,7 @@
 #include "textoperations.h"
 #include "basehoverhandler.h"
 #include "behaviorsettings.h"
+#include "marginsettings.h"
 #include "textdocumentlayout.h"
 #include "texteditor_global.h"
 
@@ -314,6 +315,11 @@ public:
     // and one that has been overridden stops.
     BehaviorSettingsData behaviorSettings() const;
     void setBehaviorSettings(const std::optional<BehaviorSettingsData> &settings);
+
+    // Where the right margin is drawn and whether the area past it is tinted.
+    // Overridden the same way and for the same reason as the behaviour ones.
+    MarginSettingsData marginSettings() const;
+    void setMarginSettings(const std::optional<MarginSettingsData> &settings);
     void removeHoverHandler(BaseHoverHandler *handler);
 
     // Follow Symbol. What is under the cursor is the language's business -
@@ -1209,6 +1215,7 @@ private:
     // The highlighter currently connected to, for the same reason.
     QPointer<SyntaxHighlighter> m_connectedHighlighter;
     std::optional<BehaviorSettingsData> m_behaviorSettings;
+    std::optional<MarginSettingsData> m_marginSettings;
     qreal m_scrollY = 0;
     qreal m_scrollX = 0;
     // The carets after the first. The main one stays a position and a

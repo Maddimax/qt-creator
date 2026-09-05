@@ -32923,3 +32923,76 @@ Then the two presentation questions, still for a person.
 editor, and let it answer from whichever view it has. That is the migration's
 whole method, and it is worth saying that the file is starting to want a
 section header rather than more of them in a row.
+
+## 2026-09-05 -- The margin settings, and the last widget-only path
+
+The previous entry named the margin settings as the last remainder of the
+same shape. They are done, by the same means: `TextViewport` keeps an
+`std::optional<MarginSettingsData>` and answers `value_or(the globals)`, so a
+view nobody has overridden follows them as they change and one a project has
+overridden stops. `setMarginSettingsIn()` joins the seams, and
+`EditorConfiguration` pushes through it.
+
+### And a second one found on the way
+
+With margins moved, `EditorConfiguration::switchSettings(TextEditorWidget *)`
+had nothing left in it and is gone. Grepping for what still mentioned a widget
+in that file turned up `slotAboutToRemoveProject()`, which had the same shape
+and had not been noticed:
+
+    for (IEditor *editor : editorsForOpenedDocuments())
+        if (auto widget = TextEditorWidget::fromEditor(editor))
+            ... setCodeStyle(codeStyleForLanguage(widget->languageSettingsId()));
+
+Closing a project puts its files back to the global code style. A C++ file is
+in the Qt Quick editor, so it kept the closed project's indentation until it
+was closed and reopened. Same fix as `configureEditor()`: the document, and
+the language from the mime type where there is no widget to ask.
+
+This is the third time the *remainder* of a change has been the thing worth
+finding. Removing the last call to a widget-only helper is a good moment to
+grep the file for the rest of them.
+
+### Negative controls
+
+- **A -- the margin seam does not reach a view that is not a widget**: quick
+  row red, 80 against 93; widget green.
+- **B -- the project's margin is never pushed**: both rows red.
+- **C -- the viewport ignores its own setting and reads the globals**: quick
+  row red. The optional is doing the work rather than the push.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 455 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+`-test ProjectExplorer` still exits 2 on the two failures measured two entries
+ago, neither this change.
+
+Six files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Nothing of this shape. Every setting a project can override now reaches
+either view: code style, encoding, typing, storage, extra encoding, behaviour
+and margins.
+
+The two presentation questions remain, and they are the only things on the
+list:
+
+1. Whether the parse-context chooser wants a highlight as well as its Clear
+   button.
+2. Whether the Refactor submenu should nest, as it does, or go inline.
+
+Both ask what a reader should see. Neither is answerable by measurement, and
+this document has now been wrong five times about labels that *were*
+answerable - so it is worth being clear that these two are not of that kind:
+there is no code to read that settles them.
+
+If a batch is wanted before someone answers those, the honest suggestions are
+housekeeping rather than migration: `texteditor.h`'s dozen editor-level free
+functions want a section header and a paragraph saying what they are for, and
+the cast net that has now found two bugs deserves to be a scripted check
+somebody runs, even if it cannot be a unit test here.

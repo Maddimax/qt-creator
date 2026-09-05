@@ -68,9 +68,10 @@ private:
     // How the view behaves, which either view can be told - the Qt Quick one
     // follows the globals until it is.
     void applyBehaviorSettings(Core::IEditor *editor) const;
+    // And where it draws its right margin, which either view can be told too.
+    void applyMarginSettings(Core::IEditor *editor) const;
     // And the ones only a widget has - margins and the behaviour settings its
     // own code reads. A view that is not one takes those from the globals.
-    void switchSettings(TextEditor::TextEditorWidget *baseTextEditor) const;
 
     const std::unique_ptr<EditorConfigurationPrivate> d;
 };

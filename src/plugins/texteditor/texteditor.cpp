@@ -10333,6 +10333,20 @@ void setBehaviorSettingsIn(Core::IEditor *editor,
         view->setBehaviorSettings(settings);
 }
 
+void setMarginSettingsIn(Core::IEditor *editor,
+                         const std::optional<MarginSettingsData> &settings)
+{
+    if (!editor)
+        return;
+
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setMarginSettings(settings.value_or(TextEditor::marginSettings().data()));
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->setMarginSettings(settings);
+}
+
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)
 {
     if (!editor)

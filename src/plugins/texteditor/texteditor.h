@@ -1065,6 +1065,12 @@ TEXTEDITOR_EXPORT void whenScrolled(Core::IEditor *editor, QObject *context,
 TEXTEDITOR_EXPORT void setBehaviorSettingsIn(Core::IEditor *editor,
                                              const std::optional<BehaviorSettingsData> &settings);
 
+// Where \a editor's view draws its right margin, and whether it tints what is
+// past it. Overridable per project the same way, and an empty \a settings
+// means the same thing: back to following the globals.
+TEXTEDITOR_EXPORT void setMarginSettingsIn(Core::IEditor *editor,
+                                           const std::optional<MarginSettingsData> &settings);
+
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax
 // tree where it has an opinion - a SelectionExpander parented to \a editor -

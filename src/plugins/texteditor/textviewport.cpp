@@ -144,7 +144,7 @@ TextViewport::TextViewport(QQuickItem *parent)
         update();
     });
     // The same for where the right margin sits, which is a page of its own.
-    connect(&marginSettings(), &Utils::AspectContainer::changed, this, [this] {
+    connect(&TextEditor::marginSettings(), &Utils::AspectContainer::changed, this, [this] {
         polish();
         update();
     });
@@ -2711,7 +2711,7 @@ void TextViewport::rewrapParagraph()
         return;
     QTextCursor cursor = textCursor();
     TextEditor::rewrapParagraph(cursor, doc->tabSettings(),
-                                marginSettings().data().m_marginColumn);
+                                marginSettings().m_marginColumn);
     setTextCursor(cursor);
 }
 
@@ -3222,6 +3222,21 @@ BehaviorSettingsData TextViewport::behaviorSettings() const
 void TextViewport::setBehaviorSettings(const std::optional<BehaviorSettingsData> &settings)
 {
     m_behaviorSettings = settings;
+}
+
+MarginSettingsData TextViewport::marginSettings() const
+{
+    return m_marginSettings.value_or(TextEditor::marginSettings().data());
+}
+
+void TextViewport::setMarginSettings(const std::optional<MarginSettingsData> &settings)
+{
+    m_marginSettings = settings;
+    // Where the margin sits and whether the area past it is tinted are read
+    // while laying out, so the view has to look again - the same two calls the
+    // connection to the global settings makes.
+    polish();
+    update();
 }
 
 void TextViewport::pasteWithoutFormat()
@@ -3783,7 +3798,7 @@ void TextViewport::updateScrollBarHighlights()
 
 int TextViewport::contentWidthPercent() const
 {
-    return marginSettings().centerEditorContentWidthPercent();
+    return marginSettings().m_centerEditorContentWidthPercent;
 }
 
 QString TextViewport::tabSettingsLabel() const
@@ -4835,11 +4850,11 @@ void TextViewport::updatePolish()
 
     // The right margin. The widget editor puts the line four pixels past the
     // column so that a line exactly that long does not touch it.
-    const int marginColumn = visibleMarginColumn(marginSettings().data(), doc->indenter());
+    const int marginColumn = visibleMarginColumn(marginSettings(), doc->indenter());
     m_marginX = marginColumn <= 0 ? -1 : metrics.horizontalAdvance(' ') * marginColumn + 4;
     m_marginLine = rightMarginColor(fonts, false);
     m_marginArea = rightMarginColor(fonts, true);
-    m_tintMarginArea = marginSettings().tintMarginArea();
+    m_tintMarginArea = marginSettings().m_tintMarginArea;
 
     // What the document was at when the file was last written. Only a
     // TextDocumentLayout keeps it; without one there is nothing to compare a
