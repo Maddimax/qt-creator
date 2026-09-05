@@ -444,6 +444,40 @@ private slots:
         QCOMPARE(QQuickStyle::name(), QString("QtCreatorStyle"));
     }
 
+    // Which positions are on screen, which is what a command that scrolls
+    // past the caret needs in order to bring it back. Only the rows the view
+    // has laid out are searched, so this answers no for anything scrolled off.
+    void testAPositionScrolledOffScreenIsNotVisible()
+    {
+        TemporaryDirectory dir("textviewport-visible-position");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY2(viewport->rowsPerPage() > 0, "the view has no page to scroll by");
+
+        // The start of the file is on screen to begin with, and the far end
+        // is not - so the fixture is showing a window onto the file rather
+        // than all of it.
+        QVERIFY2(viewport->isPositionVisible(0), "the first line is not on screen");
+        const std::pair<int, int> before = viewport->visibleBlockRange();
+        QVERIFY2(before.second < 399, "the whole file is on screen, so nothing can scroll off");
+
+        // Half a page down, which is what Emacs's Ctrl+V asks for.
+        viewport->scrollByRows(viewport->rowsPerPage() / 2);
+        QTRY_VERIFY2(viewport->visibleBlockRange().first > before.first,
+                     "scrolling changed nothing the view reports");
+
+        // And now the first line is behind us.
+        QVERIFY2(!viewport->isPositionVisible(0),
+                 "the first line is still reported on screen after scrolling past it");
+    }
+
     // What a view is showing is lines of the *file*, not rows of the screen.
     // A wrapped line covers several rows, so a caller that counted rows would
     // report lines the file does not have - and "first and last visible line"

@@ -439,6 +439,9 @@ public:
     // apart - which is why this reads the numbers off the rows rather than
     // counting them.
     std::pair<int, int> visibleBlockRange() const;
+    // Whether \a position is on screen. Only the rows the view has laid out
+    // are searched, which is exactly the ones it is showing.
+    bool isPositionVisible(int position) const;
     QColor currentLineColor() const;
     QColor changedLineColor() const;
     QColor savedLineColor() const;

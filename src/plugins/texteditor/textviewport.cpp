@@ -276,6 +276,11 @@ int TextViewport::firstVisibleLine() const
     return m_firstVisibleLine;
 }
 
+bool TextViewport::isPositionVisible(int position) const
+{
+    return locate(position).index >= 0;
+}
+
 std::pair<int, int> TextViewport::visibleBlockRange() const
 {
     if (m_lines.empty())

@@ -1061,6 +1061,15 @@ TEXTEDITOR_EXPORT bool encourageApplyIn(Core::IEditor *editor);
 // and under wrapping those are not the same count.
 TEXTEDITOR_EXPORT std::pair<int, int> visibleLinesIn(Core::IEditor *editor);
 
+// Scroll \a editor's view by half of what it is showing, down for a positive
+// \a direction and up for a negative one. The caret is not moved: a reader
+// scrolling past it is what the Emacs keys expect, and putting it back is the
+// caller's business.
+TEXTEDITOR_EXPORT void scrollHalfPageIn(Core::IEditor *editor, int direction);
+
+// Whether \a position is inside what \a editor's view is showing.
+TEXTEDITOR_EXPORT bool isPositionVisibleIn(Core::IEditor *editor, int position);
+
 // What a key press should be sent to for \a editor: the widget, or the Quick
 // item - not the QQuickWidget wrapping that item, which forwards nothing.
 TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);

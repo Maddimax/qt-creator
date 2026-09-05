@@ -21,7 +21,6 @@
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
-#include <QScrollBar>
 #include <utils/qtcassert.h>
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
@@ -369,35 +368,21 @@ void EmacsKeysPlugin::genericVScroll(int direction)
     if (!m_currentEditor || !m_currentState)
         return;
 
-    // Still widget-only: a half-page scroll is the one command here that is
-    // about the view rather than the text - a scroll bar's page step, the
-    // viewport's rectangle, and where the caret is drawn. The Qt Quick editor
-    // has all three, but not under these names, and inventing the seam is its
-    // own piece of work. See the design doc.
-    auto * const edit = qobject_cast<PlainTextEdit *>(m_currentEditor->widget());
-    if (!edit)
-        return;
-
     m_currentState->beginOwnAction();
-    QScrollBar *verticalScrollBar = edit->verticalScrollBar();
-    const int value = verticalScrollBar->value();
-    const int halfPageStep = verticalScrollBar->pageStep() / 2;
-    const int newValue = value + (direction > 0 ? halfPageStep : -halfPageStep);
-    verticalScrollBar->setValue(newValue);
+    scrollHalfPageIn(m_currentEditor, direction);
 
-    // adjust cursor if it's out of screen
-    const QRect viewportRect = edit->viewport()->rect();
+    // The caret follows only if the scroll left it behind. Scrolling down
+    // takes it off the top, so it walks down to catch up, and the other way
+    // round - which is what asking where it was drawn used to work out.
     const QTextCursor::MoveMode mode =
         m_currentState->mark() != -1 ?
         QTextCursor::KeepAnchor :
         QTextCursor::MoveAnchor ;
     const QTextCursor::MoveOperation op =
-        edit->cursorRect().y() < 0 ?
-        QTextCursor::Down :
-        QTextCursor::Up ;
+        direction > 0 ? QTextCursor::Down : QTextCursor::Up;
 
     QTextCursor cursor = textCursorOf(m_currentEditor);
-    while (!edit->cursorRect(cursor).intersects(viewportRect)) {
+    while (!isPositionVisibleIn(m_currentEditor, cursor.position())) {
         const int previousPosition = cursor.position();
         cursor.movePosition(op, mode);
         if (previousPosition == cursor.position())

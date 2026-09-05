@@ -10479,6 +10479,36 @@ Core::IEditor *editorForDocument(TextDocument *document)
     return open.first();
 }
 
+void scrollHalfPageIn(Core::IEditor *editor, int direction)
+{
+    if (!editor || direction == 0)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        QScrollBar * const bar = widget->verticalScrollBar();
+        const int halfPageStep = bar->pageStep() / 2;
+        bar->setValue(bar->value() + (direction > 0 ? halfPageStep : -halfPageStep));
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        const int halfPage = view->rowsPerPage() / 2;
+        view->scrollByRows(direction > 0 ? halfPage : -halfPage);
+    }
+}
+
+bool isPositionVisibleIn(Core::IEditor *editor, int position)
+{
+    if (!editor || position < 0)
+        return false;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        QTextCursor cursor(widget->document());
+        cursor.setPosition(position);
+        return widget->cursorRect(cursor).intersects(widget->viewport()->rect());
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->isPositionVisible(position);
+    return false;
+}
+
 std::pair<int, int> visibleLinesIn(Core::IEditor *editor)
 {
     if (!editor)

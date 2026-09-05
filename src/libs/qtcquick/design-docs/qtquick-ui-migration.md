@@ -34453,3 +34453,80 @@ one sits in `emacskeysplugin.cpp` behind `WITH_TESTS` and is registered from
 - **The presentation questions** - the clang-tools toolbar button, the
   parse-context highlight, whether the Refactor submenu nests or goes inline.
   Thirteen batches deferred. Still a decision, not a task.
+
+## 2026-09-05 -- The half-page scroll, and a view that never renders
+
+The gap this closed: **`genericVScroll()`, the last Emacs binding still asking
+for a `QPlainTextEdit`.** Ctrl+V and Alt+V now work in the Qt Quick editor, so
+that plugin has no widget left in it at all.
+
+It wanted two things, and both were nearly there:
+
+- **Scrolling half a page.** The widget moves its scroll bar by half a
+  `pageStep()`; the viewport already had `scrollByRows()` and `rowsPerPage()`,
+  which is what `viewPageUp()`/`viewPageDown()` are built on.
+  `scrollHalfPageIn()` dispatches, and the widget's arithmetic is the same
+  statement it always was.
+- **Whether the caret is still on screen.** `TextViewport::locate()` searches
+  `m_lines`, and `m_lines` holds *only the rows the view has laid out* - so
+  "is this position visible" was already answerable and needed no geometry:
+  `isPositionVisible()` is one line over it. `isPositionVisibleIn()` asks the
+  widget whether the cursor's rectangle meets the viewport's, as before.
+
+With those, the caret walk is the **same loop for both views** rather than a
+fork. The one thing dropped is asking where the caret was drawn to decide
+which way to walk: scrolling down leaves the caret above the screen and up
+leaves it below, so the direction is the direction, and no rectangle is needed.
+
+### A test that could not be written where the behaviour lives
+
+The obvious test - trigger Ctrl+V on a C++ file in the Qt Quick editor and
+watch the view move - **fails, and not because the code is wrong.** The probe
+said so plainly:
+
+    SCROLLPROBE view=0x61c0001f9880 rowsPerPage=43 scrollY=0.000000
+    SCROLLPROBE after  scrollY=294.000000
+
+The scroll happened. What did not happen is the relayout: `m_lines` is rebuilt
+on **polish**, and an editor's `QQuickWidget` is never rendered in a test run,
+so nothing the view reports afterwards changes. Every assertion downstream of
+a scroll reads the old rows.
+
+So the test went where the rows do get laid out: `ViewportFixture` in
+`textviewport_test.cpp` puts a viewport in a `QQuickView` and waits for
+`qWaitForWindowExposed()`. There the scroll, the relayout and
+`isPositionVisible()` are all observable.
+
+**An editor opened in a test has no frames.** Anything that only changes on
+polish - laid-out rows, scroll position's effect, anything geometric - has to
+be tested against a viewport in an exposed window, not against an editor. The
+seam can be exercised either way; its *effect on the view* cannot.
+
+### Negative controls
+
+- **A -- every position counts as visible**: red.
+- **B -- visibility asks the document rather than the laid-out rows**: red on
+  the same assertion, which is the distinction the whole predicate exists to
+  make.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      460 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test EmacsKeys ...                      3 passed, 0 failed, exit 0
+
+Six files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Two things, both decisions rather than tasks:
+
+- **lua/bindings/texteditor.cpp** (38 uses of `BaseTextEditor`). Lua scripts
+  see no current editor on a C++ file. Unlike emacskeys, nobody has said
+  whether scripting against the editor is a supported thing to keep working -
+  worth answering before spending several batches on it.
+- **The presentation questions** - the clang-tools toolbar button, the
+  parse-context highlight, whether the Refactor submenu nests or goes inline.
+  Fourteen batches deferred.
