@@ -1977,22 +1977,24 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    // What the language does with the key, before this does anything with it:
-    // Enter inside a doxygen comment writes the block rather than a newline.
-    // Asked only with one caret, because that is what these edit around.
+    // What is in the middle of something spanning several places at once - an
+    // in-place rename - before anything that answers for the file as a whole.
+    // Enter ends a rename, and a rename that cannot be ended goes on editing
+    // every use of the name; the widget editor asks CppLocalRenaming before
+    // the document for the same reason, and wantsKeyBeforeShortcuts() below
+    // takes them in this order too.
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->handleKeyPress(event, [this, event] { processKeyNormally(event); }))
+            return;
+    }
+
+    // Then what the language does with the key: Enter inside a doxygen comment
+    // writes the block rather than a newline. Asked only with one caret,
+    // because that is what these edit around.
     TextDocument * const language = m_document ? m_document->textDocument() : nullptr;
     if (language && !multiTextCursor().hasMultipleCursors()
         && language->handleKeyPress(event, cursor)) {
         return event->accept();
-    }
-
-    // And what it does with the key in *this* view, where it is in the middle
-    // of something that spans several places at once - an in-place rename.
-    // After the document above, which answers for the file rather than for a
-    // caret, and before anything this view would do on its own.
-    for (EditHandler * const handler : editHandlers()) {
-        if (handler->handleKeyPress(event, [this, event] { processKeyNormally(event); }))
-            return;
     }
 
     processKeyNormally(event);

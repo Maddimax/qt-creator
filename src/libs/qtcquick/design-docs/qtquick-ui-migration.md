@@ -35236,3 +35236,145 @@ it is a port, not a question.
 repeating it.** Every item this plan has parked as "a product or design
 question" has turned out to be discoverable work, and the check is cheap --
 one grep at the callers of the API in question.
+
+## 2026-09-05 (2) -- Who answers for a key first
+
+### Correcting the last entry before acting on it
+
+The previous entry named the `#` preprocessor button as "the next thing worth
+doing" and said a Quick C++ editor has no `#` button today. **That was wrong,
+and it was wrong in the way this plan keeps being wrong: asserted without
+looking.** `CppEditorDocument::ownToolBarActions()` has built that action --
+text, tooltip bound to the command's shortcut, `triggered` wired to
+`showPreProcessorDialog()` -- since an earlier batch.
+
+The lesson the last entry itself wrote down ("audit the deferred list before
+repeating it") applies to the *next-step* line as much as to the deferred one.
+A plan entry that names the next step is a claim, and it decays like any
+other.
+
+### The audit, and what it found
+
+With the named step gone, the batch re-derived the list instead of trusting
+it. Two sweeps:
+
+1. **The cast net grep** for `TextEditorWidget::fromEditor` and
+   `qobject_cast<BaseTextEditor>` outside `texteditor/` and tests.
+2. **Every public and protected member of `CppEditorWidget`**, one at a time,
+   asking what a view that is not one does instead.
+
+Both came back clean. Recorded here so the next batch does not repeat them:
+
+| checked | Quick answer |
+| --- | --- |
+| `#` preprocessor button | `CppEditorDocument::ownToolBarActions()` |
+| parse context | `ParseContextChoice` / `ToolBarChoice` |
+| decl/def link | `declDefLinkControllerFor()` falls back to `findChild` |
+| refactoring | `CppRefactoringChanges` falls back to the document |
+| use selections | `CppUseSelectionsUpdater` made per editor in the plugin |
+| Ctrl+U / Ctrl+Shift+U | `CppSelectionExpander` + `growSelectionIn()` |
+| project code style | `EditorConfiguration::configureEditor()` |
+| find usages, rename, type-at, call hierarchy | the `SymbolRequests` relay |
+| Enter in a string or comment | `TextDocument::handleKeyPress()` |
+| `goToParentImpl` | already takes a `Core::IEditor *` |
+
+Two false alarms, both worth writing down because the reasoning that produced
+them was wrong in a reusable way:
+
+- **The debugger's scratch buffer.** `debuggerplugin.cpp` casts to
+  `BaseTextEditor` to mark the buffer temporary, and `.txt` does open in the
+  Quick editor -- so this looked like QTCREATORBUG-33271 regressing. It is
+  not: that call passes `K_DEFAULT_TEXT_EDITOR_ID` explicitly, and an explicit
+  id goes to `PlainTextEditorFactory`, which is still a widget. **A mime type
+  opening in the Quick editor says nothing about `openEditorWithContents()`
+  with an id.**
+- **FakeVim losing Enter.** The obvious reading of `QuickEditorKeyClaim` is
+  that FakeVim is an `EditHandler` and therefore subject to the ordering
+  below. Reading it says otherwise: its `handleKeyPress()` returns false
+  always, and the keys arrive through an event filter that runs before the
+  view. A batch was nearly built on this. *Measure, don't hypothesise* -- the
+  class list said "affected" and the body said "not".
+
+### The gap that was real
+
+`TextViewport::keyPressEvent()` asked in this order:
+
+1. `language->handleKeyPress()` -- the document, answering for the file
+2. `editHandlers()` -- answering for a caret in the middle of something
+
+`CppEditorWidget::keyPressEvent()` asks in the opposite order, and so does
+`TextViewport::wantsKeyBeforeShortcuts()` **twenty lines further down the same
+file**, with a comment saying why: a modal thing wants the key first, because
+only it knows whether it is in the middle of something.
+
+Enter is the one key both want. To `CppEditorDocument::handleKeyPress()` it
+means split this string or continue this doxygen block; to `CppLocalRenaming`
+it means *done*. In the Quick editor the document won, so an in-place rename
+could not be ended with Enter -- it stayed on screen, still editing every use
+of the name at once.
+
+**Reachable**, which is the part that needed measuring rather than assuming: a
+rename ends on a content change outside its selection
+(`onContentsChangeOfEditorWidgetDocument`) and **not** on a caret move. So the
+caret can be walked out of the name and into a comment while the rename is
+still running, and Enter there splits the comment instead of finishing.
+
+The fix is the reorder, and the comments on both blocks now say which question
+each answers.
+
+### Negative controls
+
+- **A -- the original order** (the state before this batch): red, "the caret's
+  own handler was never asked for the key". The first version of this control
+  failed on a bare `QCOMPARE`, because with the old order the handler is not
+  asked *at all*; the assertion was rewritten to say so.
+- **B -- reorder by dropping the language's turn entirely**, the cheat that
+  would satisfy control A: red on "the language never got the key the handler
+  declined" -- **and red on `testSplittingAStringLiteral(quick)` and
+  `testTheOtherWaysEnterTreatsAString` as well.** Those two already existed.
+  Independent corroboration that string splitting in this view is load-bearing
+  and that the reorder did not quietly disable it.
+
+Control B is the one that matters here. Reordering two blocks is exactly the
+change where "it passes now" can mean "the second block never runs".
+
+### What is not tested
+
+The C++ path end to end -- start a rename, walk the caret into a comment,
+press Enter -- needs the built-in code model, a parse, and use selections. The
+test drives the invariant at the level the bug lives at, `TextViewport`'s
+ordering, with a document and a handler written for it. The C++ behaviour
+follows from the ordering; it is not separately asserted.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      468 passed, 0 failed, exit 0     (467 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test FakeVim ...    244 passed, 0 failed, 10 skipped, exit 0
+
+FakeVim as well, because the reorder touches a key path it lives on -- even
+though reading it said it does not go through this branch. Two files, no new
+file and no `.qbs` edit.
+
+### What this leaves
+
+No named next step, and this time that is written after re-deriving the list
+rather than by trusting it. The two sweeps above are the ones to repeat.
+
+What remains is unchanged in substance from the last entry, minus the `#`
+button that was already done: an arbitrary **widget** in a Quick toolbar has
+no answer, and the callers that want one are combo boxes belonging to
+languages that still open in the widget editor. Nothing C++ needs is blocked
+on it.
+
+If a next batch wants a target rather than an audit, the honest candidates are
+*hardening* rather than gap-closing:
+
+- **A test for the C++ rename-then-Enter path**, end to end, so the ordering
+  above is pinned by the behaviour it exists for and not only by the seam.
+- **A census for `EditHandler`**, the way the link finders and the languages
+  have one: the two subclasses in the tree behave differently on purpose
+  (`CppLocalRenaming` handles keys, FakeVim's only claims them), and nothing
+  says so where a third one would be written.

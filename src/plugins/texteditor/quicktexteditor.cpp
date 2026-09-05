@@ -5511,6 +5511,115 @@ private slots:
         QTRY_VERIFY2(!pressed.isEmpty(), "the button did nothing");
     }
 
+    // Which of the two answers for a key comes first. A document answers for
+    // the file - CppEditorDocument::handleKeyPress() splits a string or
+    // continues a doxygen comment on Enter - and a handler answers for a caret
+    // that is in the middle of something spanning several places, which is
+    // what an in-place rename is.
+    //
+    // The handler goes first, the way CppEditorWidget::keyPressEvent() asks
+    // CppLocalRenaming before the document. Enter is the one key both want:
+    // to a rename it means "done", and a rename that cannot be ended with it
+    // stays on screen editing every use of the name at once. Reachable because
+    // a rename ends on a content change outside its selection and not on a
+    // caret move, so the caret can be walked into a comment while it lasts.
+    void testTheViewAsksAHandlerBeforeTheLanguageForAKey()
+    {
+        // Stands in for a language that splits strings and comments on Enter.
+        class ClaimingDocument final : public TextDocument
+        {
+        public:
+            using TextDocument::TextDocument;
+
+            bool handleKeyPress(QKeyEvent *event, const QTextCursor &) override
+            {
+                if (event->key() != Qt::Key_Return && event->key() != Qt::Key_Enter)
+                    return false;
+                ++m_asked;
+                return true;
+            }
+
+            int m_asked = 0;
+        };
+
+        // And for the rename, which needs Enter to mean "done".
+        class OrderedHandler final : public EditHandler
+        {
+        public:
+            OrderedHandler(Core::IEditor *editor, ClaimingDocument *language)
+                : EditHandler(editor)
+                , m_language(language)
+            {}
+
+            bool handleKeyPress(QKeyEvent *event, const std::function<void()> &) override
+            {
+                if (event->key() != Qt::Key_Return && event->key() != Qt::Key_Enter)
+                    return false;
+                ++m_asked;
+                if (m_language->m_asked > 0)
+                    m_languageWentFirst = true;
+                return m_claim;
+            }
+
+            ClaimingDocument * const m_language;
+            bool m_claim = true;
+            bool m_languageWentFirst = false;
+            int m_asked = 0;
+        };
+
+        class ClaimingFactory final : public TextEditorFactory
+        {
+        public:
+            ClaimingFactory()
+            {
+                setId("QuickEditorKeyOrderTest");
+                setDisplayName("Quick Editor Key Order Test");
+                setDocumentCreator([] { return new ClaimingDocument("QuickEditorKeyOrderTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        ClaimingFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = static_cast<ClaimingDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = viewportForEditor(editor.get());
+        QVERIFY2(view, "the factory did not build a Qt Quick editor, so this tests nothing");
+
+        document->document()->setPlainText("alpha\n");
+        QTextCursor caret(document->document());
+        caret.movePosition(QTextCursor::EndOfLine);
+        view->setTextCursor(caret);
+
+        auto * const handler = new OrderedHandler(editor.get(), document);
+
+        // Enter, which both of them want.
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "\r");
+        QCoreApplication::sendEvent(view, &enter);
+
+        QVERIFY2(handler->m_asked == 1,
+                 "the caret's own handler was never asked for the key");
+        QVERIFY2(!handler->m_languageWentFirst,
+                 "the language answered for the file before the caret's own handler");
+        QVERIFY2(document->m_asked == 0,
+                 "the language was asked as well, although the handler took the key");
+        QCOMPARE(document->document()->toPlainText(), QString("alpha\n"));
+
+        // And when the handler has nothing to say - no rename is running - the
+        // language still gets the key, so Enter in a doxygen comment keeps
+        // writing the block. Without this the order could be "fixed" by never
+        // asking the language at all.
+        handler->m_claim = false;
+        QCoreApplication::sendEvent(view, &enter);
+        QCOMPARE(handler->m_asked, 2);
+        QVERIFY2(document->m_asked == 1,
+                 "the language never got the key the handler declined");
+        QVERIFY2(document->document()->toPlainText() == QString("alpha\n"),
+                 "the view inserted a newline although the language took the key");
+    }
+
     // A document gains a language client's button after it is open, so an
     // action added once the toolbar row already exists has to appear in it.
     // TextDocument::toolBarActionsChanged() is what says so; it was declared
