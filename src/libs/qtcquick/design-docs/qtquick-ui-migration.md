@@ -34301,3 +34301,76 @@ seams it now uses are covered.
   inline. Deferred for a dozen batches now, which is itself a decision worth
   making explicitly - either they matter and want an afternoon, or the Quick
   editor ships without them and the plan should say so.
+
+## 2026-09-05 -- devcontainer is not a gap, and the plan is out of work
+
+This batch closed **no gap, because there was none to close.** The last item on
+the plan that needed no decision was `devcontainer:412`, which decorates
+`devcontainer.json` through a `TextEditorWidget`. Before porting it, the thing
+the language census exists to ask:
+
+    CENSUS main.cpp          -> quick
+    CENSUS header.h          -> quick
+    CENSUS notes.txt         -> quick
+    CENSUS Thing.qml         -> widget
+    CENSUS project.pro       -> widget
+    CENSUS devcontainer.json -> widget
+
+**JSON opens in the widget editor.** So that code is only ever reached by a
+widget, and porting it would have been the fourth time in this migration that
+a gap was "closed" in code nothing reaches - which is what the census's own
+comment was written to prevent. It worked.
+
+`devcontainer.json` is now a census row rather than a to-do, with a comment
+saying why it is there: the day JSON moves, the row goes red in the same commit
+and whoever moved it finds out that DevContainerPlugin needs porting. That is
+worth more than the port would have been.
+
+### Negative control
+
+- **A -- the new row claims JSON opens in the Qt Quick editor**: red,
+  "devcontainer.json opened in the widget editor". The row measures.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      459 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Two files, no new file and no `.qbs` edit.
+
+## The plan has no next step left
+
+Said plainly, as the standing instruction asks. Everything that could be done
+without a decision has been done:
+
+- **CppEditor is complete.** Every `CppEditorWidget` override is ported,
+  shared, or traced to another plugin. Completion, quick fixes, follow symbol,
+  follow type, refactoring, the optional-action mask, in-place rename - all
+  answer from the document or an editor-level seam.
+- **The cast net is exhausted.** Five runs, five bugs, every entry examined.
+- **The census says only C++ and plain text open in the Qt Quick editor.**
+  Everything still keyed on a widget is, today, only reached by one.
+
+What is left is three decisions, not three tasks:
+
+1. **emacskeys** (45 uses of `PlainTextEdit *`). A C++ file in the Quick editor
+   gets **no Emacs key bindings at all**. This is a live regression for anyone
+   using that plugin. Port target: `EditHandler` and
+   `wantsKeyBeforeShortcuts`, as FakeVim did with `QuickEditorKeyClaim`.
+   Several batches.
+2. **lua/bindings/texteditor.cpp** (38 uses of `BaseTextEditor`). Lua scripts
+   see no current editor on a C++ file. Several batches.
+3. **The presentation questions** - the clang-tools toolbar button, the
+   parse-context highlight, and whether the Refactor submenu nests or goes
+   inline. Deferred for a dozen batches, which has quietly become an answer.
+   Either they are worth an afternoon or the Quick editor ships without them
+   and this document should say so.
+
+My own view, for what it is worth: **(1) is the only one that is a regression
+rather than an absence.** A user who has Emacs keys on today loses them the
+moment they open a C++ file, and nothing tells them why. I would do that
+first, and I would treat (3) as a decision to record rather than work to
+schedule - three unanswered questions in a plan are worse than three answered
+"no"s.

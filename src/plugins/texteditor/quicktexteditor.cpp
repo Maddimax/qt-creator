@@ -3935,6 +3935,11 @@ private slots:
             {"notes.txt", true},
             {"Thing.qml", false},
             {"project.pro", false},
+            // Measured, not assumed: DevContainerPlugin decorates this file
+            // through a TextEditorWidget, and that is fine only for as long as
+            // this row says widget. Moving JSON is what makes that code
+            // unreachable, and this is where it says so.
+            {"devcontainer.json", false},
         };
 
         QStringList wrong;
