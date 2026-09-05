@@ -33,7 +33,6 @@ public:
                          const QTextCursor &cursor,
                          TextEditor::AssistReason reason,
                          Core::IEditor *editor = nullptr);
-    CppQuickFixInterface(CppEditorWidget *editorWidget, TextEditor::AssistReason reason);
 
     const QList<CPlusPlus::AST *> &path() const;
     CPlusPlus::Snapshot snapshot() const;

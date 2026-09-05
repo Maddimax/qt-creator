@@ -85,26 +85,6 @@ CppQuickFixInterface::CppQuickFixInterface(CppEditorDocument *document,
     m_path = astPath(adjustedCursor());
 }
 
-// The widget's own semantic info rather than the document's: the widget
-// patches the local uses into it as the caret moves, so they are already
-// there.
-CppQuickFixInterface::CppQuickFixInterface(CppEditorWidget *editorWidget, AssistReason reason)
-    : AssistInterface(editorWidget->textCursor(), editorWidget->textDocument()->filePath(), reason)
-    , m_editor(editorFor(editorWidget))
-    , m_document(editorWidget->cppEditorDocument())
-    , m_semanticInfo(editorWidget->semanticInfo())
-    , m_snapshot(CppModelManager::snapshot())
-    , m_currentFile(CppRefactoringChanges::file(editorWidget, m_semanticInfo.doc))
-    , m_context(m_semanticInfo.doc, m_snapshot)
-{
-    QTC_CHECK(m_semanticInfo.doc);
-    QTC_CHECK(m_semanticInfo.doc->translationUnit());
-    QTC_CHECK(m_semanticInfo.doc->translationUnit()->ast());
-    findLocalUses(editorWidget->textCursor());
-    ASTPath astPath(m_semanticInfo.doc);
-    m_path = astPath(adjustedCursor());
-}
-
 // Every place a local name is used in the function the caret is in. A fix that
 // rewrites a variable - changing it from a pointer, renaming it - has to touch
 // all of them, and reads them from here.
@@ -356,14 +336,11 @@ private slots:
                            + QString("    compute").size());
         TextEditor::setTextCursorOf(editor, cursor);
 
-        // Each view asks the way it asks: a widget builds the interface over
-        // itself, and the Quick view over the document, handing its editor in.
+        // Both views ask the same way now: over the document, handing in the
+        // editor that asked.
         const std::unique_ptr<TextEditor::AssistInterface> interface
-            = editorWidget
-                  ? std::unique_ptr<TextEditor::AssistInterface>(
-                        new CppQuickFixInterface(editorWidget, TextEditor::ExplicitlyInvoked))
-                  : document->createAssistInterface(cursor, TextEditor::QuickFix,
-                                                    TextEditor::ExplicitlyInvoked, editor);
+            = document->createAssistInterface(cursor, TextEditor::QuickFix,
+                                              TextEditor::ExplicitlyInvoked, editor);
         QVERIFY(interface);
 
         TextEditor::QuickFixOperation::Ptr assign;
@@ -441,11 +418,8 @@ private slots:
         TextEditor::setTextCursorOf(editor, cursor);
 
         const std::unique_ptr<TextEditor::AssistInterface> interface
-            = editorWidget
-                  ? std::unique_ptr<TextEditor::AssistInterface>(
-                        new CppQuickFixInterface(editorWidget, TextEditor::ExplicitlyInvoked))
-                  : document->createAssistInterface(cursor, TextEditor::QuickFix,
-                                                    TextEditor::ExplicitlyInvoked, editor);
+            = document->createAssistInterface(cursor, TextEditor::QuickFix,
+                                              TextEditor::ExplicitlyInvoked, editor);
         auto * const cppInterface = dynamic_cast<CppQuickFixInterface *>(interface.get());
         QVERIFY(cppInterface);
         QVERIFY2(!cppInterface->semanticInfo().localUses.isEmpty(),
@@ -472,14 +446,13 @@ private slots:
                  qPrintable("the argument was left dereferenced:\n" + rewritten));
     }
 
-    // Four kit-requiring tests swapped CppQuickFixInterface(widget, reason) for
-    // the document-based one. They skip on a machine with no kit, so this
-    // asserts the substitution itself instead: built over the same file at the
-    // same caret, the two interfaces have to offer the same fixes. If they
-    // ever diverge, those four are wrong in a way nothing else here would say.
-    void testTheTwoInterfacesOfferTheSameFixes()
+    // There is one interface now, built over the document, so the question
+    // that outlived the two constructors is the one that always mattered: a
+    // caret in the same place over the same file has to be offered the same
+    // fixes whichever view the reader is in.
+    void testBothViewsAreOfferedTheSameFixes()
     {
-        Utils::TemporaryDirectory dir("cpp-quickfix-interface-equivalence");
+        Utils::TemporaryDirectory dir("cpp-quickfix-view-equivalence");
         QVERIFY(dir.isValid());
         const Utils::FilePath file = dir.filePath("main.cpp");
         QVERIFY(file.writeFileContents("struct S { void clear(); };\n"
@@ -491,55 +464,55 @@ private slots:
                                        "    computeValue();\n"
                                        "}\n"));
 
-        // The widget view, because the widget-based interface is the thing
-        // being compared against and only that view can build one.
         TextEditor::TextEditorFactory * const factory
             = TextEditor::TextEditorFactory::preferredFactoryFor(file);
         QVERIFY2(factory, "no editor factory claims a C++ file");
         const bool wasQuick = factory->usesQuickEditor();
         const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
-        factory->setUsesQuickEditor(false);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
 
-        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
-        QVERIFY2(editor, "the editor manager opened nothing");
-        const QScopeGuard closeIt(
-            [editor] { Core::EditorManager::closeEditors({editor}, false); });
-        auto * const editorWidget = qobject_cast<CppEditorWidget *>(
-            TextEditor::TextEditorWidget::fromEditor(editor));
-        QVERIFY2(editorWidget, "the file did not open in a widget editor, so this compares nothing");
-
-        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
-        QVERIFY(document);
-        document->recalculateSemanticInfo();
-        QTRY_VERIFY2(document->isSemanticInfoValid(),
-                     "the document never worked out what the file says");
-
-        // On the pointer's declaration, where several fixes match - a list of
-        // one would say much less than a list of five.
-        QTextCursor caret(document->document());
-        caret.setPosition(document->document()->findBlockByNumber(4).position()
-                          + QString("    S *th").size());
-        editorWidget->setTextCursor(caret);
-
-        const auto offeredBy = [](const CppQuickFixInterface &interface) {
+        const auto offeredIn = [&file](bool quick) {
             QStringList descriptions;
-            for (const TextEditor::QuickFixOperation::Ptr &operation :
-                 quickFixOperations(&interface)) {
-                descriptions << operation->description();
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            if (!editor)
+                return descriptions;
+            auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+            if (!document)
+                return descriptions;
+            document->recalculateSemanticInfo();
+            for (int i = 0; i < 200 && !document->isSemanticInfoValid(); ++i)
+                QCoreApplication::processEvents();
+
+            // On the pointer's declaration, where several fixes match - a list
+            // of one would say much less than a list of five.
+            QTextCursor caret(document->document());
+            caret.setPosition(document->document()->findBlockByNumber(4).position()
+                              + QString("    S *th").size());
+            TextEditor::setTextCursorOf(editor, caret);
+
+            const std::unique_ptr<TextEditor::AssistInterface> interface
+                = document->createAssistInterface(caret, TextEditor::QuickFix,
+                                                  TextEditor::ExplicitlyInvoked, editor);
+            if (const auto cpp = dynamic_cast<CppQuickFixInterface *>(interface.get())) {
+                for (const TextEditor::QuickFixOperation::Ptr &operation :
+                     quickFixOperations(cpp)) {
+                    descriptions << operation->description();
+                }
             }
             descriptions.sort();
+            Core::EditorManager::closeEditors({editor}, false);
             return descriptions;
         };
 
-        const QStringList fromWidget
-            = offeredBy(CppQuickFixInterface(editorWidget, TextEditor::ExplicitlyInvoked));
-        const QStringList fromDocument = offeredBy(
-            CppQuickFixInterface(document, caret, TextEditor::ExplicitlyInvoked, editor));
+        factory->setUsesQuickEditor(false);
+        const QStringList fromWidget = offeredIn(false);
+        factory->setUsesQuickEditor(true);
+        const QStringList fromQuick = offeredIn(true);
 
         // Named, so that two empty lists cannot agree their way to a pass.
         QVERIFY2(fromWidget.contains("Convert to Stack Variable"),
                  qPrintable("the caret is not where a fix applies; got: " + fromWidget.join(", ")));
-        QCOMPARE(fromDocument, fromWidget);
+        QCOMPARE(fromQuick, fromWidget);
     }
 
     // The file a refactoring changes is looked up by path, and that lookup

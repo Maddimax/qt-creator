@@ -425,7 +425,10 @@ void RunAllQuickFixesTokenAction::run(CppEditorWidget *editorWidget)
     // Calling editorWidget->invokeAssist(QuickFix) would be not enough
     // since we also want to execute the ones that match.
 
-    CppQuickFixInterface qfi(editorWidget, ExplicitlyInvoked);
+    CppQuickFixInterface qfi(editorWidget->cppEditorDocument(),
+                             editorWidget->textCursor(),
+                             ExplicitlyInvoked,
+                             editorFor(editorWidget));
     // This guard is important since the Quick Fixes expect to get a non-empty path().
     if (qfi.path().isEmpty())
         return;

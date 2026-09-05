@@ -33966,3 +33966,101 @@ as belonging to another plugin. What is left is not about C++ any more:
 - Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- One quick-fix interface, and the net's last entries triaged
+
+Two things, and the honest headline first: **this batch closed no user-visible
+gap.** It removed the last place where the two views asked a different
+question, and it triaged what is left of the cast net. Said plainly rather
+than dressed up as a fix.
+
+### The two constructors were one
+
+`CppQuickFixInterface` had a widget constructor and a document one. Reading
+them side by side, they differ in three inputs, and each turned out to be
+nothing:
+
+- the cursor: the widget's `textCursor()` is the cursor the caller passes.
+- `CppRefactoringChanges::file(widget, doc)` vs `file(document, doc)`: the
+  document overload **already finds the widget where there is one** ("it is
+  what moves the caret to what the refactoring did"), so it is a superset.
+- the semantic info: the widget's rather than the document's, justified in a
+  comment as *"the widget patches the local uses into it as the caret moves,
+  so they are already there"*. That is **stale**: `findLocalUses()` recomputes
+  them here, and says in its own comment that it does so precisely because
+  what a view happened to have is not about this caret.
+
+Two comments in one file contradicting each other is what made this worth
+doing. The widget constructor is gone; `CppEditorWidget::createAssistInterface
+()` uses the document one, as the Qt Quick editor already did.
+
+### A test that outlived its question
+
+`testTheTwoInterfacesOfferTheSameFixes` existed to guard the substitution when
+four kit-requiring tests were swapped over. With one constructor left it can
+only compare a thing with itself.
+
+Re-aimed rather than deleted: `testBothViewsAreOfferedTheSameFixes` opens the
+same file at the same caret in each view and compares the offers. That is the
+invariant that always mattered and does not go away - and it now measures
+something the old one could not, because the old one never opened the Quick
+editor at all.
+
+**When a refactor makes a test vacuous, ask what question it was really
+guarding.** Usually there is a larger one underneath that the narrow test was
+standing in for.
+
+### The rest of the cast net, triaged
+
+Four entries examined, none of them started, because each is a different size
+than it looks:
+
+- **`emacskeys:174`** - the plugin is built on `PlainTextEdit *`
+  (`m_currentEditorWidget`, 45 uses), which the Qt Quick editor is not. So an
+  Emacs-keys user gets **no bindings at all** on a C++ file today. This is a
+  real regression and a **project, not a batch**: it wants porting against the
+  editor-level seams, and `EditHandler`/`wantsKeyBeforeShortcuts` is the shape
+  to port it to - FakeVim already went that way with `QuickEditorKeyClaim`.
+- **`acpclient:282`** - builds "the state of the current Text Editor" for an
+  agent prompt from a `BaseTextEditor` and its widget. In the Quick editor the
+  agent gets no editor state. Small: the cursor part has `textCursorOf()`.
+- **`coco:68`** - a destructor removing a hover handler through
+  `editorWidget()`. `removeHoverHandlerIn()` already exists. Small.
+- **`devcontainer:412`** - decorates `devcontainer.json` only, and only for a
+  `BaseTextEditor`. Narrow, and not on the C++ path at all.
+
+That leaves `mcpserver/mcpcommands.cpp` and `lua/bindings/texteditor.cpp:152,166`
+unexamined.
+
+### Negative controls
+
+- **A -- only a widget gets the C++ quick-fix interface** (the state before
+  this port): red, the two views' lists have different sizes.
+- **B -- neither view gets it**: red on `fromWidget.contains("Convert to Stack
+  Variable")`, so the guard against two empty lists agreeing their way to a
+  pass does bite.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      458 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,QuickFixAssistTest ...   9 passed, 0 failed, exit 0
+    -test CppEditor,SymbolJumpTest ...      10 passed, 0 failed, exit 0
+    -test CppEditor,FollowSymbolTest ...   155 passed, 0 failed, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Nothing in CppEditor. Every override, every assist kind, every jump is shared
+or measured. What remains is other plugins and the presentation questions:
+
+- **emacskeys**, above - the largest remaining user-visible hole, and the one
+  worth deciding about before anything else.
+- `acpclient`, `coco`, `devcontainer` - small, each an afternoon.
+- `mcpserver/mcpcommands.cpp`, `lua/bindings/texteditor.cpp` - unexamined.
+- **The presentation questions**, unchanged through many batches and still
+  wanting a person: the clang-tools toolbar button, the parse-context
+  highlight, and whether the Refactor submenu nests or goes inline.

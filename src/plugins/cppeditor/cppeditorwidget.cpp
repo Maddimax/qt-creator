@@ -1120,8 +1120,11 @@ std::unique_ptr<AssistInterface> CppEditorWidget::createAssistInterface(AssistKi
         return cppEditorDocument()->createAssistInterface(
             textCursor(), kind, reason, editorFor(const_cast<CppEditorWidget *>(this)));
     }
-    if (kind == QuickFix && isSemanticInfoValid())
-        return std::make_unique<CppQuickFixInterface>(const_cast<CppEditorWidget *>(this), reason);
+    if (kind == QuickFix && isSemanticInfoValid()) {
+        return std::make_unique<CppQuickFixInterface>(
+            cppEditorDocument(), textCursor(), reason,
+            editorFor(const_cast<CppEditorWidget *>(this)));
+    }
     return TextEditorWidget::createAssistInterface(kind, reason);
 }
 
