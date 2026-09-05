@@ -117,6 +117,7 @@ private:
 };
 
 const char QUICK_FIND_HIGHLIGHTS[] = "TextEditor.QuickTextEditor.FindResults";
+const char QUICK_FIND_SCOPE[] = "TextEditor.QuickTextEditor.FindScope";
 
 // C_SEARCH_RESULT is one of the scheme's *overlay* categories, so its
 // QTextCharFormat is deliberately near-empty - FontSettingsData::
@@ -154,6 +155,11 @@ public:
         setResultHighlightingEnabled(true);
         connect(this, &Core::BaseTextFindBase::highlightAllRequested,
                 this, &QuickTextFind::highlightMatches);
+        // "Selection only" searches part of the file, and the reader has to be
+        // able to see which part. A widget editor paints it from the same
+        // signal; here it is a range drawn over the text like any other.
+        connect(this, &Core::BaseTextFindBase::findScopeChanged,
+                this, &QuickTextFind::showScope);
     }
 
 private:
@@ -178,6 +184,23 @@ private:
 
     bool isReadOnly() const final { return !m_viewport || m_viewport->isReadOnly(); }
     QWidget *widget() const final { return m_host; }
+
+    void showScope(const Utils::MultiTextCursor &scope)
+    {
+        TextDocument * const doc = m_viewport && m_viewport->document()
+                                       ? m_viewport->document()->textDocument()
+                                       : nullptr;
+        if (!doc)
+            return;
+        const QTextCharFormat format = doc->fontSettings().toTextCharFormat(C_SEARCH_SCOPE);
+        QList<TextViewport::Highlight> marks;
+        for (const QTextCursor &part : scope) {
+            if (part.hasSelection())
+                marks.append({part.selectionStart(), part.selectionEnd(), format});
+        }
+        // Cleared by the same route: clearFindScope() says so with an empty one.
+        m_viewport->setHighlights(QUICK_FIND_SCOPE, marks);
+    }
 
     void highlightMatches(const QString &text, Utils::FindFlags flags)
     {
@@ -7420,6 +7443,103 @@ private slots:
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.
     // The Quick editor registered all of them enabled whatever the mask said.
+    void testReplacingInsideASelectionStaysInsideIt_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // "Selection only" in the Replace bar searches part of the file. The
+    // restriction itself is BaseTextFindBase's and both views inherit it;
+    // nothing had checked that the view underneath answers well enough for it
+    // to work.
+    void testReplacingInsideASelectionStaysInsideIt()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("find-scope");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("x one\nx two\nx three\nx four\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        auto * const find = Utils::Aggregation::query<Core::IFindSupport>(editor->widget());
+        QVERIFY2(find, "the editor offers no way to search it at all");
+
+        // The middle two lines.
+        QTextCursor scope(document->document());
+        scope.setPosition(6);
+        scope.setPosition(20, QTextCursor::KeepAnchor);
+        QCOMPARE(scope.selectedText().left(5), QString("x two"));
+        TextEditor::setTextCursorOf(editor, scope);
+        find->defineFindScope();
+
+        QCOMPARE(find->replaceAll("x", "y", {}), 2);
+        QCOMPARE(document->plainText(), QString("x one\ny two\ny three\nx four\n"));
+    }
+
+    // And the reader has to be able to see which part is being searched. A
+    // widget editor paints the scope; this view was told about it and drew
+    // nothing, so "Selection only" looked exactly like searching the file.
+    void testTheSearchScopeIsDrawn()
+    {
+        Utils::TemporaryDirectory dir("find-scope-drawn");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("x one\nx two\nx three\nx four\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY(view);
+
+        auto * const find = Utils::Aggregation::query<Core::IFindSupport>(editor->widget());
+        QVERIFY(find);
+
+        const Utils::Id kind("TextEditor.QuickTextEditor.FindScope");
+        const auto drawn = [view, kind] { return view->highlights(kind); };
+        QVERIFY2(drawn().isEmpty(), "a scope was drawn before one was defined");
+
+        QTextCursor scope(document->document());
+        scope.setPosition(6);
+        scope.setPosition(20, QTextCursor::KeepAnchor);
+        TextEditor::setTextCursorOf(editor, scope);
+        find->defineFindScope();
+
+        QCOMPARE(drawn().size(), 1);
+        QCOMPARE(drawn().first().start, 6);
+        QCOMPARE(drawn().first().end, 20);
+        QCOMPARE(drawn().first().format,
+                 document->fontSettings().toTextCharFormat(C_SEARCH_SCOPE));
+
+        // And it goes when the search does.
+        find->clearFindScope();
+        QVERIFY2(drawn().isEmpty(), "the scope outlived the search it was for");
+    }
+
     void testWhatIsCopiedGoesOnTheClipboardHistory_data()
     {
         QTest::addColumn<bool>("quick");

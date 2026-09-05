@@ -38992,3 +38992,80 @@ gap in something *next to* what they set out to probe - the caret while
 chasing a comment, the assist contract while controlling a focus change, the
 clipboard history while chasing a flake. The probes are worth writing even
 when the thing they aim at turns out to be fine.
+
+## 2026-09-05 (39) -- "Selection only" searched the right part and showed nothing
+
+The last entry left three unexamined areas. This batch took search and replace
+inside a selection.
+
+### The half that already worked
+
+`BaseTextFindBase` owns the restriction itself, and both views inherit it. So
+the *behaviour* was right before this batch, measured:
+
+    "x one / x two / x three / x four", the middle two lines selected,
+    then Replace All "x" -> "y"
+
+    widget   x one ~ y two ~ y three ~ x four
+    quick    x one ~ y two ~ y three ~ x four
+
+Two replacements, the lines outside the selection untouched, in both. It had
+no differential test; it has one now.
+
+### Which gap this batch closed
+
+**Nothing drew the scope.** `BaseTextFindBase` emits `findScopeChanged()` and
+leaves the drawing to whoever can draw. Grepped, that signal had exactly one
+consumer in the whole tree - `TextEditorWidgetPrivate::setFindScope` - and
+`C_SEARCH_SCOPE`, the format for it, was read only by the widget editor and
+the settings page that lets you pick its colour.
+
+So in the Qt Quick editor, turning "Selection only" on looked exactly like
+searching the whole file: the search obeyed the selection and nothing said so.
+A reader had no way to tell the setting had taken.
+
+`QuickTextFind` now listens to the same signal and draws the scope as a range
+with the `C_SEARCH_SCOPE` format, through `setHighlights()` - the same route
+its search results already take. `clearFindScope()` arrives as an empty scope
+and takes it away again.
+
+### What was deliberately not copied
+
+A widget editor also **suppresses its other overlays** while a find scope is
+up - `paintOverlays()` skips the snippet and refactor overlays entirely,
+"otherwise the view becomes too noisy". That is a statement about painting
+priority in an overlay system this view does not have, and no measurement here
+says a reader is worse off without it. Left alone and written down.
+
+### Negative controls
+
+- **A -- nothing hears that the scope changed**: red, `drawn().size()` 0
+  against 1.
+- **B -- an empty scope is not passed on**: red on the other half, the scope
+  still drawn after `clearFindScope()`. Two controls because showing it and
+  taking it away are two things, and one connection could have done only the
+  first.
+
+### Verification
+
+    -test TextEditor    583 passed, 0 failed, exit 0, 0 warnings   (580 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+One file, no new file and no `.qbs` edit. The smallest change in a long while:
+a connection, a slot, and one more highlight kind.
+
+### What this leaves
+
+- **Drag and drop of text**, unexamined.
+- **Keyboard column selection** - `m_blockSelectionAnchor` still has no test
+  naming it.
+- **Drag to select with the mouse**, from the last entry, still needing a way
+  to drive a drag that both views answer the same.
+- **The bracket branch on double click**, from the last entry: port it only
+  with a reproduction.
+
+This one went the other way round from the last three batches: the thing it
+set out to probe *was* where the gap was, and the probe found it in the first
+run. Worth recording alongside the other pattern, because it says the areas
+that have never been compared are still the ones worth comparing - the last
+four gaps were all in code that no test had ever pointed a second editor at.
