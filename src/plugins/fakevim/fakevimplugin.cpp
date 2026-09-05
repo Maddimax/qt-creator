@@ -2194,10 +2194,26 @@ private slots:
     {
         m_mustNotSay = std::make_unique<Utils::GuiTest::CollectedWarnings>(
             QStringList{"updatePolish", "polish() loop", "No such method"});
+
+        // Every test here opens a C++ file and drives the Qt Quick view, so
+        // the view is asked for rather than assumed. It is the default, but
+        // QTC_WIDGET_CPP_EDITOR is the documented way to turn that round -
+        // and under it these tests were failing with "the C++ file opened in
+        // a widget editor", which is true and not their subject.
+        m_cppFactory = TextEditor::TextEditorFactory::preferredFactoryFor(
+            Utils::FilePath::fromString("a.cpp"));
+        if (m_cppFactory) {
+            m_factoryWasQuick = m_cppFactory->usesQuickEditor();
+            m_cppFactory->setUsesQuickEditor(true);
+        }
     }
 
     void cleanup()
     {
+        if (m_cppFactory)
+            m_cppFactory->setUsesQuickEditor(m_factoryWasQuick);
+        m_cppFactory = nullptr;
+
         const QStringList said = m_mustNotSay ? m_mustNotSay->hits() : QStringList();
         m_mustNotSay.reset();
         QVERIFY2(said.isEmpty(),
@@ -2510,6 +2526,8 @@ private:
     // then registers none of them - which quietly stopped five of this
     // class's six tests from running when this member was put in the middle.
     std::unique_ptr<Utils::GuiTest::CollectedWarnings> m_mustNotSay;
+    TextEditor::TextEditorFactory *m_cppFactory = nullptr;
+    bool m_factoryWasQuick = false;
 
 };
 

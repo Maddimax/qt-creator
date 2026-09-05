@@ -39468,3 +39468,95 @@ to need it.
 
 Unchanged and still open: **drag and drop of text**, which needs
 `QDragEnterEvent`/`QDropEvent` delivered by hand.
+
+## 2026-09-06 (44) -- The census, finished: 1471 verdicts, seven of one kind
+
+The twenty-plugin census set up in entry 42 and continued in 43 is complete.
+Seventeen plugins ran both ways in this batch; with `TextEditor`, `QuickUi` and
+`CppEditor` from the two before it, that is the whole list.
+
+**1471 test verdicts were reached by both runs and compared. Seven differ.**
+
+    FakeVim   6   FakeVimInQuickEditorTest::*        quick=PASS  widget=FAIL!
+    Debugger  1   ValueAnnotationTest::
+                  testValueAnnotationsAreMadeForAViewThatIsNotAWidget
+
+And every other plugin, verdict for verdict:
+
+    Beautifier 10   ClangCodeModel 225   ClangTools 66   CodePaster 18
+    CompilerExplorer 7   Core 212   DiffEditor 24   EmacsKeys 3
+    LanguageClient 35   Macros 12   ProjectExplorer 424   QmlJSEditor 15
+    QmlJSTools 11   Todo 11
+
+all **differ 0** - including plugins with pre-existing failures, where the
+same failures happen the same way in both: `ClangCodeModel` fails 43 either
+way, `ClangTools` 11, `ProjectExplorer` 2. Identical totals are not the
+evidence; identical *verdicts, test by test* are, and that is what was
+compared.
+
+### Which gap this batch closed
+
+All seven are one thing, and it is the same thing entry 42 found in
+`TextEditor`: **a test that is about the Qt Quick view, reaching for it by
+opening a C++ file and assuming what comes back.** Under
+`QTC_WIDGET_CPP_EDITOR=1` - the documented way back - each fails saying "the
+file opened in a widget editor, so this tests nothing", which is true and is
+not the test's subject.
+
+- `FakeVimInQuickEditorTest` has an `init()`/`cleanup()` pair already, and the
+  whole class drives the Quick view, so the factory is held to it there - once
+  for six tests rather than six times.
+- The `Debugger` one is a single test and does it inline.
+
+Neither changes what is tested. Both make the test ask for the view it is
+about instead of depending on a default that a supported environment variable
+turns round.
+
+### Negative controls
+
+- **A -- the FakeVim class takes whatever the default is**: six red with
+  `QTC_WIDGET_CPP_EDITOR=1`, **zero red without it**. The asymmetry is the
+  control: this is a failure exactly one of the two ways.
+- **B -- the Debugger test takes the default**: one red the widget way, green
+  the default way.
+
+### Verification
+
+    -test TextEditor    586 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+    -test FakeVim   QTC_WIDGET_CPP_EDITOR=1   266 passed, 0 failed, 10 skipped
+    -test Debugger  QTC_WIDGET_CPP_EDITOR=1   132 passed, 0 failed
+    (FakeVim was 260/6, Debugger 131/1 the widget way before.)
+
+Two files, no new file and no `.qbs` edit.
+
+### What the census says, plainly
+
+**Nothing outside these tests notices which editor a C++ file opens in.**
+Seventeen plugins, 1471 shared verdicts, and every difference was a test that
+had written the default into itself. No behaviour differs: not in the language
+client, not in the debugger's own machinery, not in ProjectExplorer's 424, not
+in clangd's 225.
+
+That is the strongest statement this file can make about the migration, and it
+took three batches to earn. It also says the four failures entry 42 found were
+not a `TextEditor` peculiarity - the same mistake was in three plugins, made
+three times by three different tests, and only a run the other way could show
+it.
+
+### What this leaves
+
+- **`CppEditor` still wants a run with a cap above 300 seconds**, so its whole
+  list is compared rather than a 416-verdict prefix. It is the one suite big
+  enough to need it, and the one most likely to be worth it.
+- **A shared way to say "this test is about the Qt Quick view"** now has three
+  call sites written three ways - inline in `TextEditor`, an `init()` pair in
+  `FakeVim`, inline again in `Debugger`. A fourth would justify a helper;
+  `CppEditor::Tests` is the obvious home for two of the three, and `TextEditor`
+  should not depend on `CppEditor` to get it.
+- **`-test ClangFormat` is not accepted** - it prints the usage text and exits
+  255. Either the plugin registers no tests or the name differs; whichever, it
+  was not measured.
+- Unchanged: **drag and drop of text**, which needs `QDragEnterEvent`/
+  `QDropEvent` delivered by hand, and **`-test all`**, which cannot run at all
+  until QmlDesigner's link error is fixed.

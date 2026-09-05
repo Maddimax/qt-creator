@@ -3272,6 +3272,19 @@ private slots:
             "}\n");
         QVERIFY(!file.isEmpty());
 
+        // Asked for rather than assumed. This is about annotating a view that
+        // is not a widget, so it holds the C++ factory to that view;
+        // QTC_WIDGET_CPP_EDITOR is the documented way to turn the default
+        // round, and under it this failed saying the file opened in a widget -
+        // which was true, and not what the test is for.
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restoreView(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
         Core::IEditor *editor = nullptr;
         QVERIFY(CppEditor::Tests::TestCase::openCppEditorInAnyView(file, &editor));
         const QScopeGuard closeIt(
