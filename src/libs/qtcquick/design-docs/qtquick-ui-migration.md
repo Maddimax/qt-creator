@@ -36456,3 +36456,102 @@ The lists the widget editor keeps are exhausted as a source of gaps. A next
 pass wanting a new source could try the other direction: what the *viewport*
 has that the widget does not, which would say where the two have diverged
 rather than where the port is incomplete.
+
+## 2026-09-05 (13) -- Closing the join that four entries called untested
+
+The last entry said the widget editor's lists were exhausted as a source of
+gaps and suggested inverting the method. Two lists were checked before doing
+that, and both were already closed:
+
+- **The commands each view answers.** There is already a census -
+  `testTheQuickEditorAnswersEveryCommandTheWidgetOneDoes()` - comparing every
+  registered command against both editors' contexts, with one documented
+  exemption (`QtCreator.Print`, which neither editor implements). It is the
+  net that caught the macro recorder.
+- **`TextActionBuilder`'s 90 registrations** in `texteditorplugin.cpp` are
+  handler-less entries against `C_TEXTEDITOR`; the shadowing hazard they
+  create is described at length in `QuickTextEditor`'s constructor and handled
+  by putting the per-editor context on the focus widget.
+
+So instead of inverting the method, this batch closed the coverage gap that
+entries 6, 9, 10 and 12 all listed and none of them closed.
+
+### What was untested, and why it stayed that way
+
+`ViewportAssistTarget` is private to `textviewport.cpp`. Its two overrides -
+`snippetInserted()`, which hands a snippet's holes to the view, and
+`autoIndentRange()`, which lays out what was inserted - are the join between
+the snippet machinery and the Qt Quick view. Every part on either side was
+tested; the join was not, because reaching it means **driving a real
+completion proposal** rather than calling the view's API directly.
+
+That turned out to be reachable after all, and the pieces were all present:
+
+- `TextDocument::setCompletionAssistProvider()` takes a provider a test writes.
+- `AssistProposalItem::isSnippet()` is just `data().canConvert<QString>()`, so
+  an item is a snippet by having a string in it.
+- `TextViewport::requestCompletions()` asks, `deliverCompletions()` stores the
+  proposal, and `applyCompletion()` runs the item against the view's own
+  target.
+
+Two existing tests came close and neither reached it:
+`testAskingForCompletionsIsReachableAsACommand` asks with no provider and gets
+an empty answer, and `codehighlighting_test.cpp`'s completion tests use
+`CodeDocument`/`CodeCompletion`, a lighter path with no `TextViewport` in it.
+
+**Which gap this batch closed:** not a behaviour gap - a coverage one. The
+snippet path through the Qt Quick view now has a test that goes end to end.
+
+### Negative controls
+
+- **A -- the view's target does not take the holes** (`snippetInserted`
+  removed): red, "the view was never given the snippet's holes", and **only
+  this test failed** - which is the measurement that says it is now the sole
+  cover for that override.
+- **B -- the view's target does not lay out what was inserted**
+  (`autoIndentRange` removed): **did not bite at first.** The snippet in the
+  test was one line, so indentation changed nothing observable.
+
+B is why the test has a second half. A multi-line snippet was added, inserted
+on a line that already had four spaces on it, and what the indenter does was
+**measured rather than guessed** - a probe printing the result with spaces
+marked, because two earlier batches were burned reasoning about Qt's
+behaviour instead of running it. The answer:
+
+    snippet:  "if ($cond$) {\nreturn;\n}"   on a line reading "    "
+    laid out: "if (cond) {\n    return;\n}"
+
+Both ends move: the body gains the indent it did not carry, and the line the
+snippet started on is put where the style wants it rather than where the caret
+happened to be. With B applied it reads `"    if (cond) {\nreturn;\n}"`, and
+the control now bites.
+
+The general point, third time this file has hit it: **a control that does not
+bite is a statement about the fixture as often as about the code.** Here the
+override was fine and the snippet was too simple to show it.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      479 passed, 0 failed, exit 0     (478 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+One file, no new file and no `.qbs` edit. No production change: this batch is
+a test and the two controls that give it teeth.
+
+### What this leaves
+
+The snippet path is now covered end to end, so the standing "untested join"
+item is gone. What remains, unchanged and none of it C++-blocking:
+
+- **The sort flake**, with the interleaved-runs method from the last entry.
+- **`documentWideSelectionKinds()`** against the viewport's "every kind" - a
+  latent *widget-side* trap rather than a Quick-side gap: the viewport draws
+  every kind the document holds, the widget only five.
+- **An arbitrary widget in a Quick toolbar**, unchanged for nine entries.
+
+The suggestion from the last entry still stands and is still untried: ask what
+the *viewport* has that the widget does not. It would say where the two have
+diverged rather than where the port is incomplete, which is a different
+question from the one this plan has been answering.

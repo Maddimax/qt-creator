@@ -13,6 +13,8 @@
 #include "codestylepool.h"
 #include "autocompleter.h"
 #include "codeassist/assistproposalitem.h"
+#include "codeassist/completionassistprovider.h"
+#include "codeassist/assistinterface.h"
 #include "codeassist/assisttarget.h"
 #include "codeassist/documentcontentcompletion.h"
 #include "codeassist/genericproposal.h"
@@ -1844,6 +1846,115 @@ private slots:
         view->setCursorPosition(3);
         action->trigger();
         QTRY_VERIFY2(!answered.isEmpty(), "asking produced no answer at all");
+    }
+
+    // Taking a completion that is a snippet, through the whole path this view
+    // uses: the provider answers, QML is handed the words, one is taken, and
+    // the item writes it in.
+    //
+    // This is the join three entries of the plan called out as untested.
+    // ViewportAssistTarget is private to textviewport.cpp, so the two overrides
+    // that make snippets work here - handing the holes to the view, and asking
+    // the language to lay out what was inserted - were reachable only by
+    // driving a real proposal. This drives one.
+    void testTakingASnippetCompletionOffersItsHoles()
+    {
+        // A provider whose one offer is a snippet, which is what Creator's own
+        // C++ snippets are in a completion list. An item is a snippet when its
+        // data is a string - see AssistProposalItem::isSnippet().
+        class SnippetProcessor final : public IAssistProcessor
+        {
+        public:
+            IAssistProposal *perform() override
+            {
+                auto * const item = new AssistProposalItem;
+                item->setText("cls");
+                item->setData(QString("class $name$ : public $base$ {};"));
+                // Several lines, so that laying out what was inserted is
+                // something the file can be looked at to see.
+                auto * const multi = new AssistProposalItem;
+                multi->setText("multi");
+                multi->setData(QString("if ($cond$) {\nreturn;\n}"));
+                QSharedPointer<GenericProposalModel> model(new GenericProposalModel);
+                model->loadContent({item, multi});
+                return new GenericProposal(interface()->position(), model);
+            }
+        };
+
+        class SnippetProvider final : public CompletionAssistProvider
+        {
+        public:
+            IAssistProcessor *createProcessor(const AssistInterface *) const override
+            {
+                return new SnippetProcessor;
+            }
+        };
+
+        Utils::TemporaryDirectory dir("quick-editor-snippet-completion");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("code.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        SnippetProvider provider;
+        document->setCompletionAssistProvider(&provider);
+
+        QVERIFY2(!view->hasSnippetPlaceholders(), "the view began with holes in it");
+
+        QSignalSpy answered(view, &TextViewport::completionsAvailable);
+        view->requestCompletions();
+        QTRY_VERIFY2(!answered.isEmpty(), "the provider was never asked");
+        QCOMPARE(answered.last().first().toStringList(), QStringList({"cls", "multi"}));
+
+        view->applyCompletion("cls");
+
+        // The markup is gone, which says the item went through the view's own
+        // target rather than being pasted in as it stands.
+        const QString text = document->document()->toPlainText();
+        QVERIFY2(!text.contains('$'),
+                 qPrintable(QString("the snippet's markup reached the file: %1").arg(text)));
+        QCOMPARE(text, QString("class name : public base {};"));
+
+        // And the holes were handed to the view, which is the override this
+        // test exists for: without it the text would be right and Tab would
+        // have nowhere to go.
+        QVERIFY2(view->hasSnippetPlaceholders(),
+                 "the view was never given the snippet's holes");
+        QCOMPARE(view->highlights("TextEditor.SnippetPlaceholders").size(), 2);
+
+        // The caret stands on the first hole, ready to be typed over.
+        QCOMPARE(view->textCursor().position(), int(QString("class ").size()));
+
+        // And several lines, which is where the other override shows: what was
+        // put in is laid out the way the code style asks. The snippet carries
+        // no indentation of its own - "return;" is written hard against the
+        // margin - and the line it goes on had four spaces on it already.
+        view->clearSnippetPlaceholders();
+        document->document()->setPlainText("    ");
+        view->setCursorPosition(4);
+        answered.clear();
+        view->requestCompletions();
+        QTRY_VERIFY(!answered.isEmpty());
+        view->applyCompletion("multi");
+
+        // Laid out: the body is indented and the line it started on is put
+        // where the style wants it rather than where the caret happened to be.
+        // Without that the file would read "    if (cond) {" and "return;".
+        QCOMPARE(document->document()->toPlainText(),
+                 QString("if (cond) {\n    return;\n}"));
     }
 
     void testAFileWithNoEditorOfItsOwnOpensHereToo()
