@@ -3804,18 +3804,28 @@ void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlig
     else
         m_highlightsOnScrollBar.remove(kind);
 
-    if (highlights.isEmpty()) {
+    // Sorted so that a line can find the ranges that reach it without looking
+    // at the ones before, which is what keeps highlighting every match in a
+    // large file O(what is on screen).
+    //
+    // Sorted *before* the comparison below, not after it. What is kept here is
+    // sorted, so comparing it against a caller's order answers "different" for
+    // every producer that does not already hand them over in document order -
+    // and a kind that always looks different is asked for a layout on every
+    // pass. updatePolish() sets these, so that is a polish loop: 38000 of them
+    // in one run of FollowSymbolTest, which took 21 minutes against the widget
+    // editor's 42 seconds. A language server's diagnostics are the producer
+    // that does not sort.
+    QList<Highlight> sorted = highlights;
+    std::sort(sorted.begin(), sorted.end(),
+              [](const Highlight &a, const Highlight &b) { return a.start < b.start; });
+
+    if (sorted.isEmpty()) {
         if (m_highlights.remove(kind) == 0)
             return;
-    } else if (m_highlights.value(kind) == highlights) {
+    } else if (m_highlights.value(kind) == sorted) {
         return;
     } else {
-        QList<Highlight> sorted = highlights;
-        // Sorted so that a line can find the ranges that reach it without
-        // looking at the ones before, which is what keeps highlighting every
-        // match in a large file O(what is on screen).
-        std::sort(sorted.begin(), sorted.end(),
-                  [](const Highlight &a, const Highlight &b) { return a.start < b.start; });
         m_highlights.insert(kind, sorted);
     }
     polish();

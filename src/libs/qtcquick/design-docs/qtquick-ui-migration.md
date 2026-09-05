@@ -36832,3 +36832,125 @@ What is left is not migration work:
 The honest recommendation for a next batch is the third of those: it is
 bounded, it is verification of exactly the thing this plan claims, and it is
 the one piece of this batch that was left undone.
+
+## 2026-09-05 (17) -- A polish loop, and why no suite saw it
+
+The last entry owed one thing: `FollowSymbolTest` run both ways. It was owed
+because the class ran past a ten-minute bound twice and the batch gave up on
+it. **The running-past-the-bound was the bug.**
+
+### What the comparison said
+
+    default (Qt Quick)        142 passed, 13 failed, 1 298 540 ms
+    QTC_WIDGET_CPP_EDITOR=1   155 passed,  0 failed,     41 598 ms
+
+**Thirty-one times slower, and thirteen failures that the widget editor does
+not have.** The failures are all `testFollowSymbolQObjectConnect(... no 2nd
+QObject)` and all of them time out in
+`waitForRehighlightedSemanticDocument()` - a wait starving rather than an
+answer being wrong.
+
+The log said why, 350 times:
+
+    QML TextViewport: possible QQuickItem::polish() loop
+
+### The cause
+
+`TextViewport::setHighlights()` kept a **sorted** list and compared it against
+the caller's **unsorted** one:
+
+```cpp
+} else if (m_highlights.value(kind) == highlights) {   // sorted vs as-given
+    return;
+} else {
+    QList<Highlight> sorted = highlights;
+    std::sort(...);
+    m_highlights.insert(kind, sorted);
+}
+polish();
+```
+
+So for any producer that does not already hand its ranges over in document
+order, the comparison answers "different" every single time. `updatePolish()`
+calls `updateDocumentSelections()`, which calls this - so a kind that always
+looks different asks for a layout from inside the layout, forever.
+
+A probe on the polish path named the producer without ambiguity: **38 253
+polishes in one bounded run, all of them `CodeWarningsSelection` and nothing
+else.** A language server's diagnostics arrive in the order the server sent
+them, which is not document order. Everything else in the tree that sets
+highlights - search results, semantic occurrences - walks the document
+forwards and was accidentally safe.
+
+The fix is to sort *before* comparing, which is three lines moved.
+
+    default (Qt Quick), fixed  155 passed, 0 failed, 43 894 ms, 0 warnings
+
+Against the widget editor's 41 598 ms. The two views now agree on both counts
+and on time.
+
+**Which gap this batch closed:** a polish loop that made every C++ file opened
+in the Qt Quick editor roughly thirty times slower than the same file in the
+widget editor, and starved anything waiting on background work.
+
+### Why nothing caught it
+
+This is the part worth keeping.
+
+- `-test TextEditor` and `-test QuickUi`, the two suites the standing rules
+  require every batch: **zero** polish warnings. They exercise `setHighlights`
+  with ranges that are already in order.
+- The C++ classes run both ways two entries ago - `CompletionTest`,
+  `SymbolJumpTest`, `QuickFixAssistTest` and five others: **zero**. None of
+  them has a language server putting diagnostics on the document.
+- Only `FollowSymbolTest` reaches it, and only because it is slow enough and
+  long enough for the loop to matter.
+
+So the required suites are not a gate against this class of defect, and the
+entry that recorded "identical both ways" two batches ago was right about the
+classes it ran and wrong to be reassuring. **A both-ways comparison that
+compares only pass counts would have missed this too** - the widget half was
+green and so was most of the Quick half. It is the *times* that differ by a
+factor of thirty, and time is the thing neither the totals nor the exit code
+carries.
+
+### Negative control
+
+The before-and-after is the control, and it is a real one rather than a
+remembered rate: both runs are the same binary, the same machine and the same
+session, differing only by this change. 350 warnings to 0, 13 failures to 0,
+1 298 540 ms to 43 894 ms.
+
+No unit test guards it. `polish()` scheduling is not observable through any
+public API on `QQuickItem`, and the honest regression guard is the
+comparison above - which is now a documented method with a number to compare
+against rather than a vague "run it both ways".
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      480 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,FollowSymbolTest       155 passed, 0 failed, exit 0
+
+One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Also settled this batch, read-only: the old "unexamined net entries" list is
+finished. `coco/cocolanguageclient.cpp` has no casts left, `mcpserver`'s only
+hit is a test guard, `devcontainer` is gated to `devcontainer.json` which the
+census pins as a widget file on purpose, and `emacskeys` keeps the widget
+pointer beside the editor and has its own Quick-path test.
+
+Open:
+
+- **Timing as a signal.** This batch found a thirty-fold regression that every
+  pass/fail gate in the tree was blind to. Nothing records what a suite
+  *should* cost. The cheapest useful thing next is to write the numbers down -
+  `FollowSymbolTest` at ~42 s both ways is now a baseline - so the next
+  thirty-fold slowdown is noticed by someone reading a total rather than by a
+  ten-minute timeout.
+- **The `QuickUi` sort flake**, still not reproducing.
+- **An arbitrary widget in a Quick toolbar**, unchanged for thirteen entries.
