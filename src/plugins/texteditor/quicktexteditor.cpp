@@ -28,6 +28,7 @@
 #include "storagesettings.h"
 #include "texteditor.h"
 #include "typingsettings.h"
+#include "formattexteditor.h"
 #include "highlighterhelper.h"
 #include "textdocumentlayout.h"
 #include "refactoringchanges.h"
@@ -3819,6 +3820,63 @@ private slots:
         listener.reset();
         editor->gotoLine(1, 0);
         QCOMPARE(told, afterFirst);
+    }
+
+    void testFormattedTextIsAppliedInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Formatting rewrites the whole file and then puts the new text back. That
+    // used to be done through a TextEditorWidget, so format on save did
+    // nothing at all for a C++ file - which opens in this editor.
+    //
+    // What is checked is the putting back: the text arrives, and the caret is
+    // still where the reader left it rather than at the top.
+    void testFormattedTextIsAppliedInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-formatted");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("unformatted.cpp");
+        const QString before = "int f()\n{\n        int alpha = 1;\n    return alpha;\n}\n";
+        const QString after = "int f()\n{\n    int alpha = 1;\n    return alpha;\n}\n";
+        QVERIFY(file.writeFileContents(before.toUtf8()));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(document->plainText(), before);
+
+        // On "alpha" in the line the reformatting *does* change, so that the
+        // caret has to survive text going away in front of it rather than only
+        // whole lines moving.
+        editor->gotoLine(3, 12);
+        QCOMPARE(textCursorOf(editor).blockNumber(), 2);
+        QCOMPARE(textCursorOf(editor).positionInBlock(), 12);
+
+        updateEditorText(editor, after);
+
+        QCOMPARE(document->plainText(), after);
+        QCOMPARE(textCursorOf(editor).blockNumber(), 2);
+        QCOMPARE(textCursorOf(editor).block().text(), QString("    int alpha = 1;"));
+        // Four spaces went from in front of it, so it moved four to the left
+        // and is still on the same character.
+        QCOMPARE(textCursorOf(editor).positionInBlock(), 8);
     }
 
     // Which languages open in the Qt Quick editor, written down rather than

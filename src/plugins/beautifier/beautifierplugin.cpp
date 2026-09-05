@@ -134,8 +134,9 @@ class BeautifierPlugin final : public ExtensionSystem::IPlugin
             const QList<IEditor *> editors = DocumentModel::editorsForDocument(document);
             if (editors.isEmpty())
                 return;
-            if (auto widget = TextEditorWidget::fromEditor(editors.first()))
-                TextEditor::formatEditor(widget, command);
+            // Whichever view is showing it: a C++ file is in the Qt Quick
+            // editor, and format on save did nothing at all for one.
+            TextEditor::formatEditor(editors.first(), command);
         }
     }
 };

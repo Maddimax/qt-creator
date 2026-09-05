@@ -32996,3 +32996,83 @@ housekeeping rather than migration: `texteditor.h`'s dozen editor-level free
 functions want a section header and a paragraph saying what they are for, and
 the cast net that has now found two bugs deserves to be a scripted check
 somebody runs, even if it cannot be a unit test here.
+
+## 2026-09-05 -- Format on save, and the net that keeps earning its keep
+
+The previous entry said nothing of this shape was left and offered two
+housekeeping suggestions instead. Before taking one, the cast net was run
+again - it has now found something on **three** consecutive runs, which is
+itself the finding.
+
+Most of what it turns up is for languages that open in the widget editor, or
+is a test asserting which view a file landed in. Filtering to what a C++ file
+reaches leaves a short list, and two of it were broken:
+
+1. **`beautifierplugin.cpp:137`** - format on save. `if (auto widget =
+   fromEditor(...)) formatEditor(widget, command);` and nothing otherwise, so
+   **clang-format on save did nothing at all for a C++ file**.
+2. **`clangtoolsplugin.cpp:268`** - the "Analyze File..." toolbar button, gated
+   on `text/x-c++src` *and* on being a `BaseTextEditor`. Dead by construction
+   for every file it is meant for.
+
+### What was done
+
+The first. `formatEditor()` and `updateEditorText()` gained `IEditor *`
+overloads, and the ~100 lines that do the work were split: `applyFormattedText
+(QTextDocument *, QTextCursor &, text)` is the diff, the folds that have to
+come undone for a cursor to walk the blocks, and where the caret ends up -
+none of which knows about a view. What each view keeps for itself is three
+lines: where the caret was on screen before, and putting it back after. The
+widget nudges its scroll bar; the viewport is told a scroll position.
+
+The widget path is unchanged in behaviour and still used by QmlJSEditor and
+the CMake formatter, which is why the split was done first and built before
+anything else moved.
+
+### The second one is left, deliberately
+
+The clang-tools button is a `QToolButton` with `InstantPopup` and a two-entry
+menu. The document's toolbar seam takes `QAction *`, and the Quick toolbar's
+`ActionModel` is flat - so porting it means deciding whether those two tools
+become two buttons or the toolbar learns submenus. That is the same question
+the Refactor submenu asks, and the same answer: it wants a person, not a
+guess. Written down here rather than half-ported.
+
+### Negative controls
+
+- **A -- the text is never applied to a view that is not a widget**: quick row
+  red with the unformatted text; widget green.
+- **B -- the caret is not put back**: **green at first.** A `QTextCursor`
+  tracks the document through an edit, so the caret was roughly right without
+  anything writing it back, and the assertion - same line, same line text -
+  could not tell. Moving the caret onto the line the reformatting *changes*
+  and asserting its column makes it bite: 12 against 8, four spaces' worth of
+  difference between "where the document dragged it" and "where the diff says
+  it belongs".
+- **C -- the widget path stops applying too**: widget row red, so the split
+  left it working rather than merely compiling.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      19 classes, 457 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **The clang-tools toolbar button**, above - a presentation question.
+- The two presentation questions from before: the parse-context highlight, and
+  whether the Refactor submenu nests or goes inline. All three are now the
+  same question in three places: **what does a toolbar or menu do in the Quick
+  editor when the widget one had a popup?**
+- The rest of the cast net's C++-reachable list, unexamined: `languageclient`
+  (four files), `clangdclient`, `mcpserver/mcpcommands.cpp`, `lua/bindings`,
+  `emacskeys`, `devcontainer`, `acpclient`, `coco`. Three runs of this net
+  have found three bugs; this list is where a fourth would be.
+
+**Do not declare this finished without running the net.** It is one grep, it
+has never yet come back empty, and the two entries that declared the work over
+were both followed by an entry that found something.

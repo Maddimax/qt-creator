@@ -6,6 +6,9 @@
 #include "textdocument.h"
 #include "textdocumentlayout.h"
 #include "texteditor.h"
+#include <coreplugin/editormanager/ieditor.h>
+#include "quicktexteditor.h"
+#include "textviewport.h"
 #include "texteditortr.h"
 
 #include <coreplugin/messagemanager.h>
@@ -142,9 +145,16 @@ Result<QString> formatText(const FilePath &filePath, const QString &text, const 
     return format({filePath, text, command, -1, 0});
 }
 
-void updateEditorText(PlainTextEdit *editor, const QString &text)
+// The document half of updating an editor to formatted text: the diff, the
+// folds that have to come undone for QTextCursor to walk the blocks, and where
+// the caret ends up. Nothing here knows which view is showing the document,
+// which is why both of them can use it.
+//
+// Whether the text moves under the caret on screen is the caller's to keep
+// steady - only a view knows how far it has scrolled.
+static void applyFormattedText(QTextDocument *doc, QTextCursor &cursor, const QString &text)
 {
-    const QString editorText = editor->toPlainText();
+    const QString editorText = doc->toPlainText();
     if (editorText == text)
         return;
 
@@ -155,7 +165,7 @@ void updateEditorText(PlainTextEdit *editor, const QString &text)
     // Since QTextCursor does not work properly with folded blocks, all blocks must be unfolded.
     // To restore the current state at the end, keep track of which block is folded.
     QList<int> foldedBlocks;
-    QTextBlock block = editor->document()->firstBlock();
+    QTextBlock block = doc->firstBlock();
     while (block.isValid()) {
         if (TextBlockUserData::isFolded(block)) {
             foldedBlocks << block.blockNumber();
@@ -163,14 +173,7 @@ void updateEditorText(PlainTextEdit *editor, const QString &text)
         }
         block = block.next();
     }
-    editor->update();
-
-    // Save the current viewport position of the cursor to ensure the same vertical position after
-    // the formatted text has set to the editor.
-    int absoluteVerticalCursorOffset = editor->cursorRect().y();
-
     // Update changed lines and keep track of the cursor position
-    QTextCursor cursor = editor->textCursor();
     int charactersInfrontOfCursor = cursor.position();
     int newCursorPos = charactersInfrontOfCursor;
     cursor.beginEditBlock();
@@ -239,22 +242,36 @@ void updateEditorText(PlainTextEdit *editor, const QString &text)
     }
     cursor.endEditBlock();
     cursor.setPosition(newCursorPos);
-    editor->setTextCursor(cursor);
 
-    // Adjust vertical scrollbar
-    absoluteVerticalCursorOffset = editor->cursorRect().y() - absoluteVerticalCursorOffset;
-    const double fontHeight = QFontMetrics(editor->document()->defaultFont()).height();
-    editor->verticalScrollBar()->setValue(editor->verticalScrollBar()->value()
-                                              + absoluteVerticalCursorOffset / fontHeight);
     // Restore folded blocks
-    const QTextDocument *doc = editor->document();
     for (int blockId : std::as_const(foldedBlocks)) {
         const QTextBlock block = doc->findBlockByNumber(qMax(0, blockId));
         if (block.isValid())
             TextBlockUserData::doFoldOrUnfold(block, false);
     }
 
-    editor->document()->setModified(true);
+    doc->setModified(true);
+}
+
+
+// The widget editor, unchanged: it keeps the caret at the same height by
+// nudging its own scroll bar, which is what it has.
+void updateEditorText(PlainTextEdit *editor, const QString &text)
+{
+    if (editor->toPlainText() == text)
+        return;
+
+    editor->update();
+    const int before = editor->cursorRect().y();
+
+    QTextCursor cursor = editor->textCursor();
+    applyFormattedText(editor->document(), cursor, text);
+    editor->setTextCursor(cursor);
+
+    const int moved = editor->cursorRect().y() - before;
+    const double fontHeight = QFontMetrics(editor->document()->defaultFont()).height();
+    editor->verticalScrollBar()->setValue(editor->verticalScrollBar()->value()
+                                          + moved / fontHeight);
 }
 
 static void showError(const QString &error)
@@ -296,6 +313,58 @@ static void checkAndApplyTask(const QPointer<PlainTextEdit> &textEditor, const F
  *
  * @pre @a endPos must be greater than or equal to @a startPos
  */
+// And a view that is not a widget, which has no scroll bar to nudge: it is
+// told where to scroll to instead. Same measurement either way - where the
+// caret was on the screen before the text under it changed, and where it is
+// after.
+void updateEditorText(Core::IEditor *editor, const QString &text)
+{
+    auto * const document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
+    if (!document || document->plainText() == text)
+        return;
+
+    if (PlainTextEdit * const widget = TextEditorWidget::fromEditor(editor)) {
+        updateEditorText(widget, text);
+        return;
+    }
+
+    TextViewport * const view = Internal::viewportForEditor(editor);
+    if (!view)
+        return;
+
+    const qreal before = view->cursorRectangle().y();
+    QTextCursor cursor = view->textCursor();
+    applyFormattedText(document->document(), cursor, text);
+    view->setTextCursor(cursor);
+    view->setScrollY(view->scrollY() + (view->cursorRectangle().y() - before));
+}
+
+void formatEditor(Core::IEditor *editor, const Command &command)
+{
+    auto * const document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
+    if (!document)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        formatEditor(widget, command);
+        return;
+    }
+
+    const QString source = document->plainText();
+    if (source.isEmpty())
+        return;
+    const FormatInput input{document->filePath(), source, command, -1, -1};
+    const FormatOutput output = format(input);
+    if (!output.has_value()) {
+        showError(output.error());
+        return;
+    }
+    if (output->isEmpty()) {
+        showError(Tr::tr("Could not format file %1.").arg(input.filePath.displayName()));
+        return;
+    }
+    updateEditorText(editor, *output);
+}
+
 void formatEditor(TextEditorWidget *editor, const Command &command, int startPos, int endPos)
 {
     QTC_ASSERT(startPos <= endPos, return);
