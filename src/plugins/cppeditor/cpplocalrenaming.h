@@ -47,7 +47,7 @@ public:
     // the key to the view
     bool handleKeyPress(QKeyEvent *e, const std::function<void()> &processNormally) override;
 
-    bool encourageApply();
+    bool encourageApply() override;
     void onContentsChangeOfEditorWidgetDocument(int position, int charsRemoved, int charsAdded);
 
     void updateSelectionsForVariableUnderCursor(const Selections &selections);

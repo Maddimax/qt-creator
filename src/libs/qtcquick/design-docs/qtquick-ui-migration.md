@@ -33871,3 +33871,98 @@ Five files, no new file and no `.qbs` edit.
 - Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- What an applied completion does to a rename in progress
+
+The last entry guessed `encourageApply()` and `inInlineRename()` were "likely
+genuinely widget-shaped" and said to measure first. Measuring changed the
+answer, as it did last time.
+
+    PROBE quick=0 renaming=0x0
+    PROBE quick=1 renaming=0x608000fc3120
+    PROBE quick=1 active-after-rename=1
+
+**In-place rename already works in the Qt Quick editor**: `CppLocalRenaming`
+is an `EditHandler` parented to the editor, and `renameSymbolUnderCursorIn()`
+starts it. (The widget has none as a child because it keeps its own privately -
+which is why the probe had to look for behaviour rather than for an object.)
+
+The gap this closed is one step further in: **an edit applied from outside
+never reached the rename.** `AssistProposalItem::apply()` calls
+`target.encourageApply()`, `WidgetAssistTarget` forwards that to
+`CppEditorWidget::encourageApply()` and so to `finishRenameChange()`, which is
+what copies the edited name onto the *other* uses. `DocumentAssistTarget` -
+what the Qt Quick editor hands an item - inherits the base no-op. So applying
+a completion inside an in-place rename there changed the use the caret was in
+and silently left the rest as they were.
+
+`EditHandler` gained `encourageApply()` beside `handlePaste()` and
+`handleSelectAll()` - the same reasoning, a handler spanning several places has
+to be told. `CppLocalRenaming::encourageApply()` already had that exact
+signature and only needed `override`. `ViewportAssistTarget` forwards, and
+`TextEditor::encourageApplyIn(editor)` is the seam either view answers, which
+is also what makes this testable from CppEditor at all.
+
+### `inInlineRename()` is FakeVim's, not the editor's
+
+Its only caller is `fakevimhandler.cpp`, which asks the *widget* by
+`QMetaObject::invokeMethod` so that Esc and Enter finish a rename rather than
+being eaten by Vim. FakeVim already has its own Quick path
+(`QuickEditorKeyClaim`, an `EditHandler`). Whether that path needs the same
+question is FakeVim's to answer, not this port's - written down rather than
+ported on spec.
+
+### The probe could not be written where the test lives
+
+CppEditor cannot include `textviewport.h`: it pulls in QtQuick, which that
+plugin does not link. Every measurement from the CppEditor side has to go
+through an exported, Quick-free seam - `renameSymbolUnderCursorIn()`,
+`findChild<CppLocalRenaming *>()` on the editor, and now `encourageApplyIn()`.
+That is a constraint worth remembering before designing a probe: **the plugin
+you want to measure from may not be able to name the thing you want to look
+at.**
+
+Also: a declaration inserted into a `signals:` block links as a duplicate
+symbol, because moc defines every signal. The error names
+`mocs_compilation.cpp.o` against the real definition and says nothing about
+sections.
+
+### Negative controls
+
+- **A -- the view does not pass the applied edit to its handlers**: red, the
+  seam answered that nothing took it.
+- **B -- the rename does not catch the other uses up** (`encourageApply()`
+  returns `isActive()` without finishing the change): red on the count of
+  renamed uses.
+
+One per half, so neither the plumbing nor the work it triggers is covering for
+the other.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      458 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,SymbolJumpTest ...     10 passed, 0 failed, exit 0
+    -test CppEditor,FollowSymbolTest ...  155 passed, 0 failed, exit 0
+
+Six files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Every `CppEditorWidget` override is now either ported, shared, or written down
+as belonging to another plugin. What is left is not about C++ any more:
+
+- The quick-fix half of `createAssistInterface()` still builds
+  `CppQuickFixInterface` from a widget on one path and a document on the
+  other. Two constructors for one thing; collapsing them is the last piece of
+  that family.
+- **The presentation questions**, unchanged and still wanting a person: the
+  clang-tools toolbar button, the parse-context highlight, and whether the
+  Refactor submenu nests or goes inline. All three are the same question -
+  what a toolbar or menu does in the Quick editor when the widget one had a
+  popup.
+- Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

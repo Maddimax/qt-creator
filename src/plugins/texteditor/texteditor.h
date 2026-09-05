@@ -987,6 +987,12 @@ public:
     // there is nothing to search for.
     virtual bool handleRename() { return false; }
 
+    // Something rewrote the text from outside - a completion applied, a
+    // snippet inserted. A handler collecting an edit has to close it here, or
+    // what was applied reaches only the place the caret was in: an in-place
+    // rename would change one use of the name and leave the others behind.
+    virtual bool encourageApply() { return false; }
+
     // Whether \a event should reach the view at all, rather than triggering
     // whatever shortcut is bound to it. Asked before Qt's shortcut system
     // runs, which is the only moment at which a key can still be claimed: by
@@ -1044,6 +1050,10 @@ TEXTEDITOR_EXPORT Core::IEditor *editorForDocument(TextDocument *document);
 // rename that is - every use of a local name at once in the view, or a search
 // across the project - is the language's to decide.
 TEXTEDITOR_EXPORT void renameSymbolUnderCursorIn(Core::IEditor *editor);
+
+// Tell whatever is collecting an edit in \a editor's view that something was
+// applied into the text. Answers whether anything took it.
+TEXTEDITOR_EXPORT bool encourageApplyIn(Core::IEditor *editor);
 
 // What a key press should be sent to for \a editor: the widget, or the Quick
 // item - not the QQuickWidget wrapping that item, which forwards nothing.

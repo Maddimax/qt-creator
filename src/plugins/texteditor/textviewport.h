@@ -934,6 +934,10 @@ public:
     // Scroll until the caret is on screen, obeying the setting above.
     void ensureCursorVisible();
 
+    // Something was applied into the text from outside - a completion, a
+    // snippet. See EditHandler::encourageApply().
+    bool encourageApply();
+
 signals:
     void documentChanged();
     void scrollYChanged();

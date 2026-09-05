@@ -10479,6 +10479,19 @@ Core::IEditor *editorForDocument(TextDocument *document)
     return open.first();
 }
 
+bool encourageApplyIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return false;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->encourageApply();
+        return true;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->encourageApply();
+    return false;
+}
+
 void renameSymbolUnderCursorIn(Core::IEditor *editor)
 {
     if (!editor)

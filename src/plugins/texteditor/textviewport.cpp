@@ -150,6 +150,27 @@ TextViewport::TextViewport(QQuickItem *parent)
     });
 }
 
+// A DocumentAssistTarget that also reaches the view's edit handlers. An item
+// calls encourageApply() from inside apply(), so this has to be the target
+// rather than something the caller does afterwards.
+class ViewportAssistTarget final : public DocumentAssistTarget
+{
+public:
+    ViewportAssistTarget(QTextDocument *document, TextViewport *view)
+        : DocumentAssistTarget(document)
+        , m_view(view)
+    {}
+
+    void encourageApply() override
+    {
+        if (m_view)
+            m_view->encourageApply();
+    }
+
+private:
+    const QPointer<TextViewport> m_view;
+};
+
 void TextViewport::applyCompletionSettings()
 {
     const CompletionSettings &settings = globalCompletionSettings();
@@ -392,8 +413,8 @@ void TextViewport::applyQuickFix(int index)
         return;
 
     // The item rewrites the document itself; all this supplies is somewhere
-    // for it to do that, which is what DocumentAssistTarget is.
-    DocumentAssistTarget target(text);
+    // for it to do that, plus a way back to whatever was collecting an edit.
+    ViewportAssistTarget target(text, this);
     target.setCursorPosition(cursorPosition());
     item->apply(target, m_quickFixProposal->basePosition());
 
@@ -510,7 +531,7 @@ void TextViewport::applyCompletion(const QString &completion)
     // may insert a snippet or rewrite what is around it, and only it knows.
     // Its own text is what the form shows, so that is what identifies it.
     if (AssistProposalItemInterface * const item = completionItemFor(completion)) {
-        DocumentAssistTarget target(cursor.document());
+        ViewportAssistTarget target(cursor.document(), this);
         target.setCursorPosition(cursor.position());
         item->apply(target, m_completionProposal->basePosition());
         m_completionProposal.reset();
@@ -1331,6 +1352,15 @@ bool TextViewport::followSymbolAt(int position, bool inNextSplit)
            },
            true, inNextSplit);
     return true;
+}
+
+bool TextViewport::encourageApply()
+{
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->encourageApply())
+            return true;
+    }
+    return false;
 }
 
 bool TextViewport::openLink(const Utils::Link &link, bool inNextSplit)

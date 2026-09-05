@@ -35,6 +35,7 @@
 #include <QSignalSpy>
 #include "cppeditordocument.h"
 #include "modelmanagertesthelper.h"
+#include "cpplocalrenaming.h"
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
 #include <QTest>
@@ -880,6 +881,67 @@ private slots:
         // position being reachable.
         switchDeclarationDefinition(editor, /*inNextSplit=*/false);
         QTRY_COMPARE(editor->currentLine(), 2);
+    }
+
+    // An in-place rename spans every use of the name at once, and a
+    // completion applied into it has to reach them all. The widget editor
+    // heard about that through CppEditorWidget::encourageApply(); a view that
+    // is not one had nowhere to hear it, so the applied text changed the use
+    // the caret was in and left the others behind.
+    void testAnAppliedCompletionReachesTheWholeRename()
+    {
+        Utils::TemporaryDirectory dir("cpp-rename-apply-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("rename.cpp");
+        QVERIFY(file.writeFileContents(
+            "int main()\n{\n    int alpha = 1;\n    return alpha + alpha;\n}\n"));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(editorFactory);
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // The rename that spans all three uses of alpha.
+        editor->gotoLine(3, 10);
+        TextEditor::renameSymbolUnderCursorIn(editor);
+        auto * const renaming = editor->findChild<CppLocalRenaming *>();
+        QVERIFY2(renaming, "the Quick editor has no in-place rename to speak of");
+        QTRY_VERIFY2(renaming->isActive(),
+                     "renaming the symbol under the cursor started nothing");
+
+        // What a completion does: rewrite the text where the caret is, without
+        // a keystroke for the rename to see.
+        QTextCursor edit = TextEditor::textCursorOf(editor);
+        edit.setPosition(document->plainText().indexOf("alpha"));
+        edit.setPosition(edit.position() + 5, QTextCursor::KeepAnchor);
+        edit.insertText("beta");
+        QCOMPARE(document->plainText().count("beta"), 1);
+
+        // Applying is what tells the rename to catch the others up.
+        QVERIFY2(TextEditor::encourageApplyIn(editor),
+                 "nothing in this view took the applied edit");
+        QTRY_COMPARE(document->plainText().count("beta"), 3);
+        QVERIFY2(!document->plainText().contains("alpha"),
+                 "a use of the old name was left behind");
     }
 
     // Completion. CppEditorWidget built the C++ assist interface itself, and
