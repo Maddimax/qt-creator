@@ -4013,6 +4013,70 @@ private slots:
         QTRY_VERIFY2(embedded.isNull(), "the widget outlived the handle that closed it");
     }
 
+    // Escape takes an embedded widget back. The widget editor claims Escape
+    // while it has one and emits embeddedWidgetsShouldClose(); a view that is
+    // not one did neither, so a Lua script's widget could not be dismissed in
+    // a C++ file - and the key went to the shortcut bound to it instead.
+    void testEscapeSendsBackAWidgetEmbeddedInTheView()
+    {
+        Utils::TemporaryDirectory dir("embed-escape");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("embed.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\nint beta = 2;\nint gamma = 3;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Nothing embedded yet, so Escape is not the view's to take: it means
+        // other things elsewhere and taking it always would be taking it from
+        // them. Without this the claim below would pass on a view that always
+        // claimed Escape.
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QVERIFY2(!view->wantsKeyBeforeShortcuts(&escape),
+                 "the view claimed Escape with nothing to dismiss");
+
+        const int position = document->plainText().indexOf("beta");
+        QPointer<QWidget> embedded = new QWidget;
+        embedded->setFixedHeight(37);
+        const std::unique_ptr<EmbeddedWidgetInterface> handle
+            = insertWidgetIn(editor, embedded, position);
+        QVERIFY2(handle.get(), "the view refused to embed anything");
+
+        // Now it is: otherwise the shortcut bound to Escape takes the key and
+        // the view is never asked at all.
+        QVERIFY2(view->wantsKeyBeforeShortcuts(&escape),
+                 "Escape was left to the shortcut system with a widget embedded");
+
+        // And the key reaches whoever put the widget there, rather than the
+        // view closing something it does not own.
+        QSignalSpy asked(handle.get(), &EmbeddedWidgetInterface::shouldClose);
+        QCoreApplication::sendEvent(view, &escape);
+        QVERIFY2(asked.count() == 1, "Escape never reached the widget's owner");
+        QVERIFY2(escape.isAccepted(), "the view let Escape travel on after dismissing");
+        QVERIFY2(!embedded.isNull(),
+                 "the view closed the widget itself instead of asking its owner to");
+
+        // The owner closing it is what takes it away, and the view stops
+        // claiming Escape once there is nothing left to dismiss.
+        handle->close();
+        QTRY_VERIFY2(embedded.isNull(), "the widget outlived the handle that closed it");
+        QVERIFY2(!view->wantsKeyBeforeShortcuts(&escape),
+                 "the view went on claiming Escape after the widget was gone");
+    }
+
     // Which languages open in the Qt Quick editor, written down rather than
     // grepped for. Three times in this migration a gap has been "closed" in
     // code that nothing reaches, because the language's files still open in

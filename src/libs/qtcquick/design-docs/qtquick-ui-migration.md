@@ -35483,3 +35483,125 @@ is now the only named next step:
 Beyond that: an arbitrary **widget** in a Quick toolbar still has no answer,
 and the callers wanting one are combo boxes belonging to languages that still
 open in the widget editor. Nothing C++ needs is blocked on it.
+
+## 2026-09-05 (4) -- Escape takes an embedded widget back
+
+### The named step did not survive its own audit
+
+The last entry proposed one thing: a census for `EditHandler`, to make the
+difference between the two subclasses "fail loudly rather than quietly".
+Auditing it before writing it says it is not worth doing, for two reasons:
+
+- **It is already covered.** `fakevimplugin.cpp` has a test that opens a C++
+  file, asserts `editor->findChildren<EditHandler *>().size() >= 2` -- "a C++
+  editor already carries an EditHandler of its own for renaming; both have to
+  be asked" -- and then checks that vim's claim still works.
+- **The distinction is not a class property.** What makes `QuickEditorKeyClaim`
+  different is that its keys arrive through an event filter installed
+  elsewhere. No test can read that off the handler; a census would have
+  asserted something weaker than the sentence it was meant to replace.
+
+Four entries running, a claim written down without checking has needed
+withdrawing. The pattern is specific enough now to name: **proposals written
+at the end of a batch are the least-checked thing in the plan**, because they
+are written when the work is done and nothing is going to run again.
+
+### What the audit found instead
+
+Comparing what each view claims Escape for:
+
+| | widget | view (before) |
+| --- | --- | --- |
+| multiple carets | yes | yes |
+| suggestion | yes | yes |
+| snippet overlay | yes | (no snippet overlay yet) |
+| **embedded widget** | **yes, and emits `embeddedWidgetsShouldClose()`** | **no** |
+
+The last row is a gap **this plan created two batches ago.** The batch that
+added `insertWidgetIn()` gave the Qt Quick view a way to embed a widget among
+the text and never gave it the way back. The widget editor counts them in
+`m_numEmbeddedWidgets`, claims Escape while there is one, and emits; the
+viewport did neither.
+
+It is not theoretical: `lua/bindings/texteditor.cpp` binds
+`EmbeddedWidgetInterface::shouldClose` as `onShouldClose`, so a Lua script
+asked to close its widget on Escape works in the widget editor and silently
+does not in the Quick one -- which is every C++ and plain text file. Worse
+than nothing happening: the key goes on to the shortcut bound to it,
+`focusToEditor`, so Escape does something else instead.
+
+**Which gap this batch closed:** the way back out of an embedded widget in the
+Qt Quick view. It is the other half of the batch that put widgets in.
+
+### The shape
+
+Small, and deliberately the widget's shape rather than a new one:
+
+- `TextViewport::setEmbeddedWidget(Id, bool)` and `hasEmbeddedWidgets()` --
+  claimed by an `Utils::Id` and given back with `false`, the same named-claim
+  pattern as `setRowSpacers()` and `setTextInset()`. The view does not own the
+  widget and does not place it; it only needs to know there is one.
+- `TextViewport::embeddedWidgetsShouldClose()`, the same signal name the
+  widget editor uses.
+- `wantsKeyBeforeShortcuts()` claims Escape while there is one -- **this is
+  the load-bearing half.** Without it the view is never asked at all, because
+  by the time `keyPressEvent()` runs the shortcut has already had the key.
+- `insertWidgetInViewport()` registers, relays the signal to the handle, and
+  unregisters on both ways out.
+
+The view *asks* rather than closes: whoever put the widget there owns it, the
+same contract the widget editor has.
+
+### Negative controls
+
+Four, one per assertion, after the last entry's lesson that a control firing
+on assertion one says nothing about assertion two.
+
+- **A -- Escape not claimed for embedded widgets**: red, "Escape was left to
+  the shortcut system with a widget embedded".
+- **B -- the handle never hears the view**: red, "Escape never reached the
+  widget's owner". (First run failed on a bare `QCOMPARE`; rewritten to say
+  what was wrong.)
+- **C -- the `closed` path does not unregister: did not bite.** Worth
+  recording rather than hiding: the `destroyed` path unregisters as well, and
+  the test waits for the widget to be gone before checking, so removing one of
+  the two is invisible. **C' -- neither path unregisters** is red, "the view
+  went on claiming Escape after the widget was gone". So the assertion has
+  teeth; what it pins is the *pair*, not either call.
+- **D -- the view always claims Escape**: red on the opening guard, "the view
+  claimed Escape with nothing to dismiss". That guard is what stops A from
+  being satisfiable by claiming Escape unconditionally.
+
+The duplicated teardown is kept, matching the `setRowSpacers(id, {})` beside
+it that is duplicated the same way: the `closed` path gives the claim back at
+once rather than at `deleteLater()` time. That difference is real but too
+small for a test to see, which is exactly what control C measured.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      469 passed, 0 failed, exit 0     (468 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test Lua ...                            4 passed, 0 failed, exit 0
+
+Lua as well, because it is the only production caller of the API this batch
+changes. Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+No named next step, and after four entries of proposals that did not survive
+their own audit, this one deliberately does not invent another. What is known:
+
+- The **snippet overlay** row in the table above is blank because the Qt Quick
+  view has no snippet overlay at all, not because Escape is missing. Whether
+  it needs one is a real question, and it is the only row where the two views
+  differ in substance rather than in wiring.
+- An arbitrary **widget** in a Quick toolbar still has no answer, and the
+  callers wanting one are combo boxes in languages that still open in the
+  widget editor.
+
+A batch that wants a target could start where this one did: take a list the
+widget editor keeps -- the Escape claim was one - and read the view's
+equivalent beside it. That is what found this gap, and it found it in the code
+this plan wrote itself.

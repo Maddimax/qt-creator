@@ -1609,6 +1609,14 @@ void TextViewport::setRowSpacers(const Utils::Id &id, const QList<Gap> &gaps)
         polish();
 }
 
+void TextViewport::setEmbeddedWidget(const Utils::Id &id, bool present)
+{
+    if (present)
+        m_embeddedWidgets.insert(id);
+    else
+        m_embeddedWidgets.remove(id);
+}
+
 void TextViewport::setChangedLines(const QList<ChangedLine> &lines)
 {
     if (lines == m_changedLines)
@@ -2010,8 +2018,12 @@ bool TextViewport::wantsKeyBeforeShortcuts(QKeyEvent *event)
     }
 
     // Escape belongs to the view while it has something to dismiss with it.
-    if (event->key() == Qt::Key_Escape)
-        return multiTextCursor().hasMultipleCursors() || currentSuggestion();
+    // Without this it is the shortcut bound to it - focus-to-editor - that
+    // takes the key, and the view never hears it at all.
+    if (event->key() == Qt::Key_Escape) {
+        return multiTextCursor().hasMultipleCursors() || currentSuggestion()
+               || hasEmbeddedWidgets();
+    }
 
     // Otherwise the same rule the widget editor uses: ordinary typing is the
     // view's, and anything with a real modifier is a shortcut's. Mirrors
@@ -2128,6 +2140,14 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
     // there is more than one: Escape means other things elsewhere, and taking
     // it always would be taking it from them.
     if (event->key() == Qt::Key_Escape) {
+        // A widget drawn among the text is told to go, the way the widget
+        // editor tells its own on Escape. Not instead of what follows: there
+        // one press does both, because the claim and the key are answered in
+        // different places.
+        const bool dismissed = hasEmbeddedWidgets();
+        if (dismissed)
+            emit embeddedWidgetsShouldClose();
+
         // A suggestion first, which is what the widget editor takes Escape
         // for before anything else: it is the thing on screen that the reader
         // most likely means to be rid of, and it is the only one that is
@@ -2138,6 +2158,10 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
             return;
         }
         if (m_extraCursors.isEmpty()) {
+            if (dismissed) {
+                event->accept();
+                return;
+            }
             QQuickItem::keyPressEvent(event);
             return;
         }

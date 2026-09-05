@@ -10571,6 +10571,15 @@ static std::unique_ptr<EmbeddedWidgetInterface> insertWidgetInViewport(
     };
 
     place();
+
+    // Escape sends it back, the way it does in the widget editor. Registered
+    // with the view so that Escape is claimed from the shortcut bound to it
+    // while this is on screen, and relayed to the handle so that whoever put
+    // the widget there is the one that closes it.
+    view->setEmbeddedWidget(id, true);
+    QObject::connect(view, &TextViewport::embeddedWidgetsShouldClose,
+                     handle.get(), &EmbeddedWidgetInterface::shouldClose);
+
     QObject::connect(view, &TextViewport::scrollYChanged, widget, place);
     QObject::connect(view, &TextViewport::metricsChanged, widget, place);
     QObject::connect(view, &QQuickItem::heightChanged, widget, place);
@@ -10580,13 +10589,17 @@ static std::unique_ptr<EmbeddedWidgetInterface> insertWidgetInViewport(
     // Both ways out: the handle closed, or the widget destroyed under it.
     const QPointer<TextViewport> alive(view);
     QObject::connect(handle.get(), &EmbeddedWidgetInterface::closed, widget, [alive, id, widget] {
-        if (alive)
+        if (alive) {
             alive->setRowSpacers(id, {});
+            alive->setEmbeddedWidget(id, false);
+        }
         widget->deleteLater();
     });
     QObject::connect(widget, &QObject::destroyed, alive, [alive, id] {
-        if (alive)
+        if (alive) {
             alive->setRowSpacers(id, {});
+            alive->setEmbeddedWidget(id, false);
+        }
     });
     return handle;
 }

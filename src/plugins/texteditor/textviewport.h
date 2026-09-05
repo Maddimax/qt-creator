@@ -24,6 +24,7 @@
 #include <QQmlEngine>
 #include <QFont>
 #include <QQuickItem>
+#include <QSet>
 
 #include <optional>
 #include <QRectF>
@@ -379,6 +380,14 @@ public:
     // replacing the other's. An empty list gives that claim back.
     void setRowSpacers(const Utils::Id &id, const QList<Gap> &gaps);
     QList<Gap> rowGaps() const { return m_rowGaps; }
+
+    // A widget drawn among the text - see insertWidgetIn(). The view does not
+    // own it and does not place it; it only needs to know that there is one,
+    // so that Escape is claimed from the shortcut system while there is
+    // something to dismiss and reaches embeddedWidgetsShouldClose(). Claimed
+    // by \a id and given back with false, the way row spacers are.
+    void setEmbeddedWidget(const Utils::Id &id, bool present);
+    bool hasEmbeddedWidgets() const { return !m_embeddedWidgets.isEmpty(); }
 
     // Rows shown between the document's own: the lines an inline diff has
     // that the file no longer does. They are not in the document, so they
@@ -962,6 +971,10 @@ public:
 
 signals:
     void documentChanged();
+    // Escape, with something embedded among the text. Told to close rather
+    // than closed: whoever put it there owns it. TextEditorWidget says the
+    // same thing with a signal of this name.
+    void embeddedWidgetsShouldClose();
     void scrollYChanged();
     void scrollXChanged();
     void metricsChanged();
@@ -1284,6 +1297,7 @@ private:
     QList<Gap> m_rowGaps;
     std::vector<qreal> m_gapSums;
     QHash<Utils::Id, QList<Gap>> m_spacers;
+    QSet<Utils::Id> m_embeddedWidgets;
     QList<GhostRows> m_ghosts;
     // The rest of a multi-line suggestion, which is the view's own doing
     // rather than something set from outside: kept apart so that whoever sets
