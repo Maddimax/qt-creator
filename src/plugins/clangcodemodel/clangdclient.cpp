@@ -326,7 +326,6 @@ public:
 
     void handleDeclDefSwitchReplies();
 
-    static CppEditor::CppEditorWidget *widgetFromDocument(const TextDocument *doc);
     QString searchTermFromCursor(const QTextCursor &cursor) const;
     QTextCursor adjustedCursor(const QTextCursor &cursor, const TextDocument *doc);
 
@@ -1401,13 +1400,6 @@ void ClangdClient::setVirtualRanges(const Utils::FilePath &filePath, const QList
         d->highlightingData[doc].virtualRanges = {ranges, revision};
 }
 
-CppEditor::CppEditorWidget *ClangdClient::Private::widgetFromDocument(const TextDocument *doc)
-{
-    IEditor * const editor = Utils::findOrDefault(EditorManager::visibleEditors(),
-            [doc](const IEditor *editor) { return editor->document() == doc; });
-    return qobject_cast<CppEditor::CppEditorWidget *>(TextEditorWidget::fromEditor(editor));
-}
-
 QString ClangdClient::Private::searchTermFromCursor(const QTextCursor &cursor) const
 {
     QTextCursor termCursor(cursor);
@@ -1419,10 +1411,11 @@ QString ClangdClient::Private::searchTermFromCursor(const QTextCursor &cursor) c
 QTextCursor ClangdClient::Private::adjustedCursor(const QTextCursor &cursor,
                                                   const TextDocument *doc)
 {
-    CppEditor::CppEditorWidget * const widget = widgetFromDocument(doc);
-    if (!widget)
-        return cursor;
-    const Document::Ptr cppDoc = widget->semanticInfo().doc;
+    // The parse this walks is the document's, so a C++ file in the Qt Quick
+    // editor gets its cursor adjusted too - without one, every position this
+    // corrects for was followed from where the reader had not asked.
+    const Document::Ptr cppDoc
+        = CppEditor::semanticDocumentOf(const_cast<TextDocument *>(doc));
     if (!cppDoc)
         return cursor;
     const QList<AST *> builtinAstPath = ASTPath(cppDoc)(cursor);

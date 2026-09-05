@@ -33354,3 +33354,85 @@ Two files, no new file and no `.qbs` edit.
   contain.
 - QTest output is block-buffered into a file, so an interim `tail` of a
   running suite shows nothing. Sample the process instead of tailing the log.
+
+## 2026-09-05 -- The parse clangd corrects the caret against
+
+The plan's next step was the virtual-function proposal. Its production half
+turned out to be already served - `TextEditor::invokeAssistIn(editor,
+FollowSymbol, provider)` exists and handles a view that is not a widget, with
+a comment about exactly this case - so what is left there is `ClangdFollowSymbol`
+not calling it, and that half cannot be driven without a real clangd. Two
+batches running whose central change no test can reach is one too many, so
+this batch took the entry next to it on the net, on the same hot path and
+testable.
+
+The gap this closed: **`ClangdClient::Private::adjustedCursor()` read the
+parse off a `CppEditorWidget`.** It runs on *every* clangd follow-symbol and
+switch-decl-def for a C++ file - it is the workaround for clangd issue 936,
+nudging the caret off an enumerator's last character, a conversion operator, a
+few other edges - and it began
+
+    CppEditorWidget * const widget = widgetFromDocument(doc);
+    if (!widget)
+        return cursor;
+
+In the Quick editor that is null, so the caret was never corrected and those
+positions were followed from where the reader had not pointed. Silent: the
+jump still happens, just to the wrong place or to nothing.
+
+It needs one thing from the widget, `semanticInfo().doc`, and the document has
+kept that for some time. `semanticDocumentOf(TextDocument *)` is now exported
+from `cpptoolsreuse`: any CppEditorWidget showing the document first, so widget
+behaviour is unchanged, then the document itself. `widgetFromDocument()` had
+this one caller and is gone.
+
+`cppbuiltinmodelmanagersupport.cpp` had its own copy of the rule, from an
+earlier batch; it now delegates, so there is one definition. Renamed `parseFor`
+there, because it keeps a third fallback the shared one has no business
+knowing - what the `CursorInEditor` was already carrying.
+
+### Negative controls
+
+- **A -- the parse is not reachable from the document**: red, "no view could
+  say how this file parses". This is the control that matters: it proves the
+  test walks the non-widget branch rather than finding a widget anyway.
+- **B -- the built-in jump does not use the document's parse**: red on
+  `testDeclDefJumpsInAnyView`, so the delegation is load-bearing and the
+  builtin decl/def jump in the Quick editor really does come through here.
+
+Not controlled, and said rather than implied: **the clangd call site itself**.
+`adjustedCursor()` is private, and reaching it needs an indexed clangd. What
+is tested is the seam it was broken on - that a C++ file in the Quick editor
+can say how it parses - which is precisely what `widgetFromDocument()`
+answered null to.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      457 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,SymbolJumpTest ...
+      7 passed, 0 failed, exit 0
+
+Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **The virtual-function proposal**, still. Production: `ClangdFollowSymbol`
+  holds a `QPointer<CppEditorWidget>` and uses it in six places
+  (`clangdfollowsymbol.cpp:82,131,221,293,300,303,306,457`) - `docRevision`
+  and `hasVirtualFunctionAt` want the *document*, the cursor-moved connect
+  wants `Core::IEditor::cursorPositionChanged`, and line 459 wants
+  `invokeAssistIn`. Test: `isInTestMode()`/`setProposals()`/`proposalsReady`
+  are `CppEditorWidget`'s, and the test's listener is a
+  `qobject_cast<CppEditorWidget *>` that is null in the Quick editor. The
+  production half is worth doing on its own; the test half is a design
+  question - where a test-only announcement of two proposals lives once the
+  thing producing them no longer knows what a widget is. `linkOpened` is the
+  precedent to copy.
+- Unchanged: the clang-tools toolbar button, the parse-context highlight,
+  Refactor submenu nesting - one presentation question in three places.
+- Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

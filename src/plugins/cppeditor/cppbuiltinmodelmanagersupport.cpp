@@ -103,14 +103,16 @@ TextEditor::BaseHoverHandler &BuiltinModelManagerSupport::cppHoverHandler()
     return theCppHoverHandler;
 }
 
-// The parse the three jumps below walk. The widget caches it, but so does the
-// document now - and a view that is not that widget has only the document.
-static CPlusPlus::Document::Ptr semanticDocumentOf(const CursorInEditor &data)
+// The parse the three jumps below walk, and what \a data was carrying if no
+// view has one.
+static CPlusPlus::Document::Ptr parseFor(const CursorInEditor &data)
 {
     if (data.editorWidget())
         return data.editorWidget()->semanticInfo().doc;
-    if (const auto document = qobject_cast<CppEditorDocument *>(data.textDocument()))
-        return document->semanticInfo().doc;
+    if (const CPlusPlus::Document::Ptr parse
+        = CppEditor::semanticDocumentOf(data.textDocument())) {
+        return parse;
+    }
     return data.cppDocument();
 }
 
@@ -126,7 +128,7 @@ void BuiltinModelManagerSupport::followSymbol(const CursorInEditor &data,
     SymbolFinder finder;
     m_followSymbol->findLink(data, processLinkCallback,
             resolveTarget, CppModelManager::snapshot(),
-            semanticDocumentOf(data), &finder, inNextSplit);
+            parseFor(data), &finder, inNextSplit);
 }
 
 void BuiltinModelManagerSupport::followSymbolToType(const CursorInEditor &data,
@@ -148,7 +150,7 @@ void BuiltinModelManagerSupport::followFunctionToParentImpl(
         data,
         processLinkCallback,
         CppModelManager::snapshot(),
-        semanticDocumentOf(data),
+        parseFor(data),
         &finder);
 }
 
@@ -157,7 +159,7 @@ void BuiltinModelManagerSupport::switchDeclDef(const CursorInEditor &data,
 {
     SymbolFinder finder;
     m_followSymbol->switchDeclDef(data, processLinkCallback, CppModelManager::snapshot(),
-            semanticDocumentOf(data), &finder);
+            parseFor(data), &finder);
 }
 
 void BuiltinModelManagerSupport::startLocalRenaming(const CursorInEditor &data,
@@ -178,7 +180,7 @@ void BuiltinModelManagerSupport::globalRename(const CursorInEditor &data,
                                               const std::function<void()> &callback)
 {
     SemanticInfo info;
-    info.doc = semanticDocumentOf(data);
+    info.doc = parseFor(data);
     QTC_ASSERT(info.doc, return);
     info.snapshot = CppModelManager::snapshot();
     info.snapshot.insert(info.doc);
@@ -196,7 +198,7 @@ void BuiltinModelManagerSupport::globalRename(const CursorInEditor &data,
 void BuiltinModelManagerSupport::findUsages(const CursorInEditor &data) const
 {
     SemanticInfo info;
-    info.doc = semanticDocumentOf(data);
+    info.doc = parseFor(data);
     QTC_ASSERT(info.doc, return);
     info.snapshot = CppModelManager::snapshot();
     info.snapshot.insert(info.doc);

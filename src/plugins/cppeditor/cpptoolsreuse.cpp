@@ -186,6 +186,23 @@ void renameUsagesOf(Core::IEditor *editor, const QString &replacement, QTextCurs
     CppModelManager::followSymbol(data, continuation, false, false, FollowSymbolMode::Exact);
 }
 
+CPlusPlus::Document::Ptr semanticDocumentOf(TextEditor::TextDocument *document)
+{
+    if (!document)
+        return {};
+    const QList<TextEditor::TextEditorWidget *> widgets
+        = TextEditor::TextEditorWidget::textEditorWidgetsForDocument(document);
+    for (TextEditor::TextEditorWidget * const widget : widgets) {
+        if (auto * const cppWidget = qobject_cast<CppEditorWidget *>(widget)) {
+            if (const CPlusPlus::Document::Ptr parse = cppWidget->semanticInfo().doc)
+                return parse;
+        }
+    }
+    if (auto * const cppDocument = qobject_cast<CppEditorDocument *>(document))
+        return cppDocument->semanticInfo().doc;
+    return {};
+}
+
 // The widget where \a data carries one, and otherwise whichever editor is
 // showing that document - which is the one the reader is in, because asking
 // about the symbol under the caret is something they just did.
@@ -744,6 +761,49 @@ private slots:
         // position being reachable.
         switchDeclarationDefinition(editor, /*inNextSplit=*/false);
         QTRY_COMPARE(editor->currentLine(), 2);
+    }
+
+    // The parse a jump walks. clangd corrects the caret before asking - the
+    // workaround for its enum and operator edge cases - and read that parse
+    // off a CppEditorWidget, so in the Qt Quick editor there was none and
+    // every position it corrects for was followed from where the reader had
+    // not pointed.
+    void testTheParseIsReachableWithoutAWidget()
+    {
+        Utils::TemporaryDirectory dir("cpp-parse-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("parsed.cpp");
+        QVERIFY(file.writeFileContents("enum E { v1, v2 };\n\nint main() { return v1; }\n"));
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        const CPlusPlus::Document::Ptr parse = semanticDocumentOf(document);
+        QVERIFY2(parse, "no view could say how this file parses");
+
+        // And it is this file's parse, not merely some document: the enum the
+        // fixture declares is in it.
+        QCOMPARE(parse->filePath(), file);
+        QVERIFY2(parse->globalSymbolCount() > 0,
+                 "the parse knows no symbol from a file that declares two");
     }
 
     // Which view a question about the caret was asked from. Every C++ jump

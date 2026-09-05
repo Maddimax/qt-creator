@@ -64,6 +64,11 @@ Core::IEditor CPPEDITOR_EXPORT *editorFor(TextEditor::TextEditorWidget *widget);
 // CursorInEditor only names directly where that view is a widget.
 Core::IEditor CPPEDITOR_EXPORT *editorFor(const CursorInEditor &data);
 
+// The parse of \a document that the jumps above walk. A widget keeps its own
+// copy; a view that is not one has the document's.
+CPlusPlus::Document::Ptr CPPEDITOR_EXPORT semanticDocumentOf(
+    TextEditor::TextDocument *document);
+
 #ifdef WITH_TESTS
 namespace Internal { QObject *createSymbolJumpTest(); }
 #endif
