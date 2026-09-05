@@ -43,9 +43,13 @@ void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
 // commands that only some languages can answer this one does. What the mask
 // does not name is registered disabled, the way the widget editor greys it out
 // - a plain text file has no symbol to rename.
+// \a contextMenuId is the ActionManager container the language registers its
+// own right-click entries in - CppEditor.ContextMenu for a C++ file - which a
+// widget subclass used to name in its own contextMenuEvent().
 Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
                                      const Core::Context &context,
-                                     uint optionalActions = OptionalActions::None);
+                                     uint optionalActions = OptionalActions::None,
+                                     Utils::Id contextMenuId = {});
 
 // The Qt Quick code editor. What a plain text file opens in; a language whose
 // factory has not said setUsesQuickEditor() still opens in the widget one.

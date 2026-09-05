@@ -224,10 +224,12 @@ public:
     // A split view is two editors on one document, so duplicating shares it
     // rather than opening the file again.
     explicit QuickTextEditor(TextDocumentPtr document,
-                             uint optionalActions = OptionalActions::None)
+                             uint optionalActions = OptionalActions::None,
+                             Utils::Id contextMenuId = {})
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
         , m_optionalActions(optionalActions)
+        , m_contextMenuId(contextMenuId)
     {
         // duplicate() answers, so say so: the editor manager asks this rather
         // than trying, and an editor it thinks cannot be duplicated is moved
@@ -239,11 +241,22 @@ public:
         // editor takes it, and asked again each time the menu opens, because
         // the ActionManager's containers gain entries as plugins register
         // them.
-        m_contextActions.setProvider([] {
-            Core::ActionContainer * const container
-                = Core::ActionManager::actionContainer(Constants::M_STANDARDCONTEXTMENU);
-            return container && container->menu() ? container->menu()->actions()
-                                                  : QList<QAction *>();
+        m_contextActions.setProvider([this] {
+            const auto actionsOf = [](Utils::Id menuId) {
+                Core::ActionContainer * const container
+                    = menuId.isValid() ? Core::ActionManager::actionContainer(menuId) : nullptr;
+                return container && container->menu() ? container->menu()->actions()
+                                                      : QList<QAction *>();
+            };
+            // The language's own entries first, the way the widget editor puts
+            // them before what every text editor offers.
+            QList<QAction *> actions = actionsOf(m_contextMenuId);
+            const QList<QAction *> standard = actionsOf(Constants::M_STANDARDCONTEXTMENU);
+            for (QAction * const action : standard) {
+                if (!actions.contains(action))
+                    actions.append(action);
+            }
+            return actions;
         });
 
         auto widget = new QtcQuick::QuickWidget;
@@ -1181,6 +1194,7 @@ public:
     bool m_jumpedHereAndStillOnIt = false;
 
     QtcQuick::ActionModel m_contextActions;
+    const Utils::Id m_contextMenuId;
     QtcQuick::ActionModel m_toolBarActions;
     bool m_outlineUpdateScheduled = false;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
@@ -1244,9 +1258,10 @@ Core::IEditor *editorForViewport(TextViewport *view)
 
 Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
                                      const Core::Context &context,
-                                     uint optionalActions)
+                                     uint optionalActions,
+                                     Utils::Id contextMenuId)
 {
-    auto * const editor = new QuickTextEditor(document, optionalActions);
+    auto * const editor = new QuickTextEditor(document, optionalActions, contextMenuId);
     // Added rather than set: the editor gave itself the two contexts every
     // Quick editor needs - the shared one and its own - in the constructor,
     // and replacing them would take the per-editor actions with them.
@@ -4324,6 +4339,85 @@ private slots:
                  "the holes were still offered after the caret left the snippet");
         QVERIFY2(view->highlights("TextEditor.SnippetPlaceholders").isEmpty(),
                  "the holes were still drawn after the caret left the snippet");
+    }
+
+    // What a right click offers. The widget editor puts the language's own
+    // container in front of what every text editor offers - CppEditorWidget
+    // names CppEditor.ContextMenu in its contextMenuEvent() - and a view that
+    // is not a widget cannot name anything, so a C++ file here offered the
+    // plain text menu and nothing of C++ at all.
+    void testTheContextMenuOffersTheLanguagesOwnEntries()
+    {
+        // A container of its own, so that what is asserted below is what this
+        // test put there rather than whatever a plugin happens to register.
+        const Utils::Id menuId("QuickEditorContextMenuTest.Menu");
+        Core::ActionContainer * const container = Core::ActionManager::createMenu(menuId);
+        QVERIFY(container);
+        QAction ours(QString("Only Here"));
+        Core::Command * const command
+            = Core::ActionManager::registerAction(&ours,
+                                                  "QuickEditorContextMenuTest.Action",
+                                                  Core::Context(Core::Constants::C_GLOBAL));
+        QVERIFY(command);
+        container->addAction(command);
+        const QScopeGuard unregister([] {
+            Core::ActionManager::unregisterAction(nullptr,
+                                                  "QuickEditorContextMenuTest.Action");
+        });
+
+        class MenuFactory final : public TextEditorFactory
+        {
+        public:
+            explicit MenuFactory(Utils::Id menuId)
+            {
+                setId("QuickEditorContextMenuTest");
+                setDisplayName("Quick Editor Context Menu Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorContextMenuTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+                setContextMenuId(menuId);
+            }
+        };
+
+        MenuFactory factory(menuId);
+        QCOMPARE(factory.contextMenuId(), menuId);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+
+        QWidget * const host = editor->widget();
+        QVERIFY(host);
+        auto * const quick = host->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QTRY_VERIFY(quick->rootObject());
+
+        auto * const model
+            = quick->rootObject()->property("contextActions").value<QtcQuick::ActionModel *>();
+        QVERIFY2(model, "the form was given no context actions at all");
+        model->refresh();
+
+        const auto listed = [model] {
+            QStringList texts;
+            for (int row = 0; row < model->rowCount({}); ++row) {
+                texts << model->data(model->index(row, 0), QtcQuick::ActionModel::TextRole)
+                             .toString();
+            }
+            return texts;
+        };
+
+        QVERIFY2(listed().contains("Only Here"),
+                 "the right-click menu offered nothing of the language's own");
+
+        // And what every text editor offers is still there, or the language's
+        // entries would have replaced them rather than been put in front.
+        Core::ActionContainer * const standard
+            = Core::ActionManager::actionContainer(Constants::M_STANDARDCONTEXTMENU);
+        QVERIFY(standard && standard->menu());
+        const QList<QAction *> shared = standard->menu()->actions();
+        if (!shared.isEmpty()) {
+            const QString anyStandard = shared.first()->text();
+            QVERIFY2(listed().contains(anyStandard),
+                     "the language's entries took the place of the standard ones");
+        }
     }
 
     // Which languages open in the Qt Quick editor, written down rather than

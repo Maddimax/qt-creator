@@ -10073,6 +10073,7 @@ public:
     TextEditorFactory::LinkFinder m_typeFinder;
     std::unique_ptr<CompletionAssistProvider> m_completionAssistProvider; // owned
     int m_optionalActionMask = 0;
+    Utils::Id m_contextMenuId;
     bool m_usesQuickEditor = false;
     bool m_useGenericHighlighter = false;
     bool m_duplicatedSupported = true;
@@ -10127,11 +10128,22 @@ void TextEditorFactory::setEditorCreator(const EditorCreator &creator)
         if (d->m_usesQuickEditor) {
             Context context(id());
             context.add(d->m_editorContexts);
-            return Internal::createQuickTextEditor(doc, context, d->m_optionalActionMask);
+            return Internal::createQuickTextEditor(doc, context, d->m_optionalActionMask,
+                                                   d->m_contextMenuId);
         }
 
         return d->createEditorHelper(doc);
     });
+}
+
+void TextEditorFactory::setContextMenuId(Utils::Id menuId)
+{
+    d->m_contextMenuId = menuId;
+}
+
+Utils::Id TextEditorFactory::contextMenuId() const
+{
+    return d->m_contextMenuId;
 }
 
 void TextEditorFactory::setIndenterCreator(const IndenterCreator &creator)

@@ -778,6 +778,13 @@ public:
     void setUseGenericHighlighter(bool enabled);
     void setAutoCompleterCreator(const AutoCompleterCreator &creator);
     void setOptionalActionMask(int optionalActions);
+    // The ActionManager container a right click should offer, beside what
+    // every text editor offers. A widget subclass used to name it in its own
+    // contextMenuEvent(), which a view that is not one cannot do - so a C++
+    // file in the Qt Quick editor got the plain text menu and nothing of its
+    // language's.
+    void setContextMenuId(Utils::Id menuId);
+    Utils::Id contextMenuId() const;
 
     void addHoverHandler(BaseHoverHandler *handler);
     void setCompletionAssistProvider(CompletionAssistProvider *provider);

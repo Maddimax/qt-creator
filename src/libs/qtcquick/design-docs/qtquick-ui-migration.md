@@ -36260,3 +36260,104 @@ at yet rather than to declare the migration finished:
 Other lists the widget keeps that this method has not yet been run against:
 the `QEvent` switch in `TextEditorWidget::event()`, the optional-action mask,
 and the context-menu assembly. Any of those is a reasonable next pass.
+
+## 2026-09-05 (11) -- What a right click offers
+
+The last entry left no named step and listed three of the widget editor's
+lists that the "read the view's equivalent beside it" method had not been run
+against: the `QEvent` switch, the optional-action mask, and the context-menu
+assembly. Two of the three were run this batch.
+
+### The optional-action mask: nothing to do
+
+Ten flags, and the Qt Quick side consumes all ten - `UnCommentSelection`,
+`Format`, `UnCollapseAll`, `FindUsage`, `RenameSymbol`, `CallHierarchy`,
+`FollowSymbolUnderCursor`, `JumpToFileUnderCursor`, `FollowTypeUnderCursor`,
+`TypeHierarchy`. Written down here so the next pass does not repeat it.
+
+### The context menu: the gap
+
+Reading the two assemblies beside each other:
+
+| | widget | Qt Quick view |
+| --- | --- | --- |
+| the language's own container | `CppEditor.ContextMenu`, named in `CppEditorWidget::contextMenuEvent()` | **nothing** |
+| refactoring | spliced in at a marker action | "Refactor" section, from `requestContextFixes()` |
+| every text editor's own | `M_STANDARDCONTEXTMENU` | `M_STANDARDCONTEXTMENU` |
+
+`CppEditorPlugin::addPerSymbolActions()` registers into
+`{M_TOOLS_CPP, CppEditor.ContextMenu}` - **not** into `M_STANDARDCONTEXTMENU`.
+So right-clicking a C++ file in the Qt Quick editor offered the plain text
+menu and nothing of C++: no Follow Symbol, no Follow Symbol to Type, no Follow
+Virtual Function to Base Class Implementation, no Rename Symbol, no Find
+Usages, no type or call hierarchy.
+
+**Which gap this batch closed:** the language's own right-click entries in the
+Qt Quick view.
+
+### The shape
+
+No seam existed - every language's widget subclass names its container inside
+its own `contextMenuEvent()`, which is exactly the shape a view that is not a
+widget cannot copy. The container is a property of the *language*, so it went
+on the factory beside the optional-action mask it sits next to:
+
+- `TextEditorFactory::setContextMenuId()` / `contextMenuId()`
+- passed to `createQuickTextEditor()` the way the mask already is
+- the context-action provider puts the language's entries **in front of** the
+  standard ones and de-duplicates, which is the order the widget uses
+- `CppEditorFactory` names `Constants::M_CONTEXT`
+
+### Negative controls
+
+- **A -- the language's container is never asked** (the state before this
+  batch): red, "the right-click menu offered nothing of the language's own".
+- **B -- the language's entries replace the standard ones**: red on this
+  batch's assertion **and** on the pre-existing
+  `testTheRightClickMenuIsWhatTheActionManagerAssembled`. Independent
+  corroboration that the standard entries were load-bearing already.
+- **C -- the C++ factory names no container**: red, `""` against
+  `"CppEditor.ContextMenu"`.
+
+C exists because the CppEditor side is a single line, and a single line with
+no test is how the previous three entries' untested joins got there. It is
+covered at the factory level rather than end to end: **CppEditor does not link
+QtcQuick**, so the action model the form is given cannot be read from a test
+in that plugin without adding a dependency for a test's sake.
+
+### The suites, honestly
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      478 passed, 0 failed, exit 0     (477 before)
+    -test CppEditor,CppContextMenuTest      3 passed, 0 failed, exit 0
+
+`QuickUi` needs stating rather than summarising. Four runs: one clean at
+**208 passed, 0 failed, exit 0**, and three reporting
+`testTheListingCanBeReadBothWaysRound`. That is the standing sort-order flake
+this file has recorded twice before, in earlier sessions and against changes
+that had nothing to do with it; this batch touches `texteditor` and
+`cppeditor` and nothing in `qtcquick`. Measured rather than waved away,
+because "it is the known flake" is exactly the sentence that hides a real
+regression: **~3 in 4 this session, against a clean run of the same binary.**
+
+Worth saying plainly: that rate is high enough that the next person to run
+this suite will probably see it, and it is worth a batch of its own. It is a
+test defect, not a migration gap.
+
+One more thing measured and discarded: a `testRestingTheMouseAsksTheHoverHandlers`
+failure seen during control A did not reproduce on the restored build. The
+control had a deliberately broken editor in it, so that run proves nothing
+either way.
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **The `QEvent` switch in `TextEditorWidget::event()`** is the one list of
+  the three the last entry named that has still not been read beside the
+  view's equivalent. It is the obvious next pass.
+- **The QuickUi sort flake**, now with a measured rate rather than an
+  anecdote.
+- **`documentWideSelectionKinds()` against the viewport's "every kind"**, and
+  the untested `ViewportAssistTarget` overrides, and an arbitrary widget in a
+  Quick toolbar - all unchanged.

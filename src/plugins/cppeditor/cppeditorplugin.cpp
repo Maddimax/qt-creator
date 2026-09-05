@@ -116,6 +116,7 @@ namespace CppEditor::Internal {
 
 #ifdef WITH_TESTS
 QObject *createCppSelectionExpansionTest();
+QObject *createCppContextMenuTest();
 #endif
 
 // Ctrl+U and Ctrl+Shift+U for C++, for a view that is not a CppEditorWidget.
@@ -252,6 +253,11 @@ public:
                                 | OptionalActions::RenameSymbol
                                 | OptionalActions::TypeHierarchy
                                 | OptionalActions::FindUsage);
+
+        // Where this language registers its own right-click entries.
+        // CppEditorWidget names it in contextMenuEvent(); a view that is not
+        // one is told here instead.
+        setContextMenuId(Constants::M_CONTEXT);
     }
 };
 
@@ -826,6 +832,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppEditorOutlineTest);
     addTestCreator(createCppTypeHierarchyTest);
     addTestCreator(createCppSelectionExpansionTest);
+    addTestCreator(createCppContextMenuTest);
     addTest<LocalSymbolsTest>();
     addTest<LocatorFilterTest>();
     addTest<ModelManagerTest>();
@@ -1091,6 +1098,43 @@ private slots:
                             + walk.first()));
     }
 };
+
+// The container this language registers its right-click entries in. The
+// widget editor names it in CppEditorWidget::contextMenuEvent(); a view that
+// is not a widget cannot, so the factory has to say it - and if it stops
+// saying it, a C++ file in the Qt Quick editor quietly gets the plain text
+// menu again.
+class CppContextMenuTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheFactoryNamesTheLanguagesContextMenu()
+    {
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.createFile("menu.cpp", "int alpha = 1;\n");
+        QVERIFY(!file.isEmpty());
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        QCOMPARE(factory->contextMenuId(), Utils::Id(Constants::M_CONTEXT));
+
+        // And that container is the one C++ actually fills, rather than a
+        // name nothing registers into.
+        Core::ActionContainer * const container
+            = Core::ActionManager::actionContainer(Constants::M_CONTEXT);
+        QVERIFY(container && container->menu());
+        QVERIFY2(!container->menu()->actions().isEmpty(),
+                 "the container the factory names has nothing in it");
+    }
+};
+
+QObject *createCppContextMenuTest()
+{
+    return new CppContextMenuTest;
+}
 
 QObject *createCppSelectionExpansionTest()
 {
