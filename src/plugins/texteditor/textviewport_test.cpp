@@ -444,6 +444,43 @@ private slots:
         QCOMPARE(QQuickStyle::name(), QString("QtCreatorStyle"));
     }
 
+    // What a view is showing is lines of the *file*, not rows of the screen.
+    // A wrapped line covers several rows, so a caller that counted rows would
+    // report lines the file does not have - and "first and last visible line"
+    // is exactly what an agent asking about the editor is told.
+    void testTheVisibleRangeCountsLinesNotRows()
+    {
+        TemporaryDirectory dir("textviewport-visible-range");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("wrapped.txt");
+        // One line far wider than the view, then two short ones.
+        QVERIFY(file.writeFileContents(QByteArray(4000, 'x') + "\nsecond\nthird\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setWrapping(true);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        // The trailing newline makes a fourth, empty block, and it is on
+        // screen too - so the count comes from the document rather than from
+        // counting the lines written above.
+        const int lines = viewport->textDocument()->document()->blockCount();
+
+        // The fixture only means anything if that first line really did wrap
+        // over more rows than the file has lines.
+        QTRY_VERIFY2(viewport->visibleLineCount() > lines,
+                     "the long line did not wrap, so rows and lines still agree");
+
+        const std::pair<int, int> range = viewport->visibleBlockRange();
+        QCOMPARE(range.first, 0);
+        QVERIFY2(range.second < lines,
+                 qPrintable(QString("the range names line %1 of a %2-line file")
+                                .arg(range.second).arg(lines)));
+    }
+
     void testItDrawsOnlyWhatIsOnScreen()
     {
         // The whole reason this is worth building: what it costs to show a file

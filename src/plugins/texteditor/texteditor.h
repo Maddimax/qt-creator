@@ -1055,6 +1055,12 @@ TEXTEDITOR_EXPORT void renameSymbolUnderCursorIn(Core::IEditor *editor);
 // applied into the text. Answers whether anything took it.
 TEXTEDITOR_EXPORT bool encourageApplyIn(Core::IEditor *editor);
 
+// The document lines showing in \a editor's view, as block numbers, or
+// {-1, -1} where the view has nothing laid out. Both views answer in block
+// numbers: what a reader can see is lines of the file, not rows on a screen,
+// and under wrapping those are not the same count.
+TEXTEDITOR_EXPORT std::pair<int, int> visibleLinesIn(Core::IEditor *editor);
+
 // What a key press should be sent to for \a editor: the widget, or the Quick
 // item - not the QQuickWidget wrapping that item, which forwards nothing.
 TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);

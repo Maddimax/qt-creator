@@ -34225,3 +34225,79 @@ Two files, no new file and no `.qbs` edit.
 - **The presentation questions**, still: the clang-tools toolbar button, the
   parse-context highlight, and whether the Refactor submenu nests or goes
   inline.
+
+## 2026-09-05 -- Which lines are on screen, answered rather than guessed
+
+The last entry left a question instead of a seam: the widget reports
+`firstVisibleBlockNumber()`/`lastVisibleBlockNumber()` - *block numbers* -
+while `TextViewport::firstVisibleLine()` is `rowAtY(m_scrollY)`, a *visual
+row*. Converting between them under wrapping and folding looked like the hard
+part.
+
+It was not, because the conversion is already done and stored. Every laid-out
+row in `m_lines` carries
+
+    // What the gutter calls this line. Folding makes it run ahead of the
+    // row the line is drawn on.
+    int lineNumber = 0;
+
+so the answer is to **read the line off the row rather than count rows**:
+`{m_lines.front().lineNumber - 1, m_lines.back().lineNumber - 1}`, which is
+right under wrapping (several rows, one line) and under folding (the numbers
+run ahead) without arithmetic. `visibleLinesIn(editor)` dispatches to that or
+to the widget's pair.
+
+**The question was worth asking and cheap to answer.** Guessing
+`first + visibleLineCount() - 1` would have compiled, passed a test on an
+unwrapped file, and been wrong on every wrapped one - which is control A below.
+
+The gap this closed: **`acpclient` told an agent nothing about the editor** for
+a C++ file. It needed a `BaseTextEditor` and its widget to report the caret and
+the visible range; both now come from seams, so the agent gets the same state
+whichever view the reader is in.
+
+### The fixture was wrong before the code was
+
+First run: *"the range names line 3 of a three-line file"*. The file is
+`xxxx…\nsecond\nthird\n` - and that trailing newline makes a **fourth, empty
+block**, which really is on screen. The seam was right and the assertion had
+counted the lines by eye.
+
+Replaced with the count from `blockCount()`, which also says the invariant
+properly: the range must never name a line the document does not have. Reading
+a constant out of a fixture by hand is how an assertion ends up describing the
+test author rather than the code.
+
+### Negative controls
+
+- **A -- the range counts rows** (`first + m_lines.size() - 1`, the naive
+  port): red, the range names a line past the end of the file. This is the
+  bug the batch existed to avoid, and it is now caught by construction.
+- **B -- the range is one-based**, the gutter's numbers passed straight
+  through: red on `range.first`.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      459 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Six files, no new file and no `.qbs` edit. The acpclient call site itself has
+no test - that plugin has no harness and driving it needs an agent - but both
+seams it now uses are covered.
+
+### What this leaves
+
+- **devcontainer:412** - decorates `devcontainer.json` for a `BaseTextEditor`.
+  Narrow, off the C++ path, and the last of the small ones.
+- **emacskeys** (45 uses of `PlainTextEdit *`) and
+  **lua/bindings/texteditor.cpp** (38 uses of `BaseTextEditor`) - whole-plugin
+  ports. A C++ file in the Quick editor gets no Emacs bindings; Lua scripts see
+  no current editor. Neither is a batch, and neither should start without
+  someone deciding it is worth doing.
+- **The presentation questions**: the clang-tools toolbar button, the
+  parse-context highlight, and whether the Refactor submenu nests or goes
+  inline. Deferred for a dozen batches now, which is itself a decision worth
+  making explicitly - either they matter and want an afternoon, or the Quick
+  editor ships without them and the plan should say so.

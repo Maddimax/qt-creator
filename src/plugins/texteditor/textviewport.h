@@ -433,6 +433,12 @@ public:
     qreal lineHeight() const;
     QColor backgroundColor() const;
     int firstVisibleLine() const;
+    // The document lines on screen, as block numbers, or {-1, -1} where
+    // nothing is laid out. Not the row range: a wrapped line covers several
+    // rows and a fold hides some, so the rows and the lines they carry run
+    // apart - which is why this reads the numbers off the rows rather than
+    // counting them.
+    std::pair<int, int> visibleBlockRange() const;
     QColor currentLineColor() const;
     QColor changedLineColor() const;
     QColor savedLineColor() const;

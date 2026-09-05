@@ -259,11 +259,13 @@ void AcpChatController::sendPrompt(const QString &text,
                            .uri(uri);
 
             if (embeddedContext) {
-                if (auto *currentTextEditor = qobject_cast<BaseTextEditor *>(currentEditor)) {
-                    TextEditorWidget *widget = currentTextEditor->editorWidget();
+                // The document and the caret, not a widget: a C++ file is in
+                // the Qt Quick editor, where the agent used to be told nothing
+                // about the editor at all.
+                if (qobject_cast<TextEditor::TextDocument *>(currentEditor->document())) {
                     QString stateString
                         = "This is the state of the current Text Editor in Qt Creator\n";
-                    QTextCursor tc = currentTextEditor->textCursor();
+                    QTextCursor tc = TextEditor::textCursorOf(currentEditor);
                     const QString cursorString
                         = "Cursor %1: %2, Line(0-based): %3, Column(0-based): %4\n";
                     stateString += cursorString.arg("Position")
@@ -275,10 +277,12 @@ void AcpChatController::sendPrompt(const QString &text,
                                        .arg(tc.position())
                                        .arg(tc.blockNumber())
                                        .arg(tc.positionInBlock());
+                    const std::pair<int, int> visible
+                        = TextEditor::visibleLinesIn(currentEditor);
                     stateString += "First Visible Line: "
-                                   + QString::number(widget->firstVisibleBlockNumber()) + "\n";
+                                   + QString::number(visible.first) + "\n";
                     stateString += "Last Visible Line: "
-                                   + QString::number(widget->lastVisibleBlockNumber()) + "\n";
+                                   + QString::number(visible.second) + "\n";
                     content << V2::EmbeddedResource().resource(
                         V2::TextResourceContents().text(stateString).uri(uri));
                 }

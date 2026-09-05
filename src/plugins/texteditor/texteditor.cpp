@@ -10479,6 +10479,17 @@ Core::IEditor *editorForDocument(TextDocument *document)
     return open.first();
 }
 
+std::pair<int, int> visibleLinesIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return {-1, -1};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return {widget->firstVisibleBlockNumber(), widget->lastVisibleBlockNumber()};
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->visibleBlockRange();
+    return {-1, -1};
+}
+
 bool encourageApplyIn(Core::IEditor *editor)
 {
     if (!editor)

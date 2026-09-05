@@ -276,6 +276,14 @@ int TextViewport::firstVisibleLine() const
     return m_firstVisibleLine;
 }
 
+std::pair<int, int> TextViewport::visibleBlockRange() const
+{
+    if (m_lines.empty())
+        return {-1, -1};
+    // lineNumber is what the gutter shows, which is one-based.
+    return {m_lines.front().lineNumber - 1, m_lines.back().lineNumber - 1};
+}
+
 QColor TextViewport::currentLineColor() const
 {
     return m_currentLine;
