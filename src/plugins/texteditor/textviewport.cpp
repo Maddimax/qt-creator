@@ -1335,6 +1335,16 @@ bool TextViewport::followSymbolAt(int position, bool inNextSplit)
 
 bool TextViewport::openLink(const Utils::Link &link, bool inNextSplit)
 {
+#ifdef WITH_TESTS
+    // Following a symbol has no other event a test can wait for, and the jump
+    // may end in this file or in another one - so say so on every way out,
+    // exactly as the widget does.
+    struct Signaller
+    {
+        ~Signaller() { emit Core::EditorManager::instance()->linkOpened(); }
+    } s;
+#endif
+
     TextDocument * const doc = textDocument();
     if (!doc)
         return false;

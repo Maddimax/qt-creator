@@ -3343,6 +3343,13 @@ private slots:
         // The jump the language would have asked for, to the declaration on
         // line 1 of this same file.
         const Utils::Link here(file, 1, 4);
+
+        // Either view says so when a link has been opened. Following a symbol
+        // is answered asynchronously by the language, so this signal is the
+        // only event a test has to wait for - and a view that stays silent
+        // makes every such test wait out its timeout instead.
+        QSignalSpy announced(Core::EditorManager::instance(),
+                             &Core::EditorManager::linkOpened);
         if (quick) {
             TextViewport * const view = viewportForEditor(editor);
             QVERIFY(view);
@@ -3352,6 +3359,7 @@ private slots:
             QVERIFY(widget);
             QVERIFY(widget->openLink(here, false));
         }
+        QCOMPARE(announced.count(), 1);
         QTRY_COMPARE(textCursorOf(editor).blockNumber(), 0);
 
         Core::EditorManager::goBackInNavigationHistory();

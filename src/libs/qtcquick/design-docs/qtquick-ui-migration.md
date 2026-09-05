@@ -33274,3 +33274,83 @@ to a frightening result is the same one that applied before it appeared.
   feeding `adjustedCursor()`), `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- The 310-second hang was thirty ten-second waits
+
+The last entry proposed bisecting the branch for `FollowSymbolTest`'s hang.
+A `sample` of the hung process answered it in one shot and no rebuild, which
+is the cheaper half of "instrument, don't hypothesise" - the trace named every
+frame:
+
+    testFollowSymbolMultipleDocuments  ->  F2TestCase ctor (line 411)
+      processEvents                                  <- nested loop 1
+        LanguageClient goto reply -> Client::findLinkAt
+          TextViewport::followSymbolAt -> TextViewport::openLink
+            EditorManager::openEditorAt -> openEditor (editormanager.cpp:972)
+              msgbox.exec()                          <- modal, nobody clicks
+
+**It is not a deadlock.** `F2TestCase` waits for a signal:
+
+    QVERIFY(waitForSignalOrTimeout(EditorManager::instance(),
+                                   &EditorManager::linkOpened, 10000));
+
+`EditorManager::linkOpened` has exactly one emitter -
+`TextEditorWidget::openLink()`, under `#ifdef WITH_TESTS` - and exactly one
+consumer, this test. `TextViewport::openLink()` never emitted it, so once C++
+files began opening in the Quick editor, every clangd-backed follow-symbol row
+waited out its full ten seconds. Thirty-odd rows is the 310 s, and QTest's
+watchdog fires at 300. The modal box in the trace is downstream of that: with
+the sequencing gone, responses land after their data row's temp directory has
+been deleted, and "could not open" is a modal dialog.
+
+The gap closed: **`TextViewport::openLink()` now announces `linkOpened` on
+every way out**, with the same RAII shape as the widget - the jump may end in
+this file (`gotoLine`) or in another one, and a test has to hear about both.
+
+### What this does not do
+
+**It does not make the suite green, and it is not enough on its own.**
+Measured on the function that used to hang, twice each way:
+
+    without the emit:  9 failed / 10 failed
+    with the emit:     4 failed (watchdog) / 9 failed
+
+The second gap is the same shape one layer up: the virtual-function proposal.
+`ClangdFollowSymbol` reaches it only through `d->editorWidget`
+(`clangdfollowsymbol.cpp:293,300,303,306`), `setProposals()`/`proposalsReady`
+live on `CppEditorWidget`, and the test's own listener is
+
+    qobject_cast<CppEditorWidget *>(initialTestFile->m_anyEditor->widget())
+
+which is null in the Quick editor, so the connect never happens and that wait
+also runs to its timeout. Both ends need somewhere to go. That is the next
+batch, and it is now specified rather than guessed.
+
+### Negative controls
+
+- **C -- the Quick view does not say a link was opened**: red on the `quick`
+  row, **green on the `widget` row**. The right shape: the assertion measures
+  this view's announcement and not something incidental to the fixture.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      457 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Two files, no new file and no `.qbs` edit.
+
+### For next time
+
+- **A hang is a hypothesis until you have sampled it.** "Bisect the branch"
+  would have been ~13 full rebuilds at 310 s a run to find what one `sample`
+  printed in three seconds. The branch is 7392 commits deep; the trace did not
+  care.
+- **`pgrep -f "<string>"` inside a background job matches the job's own
+  command line.** A wait loop built that way spins forever and the command it
+  guards never runs - twenty minutes of "still running" with an empty log.
+  Match on the executable (`pgrep -x`) or on something the wrapper cannot
+  contain.
+- QTest output is block-buffered into a file, so an interim `tail` of a
+  running suite shows nothing. Sample the process instead of tailing the log.
