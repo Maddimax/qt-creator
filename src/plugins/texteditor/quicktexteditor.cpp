@@ -4150,6 +4150,66 @@ private slots:
                  "the view went on offering holes after the final one was reached");
     }
 
+    // Typing in one hole fills every other hole standing for the same name.
+    // The batch before this one drew the holes and tabbed between them; this
+    // is what makes a snippet with a name used twice worth having.
+    void testTypingInOneHoleFillsTheOthersWithTheSameName()
+    {
+        Utils::TemporaryDirectory dir("snippet-mirrors");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("snip.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const QString before = "class name : public base { name(); };";
+        document->document()->setPlainText(before);
+        const int first = before.indexOf("name");
+        const int second = before.indexOf("name", first + 1);
+        const int baseAt = before.indexOf("base");
+        QVERIFY(first >= 0 && second > first && baseAt > first);
+
+        // Two holes for the same name, and one for a different one - which is
+        // what says the copying follows the name rather than every hole.
+        view->setSnippetPlaceholders({{first, first + 4, 0, false},
+                                      {baseAt, baseAt + 4, 1, false},
+                                      {second, second + 4, 0, false}});
+        QVERIFY(view->hasSnippetPlaceholders());
+
+        // The hole selected, the way Tab leaves it, so typing replaces it.
+        QTextCursor caret = view->textCursor();
+        caret.setPosition(first);
+        caret.setPosition(first + 4, QTextCursor::KeepAnchor);
+        view->setTextCursor(caret);
+
+        QKeyEvent typed(QEvent::KeyPress, Qt::Key_X, Qt::ShiftModifier, "X");
+        QCoreApplication::sendEvent(view, &typed);
+
+        QCOMPARE(document->document()->toPlainText(),
+                 QString("class X : public base { X(); };"));
+
+        // And the other name was left alone.
+        QVERIFY2(document->document()->toPlainText().contains("public base"),
+                 "the copy reached a hole standing for a different name");
+
+        // One undo takes the typing and every copy of it, because the copies
+        // join the edit the reader made rather than being edits of their own.
+        document->document()->undo();
+        QCOMPARE(document->document()->toPlainText(), before);
+    }
+
     // The caret being taken out of a snippet ends it, the way the widget
     // editor's overlay accepts when the cursor leaves.
     void testLeavingASnippetGivesUpItsHoles()

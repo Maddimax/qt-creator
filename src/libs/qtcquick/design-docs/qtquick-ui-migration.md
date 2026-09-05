@@ -35839,3 +35839,108 @@ worth reading side by side first; they solve the same problem twice.
 
 After that, auto-indent of an inserted snippet, which needs the view's target
 to reach the `TextDocument`.
+
+## 2026-09-05 (7) -- Mirrors, and an anchor that moved
+
+The last entry named mirrors as the next step and said the groundwork was in:
+"`variableIndex` is carried from the parser into `SnippetPlaceholder` and
+stored per hole."
+
+**Half of that was wrong.** It is carried into `SnippetPlaceholder`, and then
+dropped: `SnippetHole` was `{QTextCursor cursor; bool finalPart;}` and nothing
+else. Checking took one `sed`. That is the fifth end-of-batch proposal in a
+row to contain a claim that did not survive reading, which by now is less a
+run of bad luck than a property of when those paragraphs get written.
+
+### What the audit found
+
+Reading the widget's mirroring beside `CppLocalRenaming`, as the last entry
+suggested, settled two things quickly:
+
+- **No re-entrancy guard is needed.** The widget drives
+  `updateEquivalentSelections()` from `keyPressEvent()` *after* the edit, not
+  from a change handler, so a copy cannot trigger another round of copying.
+  `m_modifyingSelections` in `CppLocalRenaming` guards a different thing - it
+  is on the `contentsChange` path.
+- **`joinPreviousEditBlock()` is the whole of "not an edit of its own".** It
+  is about undo grouping: one undo takes the typing and every copy.
+
+### The mechanic that was actually hard
+
+`SnippetOverlay` keeps **two cursors per hole** - `m_cursor_begin` and
+`m_cursor_end` - and sets `ExpandBegin`, which is
+`m_cursor_begin.setKeepPositionOnInsert(true)`. The batch before this one used
+one cursor with an anchor, which collapses to empty the moment the reader
+types over a selected hole. So the holes were reworked to two cursors first.
+
+That was not the end of it. With two cursors the test still failed, and the
+document said why:
+
+    "class X : public base { (); };"
+
+The second hole was **emptied** rather than filled - so the edited hole read
+as empty. A probe printed the answer in one run:
+
+    beginPos 6  beginAnchor 7  endPos 7  ->  sel ""
+
+**`setKeepPositionOnInsert(true)` pins a cursor's position and not its
+anchor.** `hole.begin` correctly stayed at 6, but its *anchor* was carried to
+7 by the insertion, and building the range by copying that cursor and calling
+`setPosition(end, KeepAnchor)` kept the moved anchor - giving an empty range.
+
+The fix is `snippetHoleCursor()`, which builds a fresh cursor on the document
+and sets both ends explicitly. Nothing about the two-cursor scheme is wrong;
+what is wrong is treating one of those cursors as a range endpoint *and* as
+something to copy.
+
+Worth stating as a general fact, because it is not in the shape of the API:
+**a cursor with `keepPositionOnInsert` is safe to read a position from and
+unsafe to copy.**
+
+This is the "probe rather than reimplement from memory" rule paying for
+itself again. Two rounds of reasoning about Qt's cursor adjustment produced
+two wrong answers; one `qDebug` produced the right one.
+
+### Negative controls
+
+Four, each on a different part, and all four bite:
+
+- **A -- nothing is copied**: red, the other hole still says `name`.
+- **B -- copied to every hole whatever it stands for**: red,
+  `class X : public X { X(); };` - the `base` hole taken too.
+- **C -- the copies are edits of their own** (no `joinPreviousEditBlock`):
+  red on the undo assertion, which reverts the copy and leaves the typing.
+- **D -- the range is built by copying the pinned cursor** (the bug above):
+  red, `class X : public base { (); };`.
+
+D is the one worth keeping. It is not a hypothetical: it is exactly what this
+batch shipped for twenty minutes, and without an assertion on the *text* after
+typing it would have looked like working code.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      474 passed, 0 failed, exit 0     (473 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Three files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Of the overlay, what is now missing is smaller than what is there:
+
+- **Auto-indent** of an inserted snippet. Needs the view's assist target to
+  reach the `TextDocument` rather than the `QTextDocument`; the widget calls
+  `m_document->autoIndent()` over the inserted range.
+- **Name manglers.** `ParsedSnippet::Part::mangler` is parsed, carried as far
+  as `SnippetPlaceholder`... and dropped there, which is the same shape of gap
+  this entry opened with. The widget applies them in `SnippetOverlay::accept()`
+  - a `$name$` filled in as `foo` becoming `Foo` where the snippet asked for
+  it. Nothing in the Quick view does.
+- **The untested join** from the previous entry is unchanged:
+  `ViewportAssistTarget::snippetInserted()` is still the one link no test
+  reaches.
+
+Manglers are the smaller of the two and the one that already has its data
+half-carried, so it is the natural next batch.

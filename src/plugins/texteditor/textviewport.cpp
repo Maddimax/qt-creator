@@ -2023,7 +2023,17 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return event->accept();
     }
 
+    // Which hole the caret is in *before* the key: an edit inside one has to
+    // reach the others standing for the same name, and after the key the
+    // caret may have been carried out of it. The widget editor decides the
+    // same thing at the same moment, for the same reason.
+    const int editedHole = hasSnippetPlaceholders() ? snippetHoleAt(cursor.position()) : -1;
+
     processKeyNormally(event);
+
+    // Still open: the key may have been Escape, or have taken the caret out.
+    if (editedHole >= 0 && hasSnippetPlaceholders())
+        mirrorSnippetHole(editedHole);
 }
 
 bool TextViewport::wantsKeyBeforeShortcuts(QKeyEvent *event)
@@ -3816,10 +3826,17 @@ void TextViewport::setSnippetPlaceholders(const QList<SnippetPlaceholder> &place
 
     m_snippetHoles.clear();
     for (const SnippetPlaceholder &placeholder : placeholders) {
-        QTextCursor cursor(text);
-        cursor.setPosition(placeholder.start);
-        cursor.setPosition(placeholder.end, QTextCursor::KeepAnchor);
-        m_snippetHoles.append({cursor, placeholder.finalPart});
+        SnippetHole hole;
+        hole.begin = QTextCursor(text);
+        hole.begin.setPosition(placeholder.start);
+        // Text put in at the hole's first character belongs to the hole, not
+        // to what is in front of it.
+        hole.begin.setKeepPositionOnInsert(true);
+        hole.end = QTextCursor(text);
+        hole.end.setPosition(placeholder.end);
+        hole.variableIndex = placeholder.variableIndex;
+        hole.finalPart = placeholder.finalPart;
+        m_snippetHoles.append(hole);
     }
     refreshSnippetHighlights();
 }
@@ -3832,6 +3849,37 @@ void TextViewport::clearSnippetPlaceholders()
     setHighlights(SNIPPET_PLACEHOLDERS, {});
 }
 
+QString TextViewport::snippetHoleText(const SnippetHole &hole) const
+{
+    if (hole.begin.isNull() || hole.end.isNull())
+        return {};
+    return snippetHoleCursor(hole).selectedText();
+}
+
+// A cursor over what the hole covers. Built fresh rather than copied from
+// \c begin: setKeepPositionOnInsert() pins that cursor's position and *not*
+// its anchor, so after the reader types the copy carries an anchor that has
+// moved on and the range comes out empty.
+QTextCursor TextViewport::snippetHoleCursor(const SnippetHole &hole) const
+{
+    if (hole.begin.isNull() || hole.end.isNull())
+        return {};
+    QTextCursor over(hole.begin.document());
+    over.setPosition(hole.begin.position());
+    over.setPosition(hole.end.position(), QTextCursor::KeepAnchor);
+    return over;
+}
+
+int TextViewport::snippetHoleAt(int position) const
+{
+    for (int i = 0; i < m_snippetHoles.size(); ++i) {
+        const SnippetHole &hole = m_snippetHoles.at(i);
+        if (position >= hole.begin.position() && position <= hole.end.position())
+            return i;
+    }
+    return -1;
+}
+
 void TextViewport::refreshSnippetHighlights()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -3840,10 +3888,40 @@ void TextViewport::refreshSnippetHighlights()
     const QTextCharFormat format = doc->fontSettings().toTextCharFormat(C_OCCURRENCES);
     QList<Highlight> highlights;
     for (const SnippetHole &hole : std::as_const(m_snippetHoles)) {
-        if (hole.cursor.hasSelection())
-            highlights.append({hole.cursor.selectionStart(), hole.cursor.selectionEnd(), format});
+        if (hole.end.position() > hole.begin.position())
+            highlights.append({hole.begin.position(), hole.end.position(), format});
     }
     setHighlights(SNIPPET_PLACEHOLDERS, highlights);
+}
+
+void TextViewport::mirrorSnippetHole(int index)
+{
+    if (index < 0 || index >= m_snippetHoles.size())
+        return;
+    const SnippetHole &edited = m_snippetHoles.at(index);
+    // A hole that stands for nothing in particular - the place the caret ends
+    // up when the snippet is done - has nothing to be the same as.
+    if (edited.variableIndex < 0)
+        return;
+
+    const QString wanted = snippetHoleText(edited);
+    for (int i = 0; i < m_snippetHoles.size(); ++i) {
+        if (i == index)
+            continue;
+        const SnippetHole &other = m_snippetHoles.at(i);
+        if (other.variableIndex != edited.variableIndex)
+            continue;
+        if (snippetHoleText(other) == wanted)
+            continue;
+
+        QTextCursor over = snippetHoleCursor(other);
+        // Joined to what the reader just typed, so that one undo takes the
+        // typing and every copy of it together.
+        over.joinPreviousEditBlock();
+        over.insertText(wanted);
+        over.endEditBlock();
+    }
+    refreshSnippetHighlights();
 }
 
 // Whether the caret is still inside what the snippet covers. Its whole span
@@ -3859,8 +3937,8 @@ bool TextViewport::caretIsInSnippet() const
     int first = std::numeric_limits<int>::max();
     int last = std::numeric_limits<int>::min();
     for (const SnippetHole &hole : m_snippetHoles) {
-        first = qMin(first, hole.cursor.selectionStart());
-        last = qMax(last, hole.cursor.selectionEnd());
+        first = qMin(first, hole.begin.position());
+        last = qMax(last, hole.end.position());
     }
     return caret.position() >= first && caret.position() <= last;
 }
@@ -3873,13 +3951,13 @@ bool TextViewport::goToSnippetPlaceholder(bool forward)
     const int caret = textCursor().isNull() ? -1 : textCursor().position();
     const SnippetHole *wanted = nullptr;
     for (const SnippetHole &hole : std::as_const(m_snippetHoles)) {
-        const int start = hole.cursor.selectionStart();
+        const int start = hole.begin.position();
         if (forward ? start > caret : start < caret) {
             // The nearest one in that direction, so that Tab walks them in
             // the order they are written rather than the order they parsed.
             if (!wanted
-                || (forward ? start < wanted->cursor.selectionStart()
-                            : start > wanted->cursor.selectionStart())) {
+                || (forward ? start < wanted->begin.position()
+                            : start > wanted->begin.position())) {
                 wanted = &hole;
             }
         }
@@ -3889,7 +3967,7 @@ bool TextViewport::goToSnippetPlaceholder(bool forward)
 
     // Selected rather than only moved to, so that typing replaces the hole -
     // which is what the widget editor's overlay does with the first one.
-    QTextCursor moved = wanted->cursor;
+    const QTextCursor moved = snippetHoleCursor(*wanted);
     const bool wasFinal = wanted->finalPart;
     setTextCursor(moved);
 

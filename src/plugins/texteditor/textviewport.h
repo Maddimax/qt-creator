@@ -1207,15 +1207,28 @@ private:
     // By kind, each sorted by where it starts so that the lines on screen can
     // be found without walking every match in the file.
     QMap<Utils::Id, QList<Highlight>> m_highlights;
-    // A snippet's holes, in the order Tab visits them.
+    // A snippet's holes, in the order Tab visits them. Two cursors rather than
+    // one with an anchor: a selection collapses when the reader types over it,
+    // and \c begin keeps its position on insert so that typing at the very
+    // start of a hole lands inside it rather than in front of it. This is what
+    // TextEditorOverlay does with ExpandBegin, for the same reason.
     struct SnippetHole
     {
-        QTextCursor cursor;
+        QTextCursor begin;
+        QTextCursor end;
+        int variableIndex = -1;
         bool finalPart = false;
     };
     QList<SnippetHole> m_snippetHoles;
     void refreshSnippetHighlights();
     bool caretIsInSnippet() const;
+    QString snippetHoleText(const SnippetHole &hole) const;
+    QTextCursor snippetHoleCursor(const SnippetHole &hole) const;
+    // Which hole \a position is in, or -1.
+    int snippetHoleAt(int position) const;
+    // Copy what is in hole \a index to every other hole standing for the same
+    // name. Joins the edit the reader just made, so one undo takes both.
+    void mirrorSnippetHole(int index);
     QMap<Utils::Id, QColor> m_highlightsOnScrollBar;
     QVariantList m_scrollBarHighlights;
     // What the rows were shaped with last time. Anything here changing makes
