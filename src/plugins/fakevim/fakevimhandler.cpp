@@ -4681,10 +4681,17 @@ EventResult FakeVimHandler::Private::handleEvent(QKeyEvent *ev)
     }
 
 #ifndef FAKEVIM_STANDALONE
+    // Asked of the view rather than of the widget by name: a view that is not
+    // a widget answers these itself, and asking its host by name answered
+    // nothing - so a snippet or an in-place rename in the Qt Quick editor had
+    // its Escape and Enter taken by Vim.
+    if (m_adapter->inSnippetMode())
+        return EventPassedToCore;
+
     // Let an inline rename (e.g. "Rename Symbol Under Cursor") consume keys
     // itself, so Esc/Enter finish it instead of being handled by Vim
     // (QTCREATORBUG-20619).
-    if (editorTakesKeys()) {
+    if (m_adapter->inInlineRename()) {
         // Starting an inline rename does not move the cursor, so nothing has
         // recomputed the shape yet and the first key would still overwrite.
         if (!hasThinCursor())

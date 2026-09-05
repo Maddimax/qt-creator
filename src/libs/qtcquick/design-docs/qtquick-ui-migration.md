@@ -37126,3 +37126,105 @@ Open, and none of it C++-blocking:
 - **The `ProjectCommentsPanel` bindings**, above. Someone else's, but real.
 - **The `QuickUi` sort flake**, still not reproducing.
 - **An arbitrary widget in a Quick toolbar**, unchanged for fifteen entries.
+
+## 2026-09-05 (20) -- Vim was taking the keys a snippet needed
+
+The last entry made counting `QWARN` lines the method. Pointed at the
+editor-adjacent suites rather than only the two required ones, it found this
+on the first pass:
+
+    FakeVim::Internal::FakeVimInQuickEditorTest::testFakeVimDrivesTheQuickEditor
+      QMetaObject::invokeMethod: No such method
+          QtcQuick::QuickWidget::inSnippetMode(bool *)
+      QMetaObject::invokeMethod: No such method
+          QtcQuick::QuickWidget::inInlineRename(bool *)
+
+Fourteen a run, in this plan's own Qt Quick tests, for as long as there has
+been a Qt Quick editor for FakeVim to drive.
+
+### What it meant
+
+Before Vim handles a key it asks the editor whether the view is in the middle
+of something that wants the key itself - a snippet being filled in, or an
+in-place rename - and leaves the key alone if so. The comment beside it cites
+QTCREATORBUG-20619: without it, Escape and Enter go to Vim and neither the
+snippet nor the rename can be finished.
+
+It asked by name, with `QMetaObject::invokeMethod` on the editor's *widget*.
+`TextEditorWidget` has both as `Q_INVOKABLE`. A view that is not a widget hands
+back its Qt Quick host instead, which has never heard of either - so **both
+questions always answered false in the Qt Quick editor**, and Vim took the
+keys from every snippet and every rename.
+
+**Which gap this batch closed:** FakeVim consuming the keys that a snippet or
+an in-place rename in the Qt Quick editor needs to finish.
+
+### The shape
+
+Asking by name is the part that does not port, so the question moved onto the
+abstraction FakeVim already has for the two views:
+
+- `FakeVimEditorAdapter::inSnippetMode()` / `inInlineRename()`, virtual, with
+  **the invokeMethod-on-the-widget as the default** - so the widget editor's
+  path is unchanged and still goes through the same `Q_INVOKABLE`s.
+- `ViewportAdapter` overrides both. The view knows: it has
+  `hasSnippetPlaceholders()` from the snippet batches, and now
+  `hasActiveEditHandler()`.
+- `EditHandler::isActive()`, virtual, default false. `CppLocalRenaming`
+  already had `isActive()`; it is an override now, so the view can answer for
+  whatever is attached to it rather than knowing about renaming in particular.
+
+### Negative control
+
+- **A -- the view's `inSnippetMode()` override removed**, so the default asks
+  the host by name again: red, "Vim took Escape from the snippet, so it could
+  not be given up" - and the eight `No such method` warnings come straight
+  back in the same run.
+
+The test is behavioural rather than a query: FakeVim on, a snippet's holes in
+the view, Escape sent to the key target, and the snippet has to be gone. That
+needed no new accessor on the handler, which a query-shaped test would have.
+
+**The rename half has no behavioural test.** It is wired the same way and its
+warning is gone, but driving a real in-place rename with FakeVim on needs the
+built-in code model and a rename in flight. Said here rather than left to look
+like coverage it does not have.
+
+### Verification
+
+    -test FakeVim -load all -noload QmlDesigner -noload UpdateInfo
+      266 passed, 0 failed, 10 skipped, exit 0
+      warnings 16 -> 2, "No such method" 14 -> 0
+    -test TextEditor ...   482 passed, 0 failed, exit 0
+    -test QuickUi ...      207 passed, 0 failed, 1 skipped, exit 0
+
+Seven files, no new file and no `.qbs` edit.
+
+### Also in the logs, not acted on
+
+Two more that the same sweep turned up, both in `CppEditor`:
+
+- `CompletionTest::testCompletionBasic1` prints
+  `QTextCursor::setPosition: Position '-1' out of range`, three times. Same
+  shape as the `joinLines()` one fixed last entry and worth the same
+  treatment.
+- `CompletionTest::testCompletion` has a duplicate data tag,
+  `"cyclic_inheritance: indirect cyclic inheritance"` - the same
+  written-twice row as last entry's, in a different class.
+
+Left for a next batch rather than folded in: this one already reaches into
+three plugins.
+
+### What this leaves
+
+- **The two `CppEditor` warnings** above. Small, known, and the method for
+  them is written down twice now.
+- **`ProjectCommentsPanel` bindings**, ten warnings a run in `QuickUi`. Real,
+  and outside this plan's remit.
+- **The `QuickUi` sort flake**, still not reproducing.
+- **An arbitrary widget in a Quick toolbar**, unchanged for sixteen entries.
+
+Three entries running the log has been the source. The pattern behind all
+three is the same: **a question asked by name of an object that used to be the
+only answer**. `invokeMethod(widget, "...")` is the shape to grep for when
+looking for the next one.

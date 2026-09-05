@@ -32,6 +32,27 @@ public:
     // widget; a view drawn by an item would say the item.
     virtual QObject *keyTarget() const { return widget(); }
 
+    // Whether the view is in the middle of something that wants the keys
+    // itself: a snippet being filled in, or an in-place rename. Vim must leave
+    // Escape and Enter to either, or neither can be finished
+    // (QTCREATORBUG-20619).
+    //
+    // The default asks the widget by name, which is how this worked when a
+    // widget was the only view there was - and which answers nothing at all
+    // for one that is not, because the object it asks is the Qt Quick host.
+    virtual bool inSnippetMode() const
+    {
+        bool active = false;
+        QMetaObject::invokeMethod(widget(), "inSnippetMode", Q_ARG(bool *, &active));
+        return active;
+    }
+    virtual bool inInlineRename() const
+    {
+        bool active = false;
+        QMetaObject::invokeMethod(widget(), "inInlineRename", Q_ARG(bool *, &active));
+        return active;
+    }
+
     virtual QTextDocument *document() const = 0;
     virtual QTextCursor textCursor() const = 0;
     virtual void setTextCursor(const QTextCursor &cursor) = 0;

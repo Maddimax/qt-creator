@@ -2089,6 +2089,18 @@ public:
     QWidget *widget() const override { return m_host; }
     QObject *keyTarget() const override { return m_view; }
 
+    // This view keeps both notions itself. Asking its host by name - which is
+    // what the default does - reaches a QuickWidget that has never heard of
+    // either, so both used to answer false and Vim took the keys.
+    bool inSnippetMode() const override
+    {
+        return m_view && m_view->hasSnippetPlaceholders();
+    }
+    bool inInlineRename() const override
+    {
+        return m_view && m_view->hasActiveEditHandler();
+    }
+
     QTextDocument *document() const override
     {
         TextEditor::TextDocument * const doc = m_view ? m_view->textDocument() : nullptr;
@@ -2172,6 +2184,49 @@ private slots:
     // TextEditorWidget and reserved a strip at the bottom so it never covers
     // text, so with a C++ file - which opens in the Qt Quick editor - the
     // setting was silently ignored and the reader got the global one.
+    // Vim leaves the keys alone while the view is in the middle of something
+    // that wants them: a snippet being filled in, or an in-place rename. It
+    // used to ask the editor's widget for both by name, which for a view that
+    // is not a widget reaches the Qt Quick host - an object that has never
+    // heard of either, so both answered false and Vim took Escape and Enter
+    // from a snippet and a rename alike. QMetaObject said so in the log, 14
+    // times a run, for as long as this editor has existed.
+    void testVimLeavesASnippetItsOwnKeys()
+    {
+        const bool wasOn = settings().useFakeVim();
+        const QScopeGuard restore([wasOn] { settings().useFakeVim.setValue(wasOn); });
+        settings().useFakeVim.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-snippet-keys");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("class name {};\n"));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const view = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor));
+        QVERIFY2(view, "FakeVim is not driving this editor at all");
+
+        QVERIFY2(dd->m_editorToHandler.value(editor, {}).handler,
+                 "no FakeVim handler was installed on the Quick editor");
+
+        // A snippet's holes, put there the way the assist target does.
+        view->setSnippetPlaceholders({{6, 10, 0, false, nullptr}});
+        QVERIFY2(view->hasSnippetPlaceholders(), "the view kept none of the holes");
+
+        // Escape, which means "done with this snippet" to the view and "leave
+        // insert mode" to Vim. The view has to get it.
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &escape);
+        QVERIFY2(!view->hasSnippetPlaceholders(),
+                 "Vim took Escape from the snippet, so it could not be given up");
+    }
+
     void testTheCommandLineSitsInTheQuickEditor()
     {
         const bool wasOn = settings().useFakeVim();

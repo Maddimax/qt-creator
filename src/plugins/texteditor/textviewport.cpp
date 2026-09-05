@@ -3866,6 +3866,15 @@ void TextViewport::setSnippetPlaceholders(const QList<SnippetPlaceholder> &place
     refreshSnippetHighlights();
 }
 
+bool TextViewport::hasActiveEditHandler() const
+{
+    for (EditHandler * const handler : editHandlers()) {
+        if (handler->isActive())
+            return true;
+    }
+    return false;
+}
+
 void TextViewport::clearSnippetPlaceholders()
 {
     if (m_snippetHoles.isEmpty())

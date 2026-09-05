@@ -1000,6 +1000,12 @@ public:
     // rename would change one use of the name and leave the others behind.
     virtual bool encourageApply() { return false; }
 
+    // Whether this is in the middle of an edit that spans several places and
+    // wants its own keys - a rename being typed into. A modal editing mode has
+    // to leave Escape and Enter alone while one is, or the rename cannot be
+    // finished. FakeVim asks the view, and the view asks these.
+    virtual bool isActive() const { return false; }
+
     // Whether \a event should reach the view at all, rather than triggering
     // whatever shortcut is bound to it. Asked before Qt's shortcut system
     // runs, which is the only moment at which a key can still be claimed: by

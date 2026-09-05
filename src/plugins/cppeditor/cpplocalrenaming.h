@@ -38,7 +38,7 @@ public:
     explicit CppLocalRenaming(TextEditor::TextEditorWidget *editorWidget);
 
     bool start();
-    bool isActive() const;
+    bool isActive() const override;
     void stop();
 
     // Delegates for the view

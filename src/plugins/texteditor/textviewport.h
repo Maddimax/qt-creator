@@ -786,6 +786,9 @@ public:
     // inserted is not re-indented.
     void setSnippetPlaceholders(const QList<SnippetPlaceholder> &placeholders);
     bool hasSnippetPlaceholders() const { return !m_snippetHoles.isEmpty(); }
+    // Whether anything attached to this view is in the middle of an edit
+    // that wants its own keys - an in-place rename being typed into.
+    bool hasActiveEditHandler() const;
     // Done with them: Escape, the caret leaving, or the last one filled.
     void clearSnippetPlaceholders();
     // Answers whether there was one to go to, so that Tab can fall back to
