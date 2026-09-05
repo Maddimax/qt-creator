@@ -36361,3 +36361,98 @@ Five files, no new file and no `.qbs` edit.
 - **`documentWideSelectionKinds()` against the viewport's "every kind"**, and
   the untested `ViewportAssistTarget` overrides, and an arbitrary widget in a
   Quick toolbar - all unchanged.
+
+## 2026-09-05 (12) -- An audit that found nothing, and a flake that got away
+
+**This batch changed no code.** Both things it went after came back negative,
+and the negatives are worth more written down than a batch invented to avoid
+writing them.
+
+### The QEvent switch: closed, nothing missing
+
+The last entry named `TextEditorWidget::event()` as the one list of three the
+method had not been run against. It has four cases:
+
+| case | the view's equivalent |
+| --- | --- |
+| `ShortcutOverride` | `wantsKeyBeforeShortcuts()` - ported, and extended twice since |
+| `ReadOnlyChange` | already handled: `fileLineEnding()` and `tabSettingsLabel()` both return empty for a read-only file, with a comment saying they are copying the widget |
+| `ApplicationPaletteChange` | **not applicable.** The widget re-applies font settings to undo the application palette clobbering its own; a `QQuickItem` has no `QPalette` to be clobbered and draws from `FontSettings` directly |
+| `ParentChange` | **not applicable.** `detectCombinedEditor()` is about being embedded in a side-by-side diff, which the Qt Quick editor is not used for |
+
+So all three lists the method has been pointed at - selection kinds, the
+optional-action mask, the `QEvent` switch - are now closed. The one that paid
+was the selection kinds, which found the diagnostics gap two entries ago.
+
+### The sort flake: two hypotheses, both disproved, and the flake gone
+
+The other named item was `testTheListingCanBeReadBothWaysRound`, measured last
+entry at ~3 failures in 4. The failing assertion is always the same: the
+*second* click on the heading does not turn the listing back.
+
+What was tried, in order:
+
+1. **A probe before the second click.** 3 runs clean. So it is timing.
+2. **Hypothesis: the second click is a double click.** Two `QTest::mouseClick`
+   calls carry timestamps about a millisecond apart. Fix: click two places in
+   the heading, far enough apart that the double-click *distance* rules it
+   out. **Measured: 4 of 6 still failed.** Disproved.
+3. **A probe inside the `TapHandler`.** 3 runs clean, `tapCount=1` both times
+   - so when it does work, both taps arrive as single taps and there is no
+   double click at all. Disproved again, from the other side.
+4. **Hypothesis: the events are queued and not flushed.** Fix:
+   `QCoreApplication::processEvents()` between the clicks. **6 of 6 clean.**
+5. **The control: take the drain out again. 6 of 6 clean.**
+
+Step 5 is the whole story. Twelve consecutive clean runs across two builds
+that differ by one line, after a measured ~70% failure rate an hour earlier.
+**The base rate moved on its own**, so nothing measured against it means
+anything: the drain in step 4 was credited with a fix that step 5 shows it did
+not perform.
+
+Reverted, all of it. Shipping the `processEvents()` with a comment about a
+queued-event race would have been an unmeasured mechanism written down as
+fact - the exact mistake this file has had to withdraw six times, and the one
+its own rules are loudest about.
+
+**What is actually known about this flake:** it is real (seen ~7 times across
+this session and twice in earlier ones), it is in the test rather than in the
+production code, it is timing-dependent, and **it is not reproducible on
+demand** - which is why it has survived being "known" for three sessions. It
+is load-correlated in some way this batch did not pin down.
+
+The lesson to take, and it is a new one for this file: **`measure rates, not
+verdicts` needs a companion - re-measure the base rate at the moment you claim
+a fix.** A control run against a remembered rate proves nothing if the rate
+itself drifts. Both the fix run and the control run have to be interleaved
+with each other, not run in sequence an hour apart.
+
+Anyone picking this up should start there: alternate fixed and unfixed runs in
+one loop, twenty of each, before believing anything.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      478 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Run against the tree as committed, with everything above reverted. One file
+changed, and it is this one.
+
+### What this leaves
+
+No named next step. What remains, none of it C++-blocking:
+
+- **The sort flake**, with a method for attacking it written above.
+- **`documentWideSelectionKinds()`** against the viewport's "every kind" - the
+  asymmetry found two entries ago. Nothing is known to be broken by it.
+- **The untested `ViewportAssistTarget` overrides** - `snippetInserted()` and
+  `autoIndentRange()`, unreachable from a test without driving a real
+  completion proposal.
+- **An arbitrary widget in a Quick toolbar**, unchanged for eight entries.
+
+The lists the widget editor keeps are exhausted as a source of gaps. A next
+pass wanting a new source could try the other direction: what the *viewport*
+has that the widget does not, which would say where the two have diverged
+rather than where the port is incomplete.
