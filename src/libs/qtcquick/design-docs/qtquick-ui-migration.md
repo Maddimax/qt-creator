@@ -33708,3 +33708,79 @@ Five files, no new file and no `.qbs` edit.
 - Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- The two jumps that were stuck inside the override
+
+The gap this closed: **a URL in a string literal, and a generated `ui_*.h`
+header, were followed only in the widget.** Both lived in the *body* of
+`CppEditorWidget::findLinkAt()` rather than in `findCppLinkAt()`, so the two
+previous batches - which made the Quick editor reach `findCppLinkAt()` and
+then made it Fuzzy - still left Ctrl+click on `"https://..."` or on a symbol
+in a generated header doing nothing there.
+
+Both moved to `cpptoolsreuse` as `followCppSymbol(CursorInEditor, ...)`:
+the URL and qrc lookup, the designer redirect, and then the code model. Both
+entry points call it, so there is one body and neither view can drift from the
+other again. `CursorInEditor` was already the right parameter - it carries the
+optional widget, which is what the preprocessor popup and the in-place rename
+still need, and nothing else in the jump does.
+
+`followUrl()` needed only three things from the widget, and each already had a
+view-free source: the parse from `semanticDocumentOf()` (batch of two days'
+worth ago), the validity check from `CppEditorDocument::isSemanticInfoValid()`,
+and the `QTextDocument` from the cursor it was handed.
+
+### Two fixture problems, both found by measuring
+
+The test went red with an empty link. Tagging every `return false;` in
+`followUrlIn()` with a numbered `qWarning` said **bail 4** - the project check -
+although the fixture had asserted `ProjectTree::currentProject()` was non-null
+moments earlier. Both were true: `currentProject()` follows the current *node*,
+and the temp `.cpp` was not in the project's node tree, so opening its editor
+cleared it. Adding a `FileNode` for the file to the root node fixes it, and the
+assertion moved to after the editor is open, where it means something.
+
+That is also a fact about the feature, not only the test: **`followUrl()` does
+nothing for a file that is not in a project**, in production too.
+
+Control B - `linkTextStart = 0` - **did not bite**, because the assertion was
+`linkTextStart < linkTextEnd`, and zero satisfies that. Replaced with a compare
+of the text the range actually covers against `"https://www.qt.io/"` including
+its quotes; both controls bite now. A range assertion that only checks the ends
+are ordered measures almost nothing.
+
+### Negative controls
+
+- **A -- the shared jump does not look for a URL at all**: red.
+- **B -- the link carries no token range**: red, after the assertion above was
+  made capable of failing.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      458 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,FollowSymbolTest ...  155 passed, 0 failed, exit 0
+    -test CppEditor,SymbolJumpTest ...      8 passed, 0 failed, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Follow Symbol and Follow Symbol to Type are now the same in both views, body
+for body. What is left of `CppEditorWidget`'s overrides:
+
+- `createAssistInterface()`, `encourageApply()`, `inInlineRename()` - **not yet
+  traced to a seam.** The first two look answered by `CppEditorDocument`; that
+  is still a guess, and the way to settle it is to open a C++ file in the Quick
+  editor and try completion, a quick fix, and an in-place rename.
+- `contextMenuEvent()`, `keyPressEvent()`, `event()` - input, and the string
+  splitting inside `keyPressEvent()` was ported long ago.
+- `paste()`, `cut()`, `selectAll()`, `findUsages()`, `renameSymbolUnderCursor()`,
+  `selectBlockUp/Down()` - all have seams from earlier batches.
+- Unchanged: the clang-tools toolbar button, the parse-context highlight,
+  Refactor submenu nesting - one presentation question in three places.
+- Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

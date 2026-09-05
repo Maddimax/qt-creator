@@ -9,6 +9,7 @@
 #include <texteditor/quickfix.h>
 #include <utils/id.h>
 #include <utils/filepath.h>
+#include <utils/link.h>
 
 #include <QTextCursor>
 #include <utils/searchresultitem.h>
@@ -68,6 +69,15 @@ Core::IEditor CPPEDITOR_EXPORT *editorFor(const CursorInEditor &data);
 // copy; a view that is not one has the document's.
 CPlusPlus::Document::Ptr CPPEDITOR_EXPORT semanticDocumentOf(
     TextEditor::TextDocument *document);
+
+// Follow the symbol \a data points at, the way C++ does it: a URL or a qrc
+// path in a string literal first, then a generated ui_*.h header back to the
+// .ui file it came from, and only then the code model. Both views come
+// through here, so neither has to know about the first two.
+void CPPEDITOR_EXPORT followCppSymbol(const CursorInEditor &data,
+                                      const Utils::LinkHandler &callback,
+                                      bool resolveTarget,
+                                      bool inNextSplit);
 
 #ifdef WITH_TESTS
 namespace Internal { QObject *createSymbolJumpTest(); }

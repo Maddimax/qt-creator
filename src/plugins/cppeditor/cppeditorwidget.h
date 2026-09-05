@@ -136,7 +136,6 @@ private:
 
     unsigned documentRevision() const;
     bool isOldStyleSignalOrSlot() const;
-    bool followUrl(const QTextCursor &cursor, const Utils::LinkHandler &processLinkCallback);
 
     QMenu *createRefactorMenu(QWidget *parent) const;
 

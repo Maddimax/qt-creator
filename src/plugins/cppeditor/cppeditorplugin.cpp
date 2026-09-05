@@ -182,9 +182,6 @@ static void findCppLinkAt(TextEditor::TextDocument *document,
                           bool resolveTarget,
                           bool inNextSplit)
 {
-    if (!CppModelManager::instance())
-        return processLinkCallback(Utils::Link());
-
     // No widget to take the semantic info from, so the snapshot's document is
     // what the builtin backend gets. clangd asks the language server and needs
     // neither.
@@ -193,10 +190,7 @@ static void findCppLinkAt(TextEditor::TextDocument *document,
                               nullptr,
                               document,
                               CppModelManager::snapshot().document(document->filePath()));
-    // Fuzzy, as CppEditorWidget::findLinkAt() asks for: it is what lets an
-    // answer clangd cannot give fall back to the built-in model.
-    CppModelManager::followSymbol(data, processLinkCallback, resolveTarget, inNextSplit,
-                                  FollowSymbolMode::Fuzzy);
+    followCppSymbol(data, processLinkCallback, resolveTarget, inNextSplit);
 }
 
 // Where the *type* of the symbol under \a cursor is defined. What

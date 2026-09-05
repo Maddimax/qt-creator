@@ -20,6 +20,8 @@
 #include <coreplugin/messagemanager.h>
 
 #include <projectexplorer/projectmanager.h>
+#include <projectexplorer/projecttree.h>
+#include <projectexplorer/projectnodes.h>
 
 #include <texteditor/codeassist/assistinterface.h>
 #include <texteditor/displaysettings.h>
@@ -32,12 +34,14 @@
 #include <texteditor/symbolrequests.h>
 #include <QSignalSpy>
 #include "cppeditordocument.h"
+#include "modelmanagertesthelper.h"
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
 #include <QTest>
 #endif
 
 #include <cplusplus/BackwardsScanner.h>
+#include <cplusplus/ASTPath.h>
 #include <cplusplus/declarationcomments.h>
 #include <cplusplus/Overview.h>
 #include <cplusplus/SimpleLexer.h>
@@ -184,6 +188,121 @@ void renameUsagesOf(Core::IEditor *editor, const QString &replacement, QTextCurs
           };
     Internal::NonInteractiveFollowSymbolMarker niMarker;
     CppModelManager::followSymbol(data, continuation, false, false, FollowSymbolMode::Exact);
+}
+
+// A string literal that names something openable: an http(s) URL, or a qrc
+// path that some resource file in the project provides.
+static bool followUrlIn(const CursorInEditor &data, const Utils::LinkHandler &callback)
+{
+    // The parse has to describe what the file says now, or the token offsets
+    // below point into the wrong text. A widget knows that about its own copy.
+    if (CppEditorWidget * const widget = data.editorWidget()) {
+        if (!widget->isSemanticInfoValidExceptLocalUses())
+            return false;
+    } else if (const auto document = qobject_cast<CppEditorDocument *>(data.textDocument())) {
+        if (!document->isSemanticInfoValid())
+            return false;
+    }
+
+    const CPlusPlus::Document::Ptr parse = semanticDocumentOf(data.textDocument());
+    if (!parse)
+        return false;
+
+    const ProjectExplorer::Project * const project
+        = ProjectExplorer::ProjectTree::currentProject();
+    if (!project || !project->rootProjectNode())
+        return false;
+
+    const QList<CPlusPlus::AST *> astPath = CPlusPlus::ASTPath(parse)(data.cursor());
+    if (astPath.isEmpty())
+        return false;
+    const CPlusPlus::StringLiteralAST * const literalAst = astPath.last()->asStringLiteral();
+    if (!literalAst)
+        return false;
+    const CPlusPlus::StringLiteral * const literal
+        = parse->translationUnit()->stringLiteral(literalAst->literal_token);
+    if (!literal)
+        return false;
+    const QString theString = QString::fromUtf8(literal->chars(), literal->size());
+
+    QTextDocument * const text = data.cursor().document();
+    const auto withTokenRange = [&](Utils::Link link) {
+        link.linkTextStart = parse->translationUnit()->getTokenPositionInDocument(
+            literalAst->literal_token, text);
+        link.linkTextEnd = parse->translationUnit()->getTokenEndPositionInDocument(
+            literalAst->literal_token, text);
+        return link;
+    };
+
+    if (theString.startsWith("https:/") || theString.startsWith("http:/")) {
+        callback(withTokenRange(Utils::FilePath::fromPathPart(theString)));
+        return true;
+    }
+
+    if (!theString.startsWith("qrc:/") && !theString.startsWith(":/"))
+        return false;
+
+    const ProjectExplorer::Node * const nodeForPath
+        = project->rootProjectNode()->findNode(
+            [qrcPath = theString.mid(theString.indexOf(':') + 1)](ProjectExplorer::Node *n) {
+                if (!n->asFileNode())
+                    return false;
+                const auto qrcNode = dynamic_cast<ProjectExplorer::ResourceFileNode *>(n);
+                return qrcNode && qrcNode->qrcPath() == qrcPath;
+            });
+    if (!nodeForPath)
+        return false;
+
+    callback(withTokenRange(Utils::Link(nodeForPath->filePath())));
+    return true;
+}
+
+void followCppSymbol(const CursorInEditor &data,
+                     const Utils::LinkHandler &callback,
+                     bool resolveTarget,
+                     bool inNextSplit)
+{
+    if (!CppModelManager::instance())
+        return callback(Utils::Link());
+
+    if (followUrlIn(data, callback))
+        return;
+
+    // Following a "leaf" symbol in a generated UI header takes the reader to
+    // the designer instead, where the thing it names actually comes from.
+    QTextCursor word(data.cursor());
+    word.select(QTextCursor::WordUnderCursor);
+    const Utils::LinkHandler toDesigner =
+        [start = word.selectionStart(), end = word.selectionEnd(),
+         text = QPointer(data.cursor().document()), callback,
+         filePath = data.filePath()](const Utils::Link &link) {
+            const int linkPos = text ? link.target.toPositionInDocument(text) : -1;
+            if (link.targetFilePath == filePath && linkPos >= start && linkPos < end) {
+                const QString fileName = filePath.fileName();
+                if (fileName.startsWith("ui_") && fileName.endsWith(".h")) {
+                    const QString uiFileName = fileName.mid(3, fileName.size() - 4) + "ui";
+                    const auto nodeMatcher = [uiFileName](ProjectExplorer::Node *n) {
+                        return n->filePath().fileName() == uiFileName;
+                    };
+                    for (const ProjectExplorer::Project * const project :
+                         ProjectExplorer::ProjectManager::projects()) {
+                        ProjectExplorer::ProjectNode * const rootNode
+                            = project->rootProjectNode();
+                        if (!rootNode)
+                            continue;
+                        if (const ProjectExplorer::Node * const uiNode
+                            = rootNode->findNode(nodeMatcher)) {
+                            Core::EditorManager::openEditor(uiNode->filePath());
+                            return;
+                        }
+                    }
+                }
+            }
+            callback(link);
+        };
+
+    CppModelManager::followSymbol(data, toDesigner, resolveTarget, inNextSplit,
+                                  FollowSymbolMode::Fuzzy);
 }
 
 CPlusPlus::Document::Ptr semanticDocumentOf(TextEditor::TextDocument *document)
@@ -761,6 +880,75 @@ private slots:
         // position being reachable.
         switchDeclarationDefinition(editor, /*inNextSplit=*/false);
         QTRY_COMPARE(editor->currentLine(), 2);
+    }
+
+    // A URL in a string literal is a link, and CppEditor answered that inside
+    // CppEditorWidget::findLinkAt() - so in the Qt Quick editor Ctrl+click on
+    // one did nothing. It needs a project only because the same code path
+    // also resolves qrc: paths through the project's resource files.
+    void testAUrlInAStringLiteralIsFollowedWithoutAWidget()
+    {
+        Utils::TemporaryDirectory dir("cpp-follow-url-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("urls.cpp");
+        QVERIFY(file.writeFileContents(
+            "const char *link = \"https://www.qt.io/\";\n"));
+
+        CppEditor::Tests::ModelManagerTestHelper helper;
+        ProjectExplorer::Project * const project
+            = helper.createProject("follow-url", dir.path() / "follow-url.pro");
+        auto root = std::make_unique<ProjectExplorer::ProjectNode>(dir.path());
+        // The file has to be *in* the project, or ProjectTree has no current
+        // project once its editor is the current one - which is exactly the
+        // condition the branch under test needs.
+        root->addNode(std::make_unique<ProjectExplorer::FileNode>(
+            file, ProjectExplorer::FileType::Source));
+        project->setRootProjectNode(std::move(root));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        QVERIFY2(ProjectExplorer::ProjectTree::currentProject(),
+                 "no project is current, so the branch under test is unreachable");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // On the literal, which is what carries the URL.
+        QTextCursor cursor(document->document());
+        cursor.setPosition(document->plainText().indexOf("https"));
+        Utils::Link found;
+        bool answered = false;
+        const CursorInEditor data(cursor, file, nullptr, document);
+        followCppSymbol(data, [&](const Utils::Link &link) {
+            found = link;
+            answered = true;
+        }, true, false);
+        QTRY_VERIFY2(answered, "following the literal answered nothing at all");
+        QCOMPARE(found.targetFilePath.toUrlishString(), QString("https://www.qt.io/"));
+        // And it underlines the literal itself, not some other span: what the
+        // range covers is exactly the quoted token the URL was read from.
+        QCOMPARE(document->plainText().mid(found.linkTextStart,
+                                           found.linkTextEnd - found.linkTextStart),
+                 QString("\"https://www.qt.io/\""));
     }
 
     // The parse a jump walks. clangd corrects the caret before asking - the

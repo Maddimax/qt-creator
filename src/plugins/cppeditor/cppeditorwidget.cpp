@@ -869,102 +869,18 @@ void CppEditorWidget::goToParentImpl(bool inNextSplit)
     CppEditor::goToParentImpl(editorFor(this), inNextSplit);
 }
 
-bool CppEditorWidget::followUrl(const QTextCursor &cursor,
-                                   const Utils::LinkHandler &processLinkCallback)
-{
-    if (!isSemanticInfoValidExceptLocalUses())
-        return false;
-
-    const Project * const project = ProjectTree::currentProject();
-    if (!project || !project->rootProjectNode())
-        return false;
-
-    const QList<AST *> astPath = ASTPath(d->m_lastSemanticInfo.doc)(cursor);
-    if (astPath.isEmpty())
-        return false;
-    const StringLiteralAST * const literalAst = astPath.last()->asStringLiteral();
-    if (!literalAst)
-        return false;
-    const StringLiteral * const literal = d->m_lastSemanticInfo.doc->translationUnit()
-            ->stringLiteral(literalAst->literal_token);
-    if (!literal)
-        return false;
-    const QString theString = QString::fromUtf8(literal->chars(), literal->size());
-
-    if (theString.startsWith("https:/") || theString.startsWith("http:/")) {
-        Utils::Link link = FilePath::fromPathPart(theString);
-        link.linkTextStart = d->m_lastSemanticInfo.doc->translationUnit()->getTokenPositionInDocument(literalAst->literal_token, document());
-        link.linkTextEnd = d->m_lastSemanticInfo.doc->translationUnit()->getTokenEndPositionInDocument(literalAst->literal_token, document());
-        processLinkCallback(link);
-        return true;
-    }
-
-    if (!theString.startsWith("qrc:/") && !theString.startsWith(":/"))
-        return false;
-
-    const Node * const nodeForPath = project->rootProjectNode()->findNode(
-                [qrcPath = theString.mid(theString.indexOf(':') + 1)](Node *n) {
-        if (!n->asFileNode())
-            return false;
-        const auto qrcNode = dynamic_cast<ResourceFileNode *>(n);
-        return qrcNode && qrcNode->qrcPath() == qrcPath;
-    });
-    if (!nodeForPath)
-        return false;
-
-    Link link(nodeForPath->filePath());
-    link.linkTextStart = d->m_lastSemanticInfo.doc->translationUnit()->getTokenPositionInDocument(literalAst->literal_token, document());
-    link.linkTextEnd = d->m_lastSemanticInfo.doc->translationUnit()->getTokenEndPositionInDocument(literalAst->literal_token, document());
-    processLinkCallback(link);
-    return true;
-}
-
 void CppEditorWidget::findLinkAt(const QTextCursor &cursor,
                                  const LinkHandler &processLinkCallback,
                                  bool resolveTarget,
                                  bool inNextSplit)
 {
-    if (!CppModelManager::instance())
-        return processLinkCallback(Utils::Link());
-
-    if (followUrl(cursor, processLinkCallback))
-        return;
-
-    const Utils::FilePath &filePath = textDocument()->filePath();
-
-    // Let following a "leaf" C++ symbol take us to the designer, if we are in a generated
-    // UI header.
-    QTextCursor c(cursor);
-    c.select(QTextCursor::WordUnderCursor);
-    LinkHandler callbackWrapper = [start = c.selectionStart(), end = c.selectionEnd(),
-            doc = QPointer(cursor.document()), callback = processLinkCallback,
-            filePath](const Link &link) {
-        const int linkPos = doc ? link.target.toPositionInDocument(doc) : -1;
-        if (link.targetFilePath == filePath && linkPos >= start && linkPos < end) {
-            const QString fileName = filePath.fileName();
-            if (fileName.startsWith("ui_") && fileName.endsWith(".h")) {
-                const QString uiFileName = fileName.mid(3, fileName.size() - 4) + "ui";
-                for (const Project * const project : ProjectManager::projects()) {
-                    const auto nodeMatcher = [uiFileName](Node *n) {
-                        return n->filePath().fileName() == uiFileName;
-                    };
-                    ProjectNode *rootNode = project->rootProjectNode();
-                    if (!rootNode)
-                        continue;
-                    if (const Node * const uiNode = rootNode->findNode(nodeMatcher)) {
-                        EditorManager::openEditor(uiNode->filePath());
-                        return;
-                    }
-                }
-            }
-        }
-        callback(link);
-    };
-    CppModelManager::followSymbol(CursorInEditor{cursor, filePath, this, textDocument()},
-                                  callbackWrapper,
-                                  resolveTarget,
-                                  inNextSplit,
-                                  FollowSymbolMode::Fuzzy);
+    // Carrying this widget, which is what the preprocessor popup and the
+    // in-place rename need; everything else about the jump is the same in
+    // either view and lives in cpptoolsreuse.
+    followCppSymbol(CursorInEditor{cursor, textDocument()->filePath(), this, textDocument()},
+                    processLinkCallback,
+                    resolveTarget,
+                    inNextSplit);
 }
 
 void CppEditorWidget::findTypeAt(const QTextCursor &cursor,
