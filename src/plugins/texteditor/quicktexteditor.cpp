@@ -3379,7 +3379,10 @@ private slots:
         QTest::addColumn<QString>("script");
         QTest::addColumn<QString>("expected");
 
-        // "\n" is Return and "\b" is Backspace; everything else is typed.
+        // "\n" is Return, "\b" Backspace and "\t" Tab; <Name> is a key that
+        // has no character, or - for <SelectAll> - the selection a reader
+        // makes with the mouse. Everything else is typed.
+        //
         // Every row expects the same file from both views, so the widget row
         // is the control on what the expectation should be.
         const QList<std::tuple<QString, QString, QString>> scripts{
@@ -3387,6 +3390,12 @@ private slots:
             {"a bracket inside a string", "g(\"(\")", "g(\"(\")"},
             {"return between braces", "void f() {\nx;", "void f() {\n    x;\n}"},
             {"backspace over a pair", "f(\b", "f"},
+            {"return in a line comment", "// hi\nx;", "// hi\nx;"},
+            {"return in a block comment", "/* hi\nx;", "/* hi\n * x;"},
+            {"return after a doxygen opening", "/**\n", "/**\n * "},
+            {"a bracket around a selection", "word<SelectAll>(", "(word)"},
+            {"tab at the start of a line", "x;<Home>\t", "    x;"},
+            {"backtab on an indented line", "\tx;<Home><Backtab>", "x;"},
         };
         for (const auto &[what, script, expected] : scripts) {
             QTest::newRow(qPrintable(QString("widget: %1").arg(what)))
@@ -3422,16 +3431,118 @@ private slots:
         QObject * const target = TextEditor::keyTargetOf(editor);
         QVERIFY(target);
 
-        for (const QChar ch : script) {
-            const int key = ch == '\n' ? Qt::Key_Return
-                            : ch == '\b' ? Qt::Key_Backspace
-                                         : Qt::Key_unknown;
+        for (int i = 0; i < script.size(); ++i) {
+            const QChar ch = script.at(i);
+            int key = Qt::Key_unknown;
+            Qt::KeyboardModifiers modifiers = Qt::NoModifier;
+            if (ch == '<') {
+                const int close = script.indexOf('>', i);
+                QVERIFY2(close > i, qPrintable("unterminated <> in " + script));
+                const QString name = script.mid(i + 1, close - i - 1);
+                i = close;
+                if (name == "SelectAll") {
+                    QTextCursor all(document->document());
+                    all.select(QTextCursor::Document);
+                    TextEditor::setTextCursorOf(editor, all);
+                    continue;
+                }
+                if (name == "Home") {
+                    key = Qt::Key_Home;
+                } else if (name == "Backtab") {
+                    key = Qt::Key_Backtab;
+                    modifiers = Qt::ShiftModifier;
+                } else {
+                    QFAIL(qPrintable("no such key in a script: " + name));
+                }
+            } else if (ch == '\n') {
+                key = Qt::Key_Return;
+            } else if (ch == '\b') {
+                key = Qt::Key_Backspace;
+            } else if (ch == '\t') {
+                key = Qt::Key_Tab;
+            }
             const QString text = key == Qt::Key_unknown ? QString(ch) : QString();
-            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+            QKeyEvent press(QEvent::KeyPress, key, modifiers, text);
             QCoreApplication::sendEvent(target, &press);
         }
 
         QCOMPARE(document->document()->toPlainText(), expected);
+    }
+
+    void testAnEditFromElsewhereCarriesTheCaret_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Not everything that writes to the file goes through the view: a quick
+    // fix, a refactoring, a language server, the comment the language writes
+    // when Enter is pressed. The caret has to end up on the same character it
+    // was on, and a widget editor's does because it *is* a cursor in the
+    // document. The Quick view keeps a position, and a position has to be
+    // carried.
+    void testAnEditFromElsewhereCarriesTheCaret()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("edit-from-elsewhere");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("hello world\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        const auto editElsewhere = [document](int position, int remove, const QString &insert) {
+            QTextCursor other(document->document());
+            other.setPosition(position);
+            if (remove > 0)
+                other.setPosition(position + remove, QTextCursor::KeepAnchor);
+            other.insertText(insert);
+        };
+        const auto putCaretAt = [editor, document](int position) {
+            QTextCursor caret(document->document());
+            caret.setPosition(position);
+            TextEditor::setTextCursorOf(editor, caret);
+        };
+
+        // Between "hello" and the space.
+        putCaretAt(5);
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), 5);
+
+        editElsewhere(0, 0, "XY");
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), 7);
+
+        editElsewhere(0, 2, {});
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), 5);
+
+        // At the caret rather than before it, which is what the language does
+        // writing a comment continuation under Enter: the caret belongs after
+        // what was written, not in front of it.
+        editElsewhere(5, 0, "ZZ");
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), 7);
+
+        // And a selection is two positions, both of which move.
+        QTextCursor selection(document->document());
+        selection.setPosition(2);
+        selection.setPosition(5, QTextCursor::KeepAnchor);
+        TextEditor::setTextCursorOf(editor, selection);
+        editElsewhere(0, 0, "XY");
+        const QTextCursor moved = TextEditor::textCursorOf(editor);
+        QCOMPARE(moved.selectionStart(), 4);
+        QCOMPARE(moved.selectionEnd(), 7);
     }
 
     // A language server attaches to a document rather than to a language, so

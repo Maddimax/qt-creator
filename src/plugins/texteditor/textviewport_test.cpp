@@ -6264,15 +6264,17 @@ private slots:
         viewport->insertSuggestion(std::move(suggestion));
         QTRY_COMPARE(viewport->visibleLine(0).value("text").toString(), QString("return value;"));
 
-        // Written through the document rather than through this view, so the
-        // caret it knows about does not move and the change is all there is
-        // to go on.
+        // Written through the document rather than through this view. The
+        // caret is carried along by text arriving in front of it, the way a
+        // cursor in the document would be, and what the suggestion has to be
+        // looked at against is the text - the caret is still on the same
+        // character it was on.
         const int caret = viewport->cursorPosition();
         QTextCursor elsewhere(text);
         elsewhere.setPosition(0);
         elsewhere.insertText("x");
         QCOMPARE(text->findBlockByNumber(0).text(), QString("xret"));
-        QCOMPARE(viewport->cursorPosition(), caret);
+        QCOMPARE(viewport->cursorPosition(), caret + 1);
 
         QVERIFY2(!viewport->currentSuggestion(),
                  "the suggestion survived text it can no longer be reached from");

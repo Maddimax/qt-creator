@@ -2569,6 +2569,11 @@ void TextViewport::setCursorPosition(int position)
     // Put somewhere rather than moved there, so there is no column to keep.
     m_verticalMovementX = -1;
     m_cursorPosition = position;
+    caretMoved();
+}
+
+void TextViewport::caretMoved()
+{
     // What "Highlight blocks" adds: the scope around the caret lights up as it
     // moves, without anything being hovered.
     if (displaySettings().highlightBlocks())
@@ -3555,6 +3560,51 @@ void TextViewport::addCaretAtNextMatch()
     }
 }
 
+// What a QTextCursor in the document would have done with itself, which is
+// what the widget editor's caret is and gets for free.
+static int positionAfterEdit(int position, int editedAt, int charsRemoved, int charsAdded)
+{
+    if (position < editedAt)
+        return position;
+    if (position >= editedAt + charsRemoved)
+        return position + charsAdded - charsRemoved;
+    // Inside what was taken away, so there is nowhere left to be but where it
+    // started.
+    return editedAt;
+}
+
+void TextViewport::carryCaretThroughEdit(int position, int charsRemoved, int charsAdded)
+{
+    if (m_editingThroughItsOwnCarets)
+        return;
+
+    // Opening a file is one insertion of the whole of it into an empty
+    // document, and a caret at 0 is not standing in front of that text - it is
+    // where the reader is put. Carrying it would leave it past the last
+    // character, on no line at all. A widget editor never sees this either:
+    // QWidgetTextControl puts its cursor back at 0 once the content is in.
+    // characterCount() is what the document has now, an empty one being 1.
+    const int countBefore = m_connectedDocument->characterCount() - charsAdded + charsRemoved;
+    if (countBefore <= 1)
+        return;
+
+    // The extra carets are cursors in the document and have moved themselves.
+    if (m_selectionStart >= 0)
+        setSelectionStart(positionAfterEdit(m_selectionStart, position, charsRemoved, charsAdded));
+    if (m_selectionEnd >= 0)
+        setSelectionEnd(positionAfterEdit(m_selectionEnd, position, charsRemoved, charsAdded));
+
+    const int moved = positionAfterEdit(m_cursorPosition, position, charsRemoved, charsAdded);
+    if (moved == m_cursorPosition)
+        return;
+    // Not setCursorPosition(): the caret has not been put anywhere, so the
+    // extra carets that would clear are still there. The column a vertical
+    // move is keeping does go, because the text it was measured in has moved.
+    m_verticalMovementX = -1;
+    m_cursorPosition = moved;
+    caretMoved();
+}
+
 void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &edit)
 {
     QList<QTextCursor> carets = m_extraCursors;
@@ -3574,10 +3624,12 @@ void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &e
     // One undo step for the lot: typing once should not take several undos to
     // take back merely because it happened at several carets.
     QTextCursor group = carets.first();
+    const bool wasEditing = std::exchange(m_editingThroughItsOwnCarets, true);
     group.beginEditBlock();
     for (const int i : std::as_const(order))
         edit(carets[i]);
     group.endEditBlock();
+    m_editingThroughItsOwnCarets = wasEditing;
 
     setTextCursor(carets.takeLast());
     m_extraCursors = carets;
@@ -4904,6 +4956,8 @@ void TextViewport::documentChangedInternal()
         m_contentWidth = 0;
         m_connectedDocument = text;
         if (text) {
+            connect(text, &QTextDocument::contentsChange, this,
+                    &TextViewport::carryCaretThroughEdit);
             connect(text, &QTextDocument::contentsChanged, this, [this] {
                 // What was typed decides whether the suggestion still
                 // describes anything - including the case where taking it is

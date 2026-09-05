@@ -855,6 +855,13 @@ public:
     // later in the document first: an edit moves everything after it, and a
     // caret that has already been edited at does not have to be moved with it.
     void applyToEveryCaret(const std::function<void(QTextCursor &)> &edit);
+    // Where the caret and the selection end up after an edit this view
+    // did not make: a quick fix, a language server, the comment the
+    // language wrote when Enter was pressed.
+    void carryCaretThroughEdit(int position, int charsRemoved, int charsAdded);
+    // Everything that has to follow the caret once it is somewhere new,
+    // however it got there: put there, or carried by an edit.
+    void caretMoved();
     // Another caret, at a document position. The new one becomes the main
     // caret - it is the one just placed - and asking for one where there is
     // already one leaves the count alone.
@@ -1332,6 +1339,11 @@ private:
     int m_selectionStart = -1;
     int m_selectionEnd = -1;
     int m_cursorPosition = 0;
+    // Set while the edit being made is one of this view's own carets
+    // doing it. Those carets are written back afterwards and carry
+    // themselves; moving them here as well would leave the write-back
+    // with nothing to change and so skip everything it does besides.
+    bool m_editingThroughItsOwnCarets = false;
     bool m_readOnly = true;
     // What is being composed but not yet typed, and how the input method wants
     // it drawn. Empty when nothing is being composed.

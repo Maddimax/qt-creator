@@ -37993,3 +37993,133 @@ between them. The obvious next scripts, and they are cheap:
 Unchanged: **drawing** the auto-inserted text, the **eleven skipped completion
 cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in a Quick
 toolbar**.
+
+## 2026-09-05 (30) -- The caret does not follow an edit it did not make
+
+The last entry named three more typing scripts. Probing them found one
+divergence, and chasing it found something much larger than the script.
+
+    script  "/* hi" Return "x;"
+    widget  /* hi          quick  /* hix;
+             * x;                  *
+
+The ` * ` continuation is written in **both** views - the language writes it,
+and that has worked since the document seam went in. What the Quick view got
+wrong is where the caret was left afterwards: the language writes through a
+cursor of its own, and everything typed next went in front of what it wrote.
+
+### The gap this batch closed
+
+Not the comment. A probe written to check it:
+
+    caret at 5, then, made through the document rather than the view
+                        start   insert 2 before   remove them   insert 2 at it
+    widget                  5                 7             5                7
+    quick                   5                 5             5                5
+
+**The Quick caret never moved for an edit the view did not make.** A widget
+editor's caret is a `QTextCursor` in the document and is carried by the
+document itself; `TextViewport` keeps `m_cursorPosition`, an int, and an int
+has to be carried by hand. Every quick fix, every refactoring, every
+language-server edit, every `\* *\` continuation left the caret on a different
+character than the one the reader was on - silently, because the number stayed
+plausible.
+
+The clamp in `textCursor()` and its comment - "a selection can outlive the
+text it was made in, an edit being all it takes" - were this bug seen from the
+other end and worked around. The workaround stays; it is still true that a
+selection can be made to run past the end.
+
+### Three parts, each measured before it was written
+
+**Carry the positions.** `contentsChange(at, removed, added)` moves
+`m_cursorPosition`, `m_selectionStart` and `m_selectionEnd` by the rule a
+`QTextCursor` uses. The extra carets are already cursors and carry themselves.
+
+**Do not carry this view's own.** `applyToEveryCaret()` edits through carets
+it writes back afterwards; carrying them as well would leave the write-back
+with the same number it already had, and `setCursorPosition()` returns early
+on that - so everything it does *besides* moving the number would be skipped.
+That early return is why the function hint has to be updated from one place
+rather than from the setter, which is what `caretMoved()` now is.
+
+**Opening a file is not an edit.** Instrumented, an open is two changes:
+`(0, removed 1, added 0)` clearing the empty block, then `(0, 0, 2491)`. The
+second carried a caret at 0 to 2491 in a document whose last position is 2490
+- off the end, on no line, and `currentLine()` answered 0. A widget editor
+never sees this because `QWidgetTextControl` puts its cursor back at 0 once
+the content is in. The rule here is stated in the same terms: text arriving in
+an empty document is the file, and a caret at 0 is not standing in front of
+it.
+
+### Two tests were asserting the bug
+
+`testTheFunctionHintFollowsTheCaretAndEndsWithTheCall` writes into the
+document and then moves the caret by hand. With the caret carrying itself the
+hand-move became a no-op, hit the early return, and the hint stopped
+following - which is the failure that produced `caretMoved()`. The test now
+passes with the manual move doing nothing, which is what its own comment asked
+for: the hint notices *without being asked again*.
+
+`testASuggestionIsLookedAtAgainWhenTheTextChangesUnderIt` asserted
+`cursorPosition() == caret` after inserting in front of it, with a comment
+saying the caret "does not move". That was a description of the defect. It now
+asserts `caret + 1`.
+
+### Negative controls
+
+- **A -- nothing is carried**: red on three, `quick: return in a block
+  comment`, `testAnEditFromElsewhereCarriesTheCaret(quick)` and the corrected
+  suggestion assertion. The widget rows pass, which is what says the
+  expectations are C++'s and not this test's.
+- **B -- this view's own carets are carried too**: not a failed compare but a
+  **heap-use-after-free**, ASan, exit 134, on `quick: return in a line
+  comment`: `caretMoved()` runs inside the document's edit, `updateFunctionHint()`
+  tears down a running `AsyncProcessor`, and its `AssistInterface` is read on
+  the worker thread after it is gone. The guard is load-bearing.
+- **C -- an open is carried like an edit**: measured while getting there, red
+  on `testGoingToALineIsWhereTheEditorSaysItIs`, `currentLine()` 0 against 1.
+
+### The scripts, and what they say about guessing
+
+Six new rows, all passing after the fix: a line comment, a block comment, a
+doxygen opening, a bracket around a selection, Tab at the start of a line,
+Backtab on an indented one. The script language grew `\t` and `<Home>`,
+`<Backtab>`, `<SelectAll>` - the last through `setTextCursorOf()`, because a
+selection is what a reader makes with a mouse and not a key.
+
+Of six guesses one diverged, and the one that did was not a bug about
+comments. **Three of these rows were aimed at indentation and none of them
+found anything**; the one that fired was aimed at comment continuation and
+found a caret defect underneath every editing feature that writes to the file.
+Scripts are worth writing because of what they catch on the way past, not
+because the guess behind them is good.
+
+### Verification
+
+    -test TextEditor    506 passed, 0 failed, exit 0, 0 warnings   (492 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0
+
+Four files, no new file and no `.qbs` edit. One QuickUi run in three printed
+`QUnifiedTimer::stopAnimationDriver: driver is not running` from
+`testARowOfButtonsIsDrawnAsARowOfButtons`, which touches no text editor;
+recorded as seen, not chased.
+
+### What this leaves
+
+The caret is carried; **the marks in the view are not obviously safe**. The
+snippet holes are cursors and carry themselves, and the suggestion is checked
+on every change, but the same int-versus-cursor question applies to anything
+else the viewport keeps a position for. Worth one probe rather than a guess:
+put a selection, a snippet and an auto-completed range in a buffer, edit
+through the document, and print what each thinks it covers.
+
+Then, still on the typing list:
+
+- **Overwrite mode**, which no differential row covers.
+- **Undo after an edit made from elsewhere** - the caret is carried forward,
+  and undo has to put it back where the reader was.
+
+Unchanged: **drawing** the auto-inserted text, the **eleven skipped completion
+cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in a Quick
+toolbar**.
