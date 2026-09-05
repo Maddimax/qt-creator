@@ -63,6 +63,12 @@ void CircularClipboard::collect(const std::shared_ptr<const QMimeData> &mimeData
     m_items.prepend(mimeData);
 }
 
+void CircularClipboard::clear()
+{
+    m_items.clear();
+    m_current = -1;
+}
+
 std::shared_ptr<const QMimeData> CircularClipboard::next() const
 {
     if (m_items.isEmpty())

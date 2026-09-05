@@ -31,6 +31,10 @@ public:
     std::shared_ptr<const QMimeData> next() const;
     void toLastCollect();
     int size() const;
+    // Everything the program has collected so far. For a test that has to
+    // start from a history it knows, which it cannot otherwise: this is one
+    // list for the whole program and every copy in every editor adds to it.
+    void clear();
 
 private:
     CircularClipboard();

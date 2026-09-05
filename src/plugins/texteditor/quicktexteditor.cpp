@@ -40,6 +40,7 @@
 #include "typehierarchy.h"
 #include "linenumberfilter.h"
 #include "textviewport.h"
+#include "circularclipboard.h"
 #include "texteditorconstants.h"
 #include "texteditortr.h"
 
@@ -6181,6 +6182,7 @@ private slots:
         // The clipboard is asked the same way. A paste during a rename
         // replaces the name in every place it is used, not only here.
         QGuiApplication::clipboard()->setText("pasted");
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), QString("pasted"));
         handler->what = Take;
         view->paste();
         QCOMPARE(handler->m_pastes, 1);
@@ -7418,6 +7420,148 @@ private slots:
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.
     // The Quick editor registered all of them enabled whatever the mask said.
+    void testWhatIsCopiedGoesOnTheClipboardHistory_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Circular Paste offers the things copied before this one, and a widget
+    // editor puts every copy and cut on that list as it happens. This view put
+    // nothing there, so the list only ever held what Circular Paste itself had
+    // collected - the reader's own copies were not among the things offered.
+    void testWhatIsCopiedGoesOnTheClipboardHistory()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("clipboard-history");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("one two three\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // One list for the whole program, so a count only means something
+        // from a state this test set.
+        Internal::CircularClipboard * const history = Internal::CircularClipboard::instance();
+        history->clear();
+        QCOMPARE(history->size(), 0);
+
+        const auto copyRange = [&](int from, int to) {
+            QTextCursor pick(document->document());
+            pick.setPosition(from);
+            pick.setPosition(to, QTextCursor::KeepAnchor);
+            TextEditor::setTextCursorOf(editor, pick);
+            if (quick)
+                Internal::viewportForEditor(editor)->copy();
+            else
+                TextEditorWidget::fromEditor(editor)->copy();
+        };
+
+        copyRange(0, 3);
+        QCOMPARE(history->size(), 1);
+
+        // A second, different thing: the list is what Circular Paste chooses
+        // between, so it has to have both on it.
+        copyRange(4, 7);
+        QCOMPARE(history->size(), 2);
+
+        // The same thing again is not a second entry - it moves to the front.
+        copyRange(0, 3);
+        QCOMPARE(history->size(), 2);
+    }
+
+    void testDoubleClickTakesTheWordUnderIt_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::addColumn<int>("position");
+        QTest::addColumn<QString>("selected");
+
+        // "void f(int a) { g(1); }" then "  x  y" then an empty line: a word,
+        // a word touching a bracket, a lone brace, a digit, a run of spaces
+        // between two words, and the words either side of it.
+        const QList<std::tuple<QString, int, QString>> places{
+            {"inside a word", 1, "void"},
+            {"just after an opening bracket", 7, "int"},
+            {"inside the word after it", 8, "int"},
+            {"on a brace", 15, "{"},
+            {"on a digit", 18, "1"},
+            {"between two words", 25, "  "},
+            {"on a word after leading spaces", 27, "x"},
+            {"on the last word of a line", 30, "y"},
+        };
+        for (const auto &[what, at, selected] : places) {
+            QTest::newRow(qPrintable(QString("widget: %1").arg(what)))
+                << false << at << selected;
+            QTest::newRow(qPrintable(QString("quick: %1").arg(what))) << true << at << selected;
+        }
+    }
+
+    // What a double click takes. A widget editor gets it from
+    // PlainTextEdit and then corrects the case of a click between two
+    // spaces, which selects the word *before* them or nothing at all; this
+    // view does the correction in selectWordAt(), which is what its QML calls.
+    // Nothing had compared the two.
+    void testDoubleClickTakesTheWordUnderIt()
+    {
+        QFETCH(bool, quick);
+        QFETCH(int, position);
+        QFETCH(QString, selected);
+
+        Utils::TemporaryDirectory dir("double-click-word");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("void f(int a) { g(1); }\n  x  y\n\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // The caret goes there first, which is what the click before the
+        // second one does.
+        QTextCursor caret(document->document());
+        caret.setPosition(position);
+        TextEditor::setTextCursorOf(editor, caret);
+
+        if (quick) {
+            // What CodeViewport.qml calls when a double tap arrives. QTest
+            // cannot double-click a Quick item, and driving the QML handler is
+            // not what is being compared anyway.
+            TextViewport * const view = Internal::viewportForEditor(editor);
+            QVERIFY(view);
+            view->selectWordAt(position);
+        } else {
+            TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+            QVERIFY(widget);
+            const QPoint at = widget->viewport()->mapFromGlobal(
+                widget->cursorRect(position).center());
+            QTest::mouseDClick(widget->viewport(), Qt::LeftButton, {}, at);
+        }
+
+        QCOMPARE(TextEditor::textCursorOf(editor).selectedText(), selected);
+    }
+
     void testRedoPutsBackWhatUndoTookAway_data()
     {
         QTest::addColumn<bool>("quick");
@@ -7606,6 +7750,7 @@ private slots:
             }
             TextEditor::setMultiTextCursorOf(editor, cursors);
             QGuiApplication::clipboard()->setText("1\n2\n3");
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), QString("1\n2\n3"));
             pasteInto(editor);
             QCOMPARE(document->plainText(), QString("alpha1\nbeta2\ngamma3\n"));
         }
@@ -7651,6 +7796,7 @@ private slots:
 
         // Written at column zero, as it would be if it came from elsewhere.
         QGuiApplication::clipboard()->setText("\nif (a) {\ny;\n}");
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), QString("\nif (a) {\ny;\n}"));
         if (quick)
             Internal::viewportForEditor(editor)->pasteNormally();
         else

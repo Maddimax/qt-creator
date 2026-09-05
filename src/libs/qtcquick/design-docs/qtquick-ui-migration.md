@@ -38886,3 +38886,109 @@ would look at, in order of how likely a reader is to notice:
 Struck from this list, per the proposal in entry 36 and unopposed since: the
 `QuickUi` sort flake and the arbitrary widget in a Quick toolbar. Both are
 recorded in their own entries if they ever come back.
+
+## 2026-09-05 (38) -- Mouse selection: four negatives, and a gap a test found
+
+The last entry named mouse selection as the one thing left unexamined. Probed
+in four ways, it produced almost nothing - and then a failing test found a gap
+somewhere else entirely.
+
+### The mouse: what was measured
+
+**Double click.** Eight positions in `void f(int a) { g(1); }` and `  x  y` -
+inside a word, beside a bracket, on a brace, on a digit, between two spaces,
+either side of them - **identical in both views**, with the widget driven by a
+real `QTest::mouseDClick`. That is now a sixteen-row test; its control (taking
+out the between-two-spaces correction) reddens the one row it should.
+
+**Three things could not be measured, and are written down as such:**
+
+- **The bracket branch.** `TextEditorWidget::mouseDoubleClickEvent()` selects
+  what an opening bracket opens instead of a word, when the click is one
+  character past it. `selectWordAt()` has no such branch. Five attempts to
+  make it fire in the *widget* - parentheses set by hand, five click offsets -
+  all selected the word. The shared `TextEditor::selectBlockUp()` it calls
+  returns true on the same fixture, so the fixture is not the problem. **Not
+  ported**: adding behaviour to this view that I could never see the reference
+  produce is the mistake this file has withdrawn six times.
+- **Triple click.** No widget-side equivalent can be driven - `QTest` has no
+  triple click and the widget's line selection lives inside Qt's click
+  counting. A first attempt compared `selectLineAt()` against a hand-rolled
+  `BlockUnderCursor`, which is *not* what the widget does; the difference it
+  showed was my fixture. Test dropped rather than kept on a wrong reference.
+- **Drag to select.** Press, move, release at mapped pixels gave inconsistent
+  answers in **both** views - an empty selection where there should be text.
+  Fixture noise, not a measurement, and not shipped as one.
+
+### Which gap this batch closed
+
+The batch would have ended there, with a test and three negatives. Then the
+full suite went red once in four runs on a test this batch did not touch:
+`testCircularPasteOffersTheHistoryAndPastesTheChoice`, pasting nothing.
+
+It passed alone 3 of 3 and in its own class 3 of 3. The first theory - a
+clipboard race, since `setText()` goes to a system pasteboard - was wrong, and
+bounding the set on the clipboard actually holding the text proved it wrong
+rather than hiding it.
+
+What it actually was: **`CircularClipboard` is one list for the whole program,
+and a widget editor adds every copy and cut to it**
+(`collectToCircularClipboard()`, called from `copy()` and `cut()`). **This view
+added nothing.** Circular Paste in the Qt Quick editor had only ever seen what
+Circular Paste itself collected - the reader's own copies were not among the
+things it offers.
+
+Measured, two copies of different text:
+
+    history size      widget  0 -> 2      quick  2 -> 2
+
+The entry-37 clipboard tests were what put enough in the list for the older
+test's assumption - "nothing else in the history" - to stop holding. A test
+that had been quietly assuming a global was empty met a batch that filled it.
+
+`copy()`, `cut()`, `copyLine()` and `cutLine()` now collect, and
+`CircularClipboard` grew a `clear()` so a test can *make* its precondition
+true instead of hoping for it.
+
+### Negative controls
+
+- **A -- a copy does not reach the history**: red on `quick`, size 0 against
+  1, the widget row passing.
+- **B -- the circular-paste test hopes for an empty history again**: red **3
+  runs out of 3**. Worth the emphasis: before the fix that test failed 1 run
+  in 4, and *with* the fix its old assumption fails every time, because this
+  view now fills the list too. The `clear()` is not tidying; the fix requires
+  it.
+
+### Verification
+
+    -test TextEditor    580 passed, 0 failed, exit 0, 0 warnings   (562 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Four further full runs of `-test TextEditor`, all exit 0, because this batch
+started from a 1-in-4 failure and a single green run would not have said
+anything. Six files, no new file and no `.qbs` edit.
+
+### Four fixtures that measured the wrong thing
+
+Worth counting, because it was most of the batch: the triple-click reference,
+the drag pixels, the history probe where both rows copied *the same words* so
+the dedupe hid the difference, and the clipboard-race theory. Every one was
+caught by the measurement disagreeing with what the fixture claimed to be
+doing. **The probes that found nothing cost more than the fix did.**
+
+### What this leaves
+
+- **The bracket branch on double click**, above: reachable in the widget in
+  principle, never reached here. Anyone with a reproduction should port it;
+  nobody should port it without one.
+- **Drag to select**, still uncompared, and needing a way to drive a drag that
+  both views answer the same - the pixel mapping used here is not it.
+- **Search and replace inside a selection**, **drag and drop of text**, and
+  **keyboard column selection**, all still unexamined.
+
+A note for whoever picks this up: three of the last four batches found their
+gap in something *next to* what they set out to probe - the caret while
+chasing a comment, the assist contract while controlling a focus change, the
+clipboard history while chasing a flake. The probes are worth writing even
+when the thing they aim at turns out to be fine.

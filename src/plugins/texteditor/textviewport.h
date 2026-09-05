@@ -869,6 +869,9 @@ public:
     // What the completer put in and the reader has not typed over yet, drawn
     // until the caret goes somewhere else.
     void refreshAutoCompletedHighlight();
+    // What was just put on the clipboard also goes into the history Circular
+    // Paste offers, which is not this view's but the program's.
+    void rememberOnTheClipboardHistory();
     // Everything that has to follow the caret once it is somewhere new,
     // however it got there: put there, or carried by an edit.
     void caretMoved();

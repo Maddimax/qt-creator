@@ -2950,8 +2950,10 @@ void TextViewport::copyLine()
 {
     selectWholeLines();
     const QTextCursor cursor = textCursor();
-    if (cursor.hasSelection())
-        QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+    if (!cursor.hasSelection())
+        return;
+    QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+    rememberOnTheClipboardHistory();
 }
 
 void TextViewport::cutLine()
@@ -2963,6 +2965,7 @@ void TextViewport::cutLine()
     if (!cursor.hasSelection())
         return;
     QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+    rememberOnTheClipboardHistory();
     cursor.removeSelectedText();
     setTextCursor(cursor);
 }
@@ -3054,11 +3057,28 @@ void TextViewport::selectAll()
     setTextCursor(cursor);
 }
 
+// A widget editor does this after every copy and cut, from
+// TextEditorWidgetPrivate::collectToCircularClipboard(). Without it Circular
+// Paste has only ever seen what Circular Paste itself put there, so the
+// reader's own copies were not among the things it offers.
+void TextViewport::rememberOnTheClipboardHistory()
+{
+    const QMimeData * const current = QGuiApplication::clipboard()->mimeData();
+    if (!current)
+        return;
+    Internal::CircularClipboard * const history = Internal::CircularClipboard::instance();
+    history->collect(Internal::duplicateMimeData(current));
+    // The latest is what Circular Paste offers first.
+    history->toLastCollect();
+}
+
 void TextViewport::copy()
 {
     const Utils::MultiTextCursor cursors = multiTextCursor();
-    if (cursors.hasSelection())
-        QGuiApplication::clipboard()->setText(selectedPlainText(cursors));
+    if (!cursors.hasSelection())
+        return;
+    QGuiApplication::clipboard()->setText(selectedPlainText(cursors));
+    rememberOnTheClipboardHistory();
 }
 
 void TextViewport::cut()
@@ -3078,6 +3098,7 @@ void TextViewport::cutNormally()
     if (!cursors.hasSelection())
         return;
     QGuiApplication::clipboard()->setText(selectedPlainText(cursors));
+    rememberOnTheClipboardHistory();
     cursors.removeSelectedText();
     setMultiTextCursor(cursors);
 }

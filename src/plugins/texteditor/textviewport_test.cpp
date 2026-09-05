@@ -39,6 +39,7 @@
 #include "textoperations.h"
 #include "textsuggestion.h"
 #include "textviewport.h"
+#include "circularclipboard.h"
 #include "textmark.h"
 #include "bookmarkmanager.h"
 
@@ -6082,15 +6083,26 @@ private slots:
         QSignalSpy offered(viewport, &TextViewport::quickFixesAvailable);
         QTextDocument * const text = viewport->textDocument()->document();
 
+        // The history is the program's, not this view's: anything copied
+        // anywhere earlier in the run is in it, and "nothing else in the
+        // history" below is a precondition this test has to make true rather
+        // than hope for.
+        Internal::CircularClipboard::instance()->clear();
+
         // One thing copied, so there is nothing to choose between and it is
         // an ordinary paste.
+        // Bounded on the clipboard actually holding it: setText() goes to a
+        // system pasteboard, and reading it back straight away can find it
+        // empty - which pastes nothing and reads as the paste being broken.
         QGuiApplication::clipboard()->setText("first");
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), QString("first"));
         viewport->setCursorPosition(0);
         viewport->circularPaste();
         QCOMPARE(text->findBlockByNumber(0).text(), QString("first"));
 
         // A second thing copied, and now there is a choice.
         QGuiApplication::clipboard()->setText("second");
+        QTRY_COMPARE(QGuiApplication::clipboard()->text(), QString("second"));
         viewport->circularPaste();
         QTRY_VERIFY2(!offered.isEmpty(), "the history was not offered");
         const QStringList fixes = offered.last().at(0).toStringList();
