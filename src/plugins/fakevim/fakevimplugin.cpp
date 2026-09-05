@@ -22,6 +22,7 @@
 #include <coreplugin/modemanager.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/idocument.h>
+#include <utils/guitest.h>
 #include <utils/mimeutils.h>
 #include <coreplugin/messagemanager.h>
 #include <coreplugin/statusbarmanager.h>
@@ -63,6 +64,7 @@
 #ifdef WITH_TESTS
 #include <utils/temporarydirectory.h>
 
+#include <memory>
 #include <QTest>
 #endif
 #include <utils/environment.h>
@@ -2180,10 +2182,29 @@ class FakeVimInQuickEditorTest final : public QObject
     Q_OBJECT
 
 private slots:
-    // The in-editor command line. It parented a MiniBuffer to a
-    // TextEditorWidget and reserved a strip at the bottom so it never covers
-    // text, so with a C++ file - which opens in the Qt Quick editor - the
-    // setting was silently ignored and the reader got the global one.
+    // What this class must not print. It printed "No such method" fourteen
+    // times a run for as long as there was a Qt Quick editor to drive, and
+    // nothing failed: FakeVim was asking the view's host a question only a
+    // widget could answer, so a snippet and a rename both lost their keys.
+    //
+    // After every test rather than at the end: FollowSymbolTest learnt that a
+    // check which runs when the class finishes is no use against a defect that
+    // stops the class finishing.
+    void init()
+    {
+        m_mustNotSay = std::make_unique<Utils::GuiTest::CollectedWarnings>(
+            QStringList{"updatePolish", "polish() loop", "No such method"});
+    }
+
+    void cleanup()
+    {
+        const QStringList said = m_mustNotSay ? m_mustNotSay->hits() : QStringList();
+        m_mustNotSay.reset();
+        QVERIFY2(said.isEmpty(),
+                 qPrintable(QString("printed %1 of them, first: %2")
+                                .arg(said.size()).arg(said.value(0))));
+    }
+
     // Vim leaves the keys alone while the view is in the middle of something
     // that wants them: a snippet being filled in, or an in-place rename. It
     // used to ask the editor's widget for both by name, which for a view that
@@ -2227,6 +2248,10 @@ private slots:
                  "Vim took Escape from the snippet, so it could not be given up");
     }
 
+    // The in-editor command line. It parented a MiniBuffer to a
+    // TextEditorWidget and reserved a strip at the bottom so it never covers
+    // text, so with a C++ file - which opens in the Qt Quick editor - the
+    // setting was silently ignored and the reader got the global one.
     void testTheCommandLineSitsInTheQuickEditor()
     {
         const bool wasOn = settings().useFakeVim();
@@ -2479,6 +2504,13 @@ private slots:
         QVERIFY2(!offer(Qt::Key_W, vimControl, written),
                  "vim claimed a key while switched off");
     }
+private:
+    // Declared last on purpose. A "private:" section in the middle of a
+    // QObject takes every function below it out of "private slots:", and moc
+    // then registers none of them - which quietly stopped five of this
+    // class's six tests from running when this member was put in the middle.
+    std::unique_ptr<Utils::GuiTest::CollectedWarnings> m_mustNotSay;
+
 };
 
 QObject *createFakeVimInQuickEditorTest()

@@ -37483,3 +37483,92 @@ checking it has been a `grep`. Entry 21 said a panel was broken when the test
 was; this one said gate the required suites when the defect was somewhere
 else. The habit worth keeping is not "propose better" - it is that the first
 thing a batch does is try to falsify the last entry's proposal.
+
+## 2026-09-05 (24) -- The second class that had earned it, and a self-inflicted silence
+
+The last entry set the habit - start by trying to falsify the previous entry's
+proposal - and then made a claim to try it on: the gate covers one class, and
+"others could take the same three lines; none has earned it yet".
+
+**Falsified in one `grep`**, over every run log this session:
+
+    logs printing "updatePolish" / "polish() loop" / "No such method"
+      FollowSymbolTest runs        700, 440, 420, 400, 306, 220, 80
+      FakeVim suite runs            14, 14, 14
+
+Fourteen a run, three runs, all `No such method` - the FakeVim defect entry 20
+fixed. `FakeVimInQuickEditorTest` is the other class the gated needles ever
+appeared in, and it had no gate. It has one now.
+
+**Which gap this batch closed:** none in the port. It extends the gate to the
+only other class that has ever tripped it, and repairs two things this plan
+broke itself.
+
+### The self-inflicted part, which is the useful half
+
+Two mistakes, both mine, both from entry 20.
+
+**A comment left describing the wrong function.** Entry 20 inserted its test
+*above* `testTheCommandLineSitsInTheQuickEditor()`, between that function and
+its comment - so four lines about the in-editor command line sat above a test
+about snippet keys. Moved back.
+
+**Five of six tests silently stopped running.** Adding the collector as a
+member, I wrote
+
+    }
+
+    private:
+        std::unique_ptr<...> m_mustNotSay;
+
+in the *middle* of the class. Everything below it left `private slots:` and
+became plain private functions, so **moc registered none of them**. The class
+went from eight lines of output to three, and still said `exit=0`.
+
+What caught it was **the control not biting.** Removing the
+`inInlineRename()` override should have produced warnings and did not - and
+the reason was that the two tests which produce them were no longer being run.
+The non-biting control was not a statement about the fix; it was the symptom
+of the breakage.
+
+That is worth adding to what this file already says about controls. It has
+recorded twice that a control which does not bite may mean the fixture is too
+simple. There is a third possibility, and it is worse because everything still
+looks green: **the test is not running at all.** Check the list of test names,
+not just the totals - eight became three and nothing said so.
+
+The member is declared last now, with the reason beside it.
+
+### The gate
+
+Same three needles, same `cleanup()` placement as `FollowSymbolTest`, same
+`Utils::GuiTest::CollectedWarnings`.
+
+- **Control -- the by-name rename question restored**: red, in exactly the two
+  tests entry 20 measured, `testFakeVimDrivesTheQuickEditor` (4) and
+  `testSuggestionsAreHeldOffOutsideInsertMode` (3).
+
+Deliberately still not "no warnings": `FakeVimTester::test_vim_pattern_lookaround`
+prints a `QRegularExpression` complaint and `QuickUi` prints its animation
+driver one run in five. Neither is a gated shape, so neither trips anything -
+which is the design.
+
+### Verification
+
+    -test TextEditor    482 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 1 warning
+    -test FakeVim       266 passed, 0 failed, 10 skipped, exit 0, 1 warning
+    -test FakeVim,FakeVimInQuickEditorTest   8 passed, exit 0
+
+One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The gated needles now have a gate everywhere they have ever appeared. That is
+a complete statement rather than a comfortable one: if a third class starts
+printing them, nothing will fail - the two gates are on the two classes with a
+history, and the method for finding a third is the `grep` at the top of this
+entry.
+
+- **The `QuickUi` sort flake**, still not reproducing.
+- **An arbitrary widget in a Quick toolbar**, unchanged for twenty entries.
