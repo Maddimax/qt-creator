@@ -34769,3 +34769,93 @@ Five files, no new file and no `.qbs` edit.
 - **The parse-context highlight**, if it still means anything - see above.
 
 Everything else the plan ever listed is done.
+
+## 2026-09-05 -- Auditing the last two items, and where this actually stands
+
+**No code changed in this batch.** The two items the plan still carried were a
+stale question and a vague one, and the useful work was finding that out. Last
+entry's lesson - audit a "needs a decision" list before acting on it - applied
+to what was left of the list.
+
+### The parse-context highlight: not a gap
+
+The widget editor highlights its parse-context combo when the reader has
+overridden the language's choice (`updateWidgetHighlighting(this,
+isPreferred)`), and hides the "clear" action in a context menu.
+
+The Qt Quick editor shows an explicit **Clear button**, and
+`EditorToolBar.qml` makes it visible exactly when `choice.chosen` - the same
+condition the highlight uses. So both views say "this was picked rather than
+worked out", by different means, and the Quick one puts the way to undo it in
+front of the reader rather than in a context menu. **Struck off: a different
+affordance, already implemented, carrying the same information.**
+
+### FakeVim: ported, with one piece left that is a view feature
+
+Eight cast-net hits, and reading them was the point:
+
+- Four are **test guards** - `testFakeVimDrivesTheQuickEditor`,
+  `testSuggestionsAreHeldOffOutsideInsertMode`,
+  `testRelativeNumbersReachTheQuickEditorsGutter`,
+  `testAKeyBoundToACommandIsClaimedForVim`. FakeVim's core is ported *and*
+  covered.
+- `editorOpened()` has an **adapter path** for a view that is not a widget.
+- `createRelativeNumberWidget()` has a Quick branch that tells the viewport to
+  number from the caret instead of laying a column over it.
+- **`updateEditorMiniBuffer()` is the one left.** With
+  `commandLineInEditor()` on, FakeVim parents a `MiniBuffer` widget over the
+  editor and reserves a strip at the bottom so it never covers text
+  (QTCREATORBUG-21005). For a Qt Quick editor the widget is null, so the
+  in-editor command line silently does not appear and the reader gets the
+  global one instead.
+
+That last one is **not** the same shape as Lua's `addEmbeddedWidget`. An
+embedded widget is anchored to a *document position* and has to move and
+scroll with the text - which needs the view's layout, and a `QWidget` cannot
+live in a Qt Quick scene. The mini-buffer is anchored to the *editor's
+rectangle*, and the Quick editor's `widget()` is a `QQuickWidget` - a perfectly
+good parent for an overlay.
+
+What it needs is the one thing the viewport has no notion of:
+`PlainTextEdit::setEditorTextMargin(..., Qt::BottomEdge, h)`, a strip the text
+is kept out of. `TextViewport` has margin *settings* (the print-margin line)
+but no text inset. **That is a view feature, not migration glue** - the layout
+in `m_lines` would have to lay out into a shorter area - and it should be
+costed as one.
+
+### Where this stands
+
+Everything that was glue is done. A C++ file opens in the Qt Quick editor with
+completion, quick fixes, follow symbol and follow type, refactoring, the
+optional-action mask, in-place rename, the outline, the parse-context chooser,
+the clang-tools menu, Emacs keys, Vim, Lua scripting and the MCP tools all
+answering from the document or an editor-level seam.
+
+What is left is **two view features and one decision**, none of them glue:
+
+1. **A bottom text inset on `TextViewport`**, which would give FakeVim its
+   in-editor command line. Well specified above; a day's work in the layout,
+   not an afternoon of dispatching.
+2. **Inline widgets in a Qt Quick scene**, which is what Lua's
+   `addEmbeddedWidget` and `insertExtraToolBarWidget` want. A `QWidget` cannot
+   go there; a Qt Quick answer would be a different API, and whether the Lua
+   surface should grow one is a product question.
+3. Whether either is worth doing at all, given both currently degrade rather
+   than fail: the command line appears globally instead of in the editor, and
+   the two Lua members refuse with an error that says why.
+
+**The plan has no next step that is this project's kind of work.** Anything
+further is a feature request against the Qt Quick editor, and should be
+written as one rather than picked up as migration.
+
+### Verification
+
+Nothing changed, so this is the tree as it stands:
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      463 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test FakeVim ...                      253 passed, 0 failed, exit 0
+
+One file, and no negative controls: there is no change to control.
