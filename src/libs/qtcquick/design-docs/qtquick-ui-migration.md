@@ -39069,3 +39069,102 @@ set out to probe *was* where the gap was, and the probe found it in the first
 run. Worth recording alongside the other pattern, because it says the areas
 that have never been compared are still the ones worth comparing - the last
 four gaps were all in code that no test had ever pointed a second editor at.
+
+## 2026-09-05 (40) -- Registered is not the same as behaves
+
+The last entry left four things. Three of them - drag to select, drag and
+drop, the double-click bracket branch - all need a mouse drag driven so that
+both views answer it the same, which entry 38 spent most of a batch failing to
+build. The fourth was keyboard column selection. This batch took that, found
+it clean, and then found something better next to it.
+
+### Keyboard multi-caret: clean, and already registered
+
+`ADD_CURSORS_TO_LINE_ENDS` and `ADD_SELECT_NEXT_FIND_MATCH` are bound in both
+views. What they *do*, measured on the same file and selection:
+
+    carets at line ends      widget  5 12          quick  5 12
+    next match, once         widget  3..5 10..12   quick  3..5 10..12
+    next match, twice        + 15..17              + 15..17
+
+Identical. `m_blockSelectionAnchor` - the member the plan kept naming as
+untested - turns out to be the *mouse* rectangle-drag path, not the keyboard
+one, so it belongs with the three mouse items rather than with this.
+
+### A result this batch re-derived, and should not have
+
+Running a full command census - every command registered in each editor's
+context, diffed - gave 123 against 122, differing only by `QtCreator.Print`.
+That is exactly what entry 31 found and fixed (four macro commands) and it is
+**already a test**: `knownMissing{"QtCreator.Print"}`. Half an hour spent
+re-deriving a covered result. **The plan is long enough now that grepping it
+before probing is cheaper than probing.**
+
+### Which gap this batch closed
+
+Not a defect - a hole in what the tests can see. The census test asks which
+commands are **registered**. Nothing asked what they **do**, and a command
+that reaches this view and then edits differently is worse than one that never
+arrives: nothing looks wrong until the file is.
+
+So: twenty-three editing commands, the same file, the same selection, the
+document and the carets compared afterwards.
+
+    compared 23 commands, 0 differ
+
+All of them already agreed, which is the answer worth having: the editing
+surface is the same in both views, and from now on a command that stops
+agreeing is a test failure rather than a bug report. Written as one test for
+the reason the registration census gives - the set is too big to keep as a
+written-down list, and what is worth keeping is the difference.
+
+### The control that did not bite, and what it changed
+
+The first control made `lowercaseSelection` trim as well as lower-case. **It
+passed.** The selection was `bb` - already lower case, no whitespace - so the
+control was a no-op on the only input the census used.
+
+That is a fact about the census, not about the control: a comparison is only
+as strong as the fixture makes the commands distinguishable. The selection is
+now `c Bb ` - mixed case, a trailing space - and the same control reddens
+immediately. A guard went in with it, at a **measured** number rather than a
+hopeful one: 19 of the 23 change the file, the rest move carets, and asking
+for more than that reddens too.
+
+### Negative controls
+
+- **A -- one command edits differently** (`lowercaseSelection` trims): red,
+  naming the command and printing both answers. Only after the fixture was
+  strengthened; before that it passed, which is why the fixture changed.
+- **B -- the fixture guard asks for more than can happen**: red, "only 19 of
+  23 commands changed the file", which is also where the 19 above comes from.
+
+### Verification
+
+    -test TextEditor    584 passed, 0 failed, exit 0, 0 warnings   (583 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0
+
+One file, no new file and no `.qbs` edit. `QuickUi` printed the
+`QUnifiedTimer::stopAnimationDriver` warning again - the button test from
+entry 30, measured at 2 runs in 8, touching no editor.
+
+### What this leaves, and what I would do next
+
+The plan has **no item left that can be measured with what is here**. All
+three remaining ones are the same problem wearing three hats:
+
+- drag to select,
+- drag and drop of text,
+- the double-click bracket branch (which needs a real click sequence to fire
+  in the *widget* before it can be ported).
+
+**The proposal, and it is one batch's work on its own:** build the thing all
+three need - a way to drive a press-move-release over both views that lands on
+the same document positions in each. Entry 38 tried it inline and got
+inconsistent answers in *both* views, which is the tell that the mapping is
+wrong rather than the editors. It wants doing once, deliberately, with its own
+control: drive a drag whose answer is already known (a selection between two
+positions on one line) and only then use it on the three questions above.
+
+Until that exists, probing those three will keep producing fixture noise, and
+this file has enough entries about fixtures that measured the wrong thing.

@@ -7443,6 +7443,154 @@ private slots:
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.
     // The Quick editor registered all of them enabled whatever the mask said.
+    // The census test above says which commands are *registered* in each
+    // editor. It says nothing about what they do, and a command that reaches
+    // this view and then edits differently is a worse bug than one that does
+    // not reach it at all: nothing looks wrong until the file is.
+    //
+    // So: the same file, the same selection, every command that both views
+    // expose, and the document and the carets compared afterwards. Written as
+    // one test rather than one per command for the reason the registration
+    // census gives - the set is too big to keep as a written-down list, and
+    // what is worth keeping is the *difference*.
+    void testEveryEditingCommandEditsTheSame()
+    {
+        struct Command
+        {
+            const char *name;
+            std::function<void(TextViewport *)> onView;
+            std::function<void(TextEditorWidget *)> onWidget;
+        };
+        // Every command both views expose that edits or moves. The names
+        // differ where this view named its own; the pairs are what a reader
+        // reaches with one keystroke either way.
+        const QList<Command> commands{
+            {"deleteLine", [](TextViewport *v) { v->deleteLine(); },
+             [](TextEditorWidget *w) { w->deleteLine(); }},
+            {"copyLineUp", [](TextViewport *v) { v->copyLineUp(); },
+             [](TextEditorWidget *w) { w->copyLineUp(); }},
+            {"copyLineDown", [](TextViewport *v) { v->copyLineDown(); },
+             [](TextEditorWidget *w) { w->copyLineDown(); }},
+            {"moveLineUp", [](TextViewport *v) { v->moveLineUp(); },
+             [](TextEditorWidget *w) { w->moveLineUp(); }},
+            {"moveLineDown", [](TextViewport *v) { v->moveLineDown(); },
+             [](TextEditorWidget *w) { w->moveLineDown(); }},
+            {"duplicateSelection", [](TextViewport *v) { v->duplicateSelection(); },
+             [](TextEditorWidget *w) { w->duplicateSelection(); }},
+            {"insertLineAbove", [](TextViewport *v) { v->insertLineAbove(); },
+             [](TextEditorWidget *w) { w->insertLineAbove(); }},
+            {"insertLineBelow", [](TextViewport *v) { v->insertLineBelow(); },
+             [](TextEditorWidget *w) { w->insertLineBelow(); }},
+            {"joinLines", [](TextViewport *v) { v->joinLines(); },
+             [](TextEditorWidget *w) { w->joinLines(); }},
+            {"indent", [](TextViewport *v) { v->indent(); },
+             [](TextEditorWidget *w) { w->indent(); }},
+            {"unindent", [](TextViewport *v) { v->unindent(); },
+             [](TextEditorWidget *w) { w->unindent(); }},
+            {"uppercaseSelection", [](TextViewport *v) { v->uppercaseSelection(); },
+             [](TextEditorWidget *w) { w->uppercaseSelection(); }},
+            {"lowercaseSelection", [](TextViewport *v) { v->lowercaseSelection(); },
+             [](TextEditorWidget *w) { w->lowercaseSelection(); }},
+            {"sortLines", [](TextViewport *v) { v->sortLines(); },
+             [](TextEditorWidget *w) { w->sortLines(); }},
+            {"cleanWhitespace", [](TextViewport *v) { v->cleanWhitespace(); },
+             [](TextEditorWidget *w) { w->cleanWhitespace(); }},
+            {"rewrapParagraph", [](TextViewport *v) { v->rewrapParagraph(); },
+             [](TextEditorWidget *w) { w->rewrapParagraph(); }},
+            {"deleteEndOfWord", [](TextViewport *v) { v->deleteEndOfWord(); },
+             [](TextEditorWidget *w) { w->deleteEndOfWord(); }},
+            {"deleteStartOfWord", [](TextViewport *v) { v->deleteStartOfWord(); },
+             [](TextEditorWidget *w) { w->deleteStartOfWord(); }},
+            {"deleteEndOfLine", [](TextViewport *v) { v->deleteEndOfLine(); },
+             [](TextEditorWidget *w) { w->deleteEndOfLine(); }},
+            {"deleteStartOfLine", [](TextViewport *v) { v->deleteStartOfLine(); },
+             [](TextEditorWidget *w) { w->deleteStartOfLine(); }},
+            {"selectWordUnderCursor", [](TextViewport *v) { v->selectWordUnderCursor(); },
+             [](TextEditorWidget *w) { w->selectWordUnderCursor(); }},
+            {"addCaretsToLineEnds", [](TextViewport *v) { v->addCaretsToLineEnds(); },
+             [](TextEditorWidget *w) { w->addCursorsToLineEnds(); }},
+            {"addCaretAtNextMatch", [](TextViewport *v) { v->addCaretAtNextMatch(); },
+             [](TextEditorWidget *w) { w->addSelectionNextFindMatch(); }},
+        };
+
+        // Leading and trailing spaces, a short line, an empty one: the things
+        // the whitespace and line commands differ over if they are going to.
+        const QString content = "  aa bb\nccc Bb  \n\nd bb\n";
+
+        const auto answerOf = [&content](const Command &command, bool quick) {
+            Utils::TemporaryDirectory dir("command-census");
+            if (!dir.isValid())
+                return QString("<no directory>");
+            const Utils::FilePath file = dir.filePath("t.cpp");
+            if (!file.writeFileContents(content.toUtf8()))
+                return QString("<not written>");
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            if (!factory)
+                return QString("<no factory>");
+            const bool wasQuick = factory->usesQuickEditor();
+            const QScopeGuard restore([factory, wasQuick] {
+                factory->setUsesQuickEditor(wasQuick); });
+            factory->setUsesQuickEditor(quick);
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            if (!editor)
+                return QString("<not opened>");
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            if (!document)
+                return QString("<no document>");
+
+            // "c Bb " on the second line: mixed case and a trailing space, so
+            // that a command which changes case or trims whitespace shows a
+            // difference at all. A selection of "bb" would make several of
+            // these commands indistinguishable from each other.
+            QTextCursor pick(document->document());
+            pick.setPosition(10);
+            pick.setPosition(15, QTextCursor::KeepAnchor);
+            TextEditor::setTextCursorOf(editor, pick);
+
+            if (quick)
+                command.onView(Internal::viewportForEditor(editor));
+            else
+                command.onWidget(TextEditorWidget::fromEditor(editor));
+
+            QString text = document->document()->toPlainText();
+            text.replace(QLatin1Char('\n'), QLatin1Char('~'));
+            QStringList carets;
+            for (const QTextCursor &c : TextEditor::multiTextCursorOf(editor)) {
+                carets << (c.hasSelection() ? QString("%1..%2").arg(c.selectionStart())
+                                                  .arg(c.selectionEnd())
+                                            : QString::number(c.position()));
+            }
+            return QString("|%1| carets=%2").arg(text, carets.join(","));
+        };
+
+        QStringList differ;
+        int changedTheFile = 0;
+        for (const Command &command : commands) {
+            const QString fromWidget = answerOf(command, false);
+            const QString fromQuick = answerOf(command, true);
+            if (fromWidget != fromQuick) {
+                differ << QString("%1\n    widget %2\n    quick  %3")
+                              .arg(QString::fromLatin1(command.name), fromWidget, fromQuick);
+            }
+            if (!fromWidget.startsWith("|" + QString(content).replace(QLatin1Char('\n'),
+                                                                     QLatin1Char('~')) + "|"))
+                ++changedTheFile;
+        }
+
+        // A guard on the fixture: if the selection or the file were such that
+        // nothing any command did showed up, every answer would match and this
+        // would pass without comparing anything.
+        // Measured: 19 of the 23 change the file with this fixture, and the
+        // rest only move carets, which is compared too.
+        QVERIFY2(changedTheFile > 15,
+                 qPrintable(QString("only %1 of %2 commands changed the file, so this "
+                                    "fixture is not exercising them")
+                                .arg(changedTheFile).arg(commands.size())));
+        QVERIFY2(differ.isEmpty(), qPrintable("\n" + differ.join("\n")));
+    }
+
     void testReplacingInsideASelectionStaysInsideIt_data()
     {
         QTest::addColumn<bool>("quick");
