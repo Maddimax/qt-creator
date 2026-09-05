@@ -10529,6 +10529,81 @@ bool hasFocusIn(Core::IEditor *editor)
     return false;
 }
 
+// A widget put among the text of a view that is not a widget. The room comes
+// from a row spacer, the widget is an overlay on the QQuickWidget the scene
+// lives in, and where it goes is asked of the view every time anything moves.
+static std::unique_ptr<EmbeddedWidgetInterface> insertWidgetInViewport(
+    Core::IEditor *editor, TextViewport *view, QWidget *widget, int position)
+{
+    QWidget * const host = editor->widget();
+    QTC_ASSERT(host, return {});
+    QTextDocument * const text = view->textDocument() ? view->textDocument()->document()
+                                                      : nullptr;
+    QTC_ASSERT(text, return {});
+
+    widget->setParent(host);
+
+    auto handle = std::make_unique<EmbeddedWidgetInterface>();
+    const Utils::Id id = Utils::Id::generate();
+
+    const auto place = [view, host, widget, position, id, text] {
+        // The hint, but never less than the widget insists on: a caller that
+        // said setFixedHeight() and left the hint alone means the fixed one.
+        const QSize wanted = widget->sizeHint().expandedTo(widget->minimumSize());
+        const int height = qMax(1, wanted.height());
+        // Above the row the position is on, which is what "embedded at this
+        // line" means - the widget sits between the line before and this one.
+        const int line = text->findBlock(position).blockNumber() + 1;
+        view->setRowSpacers(id, {{view->rowOfLine(line), qreal(height)}});
+
+        // Asked of the view rather than worked out: it answers nothing once
+        // the row has scrolled out of what it has laid out, which is exactly
+        // when the widget should not be seen.
+        const QRectF row = view->rectangleAt(position);
+        if (row.isNull()) {
+            widget->hide();
+            return;
+        }
+        const QPointF topLeft = view->mapToScene(QPointF(0, row.top() - height));
+        widget->setGeometry(int(topLeft.x()), int(topLeft.y()), host->width(), height);
+        widget->show();
+        widget->raise();
+    };
+
+    place();
+    QObject::connect(view, &TextViewport::scrollYChanged, widget, place);
+    QObject::connect(view, &TextViewport::metricsChanged, widget, place);
+    QObject::connect(view, &QQuickItem::heightChanged, widget, place);
+    QObject::connect(view, &QQuickItem::widthChanged, widget, place);
+    QObject::connect(handle.get(), &EmbeddedWidgetInterface::resized, widget, place);
+
+    // Both ways out: the handle closed, or the widget destroyed under it.
+    const QPointer<TextViewport> alive(view);
+    QObject::connect(handle.get(), &EmbeddedWidgetInterface::closed, widget, [alive, id, widget] {
+        if (alive)
+            alive->setRowSpacers(id, {});
+        widget->deleteLater();
+    });
+    QObject::connect(widget, &QObject::destroyed, alive, [alive, id] {
+        if (alive)
+            alive->setRowSpacers(id, {});
+    });
+    return handle;
+}
+
+std::unique_ptr<EmbeddedWidgetInterface> insertWidgetIn(
+    Core::IEditor *editor, QWidget *widget, int position)
+{
+    QTC_ASSERT(editor && widget, return {});
+    if (TextEditorWidget * const w = TextEditorWidget::fromEditor(editor)) {
+        widget->setParent(w->viewport());
+        return w->insertWidget(widget, position);
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return insertWidgetInViewport(editor, view, widget, position);
+    return {};
+}
+
 void setFocusIn(Core::IEditor *editor)
 {
     if (!editor)

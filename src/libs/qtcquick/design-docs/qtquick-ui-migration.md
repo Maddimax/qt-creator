@@ -35009,3 +35009,82 @@ Quick toolbar is built from actions, so a `QWidget` there wants a different
 answer - which is a design question, unlike this one.
 
 One batch of work, specified. Nothing else on this plan is open.
+
+## 2026-09-05 -- A widget among the text, in either view
+
+The gap this closed: **`TextEditor:addEmbeddedWidget()` refused every C++
+file.** It was the last thing in this plan that a script could ask for and not
+get, and two entries ago I had it filed as a product question.
+
+Everything it needed had been built by the batches before it, which is why
+this one was small:
+
+- **room** - `setRowSpacers(id, {{row, height}})`, named last batch so this
+  claim and an inline diff's can stand together;
+- **somewhere to put it** - `editor->widget()`, the `QQuickWidget` the scene
+  lives in, the same host the FakeVim command line uses;
+- **where to put it** - `rectangleAt(position)`, which answers `{}` once the
+  row has scrolled out of what the view has laid out, so *hiding it is the
+  same check as placing it* rather than a second calculation;
+- **when to move it** - `scrollYChanged`, `metricsChanged`, and the item's
+  `heightChanged`/`widthChanged`.
+
+`insertWidgetIn(editor, widget, position)` is the seam, and it lives in
+TextEditor rather than in the Lua binding: the Lua plugin does not link Qt
+Quick, and a second caller would otherwise write this twice.
+
+### One difference from the widget path, on purpose
+
+`CarrierWidget::embedHeight()` asks `sizeHint().height()`. The new path asks
+`sizeHint().expandedTo(minimumSize())`, because a caller that says
+`setFixedHeight(37)` and leaves the hint alone means 37 - and the first run of
+the test proved it, reserving one pixel for a widget that had asked for
+thirty-seven.
+
+Worth being clear about which way round that went: **the fixture was
+unrepresentative and the code was faithful.** A bare `QWidget` has no size
+hint, so the widget editor would have reserved one pixel too. The fix is an
+improvement to the new path, not a correction of a bug the old one had.
+
+### Negative controls
+
+- **A -- the seam refuses a view that is not a widget** (the state before this
+  batch): red, no handle at all.
+- **B -- the view is never asked for room**: red on the gap.
+- **C -- the room is never given back when the handle closes**: red on the gap
+  outliving the widget.
+
+Three, because the change has three parts and any one of them could have been
+carried by the others.
+
+### What is not tested
+
+Where the widget ends up, and its disappearing when the row scrolls off. Both
+need laid-out rows, and an editor opened in a test never renders - the lesson
+from the half-page scroll batch. What is tested is that the room is claimed,
+the widget is parented to the right host, and both are given back.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      466 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test Lua ...                            4 passed, 0 failed, exit 0
+
+Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**One thing, and it is a design question rather than a gap.**
+
+`TextEditor:insertExtraToolBarWidget()` puts a `QWidget` in the toolbar. The
+Qt Quick toolbar is built from *actions* - that is what let clang-tools' menu
+work - so a `QWidget` there has no place to go, and giving it one would mean
+deciding what a Qt Quick toolbar does with an arbitrary widget. Unlike every
+other item this plan has carried, that is not a matter of finding the seam
+somebody already built: there is nothing to find. It refuses with an error
+saying so, and `insertExtraToolBarAction()` - which works in both views - is
+what a script should reach for instead.
+
+Everything else this plan ever listed is done.

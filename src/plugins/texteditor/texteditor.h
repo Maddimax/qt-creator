@@ -1082,6 +1082,14 @@ TEXTEDITOR_EXPORT void setMultiTextCursorOf(Core::IEditor *editor,
 TEXTEDITOR_EXPORT bool hasFocusIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void setFocusIn(Core::IEditor *editor);
 
+// Put \a widget among the text of \a editor, above the line \a position is
+// on, in whichever view is showing the file. Room is made for it so it covers
+// no text, and it is moved as the view scrolls and hidden once its line is
+// off screen. Closing the returned handle - or destroying it - takes the
+// widget away again.
+TEXTEDITOR_EXPORT std::unique_ptr<EmbeddedWidgetInterface> insertWidgetIn(
+    Core::IEditor *editor, QWidget *widget, int position);
+
 // What a key press should be sent to for \a editor: the widget, or the Quick
 // item - not the QQuickWidget wrapping that item, which forwards nothing.
 TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);

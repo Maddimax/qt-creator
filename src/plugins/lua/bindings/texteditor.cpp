@@ -66,20 +66,18 @@ std::unique_ptr<EmbeddedWidgetInterface> addEmbeddedWidget(
     if (!textDocument || !textDocument->document())
         throw sol::error("No text document set");
 
-    // A QWidget put among the text is the widget editor's own trick; the Qt
-    // Quick one has no place to parent it to. Refused rather than ignored, so
-    // a script is told instead of silently showing nothing.
-    TextEditorWidget * const editorWidget = TextEditorWidget::fromEditor(editor);
-    if (!editorWidget)
-        throw sol::error("addEmbeddedWidget needs a widget editor");
-    widget->setParent(editorWidget->viewport());
+    const int pos = cursorPosition.index() == 0
+                        ? std::get<int>(cursorPosition)
+                        : std::get<Position>(cursorPosition)
+                              .toPositionInDocument(textDocument->document());
 
-    int pos = cursorPosition.index() == 0
-                  ? std::get<int>(cursorPosition)
-                  : std::get<Position>(cursorPosition)
-                        .toPositionInDocument(textDocument->document());
-
-    std::unique_ptr<EmbeddedWidgetInterface> embed = editorWidget->insertWidget(widget, pos);
+    // Either view: the room comes from the document in one and a row spacer in
+    // the other, and the widget is an overlay on whatever the editor's widget
+    // is - a text edit, or the QQuickWidget the scene lives in.
+    std::unique_ptr<EmbeddedWidgetInterface> embed
+        = TextEditor::insertWidgetIn(editor, widget, pos);
+    if (!embed)
+        throw sol::error("this editor cannot show an embedded widget");
     return embed;
 }
 

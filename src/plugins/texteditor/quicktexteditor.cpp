@@ -3960,6 +3960,57 @@ private slots:
                  "the view kept only one caret, so a multi-caret edit would miss the others");
     }
 
+    // A widget put among the text. The widget editor registers it with the
+    // document layout and moves it to the block's geometry; a view that is not
+    // one had no answer at all, so a Lua script embedding anything into a C++
+    // file was told it needed a widget editor.
+    void testAWidgetCanBeEmbeddedInEitherView()
+    {
+        Utils::TemporaryDirectory dir("embed-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("embed.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\nint beta = 2;\nint gamma = 3;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(view->rowGaps().isEmpty(), "the view had already given room to something");
+
+        // On the second line, which is where a script would put a note about
+        // the code under it.
+        const int position = document->plainText().indexOf("beta");
+        QPointer<QWidget> embedded = new QWidget;
+        embedded->setFixedHeight(37);
+
+        const std::unique_ptr<EmbeddedWidgetInterface> handle
+            = insertWidgetIn(editor, embedded, position);
+        QVERIFY2(handle.get(), "the view refused to embed anything");
+
+        // It lives over the editor's own widget - the QQuickWidget the scene
+        // is in - and the view has given up room for it so it covers no text.
+        QCOMPARE(embedded->parentWidget(), editor->widget());
+        const QList<TextViewport::Gap> gaps = view->rowGaps();
+        QCOMPARE(gaps.size(), 1);
+        QCOMPARE(gaps.first().height, qreal(37));
+
+        // And closing gives the room back and takes the widget with it.
+        handle->close();
+        QVERIFY2(view->rowGaps().isEmpty(), "the room was not given back");
+        QTRY_VERIFY2(embedded.isNull(), "the widget outlived the handle that closed it");
+    }
+
     // Which languages open in the Qt Quick editor, written down rather than
     // grepped for. Three times in this migration a gap has been "closed" in
     // code that nothing reaches, because the language's files still open in
