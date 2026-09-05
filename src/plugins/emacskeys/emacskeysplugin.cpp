@@ -22,6 +22,10 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QScrollBar>
+#include <utils/qtcassert.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
 #include <QTextCursor>
 
 QT_BEGIN_NAMESPACE
@@ -33,6 +37,10 @@ using namespace TextEditor;
 using namespace Utils;
 
 namespace EmacsKeys::Internal {
+
+#ifdef WITH_TESTS
+QObject *createEmacsKeysTest();
+#endif
 
 static QString plainSelectedText(const QTextCursor &cursor)
 {
@@ -79,14 +87,20 @@ class EmacsKeysPlugin final : public ExtensionSystem::IPlugin
     void genericGoto(QTextCursor::MoveOperation op, bool abortAssist = true);
     void genericVScroll(int direction);
 
-    QHash<PlainTextEdit *, EmacsKeysState *> m_stateMap;
-    PlainTextEdit *m_currentEditorWidget = nullptr;
+    QHash<Core::IEditor *, EmacsKeysState *> m_stateMap;
+    // The view the reader is in. Keyed on the editor rather than on a
+    // QPlainTextEdit, so that these keys work in the Qt Quick editor - where
+    // there is no such widget and every one of them used to do nothing.
+    QPointer<Core::IEditor> m_currentEditor;
     EmacsKeysState *m_currentState = nullptr;
     TextEditorWidget *m_currentBaseTextEditorWidget = nullptr;
 };
 
 void EmacsKeysPlugin::initialize()
 {
+#ifdef WITH_TESTS
+    addTestCreator(createEmacsKeysTest);
+#endif
     // We have to use this hack here at the moment, because it's the only way to
     // disable Qt Creator menu accelerators aka mnemonics. Many of them get into
     // the way of typical emacs keys, such as: Alt+F (File), Alt+B (Build),
@@ -147,30 +161,31 @@ void EmacsKeysPlugin::initialize()
 
 void EmacsKeysPlugin::editorAboutToClose(IEditor *editor)
 {
-    auto w = qobject_cast<PlainTextEdit *>(editor->widget());
-    if (!w)
-        return;
-
-    if (m_stateMap.contains(w)) {
-        delete m_stateMap[w];
-        m_stateMap.remove(w);
+    if (m_stateMap.contains(editor)) {
+        if (m_currentState == m_stateMap[editor])
+            m_currentState = nullptr;
+        delete m_stateMap[editor];
+        m_stateMap.remove(editor);
     }
 }
 
 void EmacsKeysPlugin::currentEditorChanged(IEditor *editor)
 {
-    if (!editor) {
-        m_currentEditorWidget = nullptr;
-        return;
-    }
-    m_currentEditorWidget = qobject_cast<PlainTextEdit *>(editor->widget());
-    if (!m_currentEditorWidget)
+    m_currentEditor = nullptr;
+    m_currentState = nullptr;
+    m_currentBaseTextEditorWidget = nullptr;
+    if (!editor)
         return;
 
-    if (!m_stateMap.contains(m_currentEditorWidget)) {
-        m_stateMap[m_currentEditorWidget] = new EmacsKeysState(m_currentEditorWidget);
-    }
-    m_currentState = m_stateMap[m_currentEditorWidget];
+    // A text document is what these commands edit; which view shows it only
+    // decides how the caret is asked for.
+    if (!qobject_cast<TextEditor::TextDocument *>(editor->document()))
+        return;
+
+    m_currentEditor = editor;
+    if (!m_stateMap.contains(editor))
+        m_stateMap[editor] = new EmacsKeysState(editor);
+    m_currentState = m_stateMap[editor];
     m_currentBaseTextEditorWidget = TextEditorWidget::fromEditor(editor);
 }
 
@@ -187,27 +202,27 @@ void EmacsKeysPlugin::gotoPreviousWord()      { genericGoto(QTextCursor::Previou
 
 void EmacsKeysPlugin::mark()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
 
     m_currentState->beginOwnAction();
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     if (m_currentState->mark() == cursor.position()) {
         m_currentState->setMark(-1);
     } else {
         cursor.clearSelection();
         m_currentState->setMark(cursor.position());
-        m_currentEditorWidget->setTextCursor(cursor);
+        setTextCursorOf(m_currentEditor, cursor);
     }
     m_currentState->endOwnAction(KeysActionOther);
 }
 
 void EmacsKeysPlugin::exchangeCursorAndMark()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
 
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     if (m_currentState->mark() == -1 || m_currentState->mark() == cursor.position())
         return;
 
@@ -216,31 +231,31 @@ void EmacsKeysPlugin::exchangeCursorAndMark()
     cursor.clearSelection();
     cursor.setPosition(m_currentState->mark(), QTextCursor::KeepAnchor);
     m_currentState->setMark(position);
-    m_currentEditorWidget->setTextCursor(cursor);
+    setTextCursorOf(m_currentEditor, cursor);
     m_currentState->endOwnAction(KeysActionOther);
 }
 
 void EmacsKeysPlugin::copy()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
 
     m_currentState->beginOwnAction();
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     QApplication::clipboard()->setText(plainSelectedText(cursor));
     cursor.clearSelection();
-    m_currentEditorWidget->setTextCursor(cursor);
+    setTextCursorOf(m_currentEditor, cursor);
     m_currentState->setMark(-1);
     m_currentState->endOwnAction(KeysActionOther);
 }
 
 void EmacsKeysPlugin::cut()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
 
     m_currentState->beginOwnAction();
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     QApplication::clipboard()->setText(plainSelectedText(cursor));
     cursor.removeSelectedText();
     m_currentState->setMark(-1);
@@ -249,11 +264,11 @@ void EmacsKeysPlugin::cut()
 
 void EmacsKeysPlugin::yank()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
 
     m_currentState->beginOwnAction();
-    m_currentEditorWidget->paste();
+    pasteIn(m_currentEditor);
     m_currentState->setMark(-1);
     m_currentState->endOwnAction(KeysActionOther);
 }
@@ -263,19 +278,19 @@ void EmacsKeysPlugin::scrollHalfUp() { genericVScroll(-1); }
 
 void EmacsKeysPlugin::deleteCharacter()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
     m_currentState->beginOwnAction();
-    m_currentEditorWidget->textCursor().deleteChar();
+    textCursorOf(m_currentEditor).deleteChar();
     m_currentState->endOwnAction(KeysActionOther);
 }
 
 void EmacsKeysPlugin::killWord()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
     m_currentState->beginOwnAction();
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     cursor.movePosition(QTextCursor::NextWord, QTextCursor::KeepAnchor);
     if (m_currentState->lastAction() == KeysActionKillWord) {
         QApplication::clipboard()->setText(
@@ -289,11 +304,11 @@ void EmacsKeysPlugin::killWord()
 
 void EmacsKeysPlugin::killLine()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
 
     m_currentState->beginOwnAction();
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     int position = cursor.position();
     cursor.movePosition(QTextCursor::EndOfLine, QTextCursor::KeepAnchor);
     if (cursor.position() == position) {
@@ -312,17 +327,17 @@ void EmacsKeysPlugin::killLine()
 
 void EmacsKeysPlugin::insertLineAndIndent()
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
 
     m_currentState->beginOwnAction();
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     cursor.beginEditBlock();
     cursor.insertBlock();
     if (m_currentBaseTextEditorWidget)
         m_currentBaseTextEditorWidget->textDocument()->autoIndent(cursor);
     cursor.endEditBlock();
-    m_currentEditorWidget->setTextCursor(cursor);
+    setTextCursorOf(m_currentEditor, cursor);
     m_currentState->endOwnAction(KeysActionOther);
 }
 
@@ -337,13 +352,13 @@ QAction *EmacsKeysPlugin::registerAction(Id id, void (EmacsKeysPlugin::*callback
 
 void EmacsKeysPlugin::genericGoto(QTextCursor::MoveOperation op, bool abortAssist)
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
         return;
     m_currentState->beginOwnAction();
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
+    QTextCursor cursor = textCursorOf(m_currentEditor);
     cursor.movePosition(op, m_currentState->mark() != -1 ?
         QTextCursor::KeepAnchor : QTextCursor::MoveAnchor);
-    m_currentEditorWidget->setTextCursor(cursor);
+    setTextCursorOf(m_currentEditor, cursor);
     if (abortAssist && m_currentBaseTextEditorWidget)
         m_currentBaseTextEditorWidget->abortAssist();
     m_currentState->endOwnAction(KeysActionOther);
@@ -351,37 +366,108 @@ void EmacsKeysPlugin::genericGoto(QTextCursor::MoveOperation op, bool abortAssis
 
 void EmacsKeysPlugin::genericVScroll(int direction)
 {
-    if (!m_currentEditorWidget)
+    if (!m_currentEditor || !m_currentState)
+        return;
+
+    // Still widget-only: a half-page scroll is the one command here that is
+    // about the view rather than the text - a scroll bar's page step, the
+    // viewport's rectangle, and where the caret is drawn. The Qt Quick editor
+    // has all three, but not under these names, and inventing the seam is its
+    // own piece of work. See the design doc.
+    auto * const edit = qobject_cast<PlainTextEdit *>(m_currentEditor->widget());
+    if (!edit)
         return;
 
     m_currentState->beginOwnAction();
-    QScrollBar *verticalScrollBar = m_currentEditorWidget->verticalScrollBar();
+    QScrollBar *verticalScrollBar = edit->verticalScrollBar();
     const int value = verticalScrollBar->value();
     const int halfPageStep = verticalScrollBar->pageStep() / 2;
     const int newValue = value + (direction > 0 ? halfPageStep : -halfPageStep);
     verticalScrollBar->setValue(newValue);
 
     // adjust cursor if it's out of screen
-    const QRect viewportRect = m_currentEditorWidget->viewport()->rect();
+    const QRect viewportRect = edit->viewport()->rect();
     const QTextCursor::MoveMode mode =
         m_currentState->mark() != -1 ?
         QTextCursor::KeepAnchor :
         QTextCursor::MoveAnchor ;
     const QTextCursor::MoveOperation op =
-        m_currentEditorWidget->cursorRect().y() < 0 ?
+        edit->cursorRect().y() < 0 ?
         QTextCursor::Down :
         QTextCursor::Up ;
 
-    QTextCursor cursor = m_currentEditorWidget->textCursor();
-    while (!m_currentEditorWidget->cursorRect(cursor).intersects(viewportRect)) {
+    QTextCursor cursor = textCursorOf(m_currentEditor);
+    while (!edit->cursorRect(cursor).intersects(viewportRect)) {
         const int previousPosition = cursor.position();
         cursor.movePosition(op, mode);
         if (previousPosition == cursor.position())
             break;
     }
-    m_currentEditorWidget->setTextCursor(cursor);
+    setTextCursorOf(m_currentEditor, cursor);
     m_currentState->endOwnAction(KeysActionOther);
 }
+
+#ifdef WITH_TESTS
+
+// Every one of these keys used to be dead on a C++ file: the plugin looked for
+// a QPlainTextEdit in the editor's widget, and the Qt Quick editor has none.
+class EmacsKeysTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheKeysReachAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("emacskeys-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("keys.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\nint beta = 2;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { EditorManager::closeAllEditors(false); });
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const auto trigger = [](const char *id) {
+            Command * const cmd = ActionManager::command(Id::fromName(id));
+            QTC_ASSERT(cmd && cmd->action(), return false);
+            cmd->action()->trigger();
+            return true;
+        };
+
+        // Moving the caret: Ctrl+E, to the end of the line it is on. The
+        // column gotoLine() takes is zero-based.
+        editor->gotoLine(1, 0);
+        QCOMPARE(textCursorOf(editor).positionInBlock(), 0);
+        QVERIFY(trigger(Constants::GOTO_LINE_END));
+        QTRY_COMPARE(textCursorOf(editor).positionInBlock(),
+                     QString("int alpha = 1;").size());
+
+        // And editing: Ctrl+K, which takes the rest of the line away.
+        editor->gotoLine(2, 5);
+        QVERIFY(trigger(Constants::KILL_LINE));
+        QTRY_VERIFY2(!document->plainText().contains("beta = 2"),
+                     qPrintable("the line was not killed:\n" + document->plainText()));
+        QVERIFY2(document->plainText().contains("int alpha = 1;"),
+                 "the wrong line was killed");
+    }
+};
+
+QObject *createEmacsKeysTest()
+{
+    return new EmacsKeysTest;
+}
+
+#endif // WITH_TESTS
 
 } // EmacsKeys::Internal
 

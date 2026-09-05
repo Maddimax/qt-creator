@@ -34374,3 +34374,82 @@ moment they open a C++ file, and nothing tells them why. I would do that
 first, and I would treat (3) as a decision to record rather than work to
 schedule - three unanswered questions in a plan are worse than three answered
 "no"s.
+
+## 2026-09-05 -- emacskeys, all of it but the half-page scroll
+
+Taken because it was the recommendation the last entry made and nothing else
+was actionable: of the three remaining items it is **the only one that is a
+regression rather than an absence.** Someone with Emacs keys on loses every
+one of them the moment they open a C++ file, and nothing says why.
+
+The gap this closed: **all of it except one command.** It was smaller than the
+"45 uses" made it look. The uses were four kinds, and three had seams already:
+
+- the caret, read and written - `textCursorOf()`/`setTextCursorOf()`;
+- the clipboard - `pasteIn()`;
+- the edits themselves - `cursor.removeSelectedText()` and friends already
+  went through the `QTextCursor`, so they never needed a view at all;
+- "somebody else touched this", which `EmacsKeysState` watched through three
+  widget signals.
+
+For the last one, two of the three have editor-level equivalents -
+`Core::IEditor::cursorPositionChanged` and `IDocument::contentsChanged` - and
+the third, a selection changing without the caret moving, has none. So the
+widget's `selectionChanged` is **kept where there is a widget** rather than
+dropped: widening, not replacing, so that view behaves exactly as before.
+All three handlers do the same thing anyway.
+
+`m_stateMap` keys on the editor now, and `currentEditorChanged()` clears the
+current state before deciding - the old one returned early on a non-text
+editor and left `m_currentState` pointing at the previous one, which was
+harmless only because every command checked the widget first.
+
+### The one left behind
+
+`genericVScroll()` - the half-page scroll on Ctrl+V and Alt+V - is still
+widget-only, and now says so. It is the only command here that is about the
+*view* rather than the text: a scroll bar's page step, the viewport's
+rectangle, and where the caret is drawn. The Qt Quick editor has all three -
+`scrollY`, `visibleBlockRange()`, `cursorRectangle()` - but the loop that
+walks the caret back on screen is not a line-for-line translation, and
+inventing that seam is its own batch.
+
+So: an Emacs user in the Quick editor gets every binding except two, instead
+of none.
+
+### Negative controls
+
+- **A -- the plugin tracks a widget again** (the pre-port condition): red.
+- **B -- the caret is read but never written back**: red, so the write half of
+  the seam is load-bearing and not decoration.
+
+### The fixture, again
+
+First run failed on its own setup: `gotoLine(1, 1)` puts the caret at
+`positionInBlock() == 1`. The column that function takes is **zero-based**,
+and the assertion had assumed otherwise. Third batch running where the first
+red was the test's arithmetic rather than the code - worth expecting rather
+than being surprised by.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      459 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test EmacsKeys ...                      3 passed, 0 failed, exit 0
+
+Three files, no new file and no `.qbs` edit. The plugin had no tests; the new
+one sits in `emacskeysplugin.cpp` behind `WITH_TESTS` and is registered from
+`initialize()`, so no `CMakeLists.txt` change either.
+
+### What this leaves
+
+- **`genericVScroll()`** - one command, wants a scrolling seam. One batch.
+- **lua/bindings/texteditor.cpp** (38 uses of `BaseTextEditor`) - Lua scripts
+  see no current editor on a C++ file. Several batches, and worth deciding on
+  rather than starting by default: unlike emacskeys nobody has said whether
+  Lua scripting against the editor is a supported thing to keep working.
+- **The presentation questions** - the clang-tools toolbar button, the
+  parse-context highlight, whether the Refactor submenu nests or goes inline.
+  Thirteen batches deferred. Still a decision, not a task.

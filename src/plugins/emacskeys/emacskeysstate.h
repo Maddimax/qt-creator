@@ -4,8 +4,9 @@
 #pragma once
 
 #include <QObject>
+#include <QPointer>
 
-namespace Utils { class PlainTextEdit; }
+namespace Core { class IEditor; }
 
 namespace EmacsKeys::Internal {
 
@@ -19,7 +20,7 @@ enum EmacsKeysAction {
 class EmacsKeysState : public QObject
 {
 public:
-    EmacsKeysState(Utils::PlainTextEdit *edit);
+    EmacsKeysState(Core::IEditor *editor);
     ~EmacsKeysState() override;
     void setLastAction(EmacsKeysAction action);
     void beginOwnAction() { m_ignore3rdParty = true; }
@@ -40,7 +41,9 @@ private:
     bool m_ignore3rdParty;
     int m_mark;
     EmacsKeysAction m_lastAction;
-    Utils::PlainTextEdit *m_editorWidget;
+    // The view the reader is in, not a widget: these keys work in the Qt
+    // Quick editor too, and a QPointer because an editor can go first.
+    const QPointer<Core::IEditor> m_editor;
 };
 
 } // namespace EmacsKeys::Internal
