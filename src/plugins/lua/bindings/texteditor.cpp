@@ -12,6 +12,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/textdocumentlayout.h>
 #include <texteditor/texteditor.h>
+#include <texteditor/suggestionhost.h>
 #include <utils/layoutbuilder.h>
 #include <utils/stringutils.h>
 #include <utils/tooltip/tooltip.h>
@@ -37,19 +38,19 @@ Return get_or_throw(const Argument &arg, const char *key)
     return *value;
 }
 
-TextEditor::TextEditorWidget *getSuggestionReadyEditorWidget(TextEditor::TextDocument *document)
+TextEditor::SuggestionHost *getSuggestionReadyHost(TextEditor::TextDocument *document)
 {
     Core::IEditor * const textEditor = Core::EditorManager::currentEditor();
     if (!textEditor || textEditor->document() != document)
         return nullptr;
 
-    // Still widget-only: what this hands back is a SuggestionHost, and the Qt
-    // Quick view is not one even though it shows suggestions. See the doc.
-    auto * const widget = TextEditorWidget::fromEditor(textEditor);
-    if (!widget || widget->isReadOnly() || widget->multiTextCursor().hasMultipleCursors())
+    // Everything a suggestion needs is what SuggestionHost asks for, and both
+    // views answer it - so this no longer cares which one is showing the file.
+    TextEditor::SuggestionHost * const host = suggestionHostForEditor(textEditor);
+    if (!host || host->isReadOnly() || host->multiTextCursor().hasMultipleCursors())
         return nullptr;
 
-    return widget;
+    return host;
 }
 
 std::unique_ptr<EmbeddedWidgetInterface> addEmbeddedWidget(
@@ -525,12 +526,9 @@ void setupTextEditorModule()
             "hasLockedSuggestion",
             [](const TextEditorPtr &textEditor) {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                // Still widget-only: suggestionVisible() is a SuggestionHost
-                // question and the Qt Quick view is not one. It offers and
-                // takes suggestions, so this wants a seam of its own rather
-                // than a guess. See the design doc.
-                TextEditorWidget * const view = TextEditorWidget::fromEditor(textEditor);
-                return view && view->suggestionVisible();
+                TextEditor::SuggestionHost * const host
+                    = suggestionHostForEditor(textEditor);
+                return host && host->suggestionVisible();
             },
             "insertText",
             [](TextEditorPtr editor, const QString &text) {
@@ -627,11 +625,11 @@ void setupTextEditorModule()
                 if (suggestions.isEmpty())
                     return;
 
-                auto widget = getSuggestionReadyEditorWidget(document);
-                if (!widget)
+                auto host = getSuggestionReadyHost(document);
+                if (!host)
                     return;
 
-                widget->insertSuggestion(
+                host->insertSuggestion(
                     std::make_unique<CyclicSuggestion>(suggestions, document->document()));
             });
 

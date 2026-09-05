@@ -34610,3 +34610,87 @@ Five files, no new file and no `.qbs` edit.
   parse-context highlight, whether the Refactor submenu nests or goes inline.
   Fifteen batches deferred. This is the only item left that genuinely needs a
   person, and the deferral has become the answer by default.
+
+## 2026-09-05 -- Suggestions, and a harness so the bindings are testable at all
+
+Two gaps closed, and one correction to the entry before this one.
+
+**The correction first.** Last batch said `hasLockedSuggestion` "wants a seam
+of its own" because the Qt Quick view is not a `SuggestionHost`. That was
+wrong, and wrong in a way worth naming: I read `textviewport.h`, saw no
+`suggestionVisible()`, and concluded there was no way to ask. There is -
+`suggestionhost.h` has been carrying `suggestionHostForEditor(Core::IEditor *)`
+for both views, with a `ViewportHost` whose `suggestionVisible()` is
+`m_view->currentSuggestion() != nullptr`. **Looking at the class is not the
+same as looking for the abstraction over it.**
+
+The gaps this closed, both in the Lua bindings and both about suggestions:
+
+- **`TextEditor:hasLockedSuggestion()`** asked a `TextEditorWidget`.
+- **`TextDocument:setSuggestions()`** - also documented - went through
+  `getSuggestionReadyEditorWidget()`, so **a script could not offer a
+  suggestion on a C++ file at all**. It wanted `isReadOnly()`,
+  `multiTextCursor()` and `insertSuggestion()`, which is exactly what
+  `SuggestionHost` asks for.
+
+Both now go through `suggestionHostForEditor()`. Nothing new was needed.
+
+### A harness, finally
+
+Three entries running said "the Lua plugin has no test harness" as though it
+were weather. It is not: `runScript()` is exported and takes a
+`customizeState` hook, so a test can put a `report()` function into the state
+and have the script call back into C++. That is the whole harness.
+
+`testAScriptSeesTheEditorInEitherView` runs
+
+    local te = require("TextEditor")
+    local editor = te.currentEditor()
+    if editor == nil then report(false, -1) return end
+    report(true, editor:cursor():mainCursor():blockNumber())
+
+against **both** views and checks the caret comes back where the fixture put
+it. That is the first test of any Lua binding in this repository, and it is
+the one that would have caught the bug the last batch fixed.
+
+**"There is no harness" is a claim with an expiry date.** Say it once, then go
+and look at what the plugin already exports.
+
+### Negative controls
+
+- **A -- `currentEditor()` needs a widget editor again** (the state before the
+  last batch): red on the `quick` row only, which is exactly the bug as it was.
+- **B -- the carets come from somewhere other than the view**: red on **both**
+  rows, so the assertion is about the caret and not about the view.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      462 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test Lua ...                            4 passed, 0 failed, exit 0
+
+Three files, no new file, and no `CMakeLists.txt` or `.qbs` edit - the test
+sits in `luaplugin.cpp` behind `WITH_TESTS`.
+
+### What this leaves
+
+Three members of the Lua API are a widget's by nature and refuse with an error
+rather than doing nothing: `addEmbeddedWidget` and `insertExtraToolBarWidget`
+put a `QWidget` into the view, and the Qt Quick editor has nowhere to put one.
+Whether those should grow a Qt Quick answer is a design question about that
+editor's toolbar and inline widgets - the same family as the presentation
+questions below, and worth answering together with them.
+
+**And that is everything that was actionable.** What remains is one decision,
+carried now through sixteen batches:
+
+- **The presentation questions**: the clang-tools toolbar button, the
+  parse-context highlight, and whether the Refactor submenu nests or goes
+  inline. Plus, now, the two Lua widget members above.
+
+They are all the same question - *what does a toolbar or an inline widget do
+in the Qt Quick editor when the widget one had a popup or a QWidget?* Sixteen
+batches of deferral is an answer in practice; it should be written down as one
+either way, so the plan stops carrying work nobody intends to do.

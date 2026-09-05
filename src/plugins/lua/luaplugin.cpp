@@ -34,12 +34,20 @@
 #include <QToolBar>
 #include <QStringListModel>
 #include <QStyledItemDelegate>
+#include <coreplugin/editormanager/ieditor.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
 
 using namespace Core;
 using namespace Utils;
 using namespace ExtensionSystem;
 
 namespace Lua::Internal {
+
+#ifdef WITH_TESTS
+QObject *createLuaTextEditorTest();
+#endif
 
 const char M_SCRIPT[] = "Lua.Script";
 const char G_SCRIPTS[] = "Lua.Scripts";
@@ -301,6 +309,9 @@ public:
 
     void initialize() final
     {
+#ifdef WITH_TESTS
+        addTestCreator(createLuaTextEditorTest);
+#endif
         IOptionsPage::registerCategory(
             "ZY.Lua", Tr::tr("Lua"), ":/lua/images/settingscategory_lua.png");
 
@@ -547,6 +558,83 @@ public:
                 .arg(content.error()));
     }
 };
+
+#ifdef WITH_TESTS
+
+// The bindings had no test of any kind, so "TextEditor.currentEditor() is nil
+// on a C++ file" went unnoticed until it was looked for. A script is the only
+// thing that can say whether a binding works, so the harness runs one.
+class LuaTextEditorTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testAScriptSeesTheEditorInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAScriptSeesTheEditorInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("lua-editor-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("script.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\nint beta = 2;\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        editor->gotoLine(2, 4);
+
+        // What a script actually sees, reported back through a function the
+        // fixture puts in the state.
+        bool ran = false;
+        bool hasEditor = false;
+        int blockNumber = -1;
+        const std::unique_ptr<Utils::LuaState> state = runScript(
+            R"(
+                local te = require("TextEditor")
+                local editor = te.currentEditor()
+                if editor == nil then
+                    report(false, -1)
+                    return
+                end
+                report(true, editor:cursor():mainCursor():blockNumber())
+            )",
+            "lua-editor-any-view-test",
+            [&](sol::state &lua) {
+                lua["report"] = [&](bool found, int line) {
+                    ran = true;
+                    hasEditor = found;
+                    blockNumber = line;
+                };
+            });
+
+        QVERIFY2(ran, "the script did not run to the point of reporting anything");
+        QVERIFY2(hasEditor, "a script asking for the current editor was handed nil");
+        // And it is this editor, at the caret the fixture put there.
+        QCOMPARE(blockNumber, 1);
+    }
+};
+
+QObject *createLuaTextEditorTest()
+{
+    return new LuaTextEditorTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace Lua::Internal
 
