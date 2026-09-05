@@ -1368,6 +1368,21 @@ static Core::Context commandContextsOf(Core::IEditor *editor)
     return all;
 }
 
+// A Quick editor whose language answers exactly the given mask.
+class MaskedFactory final : public TextEditorFactory
+{
+public:
+    MaskedFactory(const Utils::Id &id, uint mask)
+    {
+        setId(id);
+        setDisplayName(id.toString());
+        setDocumentCreator([id] { return new TextDocument(id); });
+        setEditorWidgetCreator([] { return new TextEditorWidget; });
+        setUsesQuickEditor(true);
+        setOptionalActionMask(mask);
+    }
+};
+
 class QuickTextEditorTest final : public QObject
 {
     Q_OBJECT
@@ -7402,22 +7417,235 @@ private slots:
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.
     // The Quick editor registered all of them enabled whatever the mask said.
-    void testTheOptionalCommandsFollowTheFactorysMask()
+    void testWhatTheCompleterPutInStopsBeingNewWhenTheReaderLeaves_data()
     {
-        class MaskedFactory final : public TextEditorFactory
-        {
-        public:
-            MaskedFactory(const Utils::Id &id, uint mask)
-            {
-                setId(id);
-                setDisplayName(id.toString());
-                setDocumentCreator([id] { return new TextDocument(id); });
-                setEditorWidgetCreator([] { return new TextEditorWidget; });
-                setUsesQuickEditor(true);
-                setOptionalActionMask(mask);
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // The bracket the completer closed for you is not text you wrote, and both
+    // editors keep a range saying so: it is what a typed ")" steps over
+    // instead of doubling, and what gets drawn differently while it is still
+    // the last thing that happened. It stops being that the moment the reader
+    // goes somewhere else - typing into it does not count, because the text is
+    // pushed along and the caret stays at the front of it.
+    void testWhatTheCompleterPutInStopsBeingNewWhenTheReaderLeaves()
+    {
+        QFETCH(bool, quick);
+
+        const bool was = globalCompletionSettings().highlightAutoComplete();
+        const QScopeGuard restoreSetting([was] {
+            globalCompletionSettings().highlightAutoComplete.setValue(was); });
+        globalCompletionSettings().highlightAutoComplete.setValue(true);
+
+        Utils::TemporaryDirectory dir("completer-put-in");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        for (const QChar ch : QString("f(")) {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(ch));
+            QCoreApplication::sendEvent(target, &press);
+        }
+        QCOMPARE(document->document()->toPlainText(), QString("f()"));
+
+        // The closing bracket, and only it.
+        const QTextCursor put = TextEditor::autoCompleteHighlightOf(editor);
+        QCOMPARE(put.selectedText(), QString(")"));
+        QCOMPARE(put.selectionStart(), 2);
+
+        // The widget editor decides this from a queued call, so what is being
+        // waited for is that turn of the loop and not a timeout.
+        QCoreApplication::processEvents();
+        QVERIFY2(!TextEditor::autoCompleteHighlightOf(editor).isNull(),
+                 "sitting where the completer left the caret dropped it");
+
+        // One character to the left is somewhere else.
+        QTextCursor back(document->document());
+        back.setPosition(1);
+        TextEditor::setTextCursorOf(editor, back);
+        QCoreApplication::processEvents();
+        QVERIFY2(TextEditor::autoCompleteHighlightOf(editor).isNull(),
+                 "what the completer put in was still new after the reader left it");
+    }
+
+    // And what that range is *for*, in the view that had it and drew nothing:
+    // the text is coloured as C_AUTOCOMPLETE until it stops being new. The
+    // setting turns the drawing off without taking the range away, because the
+    // range is also what steps over a typed closing bracket.
+    void testTheViewDrawsWhatTheCompleterPutIn()
+    {
+        const bool was = globalCompletionSettings().highlightAutoComplete();
+        const QScopeGuard restoreSetting([was] {
+            globalCompletionSettings().highlightAutoComplete.setValue(was); });
+        globalCompletionSettings().highlightAutoComplete.setValue(true);
+
+        Utils::TemporaryDirectory dir("completer-drawn");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        const auto drawn = [view] {
+            return view->highlights(Utils::Id("TextEditor.AutoCompleted"));
+        };
+        const auto typeABracket = [target] {
+            for (const QChar ch : QString("f(")) {
+                QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(ch));
+                QCoreApplication::sendEvent(target, &press);
             }
         };
+        const auto putCaretAt = [editor, document](int position) {
+            QTextCursor caret(document->document());
+            caret.setPosition(position);
+            TextEditor::setTextCursorOf(editor, caret);
+        };
 
+        QVERIFY2(drawn().isEmpty(), "something was drawn before anything was typed");
+        typeABracket();
+
+        QCOMPARE(drawn().size(), 1);
+        // Over the bracket itself. The range is set while the edit is still
+        // open, so this is also what says it was not carried a second time by
+        // the change that closed it.
+        QCOMPARE(drawn().first().start, 2);
+        QCOMPARE(drawn().first().end, 3);
+        QCOMPARE(drawn().first().format,
+                 document->fontSettings().toTextCharFormat(C_AUTOCOMPLETE));
+
+        putCaretAt(1);
+        QVERIFY2(drawn().isEmpty(), "the colour outlived what it was saying");
+
+        // Off: nothing is drawn, and the range is still there to step over.
+        globalCompletionSettings().highlightAutoComplete.setValue(false);
+        const Utils::FilePath other = dir.filePath("second.cpp");
+        QVERIFY(other.writeFileContents(""));
+        Core::IEditor * const second = Core::EditorManager::openEditor(other);
+        QVERIFY(second);
+        const QScopeGuard closeSecond(
+            [second] { Core::EditorManager::closeEditors({second}, false); });
+        TextViewport * const secondView = viewportForEditor(second);
+        QVERIFY(secondView);
+        QObject * const secondTarget = TextEditor::keyTargetOf(second);
+        QVERIFY(secondTarget);
+        for (const QChar ch : QString("f(")) {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(ch));
+            QCoreApplication::sendEvent(secondTarget, &press);
+        }
+        QVERIFY2(secondView->highlights(Utils::Id("TextEditor.AutoCompleted")).isEmpty(),
+                 "the setting was off and the text was coloured anyway");
+        QVERIFY2(!TextEditor::autoCompleteHighlightOf(second).isNull(),
+                 "turning the colour off took away the range that steps over a bracket");
+    }
+
+    void testEveryOptionalActionBitReachesItsCommands_data()
+    {
+        QTest::addColumn<uint>("mask");
+        QTest::addColumn<QStringList>("enabled");
+
+        // What TextEditorWidgetPrivate::updateOptionalActions() enables for
+        // each bit, which is the answer this editor has to give as well.
+        QTest::newRow("Format") << uint(OptionalActions::Format)
+            << QStringList{Constants::AUTO_INDENT_SELECTION, Constants::AUTO_FORMAT_SELECTION};
+        QTest::newRow("UnCommentSelection") << uint(OptionalActions::UnCommentSelection)
+            << QStringList{Constants::UN_COMMENT_SELECTION};
+        QTest::newRow("UnCollapseAll") << uint(OptionalActions::UnCollapseAll)
+            << QStringList{Constants::UNFOLD_ALL};
+        QTest::newRow("FollowSymbolUnderCursor") << uint(OptionalActions::FollowSymbolUnderCursor)
+            << QStringList{Constants::FOLLOW_SYMBOL_UNDER_CURSOR,
+                           Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT};
+        QTest::newRow("FollowTypeUnderCursor") << uint(OptionalActions::FollowTypeUnderCursor)
+            << QStringList{Constants::FOLLOW_SYMBOL_TO_TYPE,
+                           Constants::FOLLOW_SYMBOL_TO_TYPE_IN_NEXT_SPLIT};
+        QTest::newRow("JumpToFileUnderCursor") << uint(OptionalActions::JumpToFileUnderCursor)
+            << QStringList{Constants::JUMP_TO_FILE_UNDER_CURSOR,
+                           Constants::JUMP_TO_FILE_UNDER_CURSOR_IN_NEXT_SPLIT};
+        QTest::newRow("RenameSymbol") << uint(OptionalActions::RenameSymbol)
+            << QStringList{Constants::RENAME_SYMBOL};
+        QTest::newRow("FindUsage") << uint(OptionalActions::FindUsage)
+            << QStringList{Constants::FIND_USAGES};
+        QTest::newRow("CallHierarchy") << uint(OptionalActions::CallHierarchy)
+            << QStringList{Constants::OPEN_CALL_HIERARCHY};
+        QTest::newRow("TypeHierarchy") << uint(OptionalActions::TypeHierarchy)
+            << QStringList{Constants::OPEN_TYPE_HIERARCHY};
+    }
+
+    // One bit at a time, against every command any bit governs: asking for a
+    // bit has to enable its own commands and leave the other nine alone. The
+    // test below checks the rule and the seam; this checks the table, which is
+    // where a bit goes missing quietly.
+    void testEveryOptionalActionBitReachesItsCommands()
+    {
+        QFETCH(uint, mask);
+        QFETCH(QStringList, enabled);
+
+        static const QStringList governed{
+            Constants::AUTO_INDENT_SELECTION, Constants::AUTO_FORMAT_SELECTION,
+            Constants::UN_COMMENT_SELECTION, Constants::UNFOLD_ALL,
+            Constants::FOLLOW_SYMBOL_UNDER_CURSOR,
+            Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT,
+            Constants::FOLLOW_SYMBOL_TO_TYPE, Constants::FOLLOW_SYMBOL_TO_TYPE_IN_NEXT_SPLIT,
+            Constants::JUMP_TO_FILE_UNDER_CURSOR,
+            Constants::JUMP_TO_FILE_UNDER_CURSOR_IN_NEXT_SPLIT,
+            Constants::RENAME_SYMBOL, Constants::FIND_USAGES,
+            Constants::OPEN_CALL_HIERARCHY, Constants::OPEN_TYPE_HIERARCHY};
+
+        MaskedFactory factory(Utils::Id("QuickEditorOneBit").withSuffix(int(mask)), mask);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY(editor);
+
+        QStringList on;
+        for (const QString &id : governed) {
+            Core::Command * const cmd = Core::ActionManager::command(Utils::Id::fromString(id));
+            QVERIFY2(cmd, qPrintable(id + " is not a command at all"));
+            QAction *action = nullptr;
+            for (const Utils::Id &each : commandContextsOf(editor.get())) {
+                if (QAction * const a = cmd->actionForContext(each)) {
+                    action = a;
+                    break;
+                }
+            }
+            QVERIFY2(action, qPrintable(id + " is not registered in the editor's context"));
+            if (action->isEnabled())
+                on << id;
+        }
+        QCOMPARE(on, enabled);
+    }
+
+    void testTheOptionalCommandsFollowTheFactorysMask()
+    {
         // What a language answers is the point, so ask for two of the ten and
         // nothing else.
         MaskedFactory some("QuickEditorMaskTestSome",

@@ -866,6 +866,9 @@ public:
     // Enter was pressed, or a key typed into this view.
     void carryPositionsThroughEdit(int position, int charsRemoved, int charsAdded);
     void carryHighlightsThroughEdit(int position, int charsRemoved, int charsAdded);
+    // What the completer put in and the reader has not typed over yet, drawn
+    // until the caret goes somewhere else.
+    void refreshAutoCompletedHighlight();
     // Everything that has to follow the caret once it is somewhere new,
     // however it got there: put there, or carried by an edit.
     void caretMoved();

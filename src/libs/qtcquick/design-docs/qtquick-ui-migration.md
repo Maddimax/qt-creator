@@ -38331,3 +38331,120 @@ before the switch can be flipped, in the order I would take them:
 Unchanged: **drawing** the auto-inserted text, the **`QuickUi` sort flake**,
 and **an arbitrary widget in a Quick toolbar**. The eleven skipped completion
 cases are no longer on this list.
+
+## 2026-09-05 (33) -- The switch is already flipped, and the colour it was missing
+
+Two corrections to the last entry before anything else, both found by looking
+rather than by remembering.
+
+**The goal at the top of this document is met.** `CppEditorFactory` has
+`setUsesQuickEditor(!qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))` -
+a C++ file opens in the Qt Quick view, and the environment variable is the way
+back. That is why the clangd cases in entry 32 had been *skipping* the widget
+path rather than exercising it. Everything from here is hardening, not
+approach work.
+
+**The refactor marker is not "still a widget overlay".** I wrote that last
+entry without checking. It has a seam, storage on the document, a viewport
+readout, QML that draws it and two tests. Withdrawn.
+
+### The optional-action mask: measured, and clean
+
+The last entry called it unmeasured and asked for a probe. Ten bits against
+the fourteen commands `TextEditorWidgetPrivate::updateOptionalActions()`
+governs, one editor per bit:
+
+    Format                   AutoIndentSelection AutoFormatSelection
+    UnCommentSelection       UnCommentSelection
+    UnCollapseAll            UnFoldAll
+    FollowSymbolUnderCursor  FollowSymbolUnderCursor  ...InNextSplit
+    FollowTypeUnderCursor    FollowSymbolToType       ...InNextSplit
+    JumpToFileUnderCursor    JumpToFileUnderCursor    ...InNextSplit
+    RenameSymbol             RenameSymbolUnderCursor
+    FindUsage                FindUsages
+    CallHierarchy            OpenCallHierarchy
+    TypeHierarchy            OpenTypeHierarchy
+
+Every bit enables exactly its own commands and none of the other nine, and all
+fourteen are registered in the editor's context. **Not a gap.** The probe is
+now a ten-row test asserting the *whole* enabled set rather than the presence
+of one entry - which is why its control reddens nine rows at once, not one.
+
+A first attempt at this comparison diffed action ids by their proximity to
+mask bits in the two source files. It produced a table that looked like
+findings and was noise: the widget gates member `QAction`s, so the ids are
+nowhere near the bits. **Thrown away rather than read.**
+
+### Which gap this batch closed
+
+The one open longest: **the Quick view kept the range of what the completer
+put in and drew nothing with it**. Measured against the widget:
+
+    typed "f("      widget 2..3 |)|   quick 2..3 |)|
+    caret to 1      widget null       quick 2..3 |)|
+
+Two differences, not one. The colour was missing, and so was the rule that
+takes it away: a widget editor drops it the moment the caret goes anywhere
+else, and this view kept it for ever. The range is also what a typed `)`
+steps over instead of doubling, so keeping it too long is not only a colour
+being wrong.
+
+The rule that fits every measurement is *the caret is at the front of the
+range*. Typing into it keeps it - the text is pushed along and the caret stays
+at the front - and navigating anywhere drops it. That is what the widget's
+comparison of two cursors comes to, and it is what `caretMoved()` now checks.
+
+### The bug the second producer exposed
+
+Drawn, the highlight came out at **4..5 for text the cursor said was at
+2..3**. Entry 31 carries every stored highlight through every edit, including
+this view's own. But this range is set *while the edit block is still open*,
+from positions that already have the edit in them - so the change that closed
+the bracket carried it a second time.
+
+The snippet holes have the same shape and never showed it, because
+`refreshSnippetHighlights()` re-runs on `contentsChanged` and overwrites the
+double-carried value with the truth. The auto-completed range now does the
+same. **Recomputing from a cursor is what makes a producer safe against the
+carry**, and the two producers in the tree both do it; a third that does not
+will be wrong in this exact way.
+
+### Negative controls
+
+- **A -- nothing is drawn**: red on `testTheViewDrawsWhatTheCompleterPutIn`.
+- **B -- it never stops being new**: red on two, the differential lifetime
+  test's *quick* row and the drawing test's "outlived what it was saying".
+- **C -- not recomputed after the edit**: red on the position alone, **4
+  against 2**, which is the double-carry and nothing else.
+- **D -- one mask bit stops reaching its command**: nine rows of the new table
+  red, because a bit that leaks is enabled under every other bit's mask.
+
+### Verification
+
+    -test TextEditor    531 passed, 0 failed, exit 0, 0 warnings   (518 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Three files, no new file and no `.qbs` edit.
+
+One test hung for its full 300-second timeout before it ever failed: it opened
+a second file it had never written. `openEditor()` on a path that is not there
+does not come back in a test. Worth knowing before the next fixture opens two
+files.
+
+### What this leaves
+
+With the mask measured, the marker found already done and the colour drawn,
+the four things the standing warning lists all have Quick-side homes and
+tests. What I would do next, in order:
+
+- **Focus.** A widget editor also drops what the completer put in when the
+  view loses focus, unless `m_keepAutoCompletionHighlight` says otherwise.
+  This view does not model focus at all here. Unmeasured, and the smaller half
+  of the same feature - the next probe, not a claim.
+- **The `QuickUi` sort flake**, which has been on this list unexamined for
+  more than ten entries and is the only failing thing left that nobody has
+  measured. It deserves the rate-measuring treatment rather than another
+  entry saying it is still there.
+- **An arbitrary widget in a Quick toolbar**, unchanged for twenty-five
+  entries. If it is not going to be done, it should be struck from this list
+  rather than carried.

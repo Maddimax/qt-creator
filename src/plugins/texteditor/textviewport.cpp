@@ -2375,11 +2375,32 @@ void TextViewport::setAutoCompletedRange(int from, int to)
                                      : nullptr;
     if (!text || from >= to) {
         m_autoCompleted = QTextCursor();
-        return;
+    } else {
+        m_autoCompleted = QTextCursor(text);
+        m_autoCompleted.setPosition(from);
+        m_autoCompleted.setPosition(to, QTextCursor::KeepAnchor);
     }
-    m_autoCompleted = QTextCursor(text);
-    m_autoCompleted.setPosition(from);
-    m_autoCompleted.setPosition(to, QTextCursor::KeepAnchor);
+    refreshAutoCompletedHighlight();
+}
+
+const Utils::Id AUTO_COMPLETED("TextEditor.AutoCompleted");
+
+void TextViewport::refreshAutoCompletedHighlight()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+    QList<Highlight> marks;
+    // The setting is asked here rather than where the range is set, because
+    // the range is what steps over a closing bracket the reader types and has
+    // to be kept whether or not it is drawn.
+    if (m_autoCompleted.hasSelection() && !m_readOnly
+        && globalCompletionSettings().highlightAutoComplete()) {
+        marks.append({m_autoCompleted.selectionStart(),
+                      m_autoCompleted.selectionEnd(),
+                      doc->fontSettings().toTextCharFormat(C_AUTOCOMPLETE)});
+    }
+    setHighlights(AUTO_COMPLETED, marks);
 }
 
 QTextCursor TextViewport::autoCompletedRange() const
@@ -2595,6 +2616,12 @@ void TextViewport::setCursorPosition(int position)
 
 void TextViewport::caretMoved()
 {
+    // What the completer put in stops being new once the reader goes
+    // somewhere else. Typing into it keeps it: the text is pushed along and
+    // the caret stays where it starts, which is what the widget editor's
+    // comparison of two cursors comes to.
+    if (m_autoCompleted.hasSelection() && m_cursorPosition != m_autoCompleted.selectionStart())
+        setAutoCompletedRange(-1, -1);
     // What "Highlight blocks" adds: the scope around the caret lights up as it
     // moves, without anything being hovered.
     if (displaySettings().highlightBlocks())
@@ -5009,6 +5036,12 @@ void TextViewport::documentChangedInternal()
                 // edit; what is drawn for them has to follow.
                 if (hasSnippetPlaceholders())
                     refreshSnippetHighlights();
+                // And the same for what the completer put in. Recomputed from
+                // the cursor rather than carried: a range set while the edit
+                // block was still open was worked out from positions that
+                // already had the edit in them, and carrying it as well would
+                // move it twice.
+                refreshAutoCompletedHighlight();
                 polish();
                 update();
             });
