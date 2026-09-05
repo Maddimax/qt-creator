@@ -68,6 +68,7 @@
 #include <coreplugin/find/ifindsupport.h>
 
 #include <utils/aggregate.h>
+#include <utils/environment.h>
 #include <utils/changeset.h>
 #include <utils/textutils.h>
 #include <utils/algorithm.h>
@@ -2527,6 +2528,16 @@ private slots:
         const Utils::FilePath file = dir.filePath("commented.cpp");
         QVERIFY(file.writeFileContents("// a b c\nint x = 1;\n"));
 
+        // Asked for rather than assumed. What this checks is how this view
+        // draws a comment; which view a C++ file opens in by default is a
+        // different question, and QTC_WIDGET_CPP_EDITOR turns it round.
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restoreView([factory, wasQuick] {
+            factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
         Core::IEditor * const editor = Core::EditorManager::openEditor(file);
         QVERIFY(editor);
         const QScopeGuard closeIt(
@@ -3817,6 +3828,14 @@ private slots:
         const Utils::FilePath file = dir.filePath("split.cpp");
         QVERIFY(file.writeFileContents("const char *s = \"alpha beta\";\n"));
 
+        // Asked for rather than assumed, as above.
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restoreView([factory, wasQuick] {
+            factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
         Core::IEditor * const editor = Core::EditorManager::openEditor(file);
         QVERIFY(editor);
         const QScopeGuard closeIt(
@@ -5093,6 +5112,14 @@ private slots:
     // same commit.
     void testWhichLanguagesOpenInTheQuickEditor()
     {
+        // This one *is* about the default, so the switch that turns the
+        // default round is the one thing it cannot be asked under.
+        // CppEditorFactory reads QTC_WIDGET_CPP_EDITOR to decide, and the
+        // whole point of that variable is to make a C++ file open in a widget
+        // editor - which is what this would then report as a defect.
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
+            QSKIP("QTC_WIDGET_CPP_EDITOR turns the default this checks round");
+
         Utils::TemporaryDirectory dir("quick-editor-census");
         QVERIFY(dir.isValid());
 

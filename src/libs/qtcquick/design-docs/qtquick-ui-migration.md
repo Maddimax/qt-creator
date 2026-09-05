@@ -39263,3 +39263,104 @@ useful work is not another probe but running the *whole* test suite - every
 plugin, not just these two - both ways, which no entry has done since the
 switch was flipped. That would say whether anything outside TextEditor and
 QuickUi notices which editor a C++ file opens in.
+
+## 2026-09-06 (42) -- The way back was broken, and nothing said so
+
+The last entry proposed running the whole suite both ways - every plugin, not
+just these two - because no entry had done it since the switch was flipped.
+Attempted. Most of this batch went on finding out what that costs.
+
+### `-test all` cannot run in this checkout
+
+    Symbol not found: Utils::AspectContainer::setLayouter(...)
+      Referenced from: libQmlDesigner.dylib
+      Expected in:     libUtils.20.0.82.dylib
+    Errors occurred while loading plugins, skipping test run.
+
+QmlDesigner fails to **load**, and the plugin manager refuses to run any tests
+when a plugin errored - **even one that `-noload` was asked to skip**. So the
+`-noload QmlDesigner` in this file's standing rules is not a preference; it is
+the only thing that makes any test run at all, and a whole-suite run is
+impossible until that link mismatch is fixed. Worth knowing before anyone else
+tries `-test all` and concludes the tests are broken.
+
+### And two things about running it plugin by plugin
+
+- **`perl -e 'alarm shift; exec @ARGV'` does not bound this.** The alarm does
+  not survive the `exec` here, so a run that hangs is not cut off. `AutoTest`
+  loads several real projects and ran for many minutes unbounded, which is
+  where a first attempt at all 70 tested plugins went. Replaced with a wrapper
+  that backgrounds the process and kills it after 300s, which does work.
+- **Twenty plugins, not seventy.** The question is whether anything notices
+  which editor a C++ file opens in, and a VCS or project-manager suite never
+  opens one. The list is in the entry below; the rest are follow-up.
+
+### Which gap this batch closed
+
+The census got through `TextEditor` before this batch had to stop and act on
+what it found:
+
+    -test TextEditor            quick 586/0/0      widget 582/4/0
+
+**Four tests fail when `QTC_WIDGET_CPP_EDITOR=1` is set** - which is the
+documented way back, named in `CppEditorFactory` as "the way back, for a
+report that says otherwise". Anyone who took that route to check a bug report
+met four failures that say nothing about why:
+
+    'quick && quick->rootObject()' returned FALSE
+    '!TextEditorWidget::fromEditor(editor)' returned FALSE
+
+Two shapes, and they want opposite fixes:
+
+- **Two tests are about how this view behaves** - drawing whitespace in a
+  comment, the two other ways Enter treats a string - and were reaching for it
+  by opening a `.cpp` and assuming what came back. They now **ask** for it,
+  the way every test written since entry 29 does. What a C++ file opens in by
+  default is a different question and not theirs.
+- **One test is about the default itself.** `testWhichLanguagesOpenInTheQuickEditor`
+  asserts which languages open where, so the switch that turns the default
+  round is the one thing it cannot run under. It skips, saying so.
+
+### Negative controls
+
+- **A -- the two tests take whatever the default is** (`setUsesQuickEditor(wasQuick)`):
+  three rows red under `QTC_WIDGET_CPP_EDITOR=1`, and green without it -
+  which is the point: this is a failure only one of the two ways.
+- **B -- the default census runs under the override anyway**: red, "main.cpp
+  opened in the widget editor".
+
+Both controls had to be run *with the environment variable set*. A control run
+the ordinary way passes for all three, which is exactly how these four
+survived thirteen batches of green suites.
+
+### Verification, both ways
+
+    -test TextEditor                          586 passed, 0 failed, exit 0
+    -test QuickUi                             207 passed, 0 failed, 1 skipped, exit 0
+    -test TextEditor  QTC_WIDGET_CPP_EDITOR=1 585 passed, 0 failed, 1 skipped, exit 0
+    -test QuickUi     QTC_WIDGET_CPP_EDITOR=1 207 passed, 0 failed, 1 skipped, exit 0
+
+The widget way was **582 passed, 4 failed** before. One file, no new file and
+no `.qbs` edit.
+
+### What this leaves
+
+**The census is one plugin of twenty done.** That is the next batch and it is
+now cheap: the runner works, the timeout works, and the list is
+
+    TextEditor QuickUi CppEditor ClangCodeModel ClangFormat ClangTools FakeVim
+    Macros LanguageClient QmlJSEditor QmlJSTools Beautifier Todo DiffEditor
+    CodePaster EmacsKeys CompilerExplorer Core ProjectExplorer Debugger
+
+Two from the abandoned wider run also matched both ways - `AcpClient` 46/0/0
+and `Android` 105/0/0 - which is evidence for the guess that plugins with no
+text editor in them have nothing to say here, but only two plugins' worth.
+
+The lesson worth carrying: **a suite that only ever runs one way tests one
+way.** Thirteen batches added differential tests that compare the two *views*,
+and every one of them ran under a default that made the Quick view the answer.
+The four that broke were the ones that never asked.
+
+Also still open, unchanged: **drag and drop of text**, which needs
+`QDragEnterEvent`/`QDropEvent` delivered by hand and is separate infrastructure
+from the drag drive built in entry 41.
