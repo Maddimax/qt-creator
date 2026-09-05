@@ -34144,3 +34144,84 @@ whole-plugin ports and three questions for a person:
 The two ports are the last things standing between a C++ file in the Quick
 editor and parity for a user who uses either plugin. Neither is a batch, and
 neither should be started without deciding it is worth doing.
+
+## 2026-09-05 -- A hover handler put into more views than it is taken out of
+
+The gap this closed: **Coco left a destroyed hover handler behind in the Qt
+Quick editor.** Its two *add* sites go through the seam, and one of them says
+why in as many words:
+
+    // Every view of the document, not only the ones that are widgets: the
+    // coverage tooltip is the whole point of this client.
+    addHoverHandlerIn(editor, hoverHandler());
+
+Its destructor did not:
+
+    if (auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor))
+        textEditor->editorWidget()->removeHoverHandler(hoverHandler());
+
+So a handler installed on the Quick editor was never taken out, and the
+viewport went on holding a pointer into the client that had just been
+destroyed with it. An earlier batch ported the adding and stopped there.
+**Adding through a seam and removing through a widget is the shape to look
+for**: it does not fail where it is written, it fails later and somewhere
+else.
+
+### One control bites, one deliberately does not
+
+- **A -- `removeHoverHandlerIn()` does not reach a view that is not a
+  widget**: red on `testAHoverHandlerAddedLaterIsAsked`. The seam Coco now
+  depends on is load-bearing on the Quick view, and that view's behaviour is
+  covered.
+- **B -- Coco's destructor goes back to widget-only**: **green, 3 passed.**
+  Nothing anywhere sees it.
+
+B was run to make the coverage gap a measurement rather than a claim. There is
+no exported way to ask a view which hover handlers it holds
+(`TextEditorFactory::hoverHandlers()` is the factory's list, not a view's), so
+the destructor's effect cannot be observed from a test without new API. The
+seam it now calls is tested; this call site is not. Said, rather than implied
+by a green suite.
+
+### acpclient wants a seam that does not exist yet
+
+Looking at it for this batch rather than fixing it, because it is not the swap
+it appears to be. It needs the caret - `textCursorOf()` covers that - and then
+
+    widget->firstVisibleBlockNumber()
+    widget->lastVisibleBlockNumber()
+
+**There is no visible-range seam, and the two views do not count the same
+thing.** `TextViewport::firstVisibleLine()` is `rowAtY(m_scrollY)` - a *visual
+row* - and `visibleLineCount()` is `m_lines.size()`, the laid-out rows. The
+widget's are *block numbers*. Under wrapping, folds, or the gaps the viewport
+opens for ghost lines and marks, rows and blocks diverge, so a seam has to
+convert (`rowOfLine()` and its inverse) rather than pass the numbers through.
+
+That is a real question with a right answer, and guessing it would produce a
+seam that is quietly wrong on any wrapped file. Named here so the next batch
+starts from the question.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      458 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test Coco ...                           3 passed, 0 failed, exit 0
+
+Two files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **acpclient** - the visible-range seam above. One batch, once the row/block
+  question is answered.
+- **devcontainer:412** - decorates `devcontainer.json` only, for a
+  `BaseTextEditor`. Narrow, and not on the C++ path.
+- **emacskeys** (45 uses of `PlainTextEdit *`) and
+  **lua/bindings/texteditor.cpp** (38 uses of `BaseTextEditor`) - whole-plugin
+  ports. A C++ file in the Quick editor gets no Emacs bindings, and Lua scripts
+  see no current editor. Neither is a batch.
+- **The presentation questions**, still: the clang-tools toolbar button, the
+  parse-context highlight, and whether the Refactor submenu nests or goes
+  inline.

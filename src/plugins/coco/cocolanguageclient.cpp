@@ -63,11 +63,13 @@ CocoLanguageClient::CocoLanguageClient(const FilePath &coco, const FilePath &csm
 
 CocoLanguageClient::~CocoLanguageClient()
 {
+    // Out of every view it was put into, which is not only the widgets - the
+    // two places above add it through addHoverHandlerIn(). Taking it back out
+    // of fewer views than it went into leaves the others holding a handler
+    // that is about to be destroyed with this client.
     const QList<Core::IEditor *> &editors = Core::DocumentModel::editorsForOpenedDocuments();
-    for (Core::IEditor *editor : editors) {
-        if (auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor))
-            textEditor->editorWidget()->removeHoverHandler(hoverHandler());
-    }
+    for (Core::IEditor *editor : editors)
+        TextEditor::removeHoverHandlerIn(editor, hoverHandler());
 }
 
 BaseClientInterface *CocoLanguageClient::clientInterface(const FilePath &coco,
