@@ -34064,3 +34064,83 @@ or measured. What remains is other plugins and the presentation questions:
 - **The presentation questions**, unchanged through many batches and still
   wanting a person: the clang-tools toolbar button, the parse-context
   highlight, and whether the Refactor submenu nests or goes inline.
+
+## 2026-09-05 -- The net runs out, and the MCP reformat tool
+
+The gap this closed: **`reformat_file`, an MCP tool, refused every C++ file.**
+
+    auto *textEditor = qobject_cast<TextEditor::TextEditorWidget *>(editor->widget());
+    if (!textEditor)
+        return false;
+
+A C++ file opens in the Qt Quick editor, so that is null and the tool answered
+"no" - not "it went wrong", just a flat refusal, which is the worst shape for
+something an agent is driving. It wanted three things and each had a seam:
+the caret (`textCursorOf()`/`setTextCursorOf()`), and the indent fallback
+(`TextDocument::autoIndent(cursor)` rather than the widget's no-argument one,
+which indents the selection it already has).
+
+Worth noting where this one sits: `CLAUDE.md` in this repository says to build
+and test *through* the Qt Creator MCP server. So this tool failing on C++
+files is a hole in the way the project asks to be worked on.
+
+### mcpserver had no tests at all
+
+No `WITH_TESTS`, no `_test.cpp`, nothing in its `CMakeLists.txt`. Rather than
+add build plumbing, the test went **inside `mcpcommands.cpp` behind
+`#ifdef WITH_TESTS`**, with `createMcpCommandsTest()` declared in the header
+and registered from the plugin's `initialize()`. No `CMakeLists.txt` edit, no
+`.qbs` edit, and that plugin now has somewhere to put the next one.
+
+### The net is finished
+
+Every entry the cast net ever produced has now been examined. The last two:
+
+- **`mcpserver/mcpcommands.cpp:773`** - one site, fixed here.
+- **`lua/bindings/texteditor.cpp`** - 38 uses of `BaseTextEditor` and
+  `editorWidget()`. `qobject_cast<BaseTextEditor *>(editor)` is null for the
+  Quick editor, so **a Lua script sees no current editor at all** on a C++
+  file. Same shape and size as emacskeys: a project, not a batch.
+
+So the net's final tally: five runs, five bugs, and two whole-plugin ports
+found by it that are too big to do this way.
+
+### Negative controls
+
+- **A -- the tool needs a widget again** (the state before this batch): red,
+  `reformatFile()` returned false for the file it had just been handed.
+- **B -- it reports success without reformatting anything**: red on the
+  indented body, so the test is not just reading the return value back.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      458 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test McpServer ...                      3 passed, 0 failed, exit 0
+
+Four files, no new file, no `CMakeLists.txt` and no `.qbs` edit.
+
+### What this leaves - and it is now a short list
+
+**Nothing in CppEditor, and nothing left in the net.** What remains are two
+whole-plugin ports and three questions for a person:
+
+- **emacskeys** - built on `PlainTextEdit *` (45 uses). A C++ file in the Quick
+  editor gets **no Emacs bindings at all**. Port target:
+  `EditHandler`/`wantsKeyBeforeShortcuts`, the way FakeVim did with
+  `QuickEditorKeyClaim`.
+- **lua/bindings/texteditor.cpp** - built on `BaseTextEditor` (38 uses). Lua
+  scripts see no current editor.
+- `acpclient:282` (an agent gets no editor state), `coco:68` (a hover handler
+  is never removed), `devcontainer:412` (decorates `devcontainer.json` only) -
+  small, and none on the C++ path.
+- **The presentation questions**, carried through a dozen batches and still
+  wanting a decision rather than a guess: the clang-tools toolbar button, the
+  parse-context highlight, and whether the Refactor submenu nests or goes
+  inline.
+
+The two ports are the last things standing between a C++ file in the Quick
+editor and parity for a user who uses either plugin. Neither is a batch, and
+neither should be started without deciding it is worth doing.

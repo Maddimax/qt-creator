@@ -27,6 +27,9 @@
 #include <projectexplorer/target.h>
 
 #include <texteditor/refactoringchanges.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
 #include <texteditor/textdocument.h>
 #include <texteditor/textdocumentlayout.h>
 #include <texteditor/texteditor.h>
@@ -792,14 +795,18 @@ bool McpCommands::reformatFile(const QString &path)
     if (!editor)
         return false;
 
-    auto *textEditor = qobject_cast<TextEditor::TextEditorWidget *>(editor->widget());
-    if (!textEditor)
+    // The document and the caret, rather than a widget: a C++ file opens in
+    // the Qt Quick editor, where there is none and this used to give up.
+    auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    if (!document)
         return false;
 
     // Select all text and reformat
-    QTextCursor cursor = textEditor->textCursor();
+    QTextCursor cursor = TextEditor::textCursorOf(editor);
+    if (cursor.isNull())
+        return false;
     cursor.select(QTextCursor::Document);
-    textEditor->setTextCursor(cursor);
+    TextEditor::setTextCursorOf(editor, cursor);
 
     // Trigger the TextEditor.ReformatFile action
     Core::Command *cmd = Core::ActionManager::command(Utils::Id("TextEditor.ReformatFile"));
@@ -809,7 +816,7 @@ bool McpCommands::reformatFile(const QString &path)
     }
 
     // Fallback: use auto-indent on the whole document
-    textEditor->autoIndent();
+    document->autoIndent(cursor);
     return true;
 }
 
@@ -4407,4 +4414,59 @@ void McpCommands::registerCommands()
         });
 }
 
+#ifdef WITH_TESTS
+
+// reformat_file asked the editor for a TextEditorWidget and gave up without
+// one, so the tool failed outright on a C++ file - which opens in the Qt
+// Quick editor.
+class McpCommandsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testReformatReachesAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("mcp-reformat-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("crooked.cpp");
+        QVERIFY(file.writeFileContents("int main()\n{\nreturn 0;\n}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        // The fixture only means anything if the file really is in the view
+        // this is about.
+        Core::IEditor * const opened = Core::EditorManager::openEditor(file);
+        QVERIFY2(opened, "the editor manager opened nothing");
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(opened),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        McpCommands commands;
+        QVERIFY2(commands.reformatFile(file.toUserOutput()),
+                 "the tool refused the file it had just been given");
+
+        auto * const document
+            = qobject_cast<TextEditor::TextDocument *>(opened->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(document->plainText().contains("    return 0;"),
+                     qPrintable("the body was not indented:\n" + document->plainText()));
+    }
+};
+
+QObject *createMcpCommandsTest()
+{
+    return new McpCommandsTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace Mcp::Internal
+
+#ifdef WITH_TESTS
+#include "mcpcommands.moc"
+#endif

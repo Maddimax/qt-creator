@@ -466,6 +466,9 @@ public:
 
     Result<> initialize(const QStringList &arguments) final
     {
+#ifdef WITH_TESTS
+        addTestCreator(createMcpCommandsTest);
+#endif
         ActionBuilder inspectAction(this, "McpServer.Inspector");
         inspectAction.setText(Tr::tr("Inspect MCP Server..."));
         inspectAction.addToContainer(Core::Constants::M_TOOLS_DEBUG);

@@ -83,4 +83,8 @@ public:
         const QString &patch, const QString &workingDirectory, int strip, bool revert);
 };
 
+#ifdef WITH_TESTS
+QObject *createMcpCommandsTest();
+#endif
+
 } // namespace Mcp::Internal
