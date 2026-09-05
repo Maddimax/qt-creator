@@ -35605,3 +35605,123 @@ A batch that wants a target could start where this one did: take a list the
 widget editor keeps -- the Escape claim was one - and read the view's
 equivalent beside it. That is what found this gap, and it found it in the code
 this plan wrote itself.
+
+## 2026-09-05 (5) -- A snippet's markup does not belong in the file
+
+The last entry left no named step but flagged one substantive difference: the
+Qt Quick view has no snippet overlay. Auditing that before building anything
+found something smaller and worse than a missing overlay.
+
+### What the audit found
+
+The seam already exists. `AssistTarget` is the abstraction an assist item
+writes through, with `WidgetAssistTarget` and `DocumentAssistTarget` behind
+it, and the Qt Quick view's `ViewportAssistTarget` derives from the latter.
+The header even says what it does with a snippet:
+
+    // A snippet's placeholders are the widget editor's; here the text is put
+    // in as it stands, which is what a plain view can honour.
+
+"As it stands" turned out to be literal:
+
+```cpp
+Q_UNUSED(parse)
+replace(basePosition, m_cursor.position() - basePosition, snippet);
+```
+
+The parser is **ignored**, so the snippet string goes in unchanged --
+placeholder markup and all. Completing Creator's own `class` snippet in a C++
+file in the Qt Quick editor wrote
+
+    class $name$ : public $base$ {
+
+into the source. That is not a missing feature degrading gracefully; it is
+text corruption. Control A below prints that line as the failure message.
+
+It reaches C++ by two routes, both live:
+
+- `snippetassistcollector.cpp` -- Creator's own snippets, `$var$` markup, in
+  the completion list of every C++ file.
+- `languageclientcompletionassist.cpp` -- a language server's completion when
+  `isSnippet()`, `${1:int a}` markup. That is **clangd completing a function**.
+
+**Which gap this batch closed:** snippet markup reaching the file in any view
+without an overlay.
+
+### The shape
+
+`DocumentAssistTarget::insertCodeSnippet()` now parses with the parser it was
+handed, concatenates the parts' text, and puts the caret on the first
+placeholder -- what is left of the overlay having selected it.
+
+Two decisions worth writing down:
+
+- **The parser it is given, not one of its own.** The language client parses
+  `${1:...}` with `parseSnippet`, which this plugin cannot see. Hard-coding
+  `Snippet::parse` would have fixed Creator's snippets and left clangd's
+  broken. Control C is what pins that.
+- **A snippet that will not parse inserts nothing.** The widget editor shows
+  the error in a message box and returns; a plain target has no window to show
+  one in, and leaving the text alone is closer to that than writing the markup.
+
+### What this is not
+
+**It is not a snippet overlay.** Tab does not move between placeholders,
+typing in one does not update its mirrors, and a multi-line snippet is not
+auto-indented -- the widget calls `m_document->autoIndent()` and
+`DocumentAssistTarget` holds a `QTextDocument`, not a `TextDocument`.
+
+That is a deliberate stopping point, not an oversight: the overlay is a large
+feature woven through Tab, Escape, mirror updates and accept-on-cursor-move,
+and none of it was going to fit beside the corruption fix. The corruption is
+what makes the file wrong; the overlay only makes it slower to type.
+
+### Negative controls
+
+- **A -- the string as it stands** (the state before this batch): red, and the
+  message carries the corruption: "the snippet's markup reached the file:
+  class $name$ : public $base$ {".
+- **B -- the caret is not put on the first placeholder**: red, actual 43
+  against expected 6 -- the end of the snippet rather than its first hole.
+- **C -- the target parses with `Snippet::parse` rather than the parser it was
+  given**: red, "the target ignored the parser it was given". This is the one
+  that would otherwise have shipped: Creator's snippets would look fixed and a
+  language server's would still write `${1:int a}`.
+
+The second half of the test uses a parser written for it rather than a real
+one, which is what makes C possible at all -- there is no way to reach the
+language client's parser from this plugin.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      470 passed, 0 failed, exit 0     (469 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient ...          23 passed, 0 failed, exit 0
+
+LanguageClient as well, because it is the other production caller of the path
+this batch changes. Two files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**The snippet overlay itself** is now the named next step, and it is the first
+thing in a while that is genuinely large rather than a missing wire. What it
+would need, from reading `TextEditorWidget::insertCodeSnippet()` and the uses
+of `m_snippetOverlay`:
+
+- placeholder ranges the view can draw and keep through edits
+- Tab and Shift+Tab moving between them (`nextSelectionCursor()`)
+- mirrors: typing in one placeholder updating the others with the same index
+- accept on Escape (the claim is already there, from the last batch), on the
+  caret leaving the snippet, and on reaching the final placeholder
+- auto-indent of what was inserted, which needs the `TextDocument` rather than
+  the `QTextDocument`
+
+Worth saying plainly: that is several batches, not one, and the first of them
+should probably be the ranges and Tab, with mirrors after. The corruption fix
+in this batch is what makes it safe to leave undone in the meantime.
+
+The other standing item is unchanged: an arbitrary **widget** in a Quick
+toolbar has no answer, and the callers wanting one are combo boxes in
+languages that still open in the widget editor.

@@ -8,6 +8,7 @@
 #include <QClipboard>
 
 #include <texteditor/texteditor.h>
+#include <texteditor/snippets/snippetparser.h>
 
 #include <QTextDocument>
 
@@ -89,8 +90,38 @@ void DocumentAssistTarget::insertCodeSnippet(int basePosition,
                                              const QString &snippet,
                                              const SnippetParser &parse)
 {
-    Q_UNUSED(parse)
-    replace(basePosition, m_cursor.position() - basePosition, snippet);
+    // A snippet's placeholders are the widget editor's overlay, and a plain
+    // view has none - but the markup around them is not text anybody asked
+    // for. Inserting the string as it stands wrote "$var$" into the file for
+    // Creator's own snippets and "${1:int}" for a language server's, so the
+    // markup has to come out even where the placeholders cannot be offered.
+    if (!parse) {
+        replace(basePosition, m_cursor.position() - basePosition, snippet);
+        return;
+    }
+
+    const SnippetParseResult result = parse(snippet);
+    // The widget editor shows the error and inserts nothing. There is no
+    // window to show it in here, and leaving the text alone is still better
+    // than writing markup into it.
+    if (!std::holds_alternative<ParsedSnippet>(result))
+        return;
+
+    const ParsedSnippet parsed = std::get<ParsedSnippet>(result);
+    QString text;
+    int firstVariable = -1;
+    for (const ParsedSnippet::Part &part : parsed.parts) {
+        if (firstVariable < 0 && part.variableIndex >= 0)
+            firstVariable = int(text.size());
+        text += part.text;
+    }
+
+    replace(basePosition, m_cursor.position() - basePosition, text);
+
+    // Where the reader would type first: the overlay would have selected this
+    // placeholder, and the caret standing on it is what is left of that.
+    if (firstVariable >= 0)
+        setCursorPosition(basePosition + firstVariable);
 }
 
 WidgetAssistTarget::WidgetAssistTarget(TextEditorWidget *widget)

@@ -12,6 +12,7 @@
 #include "marginsettings.h"
 #include "snippets/snippet.h"
 #include "snippets/snippetparser.h"
+#include "codeassist/assisttarget.h"
 
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/editormanager.h>
@@ -827,6 +828,7 @@ class SnippetTest final : public QObject
 
 private slots:
     void testVariableMirroring();
+    void testASnippetLeavesNoMarkupInAPlainView();
 };
 
 void SnippetTest::testVariableMirroring()
@@ -860,6 +862,58 @@ void SnippetTest::testVariableMirroring()
     QVERIFY(!text.contains("base")); // the "base" placeholder was reached via Tab
 
     Core::EditorManager::closeEditors({editor}, false);
+}
+
+// What a view with no snippet overlay does with a snippet. The Qt Quick
+// editor's assist target is a DocumentAssistTarget, and it used to insert the
+// string as it stands - so completing Creator's own "class" snippet in a C++
+// file wrote "$name$" into the source, and a language server's function
+// completion wrote "${1:int a}". The placeholders cannot be offered without an
+// overlay; the markup still has to come out.
+void SnippetTest::testASnippetLeavesNoMarkupInAPlainView()
+{
+    QTextDocument document;
+    DocumentAssistTarget target(&document);
+    target.setCursorPosition(0);
+
+    const QString snippet = "class $name$ : public $base$ {\n"
+                            "    $name$() {}\n"
+                            "};";
+    target.insertCodeSnippet(0, snippet, &Snippet::parse);
+
+    const QString text = document.toPlainText();
+    QVERIFY2(!text.contains('$'),
+             qPrintable(QString("the snippet's markup reached the file: %1").arg(text)));
+    QCOMPARE(text, QString("class name : public base {\n    name() {}\n};"));
+
+    // The caret stands on the first placeholder, which is what is left of the
+    // overlay having selected it.
+    QCOMPARE(target.position(), int(QString("class ").size()));
+
+    // The parser it was handed rather than one of its own: a language server's
+    // snippets are parsed by the language client, whose markup is "${1:int a}"
+    // and which this plugin cannot see.
+    QTextDocument fromServer;
+    DocumentAssistTarget server(&fromServer);
+    server.setCursorPosition(0);
+    bool asked = false;
+    const SnippetParser parser = [&asked](const QString &) {
+        asked = true;
+        ParsedSnippet parsed;
+        ParsedSnippet::Part open;
+        open.text = "f(";
+        ParsedSnippet::Part variable;
+        variable.text = "int a";
+        variable.variableIndex = 0;
+        ParsedSnippet::Part close;
+        close.text = ")";
+        parsed.parts = {open, variable, close};
+        return SnippetParseResult(parsed);
+    };
+    server.insertCodeSnippet(0, "f(${1:int a})", parser);
+    QVERIFY2(asked, "the target ignored the parser it was given");
+    QCOMPARE(fromServer.toPlainText(), QString("f(int a)"));
+    QCOMPARE(server.position(), 2);
 }
 
 QObject *createSnippetTest()
