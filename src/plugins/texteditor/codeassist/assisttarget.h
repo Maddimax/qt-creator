@@ -63,6 +63,10 @@ struct SnippetPlaceholder
     int end = 0;
     int variableIndex = -1;
     bool finalPart = false;
+    // How this hole is written once the snippet is done with: the Q_PROPERTY
+    // snippet asks for the name it was given with a capital, in WRITE only.
+    // Owned by the parser, which keeps one of each for the program's life.
+    NameMangler *mangler = nullptr;
 };
 
 // An AssistTarget over a plain document and a cursor, which is what a Qt Quick

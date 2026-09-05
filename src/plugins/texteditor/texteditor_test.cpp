@@ -830,6 +830,7 @@ private slots:
     void testVariableMirroring();
     void testASnippetLeavesNoMarkupInAPlainView();
     void testASnippetSaysWhereItsHolesAre();
+    void testASnippetSaysHowAHoleIsToBeWritten();
 };
 
 void SnippetTest::testVariableMirroring()
@@ -961,6 +962,46 @@ void SnippetTest::testASnippetSaysWhereItsHolesAre()
     plain.setCursorPosition(0);
     plain.insertCodeSnippet(0, "int x = 1;", &Snippet::parse);
     QVERIFY2(plain.holes.isEmpty(), "a snippet with no placeholders reported one anyway");
+}
+
+// A hole can be asked to be written differently from what was typed into it.
+// Exactly one shipped snippet does this and it is a C++ one: Q_PROPERTY writes
+// the name it was given into WRITE with a capital. The parser knows; the
+// placeholder handed to a view has to carry it or the view writes "setfoo".
+void SnippetTest::testASnippetSaysHowAHoleIsToBeWritten()
+{
+    class RecordingTarget final : public DocumentAssistTarget
+    {
+    public:
+        using DocumentAssistTarget::DocumentAssistTarget;
+
+        QList<SnippetPlaceholder> holes;
+
+    protected:
+        void snippetInserted(const QList<SnippetPlaceholder> &placeholders) override
+        {
+            holes = placeholders;
+        }
+    };
+
+    QTextDocument document;
+    RecordingTarget target(&document);
+    target.setCursorPosition(0);
+    // The shipped Q_PROPERTY snippet, shortened to the part that matters.
+    target.insertCodeSnippet(0, "$name$ WRITE set$name:c$", &Snippet::parse);
+
+    QCOMPARE(document.toPlainText(), QString("name WRITE setname"));
+    QCOMPARE(target.holes.size(), 2);
+
+    // Both stand for the same name, so typing in one fills the other...
+    QCOMPARE(target.holes.first().variableIndex, target.holes.at(1).variableIndex);
+
+    // ...but only the second says how it is to be written.
+    QVERIFY2(!target.holes.first().mangler,
+             "the plain hole was given a mangler it did not ask for");
+    QVERIFY2(target.holes.at(1).mangler,
+             "the hole after WRITE lost the capital it asked for");
+    QCOMPARE(target.holes.at(1).mangler->mangle("foo"), QString("Foo"));
 }
 
 QObject *createSnippetTest()

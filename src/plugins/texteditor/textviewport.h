@@ -1218,6 +1218,7 @@ private:
         QTextCursor end;
         int variableIndex = -1;
         bool finalPart = false;
+        NameMangler *mangler = nullptr;
     };
     QList<SnippetHole> m_snippetHoles;
     void refreshSnippetHighlights();

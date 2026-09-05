@@ -35944,3 +35944,105 @@ Of the overlay, what is now missing is smaller than what is there:
 
 Manglers are the smaller of the two and the one that already has its data
 half-carried, so it is the natural next batch.
+
+## 2026-09-05 (8) -- Written the way the snippet asked
+
+The last entry named manglers and said `ParsedSnippet::Part::mangler` is
+"carried as far as `SnippetPlaceholder`... and dropped there". Wrong boundary:
+`SnippetPlaceholder` never had a mangler field. It was dropped one step
+earlier, at the parse-to-placeholder edge. Sixth in a row; the substance of
+the gap was right and the location was invented.
+
+### Why this one was worth doing
+
+The reachability check is what decides whether a mangler gap matters, and it
+came back better than expected. Exactly one shipped snippet in the whole tree
+uses the syntax, and it is a C++ one:
+
+    share/qtcreator/snippets/cpp.xml
+    Q_PROPERTY($type$ $name$ READ $name$ WRITE set$name:c$ NOTIFY $name$Changed FINAL)
+
+`$name:c$` is the same variable as `$name$` with a titlecase mangler on it. So
+with the mirroring added last batch and no manglers, filling the name in with
+`foo` gave
+
+    Q_PROPERTY(int foo READ foo WRITE setfoo NOTIFY fooChanged FINAL)
+
+**`setfoo`.** Not a missing nicety - wrong code, in the one C++ snippet most
+likely to be used, produced by the mirroring this plan added two batches ago.
+
+**Which gap this batch closed:** a snippet hole asked to be written
+differently from what was typed into it.
+
+### The shape
+
+`NameMangler *` carried from `ParsedSnippet::Part` through
+`SnippetPlaceholder` to `SnippetHole`, and applied in
+`clearSnippetPlaceholders()`.
+
+Two things checked rather than assumed:
+
+- **The manglers are function-local statics** in `snippet.cpp`, so a raw
+  pointer outlives anything that holds it.
+- **Timing: on the way out, not per keystroke.** `SnippetOverlay::accept()` is
+  where the widget applies them, so while the snippet is open the reader sees
+  the plain text in every hole and the capital appears when it is done with.
+  The test asserts both halves, and control C is what gives the first one
+  teeth.
+
+`setSnippetPlaceholders()` now ends the previous snippet through the same
+path, so starting a second snippet writes the first one's holes the way they
+asked - which is what the widget does at the top of `insertCodeSnippet()`.
+
+### Negative controls
+
+- **A -- the parser's mangler is dropped**: red, "the hole after WRITE lost
+  the capital it asked for".
+- **B -- the view drops the mangler**: red, `f WRITE setf` against
+  `f WRITE setF`.
+- **C -- written the way it asked on every keystroke**: red the other way
+  round, `setF` where `setf` was expected. This is the control for the
+  *timing*, and without it the "while it is still open" assertion could not
+  fail.
+- **D -- cleared after mangling instead of before: did not bite.**
+
+D is worth reporting rather than quietly dropping. The `std::exchange` that
+takes the holes before writing was added defensively, with a comment claiming
+it stopped `clearSnippetPlaceholders()` from calling itself. **The control
+says it stops nothing**, and the reason holds up on reading: the view emits
+`cursorPositionChanged` from its own setters, not because a foreign cursor
+edited the document, so the loop I guarded against cannot start.
+
+The code is kept - it is one line either way and it makes the ordering plain -
+but **the comment was rewritten to state the invariant rather than a hazard I
+could not demonstrate.** An unmeasured mechanism in a comment is the same
+mistake as an unmeasured mechanism in this plan, and this file has had to
+withdraw six of those.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      476 passed, 0 failed, exit 0     (474 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Of the snippet overlay, one item:
+
+- **Auto-indent** of an inserted snippet. The widget calls
+  `m_document->autoIndent()` over the inserted range;
+  `DocumentAssistTarget` holds a `QTextDocument` and cannot. The view's target
+  can reach the `TextDocument`, so the shape is probably an overridable hook
+  beside `snippetInserted()` - but that is a guess, and the first thing the
+  next batch should do is check it rather than repeat it as fact.
+
+And, unchanged and now three entries old:
+`ViewportAssistTarget::snippetInserted()` is still the one link in the snippet
+path that no test reaches, because getting at it means driving a real
+completion proposal.
+
+Everything else the overlay does - holes, drawing, Tab, mirrors, manglers,
+accept on Escape and on leaving - is in.

@@ -4210,6 +4210,77 @@ private slots:
         QCOMPARE(document->document()->toPlainText(), before);
     }
 
+    // A hole asked to be written differently from what was typed. The C++
+    // Q_PROPERTY snippet is the one shipped snippet that does this - "WRITE
+    // set$name:c$" - so filling the name in with "foo" has to leave "setFoo"
+    // behind and not "setfoo". Applied when the snippet is done with, which is
+    // when the widget editor's overlay applies them.
+    void testAHoleIsWrittenTheWayItAskedToBe()
+    {
+        // Written here rather than reached for: the parser keeps one of each
+        // mangler privately, and what is under test is that the view uses
+        // whichever it was handed.
+        class Capitalise final : public NameMangler
+        {
+        public:
+            Utils::Id id() const override { return "Test.Capitalise"; }
+            QString mangle(const QString &unmangled) const override
+            {
+                QString result = unmangled;
+                if (!result.isEmpty())
+                    result[0] = result.at(0).toUpper();
+                return result;
+            }
+        };
+
+        Utils::TemporaryDirectory dir("snippet-manglers");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("snip.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        Capitalise capitalise;
+        const QString before = "name WRITE setname";
+        document->document()->setPlainText(before);
+        const int nameAt = 0;
+        const int setAt = before.indexOf("setname") + 3;
+
+        // Both stand for the same name; only the second asks for a capital.
+        view->setSnippetPlaceholders({{nameAt, nameAt + 4, 0, false, nullptr},
+                                      {setAt, setAt + 4, 0, false, &capitalise}});
+        QVERIFY(view->hasSnippetPlaceholders());
+
+        QTextCursor caret = view->textCursor();
+        caret.setPosition(nameAt);
+        caret.setPosition(nameAt + 4, QTextCursor::KeepAnchor);
+        view->setTextCursor(caret);
+
+        QKeyEvent typed(QEvent::KeyPress, Qt::Key_F, Qt::NoModifier, "f");
+        QCoreApplication::sendEvent(view, &typed);
+
+        // While it is still open the copy is what was typed, exactly as the
+        // widget editor shows it: the capital is not applied per keystroke.
+        QCOMPARE(document->document()->toPlainText(), QString("f WRITE setf"));
+
+        // And on the way out it is written the way it asked to be.
+        view->clearSnippetPlaceholders();
+        QCOMPARE(document->document()->toPlainText(), QString("f WRITE setF"));
+        QVERIFY2(!view->hasSnippetPlaceholders(), "the snippet was left open");
+    }
+
     // The caret being taken out of a snippet ends it, the way the widget
     // editor's overlay accepts when the cursor leaves.
     void testLeavingASnippetGivesUpItsHoles()

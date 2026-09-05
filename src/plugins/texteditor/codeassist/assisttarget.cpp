@@ -117,7 +117,8 @@ void DocumentAssistTarget::insertCodeSnippet(int basePosition,
             placeholders.append({basePosition + start,
                                  basePosition + int(text.size()),
                                  part.variableIndex,
-                                 part.finalPart});
+                                 part.finalPart,
+                                 part.mangler});
         }
     }
 

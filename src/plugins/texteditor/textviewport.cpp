@@ -82,6 +82,7 @@
 #include <QTextLayout>
 
 #include <limits>
+#include <utility>
 
 namespace TextEditor {
 
@@ -3824,7 +3825,7 @@ void TextViewport::setSnippetPlaceholders(const QList<SnippetPlaceholder> &place
     if (!text)
         return;
 
-    m_snippetHoles.clear();
+    clearSnippetPlaceholders();
     for (const SnippetPlaceholder &placeholder : placeholders) {
         SnippetHole hole;
         hole.begin = QTextCursor(text);
@@ -3836,6 +3837,7 @@ void TextViewport::setSnippetPlaceholders(const QList<SnippetPlaceholder> &place
         hole.end.setPosition(placeholder.end);
         hole.variableIndex = placeholder.variableIndex;
         hole.finalPart = placeholder.finalPart;
+        hole.mangler = placeholder.mangler;
         m_snippetHoles.append(hole);
     }
     refreshSnippetHighlights();
@@ -3845,8 +3847,31 @@ void TextViewport::clearSnippetPlaceholders()
 {
     if (m_snippetHoles.isEmpty())
         return;
-    m_snippetHoles.clear();
+
+    // Taken first, so that the writing below happens with no snippet open:
+    // everything that reacts to the document changing sees the state this
+    // leaves behind rather than a half-cleared one.
+    const QList<SnippetHole> holes = std::exchange(m_snippetHoles, {});
     setHighlights(SNIPPET_PLACEHOLDERS, {});
+
+    // How a hole was asked to be written, now that it has been filled in.
+    // On the way out rather than as the reader types, which is when the widget
+    // editor's overlay applies them: the reader types a name once and the
+    // places that wanted it capitalised are fixed up at the end.
+    for (const SnippetHole &hole : holes) {
+        if (!hole.mangler)
+            continue;
+        QTextCursor over = snippetHoleCursor(hole);
+        if (over.isNull())
+            continue;
+        const QString current = over.selectedText();
+        const QString mangled = hole.mangler->mangle(current);
+        if (mangled == current)
+            continue;
+        over.joinPreviousEditBlock();
+        over.insertText(mangled);
+        over.endEditBlock();
+    }
 }
 
 QString TextViewport::snippetHoleText(const SnippetHole &hole) const
