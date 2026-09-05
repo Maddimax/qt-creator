@@ -39168,3 +39168,98 @@ positions on one line) and only then use it on the three questions above.
 
 Until that exists, probing those three will keep producing fixture noise, and
 this file has enough entries about fixtures that measured the wrong thing.
+
+## 2026-09-05 (41) -- The drag drive, and why entry 38 could not build it
+
+The last entry proposed exactly this batch: build the thing the three
+remaining questions all need - a press-move-release that lands on the same
+document positions in both views - with its own control, before using it on
+anything.
+
+### The bug was one hidden overload
+
+    TextEditorWidget::cursorRect(int pos)              -> global coordinates
+    PlainTextEdit::cursorRect(const QTextCursor &)     -> viewport coordinates
+
+The first *hides* the second. Entry 38 used it, mapped the result back through
+`viewport()->mapFromGlobal()`, and got points that name no position at all.
+Measured now, with the guard this batch added: **position 0 came back as
+position 23.** Every comparison built on that was meaningless - which is
+exactly what its "inconsistent in both views" looked like.
+
+With the base overload the round trip is exact, in both views, **shown or
+not**:
+
+    positions 0 3 6 9 14 20  ->  0 3 6 9 14 20     widget and quick, either way
+
+Showing the editor was never the problem either. One wrong overload cost most
+of a batch.
+
+### Which gap this batch closed
+
+**Drag to select had never been compared.** It now is, and it matches:
+
+    drag 0 -> 10      alpha beta        both views
+    drag 6 -> 17      beta~gamma        both views
+    drag 10 -> 0      alpha beta        both views
+
+The test carries the drive with it, and **the guard is the point**: before any
+drag, four positions have to survive the round trip. Without it a broken
+mapping makes both views agree on nothing at all, quietly.
+
+### The bracket branch: closed, with evidence
+
+Entry 38 left this open - the widget's double click selects what an opening
+bracket opens, `selectWordAt()` has no such branch, and five attempts could
+not make the widget do it. With a mapping that round-trips, it still selects
+the word. Taken apart:
+
+    findPreviousOpenParenthesis   found=1  landedAt=1  gap=1   -> the condition holds
+    TextEditorWidget::selectBlockUp()      returns false       -> the call declines
+
+So the branch is entered and gives up. The free function
+`TextEditor::selectBlockUp(cursor, anchor)`, which both views share, returns
+**true** on the same document - so it is the widget's own method that adds
+whatever this fixture lacks.
+
+**There is nothing to port.** The two views agree because the widget's extra
+branch is inert here. Whether it fires in a session with a highlighter running
+is a question no test in this tree can answer, and that is where it should be
+left rather than in code.
+
+### Negative controls
+
+- **A -- the mapping entry 38 used**: red on the guard, `positionOf(pointOf(0))`
+  answering **23** against 0, before a single drag runs.
+- **B -- press and release with nothing moved between**: red on both views,
+  empty selection against `alpha beta`. The test measures the drag rather than
+  the press.
+
+### Verification
+
+    -test TextEditor    586 passed, 0 failed, exit 0, 0 warnings   (584 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Three runs of the new test on its own as well, since it drives real mouse
+events and this file has two entries about those being unreliable. One file,
+no new file and no `.qbs` edit.
+
+### What this leaves
+
+**One item, and the drive built here does not reach it.** Drag and drop of
+text is not a press-move-release: it is a `QDrag`, whose `exec()` blocks, and
+the two views would need `QDragEnterEvent`/`QDropEvent` delivered by hand to a
+`QWidget` on one side and a `QQuickItem` on the other. That is a different
+piece of infrastructure from this one and should be judged on its own.
+
+Beyond it the named list is empty. Everything the standing warning lists has a
+Quick-side home and a test; C++ files open in this editor; and the differential
+suites now cover fifteen typing scripts, twelve undo scenarios, twenty-three
+editing commands, the clipboard, find, focus and the mouse.
+
+If another batch is wanted and drag and drop is not it, the honest answer is
+that **this migration is done to the depth these tests can see**, and the next
+useful work is not another probe but running the *whole* test suite - every
+plugin, not just these two - both ways, which no entry has done since the
+switch was flipped. That would say whether anything outside TextEditor and
+QuickUi notices which editor a C++ file opens in.

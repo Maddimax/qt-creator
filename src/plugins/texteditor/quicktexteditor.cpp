@@ -7591,6 +7591,109 @@ private slots:
         QVERIFY2(differ.isEmpty(), qPrintable("\n" + differ.join("\n")));
     }
 
+    void testDraggingSelectsWhatItPassesOver_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Dragging with the mouse is how most selections are made and neither view
+    // had been asked about it. Driving one needs a pixel for a document
+    // position, and the two views answer that question with different APIs -
+    // which is where an earlier attempt went wrong: TextEditorWidget adds a
+    // cursorRect(int) that answers in *global* coordinates and hides the base
+    // cursorRect(QTextCursor) that answers in the viewport's. Mapping the
+    // wrong one back gave points that named no position at all, and the
+    // comparison underneath was meaningless in both views.
+    void testDraggingSelectsWhatItPassesOver()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("drag-select");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("alpha beta\ngamma delta\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QWidget *surface = nullptr;
+        std::function<QPoint(int)> pointOf;
+        std::function<int(const QPoint &)> positionOf;
+        if (quick) {
+            auto * const host = editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(host);
+            TextViewport * const view = Internal::viewportForEditor(editor);
+            QVERIFY(view);
+            host->resize(600, 300);
+            host->show();
+            QVERIFY(QTest::qWaitForWindowExposed(host));
+            QTRY_VERIFY(view->visibleLineCount() > 1);
+            view->forceActiveFocus();
+            surface = host;
+            pointOf = [view](int at) {
+                return view->mapToScene(view->rectangleAt(at).center()).toPoint();
+            };
+            positionOf = [view](const QPoint &p) {
+                const QPointF in = view->mapFromScene(QPointF(p));
+                return view->positionAt(in.x(), in.y());
+            };
+        } else {
+            TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+            QVERIFY(widget);
+            widget->resize(600, 300);
+            widget->show();
+            QVERIFY(QTest::qWaitForWindowExposed(widget));
+            surface = widget->viewport();
+            pointOf = [widget](int at) {
+                QTextCursor c(widget->document());
+                c.setPosition(at);
+                return widget->Utils::PlainTextEdit::cursorRect(c).center();
+            };
+            positionOf = [widget](const QPoint &p) {
+                return widget->cursorForPosition(p).position();
+            };
+        }
+
+        // The control on the drive, before it is used for anything: a point
+        // asked for a position has to name that position back. Without this
+        // the comparisons below can agree while measuring nothing.
+        for (const int at : {0, 5, 10, 17}) {
+            QCOMPARE(positionOf(pointOf(at)), at);
+        }
+
+        const auto dragFrom = [&](int from, int to) {
+            QTextCursor start(document->document());
+            start.setPosition(from);
+            TextEditor::setTextCursorOf(editor, start);
+            const QPoint a = pointOf(from);
+            const QPoint b = pointOf(to);
+            QTest::mousePress(surface, Qt::LeftButton, {}, a);
+            QTest::mouseMove(surface, QPoint((a.x() + b.x()) / 2, (a.y() + b.y()) / 2));
+            QTest::mouseMove(surface, b);
+            QTest::mouseRelease(surface, Qt::LeftButton, {}, b);
+            QString got = TextEditor::textCursorOf(editor).selectedText();
+            return got.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        };
+
+        QCOMPARE(dragFrom(0, 10), QString("alpha beta"));
+        QCOMPARE(dragFrom(6, 17), QString("beta\ngamma "));
+        // Backwards over the same run: the same text, whichever end it started
+        // from.
+        QCOMPARE(dragFrom(10, 0), QString("alpha beta"));
+    }
+
     void testReplacingInsideASelectionStaysInsideIt_data()
     {
         QTest::addColumn<bool>("quick");
