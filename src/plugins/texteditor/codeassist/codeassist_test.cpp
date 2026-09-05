@@ -127,8 +127,13 @@ private:
 
 void CodeAssistTests::initTestCase()
 {
+    // Named, because an editor opened with no title pattern has a document
+    // with no file name - and something then tries to open it, which is a
+    // "QFSFileEngine::open: No file name specified" in every run of this
+    // suite. The name is never looked at; having one is the whole point.
+    QString title = "codeassist-test";
     Core::IEditor *editor = Core::EditorManager::openEditorWithContents(
-        Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        Core::Constants::K_DEFAULT_TEXT_EDITOR_ID, &title);
     QVERIFY(editor);
     m_editor = qobject_cast<BaseTextEditor *>(editor);
     QVERIFY(m_editor);
