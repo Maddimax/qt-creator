@@ -36725,3 +36725,110 @@ Nothing here is C++-blocking, and nothing here is a gap in the port. The plan
 has been in that state for three entries now, which is worth saying plainly
 rather than restating the same list a fourth time: **the migration's stated
 goal is met and the remaining items are hygiene.**
+
+## 2026-09-05 (16) -- Both ways round, and a flake that still will not come
+
+**No code changed.** The batch went at the oldest open item, could not act on
+it, and spent the rest verifying the proposition the plan exists to defend.
+
+### The sort flake: still not reproducing
+
+Entry 12 left a method - interleave fixed and unfixed runs, because the base
+rate drifts - and it needs a rate to interleave against. Six runs:
+**0 of 6 failed.** Together with the twelve at the end of entry 12 that is
+**eighteen consecutive clean runs** since a window where it failed about seven
+times in ten.
+
+One new observation, and then its own disproof:
+
+- The **skip count** tracks the failing window exactly. `QuickUi` reports
+  `1 skipped` now and reported `0 skipped` throughout the failures. The
+  skipped test is `testSecretIsFetchedBeforeItCanBeEdited`, which skips with
+  "the keychain did not answer". So during the failures the keychain *was*
+  answering.
+- **That cannot be the cause.** `testTheListingCanBeReadBothWaysRound` is
+  declared at line 250 and the secret test at line 333, so the sort test runs
+  first. A later test cannot perturb an earlier one.
+
+What it is instead is a **proxy**: a keychain that answers means an unlocked
+one, which means a machine someone is using - which is the load correlation
+entry 12 already suspected, now with a visible indicator. Worth writing down,
+because "check whether `QuickUi` says `0 skipped`" is a cheap way to tell
+which state the machine is in before believing any measurement of this flake.
+
+No change was made. There is no candidate fix left standing - entry 12
+disproved both - and a test change that cannot be validated is what entry 12
+rightly refused to ship.
+
+### The inverted method, second outing: nothing
+
+`TextViewport` has 42 `Q_PROPERTY`s. Read beside the widget, almost all of
+them are the *rendering surface* a `QWidget` keeps to itself - colours,
+metrics, scroll offsets, caret rectangles - and comparing those says nothing
+about behaviour. The handful that are behaviour (`fileEncoding`,
+`fileLineEnding`, `tabSettingsLabel`, `overwriteMode`, `readOnly`,
+`wrapping`, `relativeLineNumbers`, `visualizeWhitespace`) all have widget
+equivalents already checked in earlier entries.
+
+So the inverted method has now been tried twice: once on selection kinds,
+where it found a real asymmetry, and once on properties, where it found
+nothing because most of what a Qt Quick view exposes has no widget counterpart
+*by construction*. That is the limit of it, and worth recording so it is not
+tried a third time on the same material.
+
+### What was verified instead
+
+The plan describes a method it says found FakeVim by accident: run a suite
+twice, default against `QTC_WIDGET_CPP_EDITOR=1`, and compare. Five entries
+have changed C++ behaviour since it was last run - the context menu, selection
+kinds, the diagnostics route, snippets, and the widget's document read. If any
+of those had moved the two views apart, this is what would say so.
+
+    CompletionTest, SymbolJumpTest, LocalRenamingTest, CppContextMenuTest
+      default                     220 passed, 0 failed, exit 0
+      QTC_WIDGET_CPP_EDITOR=1     220 passed, 0 failed, exit 0
+
+    QuickFixAssistTest, CppOutlineTest, CppTypeHierarchyTest,
+    UseSelectionsTest, DeclDefLinkTest
+      default                      21 passed, 0 failed, exit 0
+      QTC_WIDGET_CPP_EDITOR=1      21 passed, 0 failed, exit 0
+
+Identical both ways, which is the point: the escape hatch still works and the
+recent work did not make the two views disagree.
+
+**`FollowSymbolTest` is not in either list**, and that is a gap in this
+verification rather than a result. Together with the others it ran past a
+ten-minute bound twice; it needs a run of its own and did not get one. Anyone
+repeating this should give it its own invocation.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      480 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+One file changed, and it is this one.
+
+### What this leaves
+
+Four entries have now found no gap in the port, and this one found nothing to
+change at all. Restating the list again would be padding, so instead:
+
+**The migration's stated goal is met.** A C++ file opens in the Qt Quick
+editor by default, and the behaviour that was on a `TextEditorWidget` has
+somewhere to go - completion, quick fixes, follow symbol, refactoring, the
+optional-action mask, the context menu, diagnostics, snippets, in-place
+rename, and the rest, each closed by a named batch above.
+
+What is left is not migration work:
+
+- **The `QuickUi` sort flake.** Blocked on reproducing. The skip-count
+  indicator above is the new handle on it.
+- **An arbitrary widget in a Quick toolbar.** A design question, untouched for
+  twelve entries, and blocking nothing.
+- **`FollowSymbolTest` both ways**, which this batch owed and did not pay.
+
+The honest recommendation for a next batch is the third of those: it is
+bounded, it is verification of exactly the thing this plan claims, and it is
+the one piece of this batch that was left undone.
