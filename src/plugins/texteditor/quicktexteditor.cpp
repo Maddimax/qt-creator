@@ -3121,6 +3121,73 @@ private slots:
                  "a view's own bracket match was published to the document");
     }
 
+    // A kind the document holds under a name this plugin does not know is
+    // drawn by both views. The Qt Quick view draws every kind the document
+    // has; the widget knew five names and drew only those, so a client asking
+    // for an id of its own - CocoLanguageClient does - was drawn in one view
+    // and not the other. That is a difference between the views rather than a
+    // rule about them.
+    void testBothViewsDrawAKindTheyDoNotKnowTheNameOf()
+    {
+        Utils::TemporaryDirectory dir("selection-kind-by-any-name");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("marked.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        const Utils::Id ours("SelectionKindTest.OfOurOwn");
+        QTextCharFormat marked;
+        marked.setBackground(QColor(Qt::green));
+
+        // The widget first, because that is the half this changes.
+        Core::IEditor * const widgetEditor = Core::EditorManager::openEditor(
+            file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY(widgetEditor);
+        auto * const base = qobject_cast<BaseTextEditor *>(widgetEditor);
+        QVERIFY2(base, "the plain text editor is not a BaseTextEditor any more");
+        TextEditorWidget * const widget = base->editorWidget();
+        TextDocument * const document = base->textDocument();
+        QVERIFY(widget && document);
+        QVERIFY2(widget->extraSelections(ours).isEmpty(),
+                 "something had already drawn under this name");
+
+        QTextCursor over(document->document());
+        over.setPosition(0);
+        over.setPosition(5, QTextCursor::KeepAnchor);
+        document->setExtraSelections(ours, {{over, marked}});
+
+        const QList<QTextEdit::ExtraSelection> drawn = widget->extraSelections(ours);
+        QVERIFY2(drawn.size() == 1,
+                 "the widget drew nothing for a kind it does not know the name of");
+        QCOMPARE(drawn.first().cursor.selectionStart(), 0);
+        QCOMPARE(drawn.first().cursor.selectionEnd(), 5);
+
+        // Emptied on the document is taken back, or a stale mark outlives
+        // whoever put it there.
+        document->setExtraSelections(ours, {});
+        QVERIFY2(widget->extraSelections(ours).isEmpty(),
+                 "the widget kept drawing a kind the document had given up");
+        Core::EditorManager::closeEditors({widgetEditor}, false);
+
+        // And the same file in the other view, which already did this - here
+        // so that the two halves are written down in one place.
+        Core::IEditor * const quickEditor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(quickEditor);
+        const QScopeGuard closeQuick(
+            [quickEditor] { Core::EditorManager::closeEditors({quickEditor}, false); });
+        TextViewport * const view = viewportForEditor(quickEditor);
+        QVERIFY(view);
+        auto * const quickDocument = qobject_cast<TextDocument *>(quickEditor->document());
+        QVERIFY(quickDocument);
+
+        QTextCursor there(quickDocument->document());
+        there.setPosition(0);
+        there.setPosition(5, QTextCursor::KeepAnchor);
+        quickDocument->setExtraSelections(ours, {{there, marked}});
+        QTRY_VERIFY2(view->highlights(ours).size() == 1,
+                     "the Qt Quick view drew nothing for a kind of its own name");
+    }
+
     // A language server attaches to a document rather than to a language, so
     // it cannot register a finder on a factory - and for a C++ file it has to
     // be preferred over the one CppEditor registers, or Follow Symbol answers

@@ -36555,3 +36555,92 @@ The suggestion from the last entry still stands and is still untried: ask what
 the *viewport* has that the widget does not. It would say where the two have
 diverged rather than where the port is incomplete, which is a different
 question from the one this plan has been answering.
+
+## 2026-09-05 (14) -- A selection kind by any name
+
+The last entry suggested inverting the method - ask what the *viewport* has
+that the widget does not - and noted that its first answer was already written
+down and left alone: **the viewport draws every extra-selection kind the
+document holds; the widget knew five names and drew only those.**
+
+That is the whole of this batch. It is the first item this plan has closed
+that runs the other way: a gap in the *widget*, found by holding the Qt Quick
+view up as the reference.
+
+### Why it mattered
+
+`DiagnosticManager` lets a client name its own kind, and
+`CocoLanguageClient` does: `setExtraSelectionsId("CocoExtraSelections")`. Two
+entries ago that produced a real dilemma - putting the diagnostics on the
+document reached the Qt Quick view for any kind, but would have taken the
+widget away from Coco, because `readSelectionsFromDocument()` only looked for
+the five names it knew. The batch worked around it by telling the widgets
+directly as well, and wrote the asymmetry down as "the thing that will bite
+the next producer to pick an id of its own".
+
+This removes the reason for that workaround: the widget now reads whatever
+the document holds, under any name.
+
+**Which gap this batch closed:** a document-wide selection under a name
+`texteditor.cpp` does not know was drawn in one view and not the other.
+
+### What was deliberately not changed
+
+Only the **read** side. The publish side - `TextEditorWidget::setExtraSelections()`
+telling the document - still fires for the five names alone, and should: a
+kind like `ParenthesesMatchingSelection` follows *this* view's caret and is
+not a fact about the file. Publishing it would put one view's bracket match on
+another's screen. There is an existing test for exactly that, and it still
+passes.
+
+Checked rather than assumed, since widening a read is only safe if nothing
+per-view can be on the document: the producers that call
+`TextDocument::setExtraSelections()` are `CppEditorDocument`,
+`DiagnosticManager`, and the widget's own publishing of the five. None is a
+per-view kind, so nothing the widget draws for itself can now be clobbered by
+the document.
+
+### Negative controls
+
+- **A -- the widget knows only five names again** (the state before this
+  batch): red, "the widget drew nothing for a kind it does not know the name
+  of".
+- **B -- an emptied kind is skipped rather than cleared**: red, "the widget
+  kept drawing a kind the document had given up". `extraSelectionKinds()`
+  keeps the key of an emptied kind precisely so a view can clear what it drew,
+  and iterating a *list of names* rather than a set of values makes that easy
+  to lose.
+
+The test's second half - that the Qt Quick view draws the same custom kind -
+has **no control in this batch**, because that half is pre-existing behaviour
+that this change does not touch. It is a characterisation assertion, written
+so the two halves of the rule sit in one place, and it is worth saying that
+rather than letting it read as a third control.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      480 passed, 0 failed, exit 0     (479 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient ...          39 passed, 0 failed, exit 0
+
+LanguageClient because `DiagnosticManager` is the producer this asymmetry was
+found through. Two files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **`DiagnosticManager`'s belt and braces.** It now sets the document *and*
+  loops over the widgets, and the comment on the loop says the widget mirrors
+  only the kinds it knows. That reason has just gone away, so the loop could
+  come out - but it is a second batch, with its own control, and leaving a
+  redundant call is safer than removing one on the strength of this entry
+  rather than a test.
+- **The sort flake**, with the interleaved-runs method from entry 12.
+- **An arbitrary widget in a Quick toolbar**, unchanged for ten entries.
+
+The inverted method has now been tried once and paid once. What it asks is a
+different question from the rest of this plan - not "what has not been
+ported", but "where have the two views drifted apart" - and the remaining
+places to point it are the viewport's own public API and its QML-exposed
+properties, neither of which has been read beside the widget's.

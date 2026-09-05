@@ -8597,7 +8597,14 @@ void TextEditorWidgetPrivate::readSelectionsFromDocument()
 {
     if (m_publishingToDocument)
         return;
-    for (const Id kind : documentWideSelectionKinds()) {
+    // Every kind the document holds, not only the ones this file knows the
+    // names of. A language client can ask for an id of its own - Coco does -
+    // and the Qt Quick view draws whatever is there, so a fixed list here is
+    // the difference between the two views rather than a rule about them.
+    //
+    // Including the kinds since emptied: an emptied one has to clear what was
+    // drawn for it, and extraSelectionKinds() keeps the key for that.
+    for (const Id kind : m_document->extraSelectionKinds()) {
         const QList<TextDocument::ExtraSelection> shared = m_document->extraSelections(kind);
         QList<QTextEdit::ExtraSelection> mine;
         mine.reserve(shared.size());
