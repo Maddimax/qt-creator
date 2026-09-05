@@ -37915,3 +37915,81 @@ family of bug. That is the next batch, and it is cheap: the fixture exists.
 Unchanged: **drawing** the auto-inserted text, the **eleven skipped
 completion cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in
 a Quick toolbar**.
+
+## 2026-09-05 (29) -- Return between braces, and an assertion made up on the spot
+
+The last entry named three more rows for the differential typing test and said
+the fixture existed. It did; adding them took one edit. Of the three, one
+diverged:
+
+    script  "void f() {" Return "x;"
+    widget  void f() {        quick  void f() {
+                x;                   x;}
+            }
+
+The other two - a bracket inside a string, `g("(")`, and Backspace over an
+auto-inserted pair - came out **identical in both views**, which is worth
+recording as much as the failure: two guesses about where the next bug would
+be, both wrong, and now covered.
+
+**Which gap this batch closed:** Return between braces left the closing brace
+on the same line and the new line unindented.
+
+### The fix, in two halves, the second found by breaking a test
+
+`TextViewport`'s Return inserted a newline and indented. The widget asks the
+auto-completer **first** - `paragraphSeparatorAboutToBeInserted()` - which is
+what gives a closing brace a line of its own.
+
+Adding that call fixed the typing row and **broke
+`testASnippetIsIndentedByItsGroupsLanguage`**, which asserts the last line of
+the file is indented. That was the second half showing itself: the call
+returns *how many blocks it added below*, and the widget then indents each of
+them and puts the caret back. Ignoring the answer left an extra block below
+the caret, so the last line was empty.
+
+With the return value handled the way the widget handles it, both pass.
+
+### The assertion I should not have written
+
+Diagnosing that, I changed the snippet test to look at the caret's line rather
+than the file's last line - correct, and it still reads better - and **also
+added an assertion that the file now ends in `}`**, on the theory that the
+brace was being closed. It is not: this buffer's `{` came from `setText()`,
+there is no pair pending, and the document is `void f()\n{\n    `.
+
+That assertion cost a build-and-run to disprove, and it was written without
+measuring in a batch whose whole method is measuring. Removed. The caret-line
+change stayed, because that one was measured.
+
+### Negative control
+
+- **A -- Return does not ask the completer first**: red on the *quick* row,
+  `"void f() {\\nx;}"` against `"void f() {\\n    x;\\n}"`, and the widget row
+  passes. Four scripts and eight rows, and only the one that regressed fails -
+  which is what says the control is aimed at the change rather than at the
+  fixture.
+
+### Verification
+
+    -test TextEditor    492 passed, 0 failed, exit 0, 0 warnings   (486 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Three files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Three bugs have now come out of typing sequences, and the rate is falling: the
+first script found one, the second found one, this batch's three found one
+between them. The obvious next scripts, and they are cheap:
+
+- **Return inside a string or a comment**, where continuation rules differ
+  from brace rules.
+- **Typing over a selection** - select a word, type `(` - which the widget
+  surrounds rather than replaces when "surround with brackets" is on.
+- **Tab and Backtab mid-line**, which is indentation rather than completion
+  and has had no differential test at all.
+
+Unchanged: **drawing** the auto-inserted text, the **eleven skipped completion
+cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in a Quick
+toolbar**.

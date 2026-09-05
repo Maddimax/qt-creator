@@ -2270,9 +2270,31 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
     case Qt::Key_Enter:
         // The new line starts where the language says it should, which is the
         // difference between an editor and a text box.
-        applyToEveryCaret([doc](QTextCursor &caret) {
+        applyToEveryCaret([this, doc](QTextCursor &caret) {
+            // Asked before the line is broken, because it is what gives a
+            // closing brace the view put in a line of its own - the widget
+            // editor calls it at the same point. Without it, Return between
+            // braces left "x;}" on one line and no indent in front of it.
+            //
+            // It answers with how many blocks it added below. Those are the
+            // closing brace's, and they want indenting too - and the caret has
+            // to come back afterwards, or Return leaves it on the brace's line
+            // rather than on the empty one above it.
+            int extraBlocks = m_autoCompleter
+                                  ? m_autoCompleter->paragraphSeparatorAboutToBeInserted(caret)
+                                  : 0;
             caret.insertText("\n");
             doc->autoIndent(caret);
+
+            if (extraBlocks > 0) {
+                const int typingHere = caret.position();
+                QTextCursor below = caret;
+                while (extraBlocks-- > 0) {
+                    below.movePosition(QTextCursor::NextBlock);
+                    doc->autoIndent(below, QChar::Null, typingHere);
+                }
+                caret.setPosition(typingHere);
+            }
         });
         event->accept();
         return;

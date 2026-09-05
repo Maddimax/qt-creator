@@ -3362,10 +3362,11 @@ private slots:
         QCOMPARE(TextEditor::textCursorOf(editor).position(), 7);
     }
 
-    // A line of C++ typed a character at a time, into each view, and the two
-    // files compared. Every other test here sets a cursor, invokes a command
-    // or sends one key; none types a *sequence*, and that is where the closing
-    // bracket bug lived - and where this one did.
+    // Scripts of keys typed into each view, and the two files compared. Every
+    // other test here sets a cursor, invokes a command or sends one key; none
+    // types a *sequence*, and three separate bugs have now been found in that
+    // gap: a doubled closing bracket, the closers that nest behind it, and
+    // Return between braces leaving "x;}" on one line with no indent.
     //
     // The closers nest: "{" leaves "}", then "(" leaves ")}", then a quote
     // leaves "\"" in front of both. Stepping over one has to leave the rest,
@@ -3375,13 +3376,31 @@ private slots:
     void testTypingALineOfCppLeavesTheSameFileInEitherView_data()
     {
         QTest::addColumn<bool>("quick");
-        QTest::newRow("widget") << false;
-        QTest::newRow("quick") << true;
+        QTest::addColumn<QString>("script");
+        QTest::addColumn<QString>("expected");
+
+        // "\n" is Return and "\b" is Backspace; everything else is typed.
+        // Every row expects the same file from both views, so the widget row
+        // is the control on what the expectation should be.
+        const QList<std::tuple<QString, QString, QString>> scripts{
+            {"a line", "void f() { g(\"a\"); }", "void f() { g(\"a\"); }"},
+            {"a bracket inside a string", "g(\"(\")", "g(\"(\")"},
+            {"return between braces", "void f() {\nx;", "void f() {\n    x;\n}"},
+            {"backspace over a pair", "f(\b", "f"},
+        };
+        for (const auto &[what, script, expected] : scripts) {
+            QTest::newRow(qPrintable(QString("widget: %1").arg(what)))
+                << false << script << expected;
+            QTest::newRow(qPrintable(QString("quick: %1").arg(what)))
+                << true << script << expected;
+        }
     }
 
     void testTypingALineOfCppLeavesTheSameFileInEitherView()
     {
         QFETCH(bool, quick);
+        QFETCH(QString, script);
+        QFETCH(QString, expected);
 
         Utils::TemporaryDirectory dir("probe-typing");
         QVERIFY(dir.isValid());
@@ -3403,15 +3422,16 @@ private slots:
         QObject * const target = TextEditor::keyTargetOf(editor);
         QVERIFY(target);
 
-        const QString line = "void f() { g(\"a\"); }";
-        for (const QChar ch : line) {
-            QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(ch));
+        for (const QChar ch : script) {
+            const int key = ch == '\n' ? Qt::Key_Return
+                            : ch == '\b' ? Qt::Key_Backspace
+                                         : Qt::Key_unknown;
+            const QString text = key == Qt::Key_unknown ? QString(ch) : QString();
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
             QCoreApplication::sendEvent(target, &press);
         }
 
-        // What was typed, with nothing left over. Both rows assert the same
-        // thing, so the widget row is the control on the expectation.
-        QCOMPARE(document->document()->toPlainText(), line);
+        QCOMPARE(document->document()->toPlainText(), expected);
     }
 
     // A language server attaches to a document rather than to a language, so

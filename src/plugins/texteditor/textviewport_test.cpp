@@ -7065,8 +7065,16 @@ private slots:
         QTest::keyClick(&fixture.view, Qt::Key_Return);
 
         const QString written = buffer.text();
-        const QString lastLine = written.mid(written.lastIndexOf(QLatin1Char('\n')) + 1);
-        QVERIFY2(lastLine.startsWith(QLatin1Char(' ')) || lastLine.startsWith(QLatin1Char('\t')),
+
+        // The line the caret is on rather than the last one in the file. Return
+        // is answered by the completer first now, which can put blocks below
+        // the caret - a closing brace, where there is one to close - so the
+        // last line is not always the one that was just opened.
+        const int caret = viewport->cursorPosition();
+        const int from = written.lastIndexOf(QLatin1Char('\n'), qMax(0, caret - 1)) + 1;
+        const int to = written.indexOf(QLatin1Char('\n'), from);
+        const QString caretLine = written.mid(from, to < 0 ? -1 : to - from);
+        QVERIFY2(caretLine.startsWith(QLatin1Char(' ')) || caretLine.startsWith(QLatin1Char('\t')),
                  qPrintable("the line after an opening brace was not indented: " + written));
     }
 
