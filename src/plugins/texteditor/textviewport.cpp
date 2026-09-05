@@ -81,6 +81,8 @@
 #include <QTextDocument>
 #include <QTextLayout>
 
+#include <limits>
+
 namespace TextEditor {
 
 // QTextCursor::selectedText() separates paragraphs with U+2029, which is right
@@ -116,6 +118,14 @@ TextViewport::TextViewport(QQuickItem *parent)
     m_hoverTimer->setInterval(
         QApplication::style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay));
     connect(m_hoverTimer, &QTimer::timeout, this, &TextViewport::askForTooltip);
+
+    // A snippet is done with once the caret is taken out of it. The widget
+    // editor's overlay accepts on the same grounds; without it the holes stay
+    // drawn over text the reader has moved on from.
+    connect(this, &TextViewport::cursorPositionChanged, this, [this] {
+        if (hasSnippetPlaceholders() && !caretIsInSnippet())
+            clearSnippetPlaceholders();
+    });
 
     m_autoCompleter = std::make_unique<AutoCompleter>();
     connect(&globalCompletionSettings(), &Utils::AspectContainer::changed, this, [this] {
@@ -165,6 +175,14 @@ public:
     {
         if (m_view)
             m_view->encourageApply();
+    }
+
+    // A snippet's holes are the view's to draw and to tab between. The plain
+    // target drops them because a bare document has nowhere to put them.
+    void snippetInserted(const QList<SnippetPlaceholder> &placeholders) override
+    {
+        if (m_view)
+            m_view->setSnippetPlaceholders(placeholders);
     }
 
 private:
@@ -2022,7 +2040,7 @@ bool TextViewport::wantsKeyBeforeShortcuts(QKeyEvent *event)
     // takes the key, and the view never hears it at all.
     if (event->key() == Qt::Key_Escape) {
         return multiTextCursor().hasMultipleCursors() || currentSuggestion()
-               || hasEmbeddedWidgets();
+               || hasEmbeddedWidgets() || hasSnippetPlaceholders();
     }
 
     // Otherwise the same rule the widget editor uses: ordinary typing is the
@@ -2144,9 +2162,12 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
         // editor tells its own on Escape. Not instead of what follows: there
         // one press does both, because the claim and the key are answered in
         // different places.
-        const bool dismissed = hasEmbeddedWidgets();
-        if (dismissed)
+        const bool dismissed = hasEmbeddedWidgets() || hasSnippetPlaceholders();
+        if (hasEmbeddedWidgets())
             emit embeddedWidgetsShouldClose();
+        // A snippet still being filled in is given up: the text stays as it
+        // stands and the holes stop being offered.
+        clearSnippetPlaceholders();
 
         // A suggestion first, which is what the widget editor takes Escape
         // for before anything else: it is the thing on screen that the reader
@@ -2244,6 +2265,12 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
         event->accept();
         return;
     case Qt::Key_Tab:
+        // A snippet's holes first, which is what Tab means while one is being
+        // filled in. Falls through to indenting once there is none left.
+        if (goToSnippetPlaceholder(true)) {
+            event->accept();
+            return;
+        }
         // One indent's worth of whatever the tab settings say, and a whole
         // block where something is selected. A literal tab is what a text box
         // types; it is not what a code style asks for.
@@ -2254,6 +2281,10 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
         event->accept();
         return;
     case Qt::Key_Backtab:
+        if (goToSnippetPlaceholder(false)) {
+            event->accept();
+            return;
+        }
         unindent();
         event->accept();
         return;
@@ -3772,6 +3803,103 @@ QList<TextViewport::Highlight> TextViewport::highlights(Utils::Id kind) const
     return m_highlights.value(kind);
 }
 
+const Utils::Id SNIPPET_PLACEHOLDERS("TextEditor.SnippetPlaceholders");
+
+void TextViewport::setSnippetPlaceholders(const QList<SnippetPlaceholder> &placeholders)
+{
+    QTextDocument * const text = m_document ? m_document->textDocument()
+                                                  ? m_document->textDocument()->document()
+                                                  : nullptr
+                                            : nullptr;
+    if (!text)
+        return;
+
+    m_snippetHoles.clear();
+    for (const SnippetPlaceholder &placeholder : placeholders) {
+        QTextCursor cursor(text);
+        cursor.setPosition(placeholder.start);
+        cursor.setPosition(placeholder.end, QTextCursor::KeepAnchor);
+        m_snippetHoles.append({cursor, placeholder.finalPart});
+    }
+    refreshSnippetHighlights();
+}
+
+void TextViewport::clearSnippetPlaceholders()
+{
+    if (m_snippetHoles.isEmpty())
+        return;
+    m_snippetHoles.clear();
+    setHighlights(SNIPPET_PLACEHOLDERS, {});
+}
+
+void TextViewport::refreshSnippetHighlights()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return;
+    const QTextCharFormat format = doc->fontSettings().toTextCharFormat(C_OCCURRENCES);
+    QList<Highlight> highlights;
+    for (const SnippetHole &hole : std::as_const(m_snippetHoles)) {
+        if (hole.cursor.hasSelection())
+            highlights.append({hole.cursor.selectionStart(), hole.cursor.selectionEnd(), format});
+    }
+    setHighlights(SNIPPET_PLACEHOLDERS, highlights);
+}
+
+// Whether the caret is still inside what the snippet covers. Its whole span
+// rather than one hole: moving between them with the arrow keys is ordinary
+// editing, and leaving altogether is what says the snippet is done with.
+bool TextViewport::caretIsInSnippet() const
+{
+    if (m_snippetHoles.isEmpty())
+        return false;
+    const QTextCursor caret = textCursor();
+    if (caret.isNull())
+        return false;
+    int first = std::numeric_limits<int>::max();
+    int last = std::numeric_limits<int>::min();
+    for (const SnippetHole &hole : m_snippetHoles) {
+        first = qMin(first, hole.cursor.selectionStart());
+        last = qMax(last, hole.cursor.selectionEnd());
+    }
+    return caret.position() >= first && caret.position() <= last;
+}
+
+bool TextViewport::goToSnippetPlaceholder(bool forward)
+{
+    if (m_snippetHoles.isEmpty())
+        return false;
+
+    const int caret = textCursor().isNull() ? -1 : textCursor().position();
+    const SnippetHole *wanted = nullptr;
+    for (const SnippetHole &hole : std::as_const(m_snippetHoles)) {
+        const int start = hole.cursor.selectionStart();
+        if (forward ? start > caret : start < caret) {
+            // The nearest one in that direction, so that Tab walks them in
+            // the order they are written rather than the order they parsed.
+            if (!wanted
+                || (forward ? start < wanted->cursor.selectionStart()
+                            : start > wanted->cursor.selectionStart())) {
+                wanted = &hole;
+            }
+        }
+    }
+    if (!wanted)
+        return false;
+
+    // Selected rather than only moved to, so that typing replaces the hole -
+    // which is what the widget editor's overlay does with the first one.
+    QTextCursor moved = wanted->cursor;
+    const bool wasFinal = wanted->finalPart;
+    setTextCursor(moved);
+
+    // The last hole is where the snippet ends: there is nothing after it to
+    // tab to, and keeping it drawn would say otherwise.
+    if (wasFinal)
+        clearSnippetPlaceholders();
+    return true;
+}
+
 int TextViewport::cursorDisplayColumn() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
@@ -4573,6 +4701,10 @@ void TextViewport::documentChangedInternal()
                 // describes anything - including the case where taking it is
                 // what changed the text.
                 updateSuggestion();
+                // The cursors kept for a snippet's holes have moved with the
+                // edit; what is drawn for them has to follow.
+                if (hasSnippetPlaceholders())
+                    refreshSnippetHighlights();
                 polish();
                 update();
             });

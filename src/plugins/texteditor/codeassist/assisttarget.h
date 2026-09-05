@@ -54,6 +54,17 @@ public:
     virtual void paste();
 };
 
+// Where a snippet's placeholders ended up once its markup was taken out.
+// Positions in the document rather than cursors: whoever keeps them past the
+// insertion is the one that has to make them survive editing.
+struct SnippetPlaceholder
+{
+    int start = 0;
+    int end = 0;
+    int variableIndex = -1;
+    bool finalPart = false;
+};
+
 // An AssistTarget over a plain document and a cursor, which is what a Qt Quick
 // view has: the operations are all things a QTextCursor can do.
 class TEXTEDITOR_EXPORT DocumentAssistTarget : public AssistTarget
@@ -75,6 +86,12 @@ public:
     void insertCodeSnippet(int basePosition,
                            const QString &snippet,
                            const SnippetParser &parse) override;
+
+protected:
+    // Where the placeholders of the snippet just inserted are. A plain
+    // document has nowhere to offer them, so this does nothing; a view that
+    // can draw them and tab between them overrides it.
+    virtual void snippetInserted(const QList<SnippetPlaceholder> &placeholders);
 
 private:
     QTextDocument *m_document = nullptr;

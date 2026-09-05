@@ -8,6 +8,7 @@
 #include "behaviorsettings.h"
 #include "marginsettings.h"
 #include "textdocumentlayout.h"
+#include "codeassist/assisttarget.h"
 #include "texteditor_global.h"
 
 #include <qtcquick/actionmodel.h>
@@ -776,6 +777,21 @@ public:
                        const QColor &onScrollBar = {});
     QList<Highlight> highlights(Utils::Id kind) const;
 
+    // The holes a snippet left behind, which Tab moves between and which are
+    // drawn so the reader can see where they are. Cursors are kept rather than
+    // the positions handed over, because typing in one moves the rest.
+    //
+    // Not the widget editor's overlay: there is no mirroring here, so filling
+    // one hole does not fill the others with the same name, and what was
+    // inserted is not re-indented.
+    void setSnippetPlaceholders(const QList<SnippetPlaceholder> &placeholders);
+    bool hasSnippetPlaceholders() const { return !m_snippetHoles.isEmpty(); }
+    // Done with them: Escape, the caret leaving, or the last one filled.
+    void clearSnippetPlaceholders();
+    // Answers whether there was one to go to, so that Tab can fall back to
+    // indenting when the snippet is over.
+    bool goToSnippetPlaceholder(bool forward);
+
     void setTextCursor(const QTextCursor &cursor);
 
     int cursorPosition() const;
@@ -1191,6 +1207,15 @@ private:
     // By kind, each sorted by where it starts so that the lines on screen can
     // be found without walking every match in the file.
     QMap<Utils::Id, QList<Highlight>> m_highlights;
+    // A snippet's holes, in the order Tab visits them.
+    struct SnippetHole
+    {
+        QTextCursor cursor;
+        bool finalPart = false;
+    };
+    QList<SnippetHole> m_snippetHoles;
+    void refreshSnippetHighlights();
+    bool caretIsInSnippet() const;
     QMap<Utils::Id, QColor> m_highlightsOnScrollBar;
     QVariantList m_scrollBarHighlights;
     // What the rows were shaped with last time. Anything here changing makes

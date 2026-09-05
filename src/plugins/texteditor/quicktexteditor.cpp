@@ -4077,6 +4077,124 @@ private slots:
                  "the view went on claiming Escape after the widget was gone");
     }
 
+    // A snippet's holes in a view with no overlay: drawn so the reader can see
+    // where they are, and Tab moves between them. The batch before this one
+    // stopped the markup reaching the file; this is the half that makes the
+    // placeholders usable. No mirroring yet - filling one hole does not fill
+    // the others with the same name.
+    void testTabMovesBetweenASnippetsHoles()
+    {
+        Utils::TemporaryDirectory dir("snippet-holes");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("snip.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+
+        // Nothing yet, so Tab is still indentation and Escape is not the
+        // view's to take. Without this the assertions below would pass on a
+        // view that always thought it had a snippet.
+        QVERIFY2(!view->hasSnippetPlaceholders(), "the view began with holes in it");
+
+        // Two holes and a final one, the shape Snippet::parse gives back.
+        view->setSnippetPlaceholders({});
+        QCOMPARE(view->hasSnippetPlaceholders(), false);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        document->document()->setPlainText("class name : public base {};");
+        const int nameStart = 6;
+        const int baseStart = int(QString("class name : public ").size());
+        view->setSnippetPlaceholders({{nameStart, nameStart + 4, 0, false},
+                                      {baseStart, baseStart + 4, 1, true}});
+        QVERIFY2(view->hasSnippetPlaceholders(), "the view kept none of the holes");
+
+        // Drawn, so the reader can see where to type.
+        const QList<TextViewport::Highlight> drawn
+            = view->highlights("TextEditor.SnippetPlaceholders");
+        QVERIFY2(drawn.size() == 2,
+                 "the holes were not drawn, so the reader cannot see where to type");
+        QCOMPARE(drawn.first().start, nameStart);
+
+        // Escape is claimed while they are offered, or the shortcut bound to
+        // it takes the key and the view never hears it.
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QVERIFY2(view->wantsKeyBeforeShortcuts(&escape),
+                 "Escape was left to the shortcut system with a snippet open");
+
+        // The caret starts on the first hole, and Tab takes it to the next -
+        // selected, so that typing replaces what is there.
+        QTextCursor caret = view->textCursor();
+        caret.setPosition(nameStart);
+        view->setTextCursor(caret);
+        QVERIFY2(view->goToSnippetPlaceholder(true), "Tab found no hole to go to");
+        QCOMPARE(view->textCursor().selectionStart(), baseStart);
+        QVERIFY2(view->textCursor().hasSelection(),
+                 "the hole was moved to but not selected, so typing would not replace it");
+
+        // That one was the last, so the snippet is over and Tab is ordinary
+        // indentation again.
+        QVERIFY2(!view->hasSnippetPlaceholders(),
+                 "the view went on offering holes after the final one was reached");
+    }
+
+    // The caret being taken out of a snippet ends it, the way the widget
+    // editor's overlay accepts when the cursor leaves.
+    void testLeavingASnippetGivesUpItsHoles()
+    {
+        Utils::TemporaryDirectory dir("snippet-leave");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("snip.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        document->document()->setPlainText("class name : public base {};\nint elsewhere = 1;\n");
+        const int nameStart = 6;
+        view->setSnippetPlaceholders({{nameStart, nameStart + 4, 0, false},
+                                      {20, 24, 1, true}});
+        QVERIFY(view->hasSnippetPlaceholders());
+
+        // Still inside: moving between the holes is ordinary editing.
+        QTextCursor caret = view->textCursor();
+        caret.setPosition(nameStart + 2);
+        view->setTextCursor(caret);
+        QVERIFY2(view->hasSnippetPlaceholders(),
+                 "moving within the snippet gave up its holes");
+
+        // And out of it, which is what says the reader is done.
+        caret.setPosition(document->document()->toPlainText().indexOf("elsewhere"));
+        view->setTextCursor(caret);
+        QVERIFY2(!view->hasSnippetPlaceholders(),
+                 "the holes were still offered after the caret left the snippet");
+        QVERIFY2(view->highlights("TextEditor.SnippetPlaceholders").isEmpty(),
+                 "the holes were still drawn after the caret left the snippet");
+    }
+
     // Which languages open in the Qt Quick editor, written down rather than
     // grepped for. Three times in this migration a gap has been "closed" in
     // code that nothing reaches, because the language's files still open in

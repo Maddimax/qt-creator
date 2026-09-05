@@ -109,19 +109,32 @@ void DocumentAssistTarget::insertCodeSnippet(int basePosition,
 
     const ParsedSnippet parsed = std::get<ParsedSnippet>(result);
     QString text;
-    int firstVariable = -1;
+    QList<SnippetPlaceholder> placeholders;
     for (const ParsedSnippet::Part &part : parsed.parts) {
-        if (firstVariable < 0 && part.variableIndex >= 0)
-            firstVariable = int(text.size());
+        const int start = int(text.size());
         text += part.text;
+        if (part.variableIndex >= 0) {
+            placeholders.append({basePosition + start,
+                                 basePosition + int(text.size()),
+                                 part.variableIndex,
+                                 part.finalPart});
+        }
     }
 
     replace(basePosition, m_cursor.position() - basePosition, text);
 
+    if (placeholders.isEmpty())
+        return;
+
     // Where the reader would type first: the overlay would have selected this
     // placeholder, and the caret standing on it is what is left of that.
-    if (firstVariable >= 0)
-        setCursorPosition(basePosition + firstVariable);
+    setCursorPosition(placeholders.first().start);
+    snippetInserted(placeholders);
+}
+
+void DocumentAssistTarget::snippetInserted(const QList<SnippetPlaceholder> &placeholders)
+{
+    Q_UNUSED(placeholders)
 }
 
 WidgetAssistTarget::WidgetAssistTarget(TextEditorWidget *widget)

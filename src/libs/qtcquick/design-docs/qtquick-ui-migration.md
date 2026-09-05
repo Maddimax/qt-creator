@@ -35725,3 +35725,117 @@ in this batch is what makes it safe to leave undone in the meantime.
 The other standing item is unchanged: an arbitrary **widget** in a Quick
 toolbar has no answer, and the callers wanting one are combo boxes in
 languages that still open in the widget editor.
+
+## 2026-09-05 (6) -- A snippet's holes, and Tab between them
+
+The last entry named the snippet overlay as the next step, said it was
+several batches rather than one, and proposed the first as "the ranges and
+Tab, with mirrors after". This is that batch, and the estimate held.
+
+### The audit, briefly
+
+`SnippetOverlay` derives from `TextEditorOverlay`, which takes a
+`TextEditorWidget *` and paints with a `QPainter` - so the *drawing* is
+widget-bound and cannot be reused. But its state is a list of
+`QTextCursor` pairs, and the interesting part - which cursor belongs to
+which variable, what is next, what is final - is document-level logic sitting
+on top of that.
+
+So nothing needed extracting. Everything this batch needed already existed on
+the Qt Quick side:
+
+| needed | already there |
+| --- | --- |
+| draw ranges by kind | `TextViewport::setHighlights(Id, ...)` |
+| claim a key from a shortcut | `wantsKeyBeforeShortcuts()` |
+| a place to hang per-editor state | the view itself, as with suggestions |
+| the holes' positions | computed and thrown away by last batch's fix |
+
+That last row is the point: the previous batch already parsed the snippet and
+knew which parts were placeholders. It dropped them because there was nowhere
+to put them. This batch adds the somewhere.
+
+### The shape
+
+- `SnippetPlaceholder {start, end, variableIndex, finalPart}` in
+  `assisttarget.h`, beside where it is produced.
+- `DocumentAssistTarget::snippetInserted()` - a protected virtual that does
+  nothing. A bare document has nowhere to offer holes; a view overrides it.
+- `ViewportAssistTarget` overrides it and hands them to the view.
+- `TextViewport` keeps them as **cursors, not the positions handed over**,
+  because typing in one hole moves the rest. Draws them in `C_OCCURRENCES`,
+  refreshes on `contentsChanged`, and moves between them on Tab / Shift+Tab.
+- Escape gives them up - and is **claimed** in `wantsKeyBeforeShortcuts()`,
+  which is the lesson from the embedded-widget batch applied before the bug
+  rather than after it. Without the claim, `focusToEditor` eats the key.
+- The caret leaving the snippet's span ends it, the way the widget's overlay
+  accepts when the cursor leaves.
+
+Tab falls through to indenting when there is no snippet, which is what makes
+this safe to add to a key that already meant something.
+
+### What this is not
+
+**No mirroring.** Filling `$name$` in one place does not fill the others -
+`variableIndex` is carried through and stored and nothing reads it yet. That
+is deliberately the next batch, and it is the reason `variableIndex` is in the
+struct at all.
+
+**No auto-indent** of what was inserted; that still needs the `TextDocument`
+rather than the `QTextDocument`.
+
+### Negative controls
+
+Five, and the order they were run in mattered twice.
+
+- **A -- the holes are never reported**: red, 0 against 2.
+- **B -- the hole is moved to but not selected**: red, "the hole was moved to
+  but not selected, so typing would not replace it".
+- **D -- the caret leaving does not end the snippet**: red, "the holes were
+  still offered after the caret left".
+- **E -- Escape is not claimed for a snippet**: red, "Escape was left to the
+  shortcut system with a snippet open".
+- **F -- the holes are not drawn**: red, "the holes were not drawn, so the
+  reader cannot see where to type".
+
+E and F were first run as one control, and **F fired first and hid E** - the
+drawing assertion comes before the Escape one in the test. They were split and
+run separately. Same trap as the last entry's C: a control that fires early
+says nothing about what comes after it. Two bare `QCOMPARE`s were rewritten to
+say what was wrong when they went red.
+
+### The link no test covers
+
+`ViewportAssistTarget::snippetInserted()` - the two lines that forward from
+the target to the view - is not covered. The producing half is tested through
+a `RecordingTarget` subclass, and the consuming half through
+`setSnippetPlaceholders()` directly, but the join between them is not, because
+`ViewportAssistTarget` is private to `textviewport.cpp` and reaching it means
+driving a real completion proposal.
+
+Said here rather than left to be discovered: if snippets appear to do nothing
+in the Qt Quick editor despite all of this, that override is the first place
+to look.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      473 passed, 0 failed, exit 0     (470 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient ...          38 passed, 0 failed, exit 0
+
+Six files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**Mirrors** are the next step, and the groundwork is in: `variableIndex` is
+carried from the parser into `SnippetPlaceholder` and stored per hole. What it
+needs is an edit inside one hole being copied to the others with the same
+index, without the copy being treated as another edit - which is what
+`m_modifyingSelections` guards in `CppLocalRenaming` and what
+`updateEquivalentSelections()` does in the widget's overlay. Those two are
+worth reading side by side first; they solve the same problem twice.
+
+After that, auto-indent of an inserted snippet, which needs the view's target
+to reach the `TextDocument`.

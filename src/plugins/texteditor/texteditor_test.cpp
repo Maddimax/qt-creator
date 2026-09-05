@@ -829,6 +829,7 @@ class SnippetTest final : public QObject
 private slots:
     void testVariableMirroring();
     void testASnippetLeavesNoMarkupInAPlainView();
+    void testASnippetSaysWhereItsHolesAre();
 };
 
 void SnippetTest::testVariableMirroring()
@@ -914,6 +915,52 @@ void SnippetTest::testASnippetLeavesNoMarkupInAPlainView()
     QVERIFY2(asked, "the target ignored the parser it was given");
     QCOMPARE(fromServer.toPlainText(), QString("f(int a)"));
     QCOMPARE(server.position(), 2);
+}
+
+// Where the holes ended up, which is what a view with an overlay needs in
+// order to draw them and tab between them. Reported rather than returned: the
+// item that inserts a snippet has no idea which view it is writing into.
+void SnippetTest::testASnippetSaysWhereItsHolesAre()
+{
+    class RecordingTarget final : public DocumentAssistTarget
+    {
+    public:
+        using DocumentAssistTarget::DocumentAssistTarget;
+
+        QList<SnippetPlaceholder> holes;
+
+    protected:
+        void snippetInserted(const QList<SnippetPlaceholder> &placeholders) override
+        {
+            holes = placeholders;
+        }
+    };
+
+    QTextDocument document;
+    RecordingTarget target(&document);
+    target.setCursorPosition(0);
+    target.insertCodeSnippet(0, "class $name$ : public $base$ {};", &Snippet::parse);
+
+    QCOMPARE(document.toPlainText(), QString("class name : public base {};"));
+    QCOMPARE(target.holes.size(), 2);
+
+    // The positions are where the text actually landed, not where the markup
+    // was: "$name$" is six characters and "name" is four.
+    QCOMPARE(target.holes.first().start, 6);
+    QCOMPARE(target.holes.first().end, 10);
+    QCOMPARE(document.toPlainText().mid(target.holes.first().start,
+                                        target.holes.first().end - target.holes.first().start),
+             QString("name"));
+    QCOMPARE(document.toPlainText().mid(target.holes.at(1).start,
+                                        target.holes.at(1).end - target.holes.at(1).start),
+             QString("base"));
+
+    // A snippet with nothing to fill in says so by reporting nothing, rather
+    // than leaving a view offering a hole that is not there.
+    RecordingTarget plain(&document);
+    plain.setCursorPosition(0);
+    plain.insertCodeSnippet(0, "int x = 1;", &Snippet::parse);
+    QVERIFY2(plain.holes.isEmpty(), "a snippet with no placeholders reported one anyway");
 }
 
 QObject *createSnippetTest()
