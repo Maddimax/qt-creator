@@ -3573,11 +3573,27 @@ static int positionAfterEdit(int position, int editedAt, int charsRemoved, int c
     return editedAt;
 }
 
-void TextViewport::carryCaretThroughEdit(int position, int charsRemoved, int charsAdded)
+// The ranges drawn over the file - a search result, the other uses of the name
+// under the caret, a diagnostic, a refactoring marker - are kept as positions
+// here and as cursors by a widget editor, which is why nothing there has to
+// put them back after an edit. So nothing here asks who made the edit either:
+// unlike the caret, no producer writes these back afterwards, and the ones
+// that recompute do it long after the key was pressed.
+void TextViewport::carryHighlightsThroughEdit(int position, int charsRemoved, int charsAdded)
 {
-    if (m_editingThroughItsOwnCarets)
-        return;
+    for (QList<Highlight> &kind : m_highlights) {
+        for (Highlight &highlight : kind) {
+            // Sortedness survives: a later position cannot be carried in front
+            // of an earlier one.
+            highlight.start = positionAfterEdit(highlight.start, position, charsRemoved,
+                                                charsAdded);
+            highlight.end = positionAfterEdit(highlight.end, position, charsRemoved, charsAdded);
+        }
+    }
+}
 
+void TextViewport::carryPositionsThroughEdit(int position, int charsRemoved, int charsAdded)
+{
     // Opening a file is one insertion of the whole of it into an empty
     // document, and a caret at 0 is not standing in front of that text - it is
     // where the reader is put. Carrying it would leave it past the last
@@ -3586,6 +3602,11 @@ void TextViewport::carryCaretThroughEdit(int position, int charsRemoved, int cha
     // characterCount() is what the document has now, an empty one being 1.
     const int countBefore = m_connectedDocument->characterCount() - charsAdded + charsRemoved;
     if (countBefore <= 1)
+        return;
+
+    carryHighlightsThroughEdit(position, charsRemoved, charsAdded);
+
+    if (m_editingThroughItsOwnCarets)
         return;
 
     // The extra carets are cursors in the document and have moved themselves.
@@ -4957,7 +4978,7 @@ void TextViewport::documentChangedInternal()
         m_connectedDocument = text;
         if (text) {
             connect(text, &QTextDocument::contentsChange, this,
-                    &TextViewport::carryCaretThroughEdit);
+                    &TextViewport::carryPositionsThroughEdit);
             connect(text, &QTextDocument::contentsChanged, this, [this] {
                 // What was typed decides whether the suggestion still
                 // describes anything - including the case where taking it is

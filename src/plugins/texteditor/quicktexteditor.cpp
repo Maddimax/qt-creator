@@ -3373,6 +3373,84 @@ private slots:
     // and putting one in has to join what is already waiting. Getting either
     // wrong leaves the line ending in ")}" - which is what typing this line
     // into this editor did.
+    void testAMarkOnTheTextFollowsAnEditItDidNotMake_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // What is drawn over a range of the file - a search result, the other uses
+    // of the name under the caret, a diagnostic, a refactoring marker - marks
+    // *text*, not two numbers. A widget editor keeps a QTextCursor per range
+    // and the document carries it; this view keeps positions, and positions
+    // slide off what they were put on at the next edit.
+    void testAMarkOnTheTextFollowsAnEditItDidNotMake()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("marks-follow");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("hello world\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        QTextCursor over(document->document());
+        over.setPosition(6);
+        over.setPosition(11, QTextCursor::KeepAnchor);
+        QCOMPARE(over.selectedText(), QString("world"));
+        QTextCharFormat format;
+        format.setBackground(QColor(Qt::magenta));
+        TextEditor::setViewSelections(editor, "Test.Marks", {{over, format}});
+
+        const auto marked = [editor] {
+            const QList<TextDocument::ExtraSelection> marks
+                = TextEditor::viewSelections(editor, "Test.Marks");
+            return marks.size() == 1 ? marks.first().cursor : QTextCursor();
+        };
+        QCOMPARE(marked().selectedText(), QString("world"));
+
+        // Written through the document: a quick fix, a language server.
+        QTextCursor elsewhere(document->document());
+        elsewhere.setPosition(0);
+        elsewhere.insertText("XY");
+        QCOMPARE(marked().selectionStart(), 8);
+        QCOMPARE(marked().selectedText(), QString("world"));
+
+        // And typed into the view, which is the path the caret is deliberately
+        // not carried on - nothing writes these back afterwards, so they are.
+        QTextCursor toStart(document->document());
+        toStart.setPosition(0);
+        TextEditor::setTextCursorOf(editor, toStart);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, "Z");
+        QCoreApplication::sendEvent(target, &press);
+        QCOMPARE(marked().selectionStart(), 9);
+        QCOMPARE(marked().selectedText(), QString("world"));
+
+        // Taking the text away again brings it back where it started.
+        QTextCursor undo(document->document());
+        undo.setPosition(0);
+        undo.setPosition(3, QTextCursor::KeepAnchor);
+        undo.removeSelectedText();
+        QCOMPARE(marked().selectionStart(), 6);
+        QCOMPARE(marked().selectedText(), QString("world"));
+    }
+
     void testTypingALineOfCppLeavesTheSameFileInEitherView_data()
     {
         QTest::addColumn<bool>("quick");

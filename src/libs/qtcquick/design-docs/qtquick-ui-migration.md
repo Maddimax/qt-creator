@@ -38123,3 +38123,97 @@ Then, still on the typing list:
 Unchanged: **drawing** the auto-inserted text, the **eleven skipped completion
 cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in a Quick
 toolbar**.
+
+## 2026-09-05 (31) -- The marks on the text, which were two numbers
+
+The last entry proposed a probe rather than a guess: put a selection, a
+snippet and an auto-completed range in a buffer, edit through the document,
+and print what each thinks it covers. Written and run, it answered all three,
+and one of them was wrong.
+
+    mark over "world", then "XY" inserted at 0 through the document
+    widget   6..11 |world|  ->  8..13 |world|
+    quick    6..11 |world|  ->  6..11 |o wor|
+
+### Which gap this batch closed
+
+`setViewSelections()` is the seam every ranged mark arrives through - a search
+result, the other uses of the name under the caret, a diagnostic's underline,
+a refactoring marker. It hands a widget editor `QTextEdit::ExtraSelection`,
+which **holds a QTextCursor**, and the document carries those. On this side it
+flattened each one to `{int start, int end}` at the moment of the call, so
+every mark in the Quick view slid off the text it was put on at the next
+keystroke.
+
+Same shape as the caret in entry 30, one level out: a widget editor never had
+to carry these because it never stored a number.
+
+### The one difference from the caret
+
+The caret is *not* carried for an edit this view makes through its own carets,
+because those carets are written back afterwards. The marks are carried for
+**every** edit, including typed ones - nothing writes a mark back, and the
+producers that recompute do it long after the key was pressed. So the two
+halves sit on opposite sides of the same guard, and each half has its own
+control below.
+
+Sortedness survives being carried, which is what keeps `setHighlights()`
+O(what is on screen) and kept the entry-25 polish loop shut: a later position
+cannot be carried in front of an earlier one. Carrying also makes a producer's
+next recompute *cheaper*, because the ranges it hands over now compare equal to
+the ones already stored and `setHighlights()` returns early.
+
+### What the other two probes said
+
+- **Snippet holes carry themselves**, measured: a hole at 6..11 with the caret
+  in it reads 8..13 after the same insertion. They are two `QTextCursor`s.
+- **The auto-completed range** is a `QTextCursor` too - `setAutoCompletedRange()`
+  takes ints and builds one. Read from the code, **not measured**: it has no
+  accessor to probe through, and inventing one to prove something the type
+  already says was not worth it. Written down as read, not as measured.
+
+### The probe that measured the wrong thing first
+
+The first snippet probe said the holes were *gone* after the edit, which read
+like a much worse defect than staleness. It was the fixture: the probe left
+the caret at 0, and a caret outside a snippet dismisses it - carrying the
+caret is what first emitted `cursorPositionChanged` on an external edit, so
+entry 30's fix made the dismissal fire where nothing had fired before. With
+the caret in the hole, where a snippet being filled in always has it, the
+holes carry. **A probe reports what the fixture asks it, and the fixture was
+asking about a snippet nobody was filling in.**
+
+### Negative controls
+
+- **A -- the marks are not carried**: red on `quick`, `selectionStart()` 6
+  against 8, at the edit-through-the-document step. The widget row passes.
+- **B -- carried only for edits this view did not make**, i.e. the call moved
+  behind the guard: red on `quick` at the *typed* step, 8 against 9, and the
+  document step passes. Two controls because the fix has two halves and the
+  guard is exactly where they differ.
+
+### Verification
+
+    -test TextEditor    508 passed, 0 failed, exit 0, 0 warnings   (506 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Three files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Two entries running, positions kept as numbers have been the defect. What is
+left of that class, and it is now a short list: `m_suggestionBlock` is a
+`QTextBlock`, and `m_scopeBlock` is a block number guarded by
+`m_scopeRevision`. Neither is obviously wrong; both are worth the same
+ten-minute probe rather than a guess, and after them this class is closed.
+
+Still on the typing list from entry 30:
+
+- **Overwrite mode**, which no differential row covers.
+- **Undo after an edit made from elsewhere** - the caret is carried forward
+  now, and undo has to put it back where the reader was. This one got more
+  interesting, not less, since the carrying went in.
+
+Unchanged: **drawing** the auto-inserted text, the **eleven skipped completion
+cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in a Quick
+toolbar**.

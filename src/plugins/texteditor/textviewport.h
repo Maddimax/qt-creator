@@ -855,10 +855,11 @@ public:
     // later in the document first: an edit moves everything after it, and a
     // caret that has already been edited at does not have to be moved with it.
     void applyToEveryCaret(const std::function<void(QTextCursor &)> &edit);
-    // Where the caret and the selection end up after an edit this view
-    // did not make: a quick fix, a language server, the comment the
-    // language wrote when Enter was pressed.
-    void carryCaretThroughEdit(int position, int charsRemoved, int charsAdded);
+    // Where what this view keeps a position for ends up after an edit: a
+    // quick fix, a language server, the comment the language wrote when
+    // Enter was pressed, or a key typed into this view.
+    void carryPositionsThroughEdit(int position, int charsRemoved, int charsAdded);
+    void carryHighlightsThroughEdit(int position, int charsRemoved, int charsAdded);
     // Everything that has to follow the caret once it is somewhere new,
     // however it got there: put there, or carried by an edit.
     void caretMoved();
