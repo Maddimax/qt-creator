@@ -39560,3 +39560,94 @@ it.
 - Unchanged: **drag and drop of text**, which needs `QDragEnterEvent`/
   `QDropEvent` delivered by hand, and **`-test all`**, which cannot run at all
   until QmlDesigner's link error is fixed.
+
+## 2026-09-06 (45) -- CppEditor whole, and a claim from entry 44 withdrawn
+
+The last entry's first open item was `CppEditor` with a cap above 300 seconds,
+so its whole list is compared rather than a prefix. Run both ways at 2400s:
+
+    quick   1426 verdicts, 6 failures
+    widget  1426 verdicts, 11 failures
+    reached by both: 1426. Neither run reached a test the other missed.
+
+**Eight verdicts differ.** One is `testACppFileOpensInTheQuickEditor` skipping
+honestly under the override. The other seven are behaviour:
+
+    FollowSymbolTest::testSwitchMethodDeclDef  x6   quick=PASS  widget=FAIL!
+    LocatorFilterTest(CppFunctionsFilter-ObjC)      quick=FAIL!  widget=PASS
+
+**Run alone, both ways, all seven pass.** So they are not editor-dependent in
+isolation - which is where entry 44's method would have stopped, and it would
+have been wrong to stop there.
+
+### The measurement that decides it
+
+**Two runs of the *same* configuration.** Same binary, same environment, the
+quick way twice:
+
+    run 1   1426 verdicts,  6 failures
+    run 2   1426 verdicts,  9 failures
+    verdicts differing between the two: 3
+
+Three tests failed in the second run that passed in the first -
+`BringIdentifierIntoScopeTest`, two `GlobalRenamingTest` rows - and the ObjC
+locator test that failed in run 1 **passed in run 2**.
+
+**CppEditor's suite has run-to-run noise of the same size as the difference
+being measured.** Comparing one run each way cannot tell an editor difference
+from the suite's own variation, and the seven above are indistinguishable from
+it. The honest verdict for CppEditor is **inconclusive**, not clean.
+
+### Which claim this withdraws
+
+Entry 44 ended: *"Nothing outside these tests notices which editor a C++ file
+opens in."* For sixteen of the seventeen plugins that stands, and this batch
+strengthened it - `ProjectExplorer` and `Core`, the two largest, were each run
+twice the same way:
+
+    ProjectExplorer  424 verdicts, self-difference 0
+    Core             212 verdicts, self-difference 0
+
+Stable, so their zero differences mean what they say. **For `CppEditor` the
+claim is withdrawn**: its comparison was one run against one run of a suite
+that disagrees with itself by three verdicts, and no conclusion of either sign
+survives that.
+
+### The rule this adds
+
+`measure rates, not verdicts` has been in this file since entry 12 and was
+applied to single flaky *tests*. It applies to whole *suites* too, and nothing
+had asked: **before comparing two configurations, run one of them twice.** If
+a suite differs from itself, the comparison's resolution is worse than the
+thing being looked for. Two minutes for `ProjectExplorer` and `Core`; twenty
+for `CppEditor`, and only the twenty found anything.
+
+### This batch changed no code
+
+Both things it went after came back as measurements, and the second one
+withdraws a claim rather than adding a feature. Recording that is worth more
+than a batch invented to avoid recording it - the same conclusion entry 12
+reached, and the reason this file is trusted about what it says is done.
+
+### Verification
+
+    -test TextEditor    586 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+One file changed, and it is this one.
+
+### What this leaves
+
+- **CppEditor's flakiness is now the thing in the way**, not a nuisance beside
+  it. Three tests are known to vary run to run - `BringIdentifierIntoScopeTest`,
+  `GlobalRenamingTest`, `LocatorFilterTest(ObjC)` - and while they do, no
+  comparison of that suite means anything. Worth a batch on its own: measure
+  each one's rate over ten runs, then look at the one with the highest.
+- **A shared "this test is about the Qt Quick view"** still has three call
+  sites in three spellings. Entry 44 said a fourth would justify a helper;
+  there is still no fourth, so still not yet - but `texteditor.h` is the home
+  when it comes, not `CppEditor::Tests`, because `FakeVim` and `Debugger`
+  already depend on TextEditor and TextEditor should not depend on CppEditor.
+- Unchanged: **drag and drop of text**; **`-test all`**, blocked by
+  QmlDesigner's link error; **`-test ClangFormat`**, which is not an accepted
+  name and went unmeasured.
