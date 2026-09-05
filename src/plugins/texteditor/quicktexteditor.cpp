@@ -5333,6 +5333,75 @@ private slots:
                  "the document kept a marker the widget had cleared");
     }
 
+    // An action that carries a menu is a button that opens it, not one that
+    // fires. clang-tools' "Analyze File..." is exactly that, and in the widget
+    // editor it is a QToolButton set to InstantPopup - so the Qt Quick toolbar
+    // has to draw the same shape rather than a flat button that does nothing.
+    void testTheFormDrawsAnActionsMenu()
+    {
+        class MenuDocument final : public TextDocument
+        {
+        public:
+            MenuDocument()
+                : TextDocument("QuickEditorToolBarMenuTest")
+                , m_menu(new QMenu)
+                , m_action(new QAction("Analyze", this))
+            {
+                m_first = m_menu->addAction("Clang-Tidy");
+                m_second = m_menu->addAction("Clazy");
+                m_action->setMenu(m_menu);
+            }
+            ~MenuDocument() override { delete m_menu; }
+            QList<QAction *> ownToolBarActions() const override { return {m_action}; }
+            QMenu * const m_menu;
+            QAction * const m_action;
+            QAction *m_first = nullptr;
+            QAction *m_second = nullptr;
+        };
+
+        class MenuFactory final : public TextEditorFactory
+        {
+        public:
+            MenuFactory()
+            {
+                setId("QuickEditorToolBarMenuTest");
+                setDisplayName("Quick Editor Tool Bar Menu Test");
+                setDocumentCreator([] { return new MenuDocument; });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        MenuFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = static_cast<MenuDocument *>(editor->document());
+        QVERIFY(document);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY(bar);
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "languageToolBarButton")),
+                     "the toolbar drew nothing for the language's action");
+
+        // The menu is there and carries what the action's menu carries.
+        QObject * const menu = drawn->findChild<QObject *>("languageToolBarMenu");
+        QVERIFY2(menu, "the button drew no menu for an action that has one");
+        QTRY_COMPARE(menu->property("count").toInt(), 2);
+        QVERIFY2(!menu->property("visible").toBool(),
+                 "the menu opened itself instead of waiting to be asked");
+
+        // Pressing opens it rather than triggering the action, which would run
+        // whichever tool the button is standing in for without asking.
+        QSignalSpy fired(document->m_action, &QAction::triggered);
+        QMetaObject::invokeMethod(drawn, "clicked");
+        QTRY_VERIFY2(menu->property("visible").toBool(), "pressing the button opened nothing");
+        QVERIFY2(fired.isEmpty(), "pressing the button ran the action instead of opening its menu");
+    }
+
     // What a language wants in the toolbar row. The document says so and the
     // form draws it; CppEditorDocument's is the button that asks how the file
     // should be preprocessed, and this is the same seam with a document made

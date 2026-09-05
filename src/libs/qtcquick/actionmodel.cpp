@@ -6,6 +6,7 @@
 #include "qtciconprovider.h"
 
 #include <QAction>
+#include <QMenu>
 
 namespace QtcQuick {
 
@@ -54,6 +55,22 @@ int ActionModel::rowCount(const QModelIndex &parent) const
     return parent.isValid() ? 0 : int(m_actions.size());
 }
 
+// The menu \a action carries, as a model. Asked again every time it is shown,
+// because a menu assembled by a plugin gains entries after the action exists.
+ActionModel *ActionModel::submenuFor(QAction *action) const
+{
+    QMenu * const menu = action ? action->menu() : nullptr;
+    if (!menu)
+        return nullptr;
+    ActionModel *&model = m_submenus[action];
+    if (!model) {
+        model = new ActionModel(const_cast<ActionModel *>(this));
+        model->setProvider([menu] { return menu->actions(); });
+    }
+    model->refresh();
+    return model;
+}
+
 QVariant ActionModel::data(const QModelIndex &index, int role) const
 {
     if (index.row() < 0 || index.row() >= int(m_actions.size()))
@@ -84,6 +101,8 @@ QVariant ActionModel::data(const QModelIndex &index, int role) const
         return iconUrl(action->icon());
     case ToolTipRole:
         return action->toolTip();
+    case MenuRole:
+        return QVariant::fromValue(submenuFor(const_cast<QAction *>(action)));
     default:
         return {};
     }
@@ -102,7 +121,8 @@ QHash<int, QByteArray> ActionModel::roleNames() const
             {CheckedRole, "actionChecked"},
             {SeparatorRole, "actionSeparator"},
             {IconRole, "actionIcon"},
-            {ToolTipRole, "actionToolTip"}};
+            {ToolTipRole, "actionToolTip"},
+            {MenuRole, "actionMenu"}};
 }
 
 void ActionModel::trigger(int row)

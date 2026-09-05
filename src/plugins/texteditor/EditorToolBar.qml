@@ -133,6 +133,10 @@ Row {
             required property bool actionEnabled
             required property bool actionVisible
             required property string actionToolTip
+            // Null unless the action carries a menu, in which case this button
+            // opens it rather than triggering - the widget editor's toolbar
+            // does the same with a QToolButton set to InstantPopup.
+            required property var actionMenu
 
             objectName: "languageToolBarButton"
             // Guarded: a Repeater's delegate has no parent while it is being
@@ -143,7 +147,32 @@ Row {
             visible: languageButton.actionVisible
             ToolTip.text: languageButton.actionToolTip
             ToolTip.visible: hovered && ToolTip.text !== ""
-            onClicked: root.languageActions.trigger(languageButton.index)
+            onClicked: {
+                if (languageButton.actionMenu)
+                    languageMenu.popup()
+                else
+                    root.languageActions.trigger(languageButton.index)
+            }
+
+            Menu {
+                id: languageMenu
+
+                objectName: "languageToolBarMenu"
+
+                Repeater {
+                    model: languageButton.actionMenu
+
+                    delegate: MenuItem {
+                        required property int index
+                        required property string actionText
+                        required property bool actionEnabled
+
+                        text: actionText
+                        enabled: actionEnabled
+                        onTriggered: languageButton.actionMenu.trigger(index)
+                    }
+                }
+            }
         }
     }
 

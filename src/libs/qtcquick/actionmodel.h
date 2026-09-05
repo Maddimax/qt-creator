@@ -44,6 +44,11 @@ public:
         // all. A menu shows the shortcut in its own column; a toolbar button
         // has only this.
         ToolTipRole,
+        // The entries of this action's own menu, as a model of their own, or
+        // null where it has none. An action carrying a menu is one that opens
+        // it rather than one that triggers - which is what a QToolButton set
+        // to InstantPopup does in the widget editor.
+        MenuRole,
     };
 
     explicit ActionModel(QObject *parent = nullptr);
@@ -69,8 +74,14 @@ public:
     Q_INVOKABLE void trigger(int row);
 
 private:
+    ActionModel *submenuFor(QAction *action) const;
+
+private:
     QList<QPointer<QAction>> m_actions;
     Provider m_provider;
+    // One per action that has a menu, made when first asked for and owned by
+    // this: a delegate binds to it, so it has to outlive the binding.
+    mutable QHash<QAction *, ActionModel *> m_submenus;
 };
 
 } // namespace QtcQuick

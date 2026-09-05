@@ -265,34 +265,55 @@ void ClangToolsPlugin::registerAnalyzeActions()
         if (editor->document()->filePath().isEmpty()
                 || !Utils::mimeTypeForName(editor->document()->mimeType()).inherits("text/x-c++src"))
             return;
-        auto *textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-        if (!textEditor)
-            return;
-        TextEditor::TextEditorWidget *widget = textEditor->editorWidget();
-        if (!widget)
-            return;
         const QIcon icon = Utils::Icon({{":/debugger/images/debugger_singleinstructionmode.png",
                                          Utils::Theme::IconsBaseColor}}).icon();
-        const auto button = new QToolButton;
-        button->setPopupMode(QToolButton::InstantPopup);
-        button->setIcon(icon);
-        button->setToolTip(Tr::tr("Analyze File..."));
-        button->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
-        widget->toolBar()->addWidget(button);
-        const auto toolsMenu = new QMenu(widget);
-        button->setMenu(toolsMenu);
-        for (const auto &toolInfo :
-             {std::pair<ClangTool *, Utils::Id>(
-                  clangTidyTool(), Constants::RUN_CLANGTIDY_ON_CURRENT_FILE),
-              std::pair<ClangTool *, Utils::Id>(
-                  clazyTool(), Constants::RUN_CLAZY_ON_CURRENT_FILE)}) {
-            ClangTool * const tool = toolInfo.first;
-            Command * const cmd = ActionManager::command(toolInfo.second);
-            QAction *const action = toolsMenu->addAction(tool->name(), [editor, tool] {
-                tool->startTool(editor->document()->filePath());
-            });
-            cmd->augmentActionWithShortcutToolTip(action);
+
+        // The two tools, on whichever menu is going to carry them.
+        const auto fill = [editor](QMenu *menu) {
+            for (const auto &toolInfo :
+                 {std::pair<ClangTool *, Utils::Id>(
+                      clangTidyTool(), Constants::RUN_CLANGTIDY_ON_CURRENT_FILE),
+                  std::pair<ClangTool *, Utils::Id>(
+                      clazyTool(), Constants::RUN_CLAZY_ON_CURRENT_FILE)}) {
+                ClangTool * const tool = toolInfo.first;
+                Command * const cmd = ActionManager::command(toolInfo.second);
+                QAction *const action = menu->addAction(tool->name(), [editor, tool] {
+                    tool->startTool(editor->document()->filePath());
+                });
+                cmd->augmentActionWithShortcutToolTip(action);
+            }
+        };
+
+        if (auto *textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor)) {
+            TextEditor::TextEditorWidget *widget = textEditor->editorWidget();
+            if (!widget)
+                return;
+            const auto button = new QToolButton;
+            button->setPopupMode(QToolButton::InstantPopup);
+            button->setIcon(icon);
+            button->setToolTip(Tr::tr("Analyze File..."));
+            button->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
+            widget->toolBar()->addWidget(button);
+            const auto toolsMenu = new QMenu(widget);
+            button->setMenu(toolsMenu);
+            fill(toolsMenu);
+            return;
         }
+
+        // A view that is not a widget takes an action instead, and one that
+        // carries a menu is drawn as a button that opens it. Unchanged above,
+        // because a QToolButton is what the widget toolbar has always shown.
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        if (!document)
+            return;
+        const auto action = new QAction(icon, Tr::tr("Analyze File..."), document);
+        // A QMenu is a QWidget and cannot be parented to the action, and
+        // setMenu() does not take ownership - so it goes when the action does.
+        const auto toolsMenu = new QMenu;
+        action->setMenu(toolsMenu);
+        QObject::connect(action, &QObject::destroyed, toolsMenu, &QObject::deleteLater);
+        fill(toolsMenu);
+        document->addToolBarAction(action);
     });
 }
 

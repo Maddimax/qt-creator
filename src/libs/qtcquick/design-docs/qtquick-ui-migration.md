@@ -34694,3 +34694,78 @@ They are all the same question - *what does a toolbar or an inline widget do
 in the Qt Quick editor when the widget one had a popup or a QWidget?* Sixteen
 batches of deferral is an answer in practice; it should be written down as one
 either way, so the plan stops carrying work nobody intends to do.
+
+## 2026-09-05 -- The presentation questions were not all questions
+
+Sixteen entries carried "three presentation questions" as work needing a
+person. Auditing them against the code first, which should have happened long
+ago:
+
+- **The Refactor submenu** - *already done.* `ActionMenu.qml` has a
+  `languageSubmenu`, added by some later batch and never struck off the list,
+  with tests asserting it nests and stays shut until picked. The plan was
+  carrying finished work as an open question.
+- **The clang-tools toolbar button** - a real gap, and not a matter of taste:
+  the Qt Quick toolbar **already shows menus**, `lineEndingMenu` and
+  `tabSettingsMenu`, the latter with a nested one inside it. "Two buttons or
+  does the toolbar learn submenus" had been answered by the toolbar itself.
+  What was missing was the plumbing for a *plugin's* action to carry one.
+- **The parse-context highlight** - nothing in the code answers to that name
+  any more. Left on the list below rather than declared dead, but it needs
+  restating by whoever put it there.
+
+**A deferred list rots.** Two of three items were stale or already settled, and
+re-reading them would have cost ten minutes at any point in the last sixteen
+batches. Audit a "needs a decision" list before asking again.
+
+The gap this closed: **"Analyze File..." was missing from every C++ file**, the
+exact case this migration is about. `ClangToolsPlugin` built a `QToolButton`
+on `widget->toolBar()`, so the Qt Quick editor got nothing.
+
+`ActionModel` gained a `MenuRole` - the entries of an action's own menu, as a
+model of their own - and the toolbar delegate draws a button that opens it
+rather than one that fires. That is what `QToolButton::InstantPopup` does in
+the widget editor, so the two read alike. The widget path in clang-tools is
+untouched: it still builds its own button, because that is what it has always
+drawn and changing it would change the popup mode.
+
+### ASan caught what an incremental build hid
+
+The first run aborted before the test even started:
+
+    ERROR: AddressSanitizer: heap-buffer-overflow
+      #0 QHash<QAction*, ActionModel*>::QHash()  qhash.h:850
+      #2 QtcQuick::ActionModel::ActionModel()    actionmodel.cpp:13
+      #4 Debugger::Internal::ConsoleView::ConsoleView()
+
+`ActionModel` grew a member, and **Debugger** still had object code sized for
+the old layout - it constructs one for its console. Rebuilding three targets
+was not enough. This is `builds.md`'s "rebuild all after a shared vtable
+change", and a new data member is the same hazard: **adding a member to a
+class in a shared library is an ABI change for every plugin that instantiates
+it.** A full rebuild fixed it and it has not recurred.
+
+### Negative controls
+
+- **A -- the model never reports a menu** (the state before this batch): red.
+- **B -- the button triggers instead of opening the menu**: red on the menu
+  never becoming visible, which is the distinction the whole change is about.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      463 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **`addEmbeddedWidget` and `insertExtraToolBarWidget`** in the Lua bindings.
+  Both put a `QWidget` into the view, which the Qt Quick editor genuinely has
+  no place for. These are the only two left that are a widget's by nature
+  rather than by accident, and they refuse with an error saying so.
+- **The parse-context highlight**, if it still means anything - see above.
+
+Everything else the plan ever listed is done.
