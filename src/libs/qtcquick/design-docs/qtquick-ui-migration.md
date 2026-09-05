@@ -36954,3 +36954,87 @@ Open:
   ten-minute timeout.
 - **The `QuickUi` sort flake**, still not reproducing.
 - **An arbitrary widget in a Quick toolbar**, unchanged for thirteen entries.
+
+## 2026-09-05 (18) -- A guard for the loop, and why the fixture is the point
+
+The last entry fixed a polish loop worth a factor of thirty and said plainly
+that nothing guarded it: `polish()` scheduling is not observable through any
+public `QQuickItem` API, so the regression guard was "run `FollowSymbolTest`
+both ways and compare the times".
+
+That was true about `polish()` and wrong about the loop. **The loop announces
+itself.** Qt prints
+
+    TextViewport(codeViewport) called polish() inside updatePolish() of ...
+
+the *first* time it happens, and `possible QQuickItem::polish() loop` later
+once it has happened often enough. A warning is not observable through an API
+but it is observable through a message handler, and this file already had the
+pattern: `ActionCollisions` catches "already registered" the same way, for the
+same reason - a warning is all Qt gives you.
+
+**Which gap this batch closed:** the previous entry's fix had no test. Now it
+has one, and it needs a single layout pass rather than the twenty-one minutes
+the loop used to take to show itself.
+
+### The test
+
+`PolishLoopWarnings` collects any message mentioning `updatePolish` or
+`polish() loop` for as long as it is in scope. The test opens a real Qt Quick
+editor, hands the document two `CodeWarningsSelection` ranges **in the wrong
+order**, waits for a layout - `metricsChanged`, which `updatePolish()` emits
+on the way out, so the wait is on the thing the warning would be printed from
+inside - and asserts nothing was collected.
+
+It also asserts the two ranges are still there afterwards, sorted, so that the
+loop cannot be "settled" by dropping them.
+
+### Negative controls
+
+- **A -- compare against the caller's order again** (the bug the last entry
+  fixed): red, "the layout asked for another layout: qrc:/qt/qml/...".
+- **B -- the same bug, with the ranges handed over in document order**:
+  **green.**
+
+B is the one worth having. It is not a control on the code, it is a control on
+the *fixture*, and it says the thing that explains the entire bug: with the
+defect in place, ranges that arrive sorted never trip it. That is why the whole
+tree was accidentally safe - search results, semantic occurrences and every
+other producer walk the document forwards - and why only a language server's
+diagnostics, which arrive in the server's order, ever reached it.
+
+Four times this session a control has failed to bite because the fixture was
+too simple. This time the fixture was the finding.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      481 passed, 0 failed, exit 0     (480 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,FollowSymbolTest
+      155 passed, 0 failed, exit 0, 43 674 ms, 0 polish warnings
+
+One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The previous entry proposed writing suite timings down so the next thirty-fold
+regression is noticed. That is now the *second*-best answer: a warning-based
+guard catches this class of defect in one pass and in one suite, without
+anybody having to compare a number against a remembered one. Timings would
+still catch a slowdown with no warning behind it, so the idea is not dead - but
+it is no longer the cheapest thing available, and the cheapest thing is done.
+
+Open, and none of it C++-blocking:
+
+- **The `QuickUi` sort flake**, still not reproducing. Entry 12's method and
+  entry 16's skip-count indicator are what a next attempt has to work with.
+- **An arbitrary widget in a Quick toolbar**, unchanged for fourteen entries.
+
+A general note, since this is twice in two entries: **the log is evidence.**
+The polish loop was in every one of those runs, printed 350 times, for as long
+as the Qt Quick editor has been drawing diagnostics - and no batch read it,
+because every suite the standing rules require was green and the totals said
+nothing. Reading a run's warnings is in this project's own testing notes, and
+this is the second finding in a row that came from doing it.

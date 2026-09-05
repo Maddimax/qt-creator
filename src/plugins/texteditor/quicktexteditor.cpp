@@ -1306,6 +1306,33 @@ private:
     static inline QtMessageHandler s_previous = nullptr;
 };
 
+// A layout that asks for another layout is a warning and nothing else, so a
+// test has to listen for it. Qt says it twice: once the first time an item
+// calls polish() from inside its own updatePolish(), and again once it has
+// happened often enough to look like a loop. The first is the one worth
+// catching - it needs a single pass rather than a thousand.
+class PolishLoopWarnings
+{
+public:
+    PolishLoopWarnings() { s_hits = &m_hits; s_previous = qInstallMessageHandler(collect); }
+    ~PolishLoopWarnings() { qInstallMessageHandler(s_previous); s_hits = nullptr; }
+
+    QStringList hits() const { return m_hits; }
+
+private:
+    static void collect(QtMsgType type, const QMessageLogContext &context, const QString &message)
+    {
+        if (s_hits && (message.contains("updatePolish") || message.contains("polish() loop")))
+            s_hits->append(message);
+        if (s_previous)
+            s_previous(type, context, message);
+    }
+
+    QStringList m_hits;
+    static inline QStringList *s_hits = nullptr;
+    static inline QtMessageHandler s_previous = nullptr;
+};
+
 // A Repeater's delegates are visual children of the item and QObject children
 // of somewhere else, so findChild() never sees one. See
 // textviewport_test.cpp, which walks the tree the same way.
@@ -3186,6 +3213,74 @@ private slots:
         quickDocument->setExtraSelections(ours, {{there, marked}});
         QTRY_VERIFY2(view->highlights(ours).size() == 1,
                      "the Qt Quick view drew nothing for a kind of its own name");
+    }
+
+    // Ranges that do not arrive in document order must still settle. The view
+    // keeps what it is given sorted, and used to compare that against the
+    // caller's order - so a producer that hands them over in any other order
+    // looked different on every pass. updatePolish() sets these, so the layout
+    // asked for another layout and never stopped: FollowSymbolTest took
+    // 1 298 540 ms in this editor against the widget editor's 41 598 ms, and
+    // failed thirteen cases whose waits the loop was starving.
+    //
+    // A language server's diagnostics are the producer that does not sort;
+    // everything else in the tree walks the document forwards and was
+    // accidentally safe, which is why no suite saw this.
+    void testRangesGivenOutOfOrderDoNotLoopTheLayout()
+    {
+        Utils::TemporaryDirectory dir("out-of-order-highlights");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("marked.txt");
+        QVERIFY(file.writeFileContents("alpha beta gamma delta\nsecond line here\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        auto * const view = quick->rootObject()->findChild<TextViewport *>();
+        QVERIFY(view);
+        QTRY_VERIFY2(view->visibleLineCount() > 0, "the view never laid anything out");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const auto rangeAt = [document](int from, int to) {
+            QTextCursor cursor(document->document());
+            cursor.setPosition(from);
+            cursor.setPosition(to, QTextCursor::KeepAnchor);
+            QTextCharFormat format;
+            format.setBackground(QColor(Qt::red));
+            return TextDocument::ExtraSelection{cursor, format};
+        };
+
+        // The later range first, which is what a server that reports its
+        // complaints in its own order does.
+        const QList<TextDocument::ExtraSelection> outOfOrder{rangeAt(12, 17), rangeAt(0, 5)};
+
+        PolishLoopWarnings warnings;
+        QSignalSpy laidOut(view, &TextViewport::metricsChanged);
+        document->setExtraSelections(TextEditorWidget::CodeWarningsSelection, outOfOrder);
+
+        // Waiting for a layout rather than for a length of time: the warning
+        // is printed from inside one, so there is nothing to see until one has
+        // happened.
+        QTRY_VERIFY2(laidOut.count() > 0, "the view never laid out again");
+
+        QVERIFY2(warnings.hits().isEmpty(),
+                 qPrintable(QString("the layout asked for another layout: %1")
+                                .arg(warnings.hits().value(0))));
+
+        // And the ranges are there, in the order the view keeps them, so this
+        // did not settle by dropping them.
+        const QList<TextViewport::Highlight> drawn
+            = view->highlights(TextEditorWidget::CodeWarningsSelection);
+        QCOMPARE(drawn.size(), 2);
+        QCOMPARE(drawn.first().start, 0);
+        QCOMPARE(drawn.at(1).start, 12);
     }
 
     // A language server attaches to a document rather than to a language, so
