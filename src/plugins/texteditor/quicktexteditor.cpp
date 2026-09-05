@@ -773,6 +773,15 @@ public:
             m_gatedActions.append({action, needs});
     }
 
+    // What the language turned out to be able to do, on top of what its
+    // factory said up front - a language server only knows once it has
+    // answered its initialize.
+    void addOptionalActions(uint optionalActions)
+    {
+        m_optionalActions |= optionalActions;
+        updateOptionalActions();
+    }
+
     void updateOptionalActions()
     {
         TextViewport * const view = viewport();
@@ -1173,7 +1182,7 @@ public:
     QList<QPointer<QAction>> m_suggestionActions;
     struct GatedAction { QPointer<QAction> action; uint needs; };
     QList<GatedAction> m_gatedActions;
-    const uint m_optionalActions = OptionalActions::None;
+    uint m_optionalActions = OptionalActions::None;
     QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
@@ -1205,6 +1214,12 @@ public:
         });
     }
 };
+
+void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
+{
+    if (auto * const quick = qobject_cast<QuickTextEditor *>(editor))
+        quick->addOptionalActions(optionalActions);
+}
 
 Core::IEditor *editorForViewport(TextViewport *view)
 {
@@ -5976,6 +5991,21 @@ private slots:
         QVERIFY2(!comment->isEnabled(), "a read-only file is still offered to be commented");
         view->setReadOnly(false);
         QVERIFY(comment->isEnabled());
+
+        // And what a language turns out to support after the fact. A factory's
+        // mask is what it can say before anything has run; a language server
+        // knows more once it has answered its initialize, and used to have
+        // nowhere to put it in this editor - so Open Call Hierarchy stayed
+        // greyed out over a C++ file however capable clangd was.
+        QVERIFY2(!usages->isEnabled(), "the fixture starts with Find Usages already offered");
+        QVERIFY2(!TextEditorWidget::fromEditor(withSome.get()),
+                 "the fixture is a widget editor, so this proves nothing about the Quick one");
+        // Through the seam the language client reaches for, not the internal one.
+        TextEditor::addOptionalActionsIn(withSome.get(), OptionalActions::FindUsage);
+        QVERIFY2(usages->isEnabled(), "the language said it can find usages and was not heard");
+
+        // Widening, not replacing: what the factory asked for is still there.
+        QVERIFY2(renameHere->isEnabled(), "widening the mask dropped what the factory asked for");
     }
 
     // A choice the language offers in the toolbar - which of several ways the

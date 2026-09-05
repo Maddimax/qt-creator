@@ -33076,3 +33076,99 @@ Four files, no new file and no `.qbs` edit.
 **Do not declare this finished without running the net.** It is one grep, it
 has never yet come back empty, and the two entries that declared the work over
 were both followed by an entry that found something.
+
+## 2026-09-05 -- What the language server knows, and what it leaves behind
+
+The gap this closed: **a language server's own answer about what it supports
+never reached the Qt Quick editor.** `Client::activateEditor()` collected six
+`OptionalActions` bits from what the server said it could do - find usages,
+rename, follow symbol, follow type, call hierarchy, type hierarchy - and then
+put them on a `TextEditorWidget`. Its own comment said so:
+
+> Still widget-only: QuickTextEditor takes its mask from the factory that
+> built it and keeps it, so there is nowhere to put what the server turns out
+> to support. See the design doc.
+
+So over a C++ file, which now opens in the Quick editor, Open Call Hierarchy
+stayed greyed out however capable clangd was. `CppEditorFactory`'s mask cannot
+name those: whether they work is a property of the server, not of the language,
+and it is not known until the server has answered its initialize.
+
+`QuickTextEditor::m_optionalActions` stopped being `const` and gained
+`addOptionalActions()`, which ors and re-gates. **Widening, not replacing** -
+the factory's mask is what the language could say before anything ran, the
+server's is what one server turned out to support, and neither is the whole
+answer. `setOptionalActions()` would have thrown away the first.
+
+### A control that did not bite, and what it was measuring
+
+Control A - break the exported seam, expect the test to go red - **came back
+green**, on a batch where B and C both bit. Breaking the *far end* instead
+(`QuickTextEditor::addOptionalActions()` does nothing) went red immediately,
+which located it: the test lives in `namespace TextEditor::Internal`, so its
+unqualified `addOptionalActionsIn(...)` bound to the **Internal** overload and
+never went through the exported one at all. It was testing the last ten lines
+of the path and calling it the path.
+
+Unqualified calls in a test that sits inside the namespace it tests will find
+the internal overload of a same-named seam. Qualify them - `TextEditor::` -
+or the test proves the production caller's route is fine when it has never
+been down it. Fixed, plus a guard that the fixture is not a widget editor, and
+control A bites.
+
+### The second gap: what the client drew stays on the screen
+
+`deactivateEditor()` cleared the semantic-highlight selections and the
+client's refactor markers - `if (widget)`. In the Quick editor a dead server's
+underline stayed on the text.
+
+Writing the clear was one line; writing it **into the right store** took the
+test. The first attempt cleared `TextDocument::setExtraSelections()`, which
+compiles, is a real store, and is *not the one the client draws into* - the
+highlight response calls `TextEditor::setViewSelections()`, which for a
+non-widget view writes `TextViewport::highlights()`. The test went red on the
+selection and green on the marker, which is exactly the shape of "you cleaned
+a different bucket". A view has two selection stores; clear through the seam
+the writer wrote with.
+
+### Negative controls
+
+- **A -- the exported seam does not reach a view that is not a widget**: red,
+  after the qualification fix above. Green before it, which was the finding.
+- **B -- widening replaces the factory's mask**: red on `renameHere`, so the
+  or is load-bearing and not decoration.
+- **C -- widening does not re-gate the actions**: red on `usages`, so the mask
+  alone changes nothing without `updateOptionalActions()`.
+- **D -- the selection is not cleared on deactivation**: red.
+- **E -- the refactor markers are not cleared on deactivation**: red.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      457 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient -load all -noload QmlDesigner -noload UpdateInfo
+      37 passed, 0 failed, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### The net, run again
+
+`languageclient/client.cpp`'s four remaining hits are now all **test guards**
+(`QVERIFY2(!TextEditorWidget::fromEditor(editor), ...)`), not production
+casts - the file is clear. Still unexamined, in the order a fourth bug is
+likeliest: `languageclientutils.cpp:311`, `languageclientmanager.cpp:555`,
+`languageclientsettings.cpp:1005`, `callandtypehierarchy.cpp:664`,
+`clangdclient.cpp:1391`, `mcpserver/mcpcommands.cpp`, `lua/bindings/
+texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+`acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+Four runs of the net, four bugs. The rule holds.
+
+### What this leaves
+
+Unchanged from the last entry: the clang-tools toolbar button, the
+parse-context highlight, and Refactor submenu nesting are one presentation
+question in three places - **what does a toolbar or menu do in the Quick
+editor when the widget one had a popup?** That one wants a person.

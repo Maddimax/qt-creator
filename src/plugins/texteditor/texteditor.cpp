@@ -10347,6 +10347,17 @@ void setMarginSettingsIn(Core::IEditor *editor,
         view->setMarginSettings(settings);
 }
 
+void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->addOptionalActions(optionalActions);
+        return;
+    }
+    Internal::addOptionalActionsIn(editor, optionalActions);
+}
+
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)
 {
     if (!editor)

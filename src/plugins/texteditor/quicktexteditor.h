@@ -26,6 +26,11 @@ TextViewport *viewportForEditor(Core::IEditor *editor);
 // whoever asked it to do something on the reader's behalf.
 Core::IEditor *editorForViewport(TextViewport *view);
 
+// Widen what this editor offers, where \a editor is one of ours. The mask a
+// factory hands over is what the language says up front; this is what it
+// turns out to support once a server has answered.
+void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
+
 // A Qt Quick view of a document a TextEditorFactory has already built and
 // configured: the language's own TextDocument, carrying its indenter, its
 // highlighter and its completions. \a context is what the factory would have

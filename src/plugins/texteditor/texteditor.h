@@ -1071,6 +1071,11 @@ TEXTEDITOR_EXPORT void setBehaviorSettingsIn(Core::IEditor *editor,
 TEXTEDITOR_EXPORT void setMarginSettingsIn(Core::IEditor *editor,
                                            const std::optional<MarginSettingsData> &settings);
 
+// Add to what \a editor's view offers. A factory's OptionalActions mask says
+// what the language can answer before anything has run; a language server
+// widens it once it has said what it supports.
+TEXTEDITOR_EXPORT void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
+
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax
 // tree where it has an opinion - a SelectionExpander parented to \a editor -

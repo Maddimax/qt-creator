@@ -1092,24 +1092,26 @@ void Client::activateEditor(Core::IEditor *editor)
         d->m_activeEditors.remove(editor);
     });
 
-    if (TextEditor::TextEditorWidget *widget = TextEditor::TextEditorWidget::fromEditor(editor)) {
-        // Still widget-only: QuickTextEditor takes its mask from the factory
-        // that built it and keeps it, so there is nowhere to put what the
-        // server turns out to support. See the design doc.
-        uint optionalActions = widget->optionalActions();
-        if (symbolSupport().supportsFindUsages(widget->textDocument()))
+    // What this server turns out to support, on top of what the language's
+    // factory said before anything ran. Either view: a C++ file is in the Qt
+    // Quick one, where Open Call Hierarchy stayed greyed out because
+    // CppEditor's own mask does not name it and only the server knows.
+    if (auto * const document
+        = qobject_cast<TextEditor::TextDocument *>(editor->document())) {
+        uint optionalActions = TextEditor::OptionalActions::None;
+        if (symbolSupport().supportsFindUsages(document))
             optionalActions |= TextEditor::OptionalActions::FindUsage;
-        if (symbolSupport().supportsRename(widget->textDocument()))
+        if (symbolSupport().supportsRename(document))
             optionalActions |= TextEditor::OptionalActions::RenameSymbol;
-        if (symbolSupport().supportsFindLink(widget->textDocument(), LinkTarget::SymbolDef))
+        if (symbolSupport().supportsFindLink(document, LinkTarget::SymbolDef))
             optionalActions |= TextEditor::OptionalActions::FollowSymbolUnderCursor;
-        if (symbolSupport().supportsFindLink(widget->textDocument(), LinkTarget::SymbolTypeDef))
+        if (symbolSupport().supportsFindLink(document, LinkTarget::SymbolTypeDef))
             optionalActions |= TextEditor::OptionalActions::FollowTypeUnderCursor;
-        if (supportsCallHierarchy(this, widget->textDocument()))
+        if (supportsCallHierarchy(this, document))
             optionalActions |= TextEditor::OptionalActions::CallHierarchy;
-        if (supportsTypeHierarchy(this, widget->textDocument()))
+        if (supportsTypeHierarchy(this, document))
             optionalActions |= TextEditor::OptionalActions::TypeHierarchy;
-        widget->setOptionalActions(optionalActions);
+        TextEditor::addOptionalActionsIn(editor, optionalActions);
     }
 }
 
@@ -1130,11 +1132,11 @@ void Client::deactivateEditor(Core::IEditor *editor)
 {
     d->m_activeEditors.remove(editor);
     TextEditor::removeHoverHandlerIn(editor, &d->m_hoverHandler);
-    TextEditor::TextEditorWidget *widget = TextEditor::TextEditorWidget::fromEditor(editor);
-    if (widget) {
-        widget->setExtraSelections(TextEditor::TextEditorWidget::CodeSemanticsSelection, {});
-        widget->clearRefactorMarkers(id());
-    }
+    // What this client drew on the text goes with it, in either view - through
+    // the same seam it drew with. Left behind, a stale underline outlives the
+    // server that put it there.
+    TextEditor::setViewSelections(editor, TextEditor::TextEditorWidget::CodeSemanticsSelection, {});
+    TextEditor::setRefactorMarkersIn(editor, id(), {});
     updateEditorToolBar(editor);
 }
 
@@ -2699,6 +2701,63 @@ private slots:
     // signal, which a view that is not one does not have; the client
     // registers a finder on the document instead, and both views go through
     // TextEditorFactory::linkFinderFor().
+    void testWhatTheClientDrewGoesWithItFromAnyView()
+    {
+        Utils::TemporaryDirectory dir("lsp-cleanup-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("marked.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        auto * const server = new RecordingServer({});
+        auto * const client = new Client(server);
+        client->setName("cleanup test client");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY(client->reachable());
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        LanguageClientManager::openDocumentWithClient(document, client);
+        QTRY_VERIFY(LanguageClientManager::clientForFilePath(file) == client);
+
+        // What the client draws on the text while it holds the document: the
+        // underline under the symbol the caret is on, and the marker offering
+        // a fix. Put there through the same seams the client uses.
+        const Utils::Id selectionsId(TextEditor::TextEditorWidget::CodeSemanticsSelection);
+        QTextCursor cursor(document->document());
+        cursor.setPosition(0);
+        cursor.setPosition(5, QTextCursor::KeepAnchor);
+        TextEditor::setViewSelections(editor, selectionsId, {{cursor, {}}});
+        TextEditor::RefactorMarker marker;
+        marker.cursor = cursor;
+        marker.type = client->id();
+        TextEditor::setRefactorMarkersIn(editor, client->id(), {marker});
+
+        QVERIFY2(!TextEditor::viewSelections(editor, selectionsId).isEmpty(),
+                 "the fixture could not draw a semantic selection, so this tests nothing");
+        QVERIFY2(!document->refactorMarkers(client->id()).isEmpty(),
+                 "the fixture could not place a refactor marker, so this tests nothing");
+
+        // Taking the document away takes both with it, or a stale underline
+        // outlives the server that put it there.
+        client->deactivateDocument(document);
+        QVERIFY2(TextEditor::viewSelections(editor, selectionsId).isEmpty(),
+                 "the client's semantic selection outlived its interest in the document");
+        QVERIFY2(document->refactorMarkers(client->id()).isEmpty(),
+                 "the client's refactor marker outlived its interest in the document");
+    }
+
     void testFollowSymbolReachesTheServerFromAnyView()
     {
         Utils::TemporaryDirectory dir("lsp-follow-symbol-in-any-view");
