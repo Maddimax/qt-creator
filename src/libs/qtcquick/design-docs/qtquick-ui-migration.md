@@ -38217,3 +38217,117 @@ Still on the typing list from entry 30:
 Unchanged: **drawing** the auto-inserted text, the **eleven skipped completion
 cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in a Quick
 toolbar**.
+
+## 2026-09-05 (32) -- Four clean measurements, and the gap they sent me to
+
+The last entry named three things to probe and two to type. All of them were
+measured and **none of them was broken**:
+
+| probed | widget | quick |
+|---|---|---|
+| undo after typing | caret 6 -> 5 | 6 -> 5 |
+| undo after an edit made elsewhere | 7 -> 0 | 7 -> 0 |
+| overwrite, five scripts | five results | the same five |
+| the suggestion block | - | an edit drops the suggestion, so it cannot go stale |
+| the scope band | recomputed on a caret move, on a timer | recomputed on a caret move |
+
+The **suggestion** answer is the interesting one: `m_suggestionBlock` cannot
+go stale because an edit anywhere takes the suggestion down, which entry 30's
+own test already asserts. The **scope band** is a memo keyed on
+`(block number, document revision)`, and its other input - the folding indents
+- can change without the revision changing; but the widget recomputes on
+exactly the same trigger, a caret move on a timer, so this is not a gap
+between the two editors. **The class of "positions kept as numbers" is
+closed**: caret and selection in entry 30, the marks in entry 31, and these
+two measured clean.
+
+The overwrite scripts became five more rows of the differential typing test,
+which now has fifteen. They are coverage, not a fix: nothing in this batch
+made them pass.
+
+### Which gap this batch closed
+
+With the plan's list measured clean, the next thing blocking the flip is the
+one that has been written down since the clangd completions were ported:
+**eleven completion cases that had never run against the Quick editor**. They
+were skipped because they reached for `TextEditorWidget::currentTextEditorWidget()`
+and then read `lineColumn()` and `autoCompleteHighlightPosition()` off it.
+Three seams close that:
+
+    lineColumnOf(IEditor *)          Position::fromCursor(textCursorOf(editor))
+    assistTargetFor(IEditor *)       a WidgetAssistTarget or the view's own
+    autoCompleteHighlightOf(IEditor *)   the widget's highlight, or m_autoCompleted
+
+`lineColumnOf()` needed no dispatch at all - the widget computes it from its
+own cursor, and the cursor is the thing both views already have.
+
+### Which found a real defect, because un-skipping is a measurement
+
+Un-skipped, the eleven did not pass: they **failed**, and one of them turned a
+104-character file into a 40-character one. `DocumentAssistTarget` carries a
+cursor of its own, which starts at position 0, and both in-view call sites set
+it before applying an item. A target handed out by a seam had nobody to do
+that, so an item replacing back to the caret replaced back to the start of the
+file.
+
+The view's target now starts where the reader is, in its constructor. A
+`WidgetAssistTarget` *is* the view and never had this problem; making the
+other one place itself is what lets a caller hold either without knowing
+which.
+
+### The control that did not bite, and what it cost
+
+I also wrote the other half - a destructor putting the reader where the target
+ended up - and **the control for it did not bite**: with it removed, all
+eleven still pass. The reason is measurable rather than lucky. Entry 30 made
+the caret follow any edit, so an item inserting at the caret carries the
+reader along to exactly where the target finished. The write-back was
+redundant for everything I could measure.
+
+Per the rule, a control that does not bite means the fix is unnecessary, the
+test is wrong, or it is not the whole cause - and never assume the first
+without looking. Here the mechanism is the one entry 30 put in, and the two
+in-view call sites already write the caret back explicitly. **So it came out
+again.** If some item moves the caret without editing, that will arrive as a
+failure with a name on it rather than as code nobody can justify.
+
+### Negative controls
+
+- **A -- the target does not start where the reader is**: 21 passed, 12
+  failed, against 32 passed, 1 failed. The whole set of un-skipped cases.
+- **B -- the reader is not put where the target ended up**: **did not bite**,
+  32 passed, 1 failed either way. Acted on rather than explained away: the
+  code it was controlling is gone.
+
+### Verification
+
+    -test TextEditor                     518 passed, 0 failed, exit 0   (508 before)
+    -test QuickUi                        207 passed, 0 failed, 1 skipped, exit 0
+    -test ClangCodeModel,ClangdTestCompletion
+                                         32 passed, 1 failed, 0 skipped
+                                         (was 21 passed, 11 skipped)
+
+The one failure is `testSignalCompletion(positive: connect() on QObject
+pointer rvalue)`, which asks for 2 suggestions and gets 8. Run both ways it
+fails identically - `QTC_WIDGET_CPP_EDITOR=1` gives 13 passed, 1 failed, and
+so does the Quick editor. **Pre-existing and view-independent**; not this
+batch's, and not fixed by it.
+
+Six files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Completion now applies through a seam, which was the last of the four things
+the standing warning lists that had no Quick-side home at all. What is left
+before the switch can be flipped, in the order I would take them:
+
+- **The optional-action mask.** CppEditor sets it on a `TextEditorWidget` and
+  nothing reads it on the other side. Unmeasured; the next probe.
+- **Quick fixes and refactoring** reach the view through `assistTargetFor()`
+  now, but the *marker* they leave - `RefactorMarker` - is still a widget
+  overlay.
+- **Follow symbol** has a seam and a test; **refactoring** does not.
+
+Unchanged: **drawing** the auto-inserted text, the **`QuickUi` sort flake**,
+and **an arbitrary widget in a Quick toolbar**. The eleven skipped completion
+cases are no longer on this list.

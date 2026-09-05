@@ -3474,6 +3474,11 @@ private slots:
             {"a bracket around a selection", "word<SelectAll>(", "(word)"},
             {"tab at the start of a line", "x;<Home>\t", "    x;"},
             {"backtab on an indented line", "\tx;<Home><Backtab>", "x;"},
+            {"overwriting two characters", "hello<Home><Insert>ab", "abllo"},
+            {"overwriting past the line", "hi<Home><Insert>xyz", "xyz"},
+            {"overwriting with a bracket", "hello<Home><Insert>(", "(ello"},
+            {"backspace while overwriting", "hello<Home><Insert>\b", "hello"},
+            {"return while overwriting", "hello<Home><Insert>\n", "\nhello"},
         };
         for (const auto &[what, script, expected] : scripts) {
             QTest::newRow(qPrintable(QString("widget: %1").arg(what)))
@@ -3526,6 +3531,8 @@ private slots:
                 }
                 if (name == "Home") {
                     key = Qt::Key_Home;
+                } else if (name == "Insert") {
+                    key = Qt::Key_Insert;
                 } else if (name == "Backtab") {
                     key = Qt::Key_Backtab;
                     modifiers = Qt::ShiftModifier;

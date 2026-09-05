@@ -293,6 +293,12 @@ public:
     // marks on it all see the change - writing the text out and back would
     // lose every one of them.
     QTextCursor textCursor() const override;
+    // The text the completer put in that the reader has not typed over yet,
+    // which a widget editor answers with autoCompleteHighlightPosition().
+    QTextCursor autoCompletedRange() const;
+    // An AssistTarget standing for this view, so that a completion item can be
+    // applied to whichever view the file opened in.
+    std::unique_ptr<AssistTarget> createAssistTarget();
     void setContextHelpItem(const Core::HelpItem &item) override;
     QWidget *tooltipParent() override;
     QPoint globalCursorTopLeft() const override;

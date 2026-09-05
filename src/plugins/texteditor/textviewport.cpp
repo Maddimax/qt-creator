@@ -170,7 +170,15 @@ public:
     ViewportAssistTarget(QTextDocument *document, TextViewport *view)
         : DocumentAssistTarget(document)
         , m_view(view)
-    {}
+    {
+        // A WidgetAssistTarget *is* the view, so an item moving the caret
+        // moves the reader's. This one edits through a cursor of its own, so
+        // it starts where the reader is and puts them where it ends up -
+        // otherwise an item replacing back to the caret replaces back to 0.
+        if (m_view)
+            setCursorPosition(m_view->cursorPosition());
+    }
+
 
     void encourageApply() override
     {
@@ -2372,6 +2380,19 @@ void TextViewport::setAutoCompletedRange(int from, int to)
     m_autoCompleted = QTextCursor(text);
     m_autoCompleted.setPosition(from);
     m_autoCompleted.setPosition(to, QTextCursor::KeepAnchor);
+}
+
+QTextCursor TextViewport::autoCompletedRange() const
+{
+    return m_autoCompleted;
+}
+
+std::unique_ptr<AssistTarget> TextViewport::createAssistTarget()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc)
+        return {};
+    return std::make_unique<ViewportAssistTarget>(doc->document(), this);
 }
 
 void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)

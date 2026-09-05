@@ -51,6 +51,7 @@ class MinimapController;
 
 namespace TextEditor {
 class AssistInterface;
+class AssistTarget;
 class BaseHoverHandler;
 class CompletionAssistProvider;
 class IAssistProvider;
@@ -871,6 +872,16 @@ private:
 TEXTEDITOR_EXPORT QTextCursor textCursorOf(Core::IEditor *editor);
 // The other direction, for code that has a widget and owes somebody an editor.
 TEXTEDITOR_EXPORT Core::IEditor *editorForWidget(TextEditorWidget *widget);
+
+// Where the caret is as a line and a column, counted from one, for code that
+// reports a place to a reader rather than editing at it.
+TEXTEDITOR_EXPORT Utils::Text::Position lineColumnOf(Core::IEditor *editor);
+// Something a completion item can be applied to, standing for whichever view
+// \a editor opened in. Null where \a editor shows no text; the caller owns it.
+TEXTEDITOR_EXPORT std::unique_ptr<AssistTarget> assistTargetFor(Core::IEditor *editor);
+// The text the completer put in and the reader has not typed over yet. Null
+// when there is none, which is what says a completion was applied whole.
+TEXTEDITOR_EXPORT QTextCursor autoCompleteHighlightOf(Core::IEditor *editor);
 
 // What \a editor's view offers at places in the file, replacing whatever was
 // offered for \a type. Through the widget where the view is one, so that it

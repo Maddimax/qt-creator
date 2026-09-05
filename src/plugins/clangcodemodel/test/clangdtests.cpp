@@ -78,6 +78,12 @@ namespace ClangCodeModel::Internal {
 
 const Usage::Tags Initialization{Usage::Tag::Declaration, Usage::Tag::Write};
 
+// The file behind an editor, whichever view it opened in.
+static TextEditor::TextDocument *textDocumentOf(Core::IEditor *editor)
+{
+    return editor ? qobject_cast<TextEditor::TextDocument *>(editor->document()) : nullptr;
+}
+
 static QString qrcPath(const QString &relativeFilePath)
 {
     return ":/unittests/ClangCodeModel/" + relativeFilePath;
@@ -1729,19 +1735,15 @@ void ClangdTestCompletion::testCompleteGlobals()
 
     const AssistProposalItemInterface * const item = getItem(proposal, " globalFunction()", "void");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(6), "   globalFunction() /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({7, 19}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(6), "   globalFunction() /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({7, 19}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testCompleteMembers()
@@ -1757,19 +1759,15 @@ void ClangdTestCompletion::testCompleteMembers()
 
     const AssistProposalItemInterface * const item = getItem(proposal, " member", "int");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(6), "    s.member /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({7, 12}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(6), "    s.member /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({7, 12}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testCompleteMembersFromInside()
@@ -1783,19 +1781,15 @@ void ClangdTestCompletion::testCompleteMembersFromInside()
 
     const AssistProposalItemInterface * const item = getItem(proposal, " privateFunc()", "void");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(3), "        privateFunc() /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({4, 21}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(3), "        privateFunc() /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({4, 21}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testCompleteMembersFromOutside()
@@ -1809,19 +1803,15 @@ void ClangdTestCompletion::testCompleteMembersFromOutside()
 
     const AssistProposalItemInterface * const item = getItem(proposal, " publicFunc()", "void");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(12), "    c.publicFunc() /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({13, 18}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(12), "    c.publicFunc() /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({13, 18}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testCompleteMembersFromFriend()
@@ -1835,19 +1825,15 @@ void ClangdTestCompletion::testCompleteMembersFromFriend()
 
     const AssistProposalItemInterface * const item = getItem(proposal, " privateFunc()", "void");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(13), "    C().privateFunc() /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({14, 21}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(13), "    C().privateFunc() /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({14, 21}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testFunctionAddress()
@@ -1860,19 +1846,15 @@ void ClangdTestCompletion::testFunctionAddress()
 
     const AssistProposalItemInterface * const item = getItem(proposal, " memberFunc()", "void");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(6), "    const auto p = &S::memberFunc /* COMPLETE HERE */;");
-    QCOMPARE(editor->lineColumn(), Text::Position({7, 33}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(6), "    const auto p = &S::memberFunc /* COMPLETE HERE */;");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({7, 33}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testFunctionHints()
@@ -1935,19 +1917,15 @@ void ClangdTestCompletion::testCompleteClassAndConstructor()
     const AssistProposalItemInterface * const item
             = getItem(proposal, QString::fromUtf8(" Foo(…)"), "[2 overloads]");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(6), "    Foo( /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({7, 8}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(6), "    Foo( /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({7, 8}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testCompletePrivateFunctionDefinition()
@@ -1971,19 +1949,15 @@ void ClangdTestCompletion::testCompleteWithDotToArrowCorrection()
     QVERIFY(proposal);
     const AssistProposalItemInterface * const item = getItem(proposal, " member", "int");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(3), "    bar->member /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({4, 15}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(3), "    bar->member /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({4, 15}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testDontCompleteWithDotToArrowCorrectionForFloats()
@@ -2010,19 +1984,15 @@ void ClangdTestCompletion::testCompleteCodeInGeneratedUiFile()
     const AssistProposalItemInterface * const item = getItem(
                 proposal, " setupUi(QMainWindow *MainWindow)", "void");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(33), "    ui->setupUi( /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({34, 16}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(33), "    ui->setupUi( /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({34, 16}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testLambdaCompletion()
@@ -2037,19 +2007,15 @@ void ClangdTestCompletion::testLambdaCompletion()
     const AssistProposalItemInterface * const item = getItem(
                 proposal, " lambda() const", "");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(3), "    return lambda() /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({4, 19}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(3), "    return lambda() /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({4, 19}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testMacroCompletion()
@@ -2064,19 +2030,15 @@ void ClangdTestCompletion::testMacroCompletion()
     const AssistProposalItemInterface * const item = getItem(
                 proposal, " VAL(x)", "");
     QVERIFY(item);
-    auto editor = TextEditorWidget::currentTextEditorWidget();
-    // What follows drives the assist through a TextEditorWidget and then reads
-    // things only one has - lineColumn(), autoCompleteHighlightPosition() -
-    // for which there is no seam yet. Skipped rather than crashed: wrapping a
-    // null widget in a WidgetAssistTarget segfaults in position(), which is
-    // what this class did the moment its editor stopped being a widget.
-    if (!editor)
-        QSKIP("this case still drives the assist through a TextEditorWidget");
-    TextEditor::WidgetAssistTarget target(editor);
-    item->apply(target, cursorPos);
-    QCOMPARE(editor->textDocument()->blockText(4), "    return VAL( /* COMPLETE HERE */");
-    QCOMPARE(editor->lineColumn(), Text::Position({5, 15}));
-    QVERIFY(editor->autoCompleteHighlightPosition().isNull());
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QVERIFY(editor);
+    const std::unique_ptr<TextEditor::AssistTarget> target
+        = TextEditor::assistTargetFor(editor);
+    QVERIFY(target);
+    item->apply(*target, cursorPos);
+    QCOMPARE(textDocumentOf(editor)->blockText(4), "    return VAL( /* COMPLETE HERE */");
+    QCOMPARE(TextEditor::lineColumnOf(editor), Text::Position({5, 15}));
+    QVERIFY(TextEditor::autoCompleteHighlightOf(editor).isNull());
 }
 
 void ClangdTestCompletion::testSignalCompletion_data()

@@ -10285,6 +10285,35 @@ QTextCursor textCursorOf(Core::IEditor *editor)
     return {};
 }
 
+Utils::Text::Position lineColumnOf(Core::IEditor *editor)
+{
+    // The widget editor answers this from its own cursor, so there is nothing
+    // to dispatch on: the cursor is already the thing both views have.
+    return Utils::Text::Position::fromCursor(textCursorOf(editor));
+}
+
+std::unique_ptr<AssistTarget> assistTargetFor(Core::IEditor *editor)
+{
+    if (!editor)
+        return {};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return std::make_unique<WidgetAssistTarget>(widget);
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->createAssistTarget();
+    return {};
+}
+
+QTextCursor autoCompleteHighlightOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return {};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->autoCompleteHighlightPosition();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->autoCompletedRange();
+    return {};
+}
+
 static void changeSelectionSizeIn(Core::IEditor *editor, bool grow)
 {
     if (!editor)
