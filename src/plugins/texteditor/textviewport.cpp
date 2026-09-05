@@ -92,7 +92,15 @@ namespace TextEditor {
 // the document, so that nothing downstream has to know.
 static QString selectedPlainText(const QTextCursor &cursor)
 {
-    return cursor.selectedText().replace(QChar::ParagraphSeparator, '\n');
+    return TextDocument::convertToPlainText(cursor.selectedText());
+}
+
+// Several carets select several runs of text, and what goes on the clipboard
+// is all of them, a line each - which is what a widget editor puts there and
+// what makes copying a column of names useful at all.
+static QString selectedPlainText(const Utils::MultiTextCursor &cursors)
+{
+    return TextDocument::convertToPlainText(cursors.selectedText());
 }
 
 TextViewport::Line::Line() = default;
@@ -3048,9 +3056,9 @@ void TextViewport::selectAll()
 
 void TextViewport::copy()
 {
-    const QTextCursor cursor = textCursor();
-    if (!cursor.isNull() && cursor.hasSelection())
-        QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
+    const Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.hasSelection())
+        QGuiApplication::clipboard()->setText(selectedPlainText(cursors));
 }
 
 void TextViewport::cut()
@@ -3066,12 +3074,12 @@ void TextViewport::cutNormally()
 {
     if (!canEdit())
         return;
-    QTextCursor cursor = textCursor();
-    if (cursor.isNull() || !cursor.hasSelection())
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (!cursors.hasSelection())
         return;
-    QGuiApplication::clipboard()->setText(selectedPlainText(cursor));
-    cursor.removeSelectedText();
-    setTextCursor(cursor);
+    QGuiApplication::clipboard()->setText(selectedPlainText(cursors));
+    cursors.removeSelectedText();
+    setMultiTextCursor(cursors);
 }
 
 void TextViewport::paste()
@@ -3087,11 +3095,44 @@ void TextViewport::pasteNormally()
 {
     if (!canEdit())
         return;
-    QTextCursor cursor = textCursor();
-    if (cursor.isNull())
+    const QString text = QGuiApplication::clipboard()->text();
+    if (text.isEmpty())
         return;
-    cursor.insertText(QGuiApplication::clipboard()->text());
-    setTextCursor(cursor);
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+
+    // As many lines as there are carets means one line each: what was copied
+    // from a column of carets goes back to a column of carets. Anything else
+    // is the whole of it at every caret, which is what a widget editor does
+    // through the same rule.
+    QStringList perCaret;
+    if (cursors.hasMultipleCursors()) {
+        perCaret = text.split('\n');
+        if (!perCaret.isEmpty() && perCaret.last().isEmpty())
+            perCaret.removeLast();
+        if (perCaret.size() != cursors.cursorCount())
+            perCaret.clear();
+    }
+
+    // Laid out where it lands rather than kept at the column it was written
+    // in: pasting a block into a nested one leaves it under the line above,
+    // which is what the language's indenter is for and what a widget editor
+    // does with the same setting.
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    const bool layOut = doc && doc->typingSettings().m_autoIndent;
+
+    int index = 0;
+    cursors.beginEditBlock();
+    for (QTextCursor &cursor : cursors) {
+        const QString piece = perCaret.value(index++, text);
+        if (layOut)
+            doc->insertWithIndentation(cursor, piece, false, m_skipFormatOnPaste);
+        else
+            cursor.insertText(piece);
+    }
+    cursors.endEditBlock();
+    setMultiTextCursor(cursors);
 }
 
 void TextViewport::undo()
@@ -3588,7 +3629,9 @@ void TextViewport::setMarginSettings(const std::optional<MarginSettingsData> &se
 
 void TextViewport::pasteWithoutFormat()
 {
+    m_skipFormatOnPaste = true;
     paste();
+    m_skipFormatOnPaste = false;
 }
 
 void TextViewport::showContextMenu()

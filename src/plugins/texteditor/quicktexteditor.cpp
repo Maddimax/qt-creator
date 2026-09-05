@@ -7418,6 +7418,248 @@ private slots:
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.
     // The Quick editor registered all of them enabled whatever the mask said.
+    void testRedoPutsBackWhatUndoTookAway_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::addColumn<QString>("script");
+        QTest::addColumn<int>("steps");
+        const QList<std::tuple<QString, QString, int>> scripts{
+            {"a word", "abc", 1},
+            {"a word, a space, a word", "abc def", 1},
+            {"an auto-closed bracket", "f(", 2},
+            {"typing, moving, typing", "abc<Home>x", 2},
+        };
+        for (const auto &[what, script, steps] : scripts) {
+            QTest::newRow(qPrintable(QString("widget: %1").arg(what))) << false << script << steps;
+            QTest::newRow(qPrintable(QString("quick: %1").arg(what))) << true << script << steps;
+        }
+    }
+
+    // Redo is undo read backwards and had no test at all. It has to come back
+    // in the same steps, or the grouping the entry before this one gave undo
+    // would be true one way round and not the other.
+    void testRedoPutsBackWhatUndoTookAway()
+    {
+        QFETCH(bool, quick);
+        QFETCH(QString, script);
+        QFETCH(int, steps);
+
+        Utils::TemporaryDirectory dir("redo-steps");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        for (int i = 0; i < script.size(); ++i) {
+            const QChar ch = script.at(i);
+            int key = Qt::Key_unknown;
+            if (ch == '<') {
+                const int close = script.indexOf('>', i);
+                QVERIFY2(close > i, qPrintable("unterminated <> in " + script));
+                QCOMPARE(script.mid(i + 1, close - i - 1), QString("Home"));
+                key = Qt::Key_Home;
+                i = close;
+            }
+            const QString text = key == Qt::Key_unknown ? QString(ch) : QString();
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+            QCoreApplication::sendEvent(target, &press);
+        }
+        const QString typed = document->plainText();
+        QVERIFY(!typed.isEmpty());
+
+        const auto view = [editor] { return Internal::viewportForEditor(editor); };
+        const auto widget = [editor] { return TextEditorWidget::fromEditor(editor); };
+
+        int undos = 0;
+        while (document->document()->isUndoAvailable() && undos < 20) {
+            quick ? view()->undo() : widget()->undo();
+            ++undos;
+        }
+        QCOMPARE(undos, steps);
+        QCOMPARE(document->plainText(), QString());
+
+        int redos = 0;
+        while (document->document()->isRedoAvailable() && redos < 20) {
+            quick ? view()->redo() : widget()->redo();
+            ++redos;
+        }
+        QCOMPARE(redos, steps);
+        QCOMPARE(document->plainText(), typed);
+    }
+
+    void testTheClipboardSeesEveryCaret_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Several carets select several runs of text, and the clipboard is one
+    // thing. A widget editor puts them all on it a line each, takes them all
+    // away on a cut, and hands a line back to each caret on a paste. This view
+    // asked textCursor() for all three, so it saw only the main caret: copying
+    // a column of names copied one name.
+    void testTheClipboardSeesEveryCaret()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("clipboard-carets");
+        QVERIFY(dir.isValid());
+
+        const auto openOne = [&](const QString &name, const QString &content) {
+            const Utils::FilePath file = dir.filePath(name);
+            if (!file.writeFileContents(content.toUtf8()))
+                return static_cast<Core::IEditor *>(nullptr);
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            if (!factory)
+                return static_cast<Core::IEditor *>(nullptr);
+            factory->setUsesQuickEditor(quick);
+            return Core::EditorManager::openEditor(file);
+        };
+        TextEditorFactory * const factory
+            = TextEditorFactory::preferredFactoryFor(dir.filePath("t.cpp"));
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+
+        // Each view's own operation. cutIn()/pasteIn() exist as seams because
+        // an EditHandler needs them; copy has none, so all three are called
+        // the same way here rather than two of one kind and one of another.
+        const auto copyFrom = [quick](Core::IEditor *editor) {
+            quick ? Internal::viewportForEditor(editor)->copy()
+                  : TextEditorWidget::fromEditor(editor)->copy();
+        };
+        const auto cutFrom = [quick](Core::IEditor *editor) {
+            quick ? Internal::viewportForEditor(editor)->cutNormally()
+                  : TextEditorWidget::fromEditor(editor)->TextEditorWidget::cut();
+        };
+        const auto pasteInto = [quick](Core::IEditor *editor) {
+            quick ? Internal::viewportForEditor(editor)->pasteNormally()
+                  : TextEditorWidget::fromEditor(editor)->TextEditorWidget::paste();
+        };
+
+        const auto threeSelections = [](Core::IEditor *editor, TextDocument *document) {
+            Utils::MultiTextCursor cursors;
+            for (const int at : {0, 6, 11}) {
+                QTextCursor one(document->document());
+                one.setPosition(at);
+                one.setPosition(at + 4, QTextCursor::KeepAnchor);
+                cursors.addCursor(one);
+            }
+            TextEditor::setMultiTextCursorOf(editor, cursors);
+        };
+
+        // Copied: all three, a line each.
+        {
+            Core::IEditor * const editor = openOne("copy.cpp", "alpha\nbeta\ngamma\n");
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+            threeSelections(editor, document);
+            QGuiApplication::clipboard()->clear();
+            copyFrom(editor);
+            QCOMPARE(QGuiApplication::clipboard()->text(), QString("alph\nbeta\ngamm"));
+        }
+
+        // Cut: all three go.
+        {
+            Core::IEditor * const editor = openOne("cut.cpp", "alpha\nbeta\ngamma\n");
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+            threeSelections(editor, document);
+            cutFrom(editor);
+            QCOMPARE(document->plainText(), QString("a\n\na\n"));
+        }
+
+        // Pasted: as many lines as carets means one line each.
+        {
+            Core::IEditor * const editor = openOne("paste.cpp", "alpha\nbeta\ngamma\n");
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+            Utils::MultiTextCursor cursors;
+            for (const int at : {5, 10, 16}) {
+                QTextCursor one(document->document());
+                one.setPosition(at);
+                cursors.addCursor(one);
+            }
+            TextEditor::setMultiTextCursorOf(editor, cursors);
+            QGuiApplication::clipboard()->setText("1\n2\n3");
+            pasteInto(editor);
+            QCOMPARE(document->plainText(), QString("alpha1\nbeta2\ngamma3\n"));
+        }
+    }
+
+    void testAPastedBlockIsLaidOutWhereItLands_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Text on the clipboard carries the indentation of wherever it was
+    // written, which is not where it is going. A widget editor hands a paste
+    // to the language's indenter; this view put it in at the column it was
+    // copied from, so a block pasted into a nested one started at column zero.
+    void testAPastedBlockIsLaidOutWhereItLands()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("paste-indent");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("void f() {\n    x;\n}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Just after "    x", inside the braces.
+        QTextCursor caret(document->document());
+        caret.setPosition(15);
+        TextEditor::setTextCursorOf(editor, caret);
+
+        // Written at column zero, as it would be if it came from elsewhere.
+        QGuiApplication::clipboard()->setText("\nif (a) {\ny;\n}");
+        if (quick)
+            Internal::viewportForEditor(editor)->pasteNormally();
+        else
+            TextEditorWidget::fromEditor(editor)->TextEditorWidget::paste();
+
+        QCOMPARE(document->plainText(),
+                 QString("void f() {\n    \n    if (a) {\n    y;\n    }x;\n}\n"));
+    }
+
     void testTypingIsTakenBackInTheStepsThatMadeIt_data()
     {
         QTest::addColumn<bool>("quick");

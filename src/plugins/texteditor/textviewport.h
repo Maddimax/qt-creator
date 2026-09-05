@@ -1354,6 +1354,9 @@ private:
     // themselves; moving them here as well would leave the write-back
     // with nothing to change and so skip everything it does besides.
     bool m_editingThroughItsOwnCarets = false;
+    // Set while "Paste Without Formatting" is the paste being done, which is
+    // the one that puts the text in as it stands.
+    bool m_skipFormatOnPaste = false;
     bool m_readOnly = true;
     // What is being composed but not yet typed, and how the input method wants
     // it drawn. Empty when nothing is being composed.

@@ -38787,3 +38787,102 @@ none of them examined:
   what a paste of each does;
 - **mouse selection** - drag, double-click a word, triple-click a line;
 - **redo**, which has had none of the attention undo just got.
+
+## 2026-09-05 (37) -- The clipboard could only see one caret
+
+The last entry had no named item left and proposed a method instead: pick
+something neither view has been compared on and compare it. It named three -
+redo, the clipboard, mouse selection. This batch took the first two.
+
+### Redo: clean, and now covered
+
+    script            widget            quick
+    "abc"             1 undo, 1 redo    the same
+    "abc def"         1 undo, 1 redo    the same
+    "f("              2 undos, 2 redos  the same
+    "abc<Home>x"      2 undos, 2 redos  the same
+
+Redo mirrors undo exactly, including the grouping the last entry gave it, and
+the file comes back character for character. **No defect, and no control below
+bites on it** - it is coverage for something that had none, written down as
+coverage rather than dressed up as a fix.
+
+### Which gap this batch closed
+
+**The clipboard asked `textCursor()`, which is one caret.** Everything else
+about several carets works - typing, editing, the undo grouping from the last
+entry - but copy, cut and paste each saw only the main one:
+
+    with three selections     widget                 quick (before)
+    copy                      alph~beta~gamm         gamm
+    cut                       a~~a~                  alpha~beta~a~
+    paste "1~2~3" at three    alpha1~beta2~gamma3~   alpha~beta~gamma1~2~3~
+
+Copying a column of names copied one name. Cutting a column cut one. And
+pasting a column put the whole of it at one caret rather than a line at each -
+which is the feature that makes a column of carets worth having.
+
+All three now go through `multiTextCursor()`, and paste splits the clipboard
+one line per caret when the counts match, which is the rule
+`TextEditorWidget::insertFromMimeData()` reaches through its `MappedText`.
+
+### And a second one the same probe found
+
+A **multi-line paste was not laid out where it landed**. Text on the clipboard
+carries the indentation of wherever it was written:
+
+    pasting "if (a) {~y;~}" inside a function
+    widget    void f() {~    ~    if (a) {~    y;~    }x;~}
+    quick     void f() {~    ~if (a) {~y;~}x;~}
+
+A widget editor hands a paste to the language's indenter when auto-indent is
+on. This view inserted it as it stood, so a block pasted into a nested one
+started at column zero. It now uses the same `insertWithIndentation()`, which
+also gave `pasteWithoutFormat()` something to mean: it was `paste()` with no
+difference at all, and is now the paste that skips the reindent.
+
+### Negative controls
+
+- **A -- copy and cut see only the main caret**: red on `quick`, clipboard
+  `"gamm"` against `"alph\nbeta\ngamm"`.
+- **B -- every caret gets the whole clipboard**: red on `quick`,
+  `"alpha1\n2\n3\nbeta1\n2\n3\ngamma1\n2\n3\n"` against
+  `"alpha1\nbeta2\ngamma3\n"`.
+- **C -- a paste is not laid out**: red on `quick`, the block at column zero.
+
+Three controls, three separately-wrong things, and the widget row passing
+every time - which is what says these are C++'s answers and not this test's.
+
+### Verification
+
+    -test TextEditor    562 passed, 0 failed, exit 0, 0 warnings   (550 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Three files, no new file and no `.qbs` edit.
+
+`selectedPlainText()` also moved from replacing the paragraph separator by
+hand to `TextDocument::convertToPlainText()`, which is what a widget editor
+copies through - it keeps a non-breaking space instead of turning it into an
+ordinary one. Not a measured defect; it is the same conversion in both views
+now, and the alternative was two conversions inside one view once the
+multi-caret path arrived.
+
+### What this leaves
+
+**Mouse selection** is the one named thing left unexamined - drag to select,
+double-click a word, triple-click a line, and what a drag does with the
+autoscroll at the edge of the view. Nothing has compared them.
+
+After that the method still applies and the areas are getting narrow. What I
+would look at, in order of how likely a reader is to notice:
+
+- **Search and replace inside a selection**, which has a whole dialog behind
+  it and no differential test.
+- **Drag and drop of text**, which the widget has and nothing here has asked
+  about.
+- **Column/block selection with the keyboard** - the viewport has
+  `m_blockSelectionAnchor` and no test names it.
+
+Struck from this list, per the proposal in entry 36 and unopposed since: the
+`QuickUi` sort flake and the arbitrary widget in a Quick toolbar. Both are
+recorded in their own entries if they ever come back.
