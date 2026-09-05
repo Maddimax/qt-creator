@@ -33,6 +33,12 @@ public:
 
     void createShowInfoBarActions(const ActionCreator &actionCreator) const;
 
+    // The same buttons as actions, for a view that draws from actions
+    // rather than taking widgets. createShowInfoBarActions() wraps these
+    // in a QToolButton for the widget toolbar; the action is the content
+    // either way.
+    QList<QAction *> showInfoBarActions() const;
+
     void setInfoVisible(const Id &id, bool visible);
     bool isShownInInfoBar(const Id &id) const;
 

@@ -733,6 +733,11 @@ MinimizableInfoBars *IDocument::minimizableInfoBars()
     return d->minimizableInfoBars.get();
 }
 
+const MinimizableInfoBars *IDocument::minimizableInfoBars() const
+{
+    return d->minimizableInfoBars.get();
+}
+
 /*!
     Sets the absolute \a filePath of the file that backs this document. The
     default implementation sets the file name and sends the filePathChanged() and

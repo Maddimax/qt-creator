@@ -133,6 +133,10 @@ Row {
             required property bool actionEnabled
             required property bool actionVisible
             required property string actionToolTip
+            // An action can carry an icon instead of a text - the button that
+            // brings back a minimized info bar is a warning sign and nothing
+            // else - so a button bound only to the text would draw empty.
+            required property string actionIcon
             // Null unless the action carries a menu, in which case this button
             // opens it rather than triggering - the widget editor's toolbar
             // does the same with a QToolButton set to InstantPopup.
@@ -143,6 +147,7 @@ Row {
             // created, and an unguarded binding warns on every one of them.
             anchors.verticalCenter: parent ? parent.verticalCenter : undefined
             text: languageButton.actionText
+            iconSource: languageButton.actionIcon
             enabled: languageButton.actionEnabled
             visible: languageButton.actionVisible
             ToolTip.text: languageButton.actionToolTip

@@ -84,6 +84,11 @@ void MinimizableInfoBars::createShowInfoBarActions(const ActionCreator &actionCr
     }
 }
 
+QList<QAction *> MinimizableInfoBars::showInfoBarActions() const
+{
+    return m_actions.values();
+}
+
 void MinimizableInfoBars::setInfoVisible(const Id &id, bool visible)
 {
     QTC_CHECK(m_isInfoVisible.contains(id));

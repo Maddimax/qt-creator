@@ -114,6 +114,10 @@ public:
 
     Utils::InfoBar *infoBar();
     Utils::MinimizableInfoBars *minimizableInfoBars();
+    // The ones this document already has, or nullptr. Unlike the
+    // non-const overload this does not create them, so asking is free
+    // for the documents - nearly all of them - that never use any.
+    const Utils::MinimizableInfoBars *minimizableInfoBars() const;
 
 signals:
     // For meta data changes: file name, modified state, ...

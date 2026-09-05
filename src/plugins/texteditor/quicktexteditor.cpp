@@ -70,6 +70,8 @@
 #include <utils/algorithm.h>
 #include <utils/theme/theme.h>
 #include <utils/mimeutils.h>
+#include <utils/infobar.h>
+#include <utils/minimizableinfobars.h>
 #include <utils/macroexpander.h>
 #include <utils/temporarydirectory.h>
 
@@ -5561,6 +5563,92 @@ private slots:
         document->removeToolBarAction(late);
         QTRY_VERIFY2(!itemNamed(quick->rootObject(), "languageToolBarButton"),
                      "the button stayed after its action was removed");
+    }
+
+    // The way back from a minimized info bar. CppEditorDocument is the only
+    // thing in the tree that offers one, so this is a C++ button in practice:
+    // minimize "no project configuration" and a warning sign in the toolbar is
+    // all that can bring it back. MinimizableInfoBars hands the widget toolbar
+    // a QToolButton wrapping its action; this view wants the action itself,
+    // and without it minimizing the bar is a one-way door.
+    void testTheFormOffersTheWayBackFromAMinimizedInfoBar()
+    {
+        class PlainFactory final : public TextEditorFactory
+        {
+        public:
+            PlainFactory()
+            {
+                setId("QuickEditorInfoBarTest");
+                setDisplayName("Quick Editor Info Bar Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorInfoBarTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        PlainFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const Utils::Id entryId("QuickEditorInfoBarTestEntry");
+        Utils::MinimizableInfoBars * const bars = document->minimizableInfoBars();
+        bars->setSettingsGroup("QuickEditorInfoBarTest");
+        bars->setPossibleInfoBarEntries({Utils::InfoBarEntry(entryId, "No project configuration")});
+
+        // What the document offers is the info bars' own action, not a copy:
+        // whatever flips it has to flip the button drawn for it.
+        const QList<QAction *> owned = bars->showInfoBarActions();
+        QCOMPARE(owned.size(), 1);
+        QVERIFY2(document->toolBarActions().contains(owned.first()),
+                 "the document does not offer the info bar's own action");
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QTRY_VERIFY(quick->rootObject());
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "languageToolBarButton")),
+                     "the toolbar drew nothing for the info bar's action");
+        // The action carries a warning sign and no text at all, so a button
+        // bound only to the text would be there and empty.
+        QVERIFY2(!drawn->property("iconSource").toString().isEmpty(),
+                 "the button drew neither text nor icon");
+        // Nothing is minimized yet, so the way back must not be offered. Without
+        // this the test would pass on a toolbar that always shows the button.
+        QVERIFY2(!drawn->isVisible(),
+                 "the toolbar offered the way back before anything was minimized");
+
+        // The bar itself, and then the reader minimizing it - the only route
+        // that reaches the state this button exists to undo. removeCancelButton()
+        // leaves exactly one button on the entry, which is that one.
+        bars->setInfoVisible(entryId, true);
+        QTRY_VERIFY2(document->infoBar()->containsInfo(entryId),
+                     "the info bar never showed the entry");
+        const QList<Utils::InfoBarEntry> entries = document->infoBar()->entries();
+        const auto shown = std::find_if(entries.cbegin(), entries.cend(),
+                                        [entryId](const Utils::InfoBarEntry &entry) {
+                                            return entry.id() == entryId;
+                                        });
+        QVERIFY(shown != entries.cend());
+        const QList<Utils::InfoBarEntry::Button> buttons = shown->buttons();
+        QCOMPARE(buttons.size(), 1);
+        document->infoBar()->triggerButton(entryId, buttons.first());
+
+        // Minimizing runs queued, so this is the first moment it can be true.
+        QTRY_VERIFY2(drawn->isVisible(),
+                     "minimizing the info bar left no way to bring it back");
+
+        // And pressing it puts the bar back, which is the whole point of the
+        // button - and leaves the setting as it was found.
+        QMetaObject::invokeMethod(drawn, "clicked");
+        QTRY_VERIFY2(document->infoBar()->containsInfo(entryId),
+                     "pressing the button did not bring the info bar back");
+        QTRY_VERIFY2(!drawn->isVisible(),
+                     "the way back stayed offered after the bar came back");
     }
 
     // The outline the toolbar shows: which function the caret is in, and the

@@ -34,6 +34,7 @@
 #include <utils/algorithm.h>
 #include <utils/guard.h>
 #include <utils/mimeutils.h>
+#include <utils/minimizableinfobars.h>
 #include <utils/qtcassert.h>
 #include <utils/textutils.h>
 
@@ -637,6 +638,12 @@ QList<QAction *> TextDocument::ownToolBarActions() const
 QList<QAction *> TextDocument::toolBarActions() const
 {
     QList<QAction *> actions = ownToolBarActions();
+    // The buttons that bring back an info bar the reader minimized. The widget
+    // toolbar asks MinimizableInfoBars for them wrapped in a QToolButton; a
+    // view that draws actions wants the action, and without this there is no
+    // way back once the bar is minimized.
+    if (const Utils::MinimizableInfoBars * const bars = minimizableInfoBars())
+        actions += bars->showInfoBarActions();
     // Skipping the ones a QPointer has cleared: an action deleted by whoever
     // added it must not reach a view as a null entry.
     for (const QPointer<QAction> &action : d->m_extraToolBarActions) {

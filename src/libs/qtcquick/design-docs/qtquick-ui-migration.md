@@ -35088,3 +35088,151 @@ saying so, and `insertExtraToolBarAction()` - which works in both views - is
 what a script should reach for instead.
 
 Everything else this plan ever listed is done.
+
+## 2026-09-05 -- The way back from a minimized info bar
+
+### Auditing the previous entry's "design question" first
+
+The last entry closed with one item and called it a design question with
+"nothing to find". This plan has called something a design question three
+times before and been wrong every time, so the batch began by auditing that
+claim rather than acting on it.
+
+The audit was one grep -- every production caller of
+`insertExtraToolBarWidget()` -- and it took about ten minutes to overturn the
+conclusion. The callers are:
+
+| caller | what it puts there |
+| --- | --- |
+| CppEditor | parse-context combo, `#` preprocessor button |
+| VcsBase, Python, GLSL, Markdown | combo boxes and buttons, all widget-only languages |
+| `BaseTextEditor` setup | **the buttons that bring back a minimized info bar** |
+
+The last row is the one that mattered, and it refutes the claim outright.
+`MinimizableInfoBars::createShowInfoBarActions()` reads:
+
+```cpp
+for (QAction *action : m_actions) {
+    auto *button = new QToolButton();
+    button->setDefaultAction(action);
+    QAction *toolbarAction = actionCreator(button);
+```
+
+It **already has the action**. The `QToolButton` exists only because the
+widget toolbar takes widgets. The widget is transport, not content -- so for
+this caller the answer was not "decide what a Quick toolbar does with an
+arbitrary widget", it was "stop wrapping the action you already have".
+
+That is the same lesson as three batches ago, in a new costume: *look for the
+abstraction, not just the class.* A `QWidget` in a signature does not mean a
+widget is the thing being communicated.
+
+### The gap this closed, and why it is C++-shaped
+
+`MinimizableInfoBars` has exactly one producer in the whole tree:
+
+    src/plugins/cppeditor/cppeditordocument.cpp:310
+
+`CppEditorDocument` -- the document that now opens in the Quick editor. And
+`quicktexteditor.cpp` contained no mention of an info bar at all.
+
+So the user-visible bug was: open a C++ file with no project configuration,
+minimize the warning, **and there is no way to get it back.** The button that
+undoes it is the only route, and in the Quick editor that button did not
+exist. A one-way door, in the default editor for the language this migration
+is about.
+
+### The shape
+
+Nothing new was invented; three existing pieces were connected.
+
+- `MinimizableInfoBars::showInfoBarActions()` -- the actions it already owns,
+  unwrapped. `createShowInfoBarActions()` is untouched, so the widget path
+  keeps its `QToolButton`.
+- `IDocument::minimizableInfoBars() const` -- a **const** overload that does
+  *not* create them. The non-const one is lazy, and `toolBarActions()` is
+  called often by documents that will never have an info bar; asking had to be
+  free.
+- `TextDocument::toolBarActions()` appends them.
+
+That last choice is what makes this small. `toolBarActions()` already had a
+`toolBarActionsChanged()` signal wired to `QuickTextEditor`'s
+`ActionModel::refresh()`, and `ActionModel` already connects `QAction::changed`
+per row -- so visibility flips propagate with no new signal. Checking first
+showed `toolBarActions()` has exactly one production consumer, the Quick
+editor, so routing through it cannot double up the widget toolbar.
+
+### The half of the gap that only showed up in the delegate
+
+`ActionModel` has had an `IconRole` all along. `EditorToolBar.qml`'s language
+button never bound it:
+
+```qml
+text: languageButton.actionText
+```
+
+The info-bar action is `Icons::WARNING_TOOLBAR` **with no text at all**. So
+routing the action through would have drawn a button that was present, sized
+and completely blank. `iconSource: languageButton.actionIcon` is the other
+half of the fix, and only reading the delegate found it -- the C++ side looked
+finished without it.
+
+### Negative controls
+
+Four, because the change has two halves and the visible/invisible state has
+two ends.
+
+- **A -- the document does not offer the info-bar actions** (the state before
+  this batch): red, "the document does not offer the info bar's own action".
+- **B -- the delegate does not bind the icon**: red, "the button drew neither
+  text nor icon". This is the one that would have shipped silently.
+- **C -- `updateInfo()` always shows the action**: red on the round trip, "the
+  way back stayed offered after the bar came back".
+- **D -- `createActions()` starts the action visible**: red on the guard, "the
+  toolbar offered the way back before anything was minimized".
+
+C and D are deliberately separate. C only touches `updateInfo()`, and the
+guard against an always-present button still passed under it, because the
+*initial* visibility is set in `createActions()` instead. One control would
+have left the other end untested.
+
+The test drives the real minimize path rather than writing the setting: it
+takes the entry's only button -- `removeCancelButton()` leaves exactly one --
+and calls `InfoBar::triggerButton()`. Minimizing runs queued, so the wait is
+`QTRY_VERIFY` on the button becoming visible, which is a causal wait. Pressing
+the button afterwards both tests the round trip and leaves the setting as it
+was found, so the test does not pollute the real `InfoBar::settings()`.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      467 passed, 0 failed, exit 0     (466 before; the new test is the one)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+
+Seven files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+`insertExtraToolBarWidget()` still refuses in the Quick editor, and now the
+claim about it can be stated accurately, which it could not be before:
+
+- **The info-bar buttons are done** -- they were never widgets.
+- **CppEditor's `#` preprocessor button** is a `QToolButton` wired to a
+  `Command`. It is an action in all but type, and porting it is ordinary work
+  rather than a design question. It is the next thing worth doing, and it is
+  C++-visible: a Quick C++ editor has no `#` button today.
+- **What genuinely has no answer is the combo boxes** -- parse context, Python
+  interpreters, the GLSL outline, VcsBase's entries. A combo is not an action.
+  Of those, parse context already has its Quick answer in `ToolBarChoice`, and
+  the rest belong to languages that still open in the widget editor.
+
+So the honest statement is narrower than the last entry's: an arbitrary
+*widget* in a Quick toolbar is still undecided, but nothing that matters for
+C++ is blocked on deciding it. The remaining C++ item is the `#` button, and
+it is a port, not a question.
+
+**Standing lesson, now earned four times over: audit the deferred list before
+repeating it.** Every item this plan has parked as "a product or design
+question" has turned out to be discoverable work, and the check is cheap --
+one grep at the callers of the API in question.
