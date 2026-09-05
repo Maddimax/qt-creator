@@ -38448,3 +38448,105 @@ tests. What I would do next, in order:
 - **An arbitrary widget in a Quick toolbar**, unchanged for twenty-five
   entries. If it is not going to be done, it should be struck from this list
   rather than carried.
+
+## 2026-09-05 (34) -- Focus, and a crash that is not a flake
+
+The last entry proposed focus as the next probe and said so as a question, not
+a claim. Probed, it was half right, and the half it got wrong is the useful
+part.
+
+    focus taken away        widget                quick (before)
+    what the completer put in   kept              kept
+    the suggestion              dropped           kept
+
+**The auto-complete highlight is not a focus gap.** The widget's code reads as
+though it were - `if ((!m_keepAutoCompletionHighlight && !q->hasFocus()) || popAutoCompletion())`
+- but the loop inside that `if` is guarded by `popAutoCompletion()` all over
+again, and that is false while the caret still sits where the completer left
+it. So focus alone never clears it. Reading the condition would have produced
+a confident, wrong entry; measuring produced this one.
+
+### Which gap this batch closed
+
+**A suggestion outlived the reader leaving.** `TextEditorWidget::focusOutEvent()`
+clears it; `TextViewport` had **no focus handling at all** - no
+`focusOutEvent`, no `focusInEvent`, no `activeFocusChanged` - so an offer about
+what you were going to type next stayed up while you typed somewhere else.
+
+It now goes with the focus, with the widget's exception kept: a tooltip taking
+the focus is not the reader going anywhere, or reading the tooltip *about* a
+suggestion would be what dismissed it.
+
+### Three fixtures that measured the wrong thing first
+
+- **The widget never has focus in a test.** `hadFocus=0`: it lives in a main
+  window that is not active, so `clearFocus()` sends nothing and the first
+  probe compared nothing at all. A `QFocusEvent` delivered by hand drives
+  `focusOutEvent()`, which is the code being compared.
+- **...but that cannot test the tooltip exception**, because
+  `PlainTextEdit::focusOutEvent()` runs first and takes the tooltip down
+  before `isVisible()` is asked. Measured, not guessed: the instrumented run
+  printed `before: tooltip=1` and `after: tooltip=0`. So that test has no
+  widget row, and says why.
+- **`ToolTip::hide()` is on a timer.** The probe hid the tooltip, dropped
+  focus, and saw the suggestion survive - which read like the fix not working
+  and was `hideImmediately()` missing.
+- **Dropping focus that is already gone is not an event.** The second half of
+  the tooltip test passed for the wrong reason until it took the focus back
+  first.
+
+Four fixture faults in one batch, every one of them found by the measurement
+disagreeing with what the fixture claimed to be doing.
+
+### Negative controls
+
+- **A -- the view does not notice the focus going**: red on both new tests,
+  three runs out of three, with the widget row of the differential one still
+  passing.
+- **B -- a tooltip counts as leaving**: red on exactly the tooltip test's
+  middle assertion.
+
+### Verification
+
+    -test TextEditor    534 passed, 0 failed, exit 0, 0 warnings   (531 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Two files, no new file and no `.qbs` edit. The four `QTextCursor::setPosition:
+Position '-1'` warnings the first version printed were my own fixture: a
+`Text::Position` counts lines from one, and I wrote line 0.
+
+### The thing to do next, with its rate measured
+
+While controlling this batch, ASan aborted in a test the control does not
+touch. It looked like a rare flake - one in seven runs of the class. Run on
+its own it is not:
+
+    -test TextEditor,testTypingALineOfCppLeavesTheSameFileInEitherView
+    8 crashes out of 8
+
+    heap-use-after-free, thread T98
+    Qt::totally_ordered_wrapper<CppEditor::BuiltinEditorDocumentParser*>::get()
+    CppCompletionAssistInterface::getCppSpecifics()   cppcompletionassist.cpp:2075
+    InternalCppCompletionAssistProcessor::performAsync()
+    TextEditor::AsyncProcessor::perform()
+
+**Deterministic on its own, ~2 in 9 inside the class, and 0 in the full
+suite** - which is why five batches of green runs never showed it. The test
+opens a C++ file, types a bracket, and closes the editor; typing starts an
+async completion on a thread pool and the close frees the
+`BuiltinEditorDocumentParser` it is about to read.
+
+A reader who closes a file just after typing `(` is in the same window, and
+C++ files open in this editor by default now, so this is on the path people
+take. It is not a Quick-editor defect - the assist framework and CppEditor own
+it - but it was found here and it is the most serious thing on this list.
+
+**Next batch: this.** Measure the base rate first (it is 8/8, so a fix has to
+show 8 clean runs of the isolated test to mean anything at all, and more to be
+worth believing), then find out who is supposed to cancel a processor whose
+interface is going away.
+
+After it, and unchanged: the **`QuickUi` sort flake**, which is now the second
+unmeasured failing thing rather than the first, and **an arbitrary widget in a
+Quick toolbar**, which should be struck from this list if nobody is going to
+do it.

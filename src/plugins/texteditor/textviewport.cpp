@@ -128,6 +128,15 @@ TextViewport::TextViewport(QQuickItem *parent)
             clearSnippetPlaceholders();
     });
 
+    // A suggestion is about what the reader was going to type next, so going
+    // somewhere else ends it - which is what a widget editor's focusOutEvent()
+    // does. Not while a tooltip is up, because that is what took the focus and
+    // the reader has not gone anywhere.
+    connect(this, &QQuickItem::activeFocusChanged, this, [this](bool active) {
+        if (!active && !Utils::ToolTip::isVisible())
+            clearSuggestion();
+    });
+
     m_autoCompleter = std::make_unique<AutoCompleter>();
     connect(&globalCompletionSettings(), &Utils::AspectContainer::changed, this, [this] {
         applyCompletionSettings();

@@ -77,6 +77,7 @@
 #include <utils/minimizableinfobars.h>
 #include <utils/macroexpander.h>
 #include <utils/temporarydirectory.h>
+#include <utils/tooltip/tooltip.h>
 
 #include <QDataStream>
 #include <QMenu>
@@ -7417,6 +7418,141 @@ private slots:
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.
     // The Quick editor registered all of them enabled whatever the mask said.
+    void testASuggestionEndsWhenTheReaderGoesElsewhere_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // A suggestion is an offer about what the reader was going to type next,
+    // so it stops meaning anything once they are typing somewhere else. A
+    // widget editor drops it in focusOutEvent(); this view had no focus
+    // handling at all and went on offering it.
+    void testASuggestionEndsWhenTheReaderGoesElsewhere()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("suggestion-focus");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("f()\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        TextViewport * const view = quick ? viewportForEditor(editor) : nullptr;
+        QVERIFY(widget || view);
+
+        auto suggestion = std::make_unique<CyclicSuggestion>(
+            QList<TextSuggestion::Data>{{{{1, 0}, {1, 3}}, {1, 3}, "f()x"}},
+            document->document(), 0);
+        if (widget) {
+            widget->setFocus();
+            widget->insertSuggestion(std::move(suggestion));
+        } else {
+            view->forceActiveFocus();
+            QVERIFY2(view->hasActiveFocus(), "the viewport never took focus");
+            view->insertSuggestion(std::move(suggestion));
+        }
+        QVERIFY2(TextEditor::currentSuggestionIn(editor), "nothing was offered to begin with");
+
+        if (widget) {
+            // Delivered rather than arranged: this widget lives in a main
+            // window that is not active during a test, so it never had the
+            // focus to lose - and focusOutEvent() is the code being compared.
+            QFocusEvent out(QEvent::FocusOut, Qt::OtherFocusReason);
+            QCoreApplication::sendEvent(widget, &out);
+        } else {
+            view->setFocus(false);
+            QVERIFY(!view->hasActiveFocus());
+        }
+        QCoreApplication::processEvents();
+        QVERIFY2(!TextEditor::currentSuggestionIn(editor),
+                 "the suggestion was still being offered after the reader left");
+    }
+
+    // The exception: a tooltip taking the focus is not the reader going
+    // anywhere, so what is on offer stays on offer. Without it, reading the
+    // tooltip about a suggestion would be what dismissed it.
+    //
+    // The reference is TextEditorWidget::focusOutEvent(), which asks
+    // ToolTip::isVisible() the same way, but there is no widget row here: that
+    // widget never has the focus during a test, and a focus-out delivered by
+    // hand goes through PlainTextEdit::focusOutEvent() first, which takes the
+    // tooltip down before the question is asked.
+    void testASuggestionOutlivesTheTooltipThatTookTheFocus()
+    {
+        Utils::TemporaryDirectory dir("suggestion-tooltip");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("f()\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY(view);
+        const QScopeGuard putTheTooltipAway([] { Utils::ToolTip::hideImmediately(); });
+
+        const auto offer = [&] {
+            auto suggestion = std::make_unique<CyclicSuggestion>(
+                QList<TextSuggestion::Data>{{{{1, 0}, {1, 3}}, {1, 3}, "f()x"}},
+                document->document(), 0);
+            view->forceActiveFocus();
+            view->insertSuggestion(std::move(suggestion));
+        };
+        const auto goElsewhere = [&] {
+            QVERIFY(view->hasActiveFocus());
+            view->setFocus(false);
+            QCoreApplication::processEvents();
+        };
+
+        offer();
+        QVERIFY(TextEditor::currentSuggestionIn(editor));
+
+        Utils::ToolTip::show(QPoint(0, 0), QString("what this suggestion is"),
+                             view->tooltipParent());
+        // A guard, not a step: with no tooltip up this test would pass whatever
+        // the exception did.
+        QVERIFY2(Utils::ToolTip::isVisible(), "no tooltip was shown, so nothing is being excepted");
+
+        goElsewhere();
+        QVERIFY2(TextEditor::currentSuggestionIn(editor),
+                 "the tooltip about the suggestion is what dismissed it");
+
+        // And once it is gone, going elsewhere means what it usually means.
+        // hideImmediately(), because hide() is on a timer and the check below
+        // would still see a tooltip up.
+        Utils::ToolTip::hideImmediately();
+        QVERIFY(!Utils::ToolTip::isVisible());
+        // Focused again first: dropping focus that is already gone changes
+        // nothing and would leave this passing for the wrong reason.
+        view->forceActiveFocus();
+        goElsewhere();
+        QVERIFY2(!TextEditor::currentSuggestionIn(editor),
+                 "with the tooltip gone the suggestion was still offered");
+    }
+
     void testWhatTheCompleterPutInStopsBeingNewWhenTheReaderLeaves_data()
     {
         QTest::addColumn<bool>("quick");
