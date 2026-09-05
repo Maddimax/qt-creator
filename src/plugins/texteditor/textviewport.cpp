@@ -1597,11 +1597,14 @@ void TextViewport::ensureCursorVisible()
         setScrollY(above ? top : top + rowSpan(row) - textAreaHeight());
 }
 
-void TextViewport::setRowGaps(const QList<Gap> &gaps)
+void TextViewport::setRowSpacers(const Utils::Id &id, const QList<Gap> &gaps)
 {
-    if (gaps == m_spacers)
+    if (m_spacers.value(id) == gaps)
         return;
-    m_spacers = gaps;
+    if (gaps.isEmpty())
+        m_spacers.remove(id);
+    else
+        m_spacers[id] = gaps;
     if (rebuildGaps())
         polish();
 }
@@ -1655,7 +1658,9 @@ void TextViewport::setGhostRows(const QList<GhostRows> &ghosts)
 
 bool TextViewport::rebuildGaps()
 {
-    QList<Gap> gaps = m_spacers;
+    QList<Gap> gaps;
+    for (auto it = m_spacers.cbegin(); it != m_spacers.cend(); ++it)
+        gaps += it.value();
     const QList<GhostRows> ghosts = m_ghosts + m_suggestionGhosts;
     for (const GhostRows &ghost : ghosts) {
         if (!ghost.lines.isEmpty())

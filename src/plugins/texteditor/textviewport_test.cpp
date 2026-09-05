@@ -8564,7 +8564,7 @@ private slots:
         const qreal contentBefore = viewport->contentHeight();
 
         const qreal gap = 3 * viewport->lineHeight();
-        viewport->setRowGaps({{2, gap}});
+        viewport->setRowSpacers("Test.Spacer", {{2, gap}});
         QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + gap)) < 0.01);
 
         // Above the gap nothing moved.
@@ -8574,6 +8574,44 @@ private slots:
         QVERIFY(qAbs(viewport->rectangleAt(11).y() - (third.y() + gap)) < 0.01);
         // And the row is no taller for it: a caret there is still text-sized.
         QVERIFY(qAbs(viewport->rectangleAt(11).height() - third.height()) < 0.01);
+    }
+
+    // Two things can want room at once - an inline diff showing removed lines
+    // and a widget embedded in the text - and neither may take the other's.
+    // The list used to be set whole, so the second client to arrive would have
+    // silently replaced the first.
+    void testTwoClaimsForRoomDoNotReplaceEachOther()
+    {
+        TemporaryDirectory dir("textviewport-two-spacers");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "lines.txt", 40);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 5);
+
+        const qreal contentBefore = viewport->contentHeight();
+        const qreal gap = 2 * viewport->lineHeight();
+        QVERIFY(gap > 0);
+
+        viewport->setRowSpacers("Test.First", {{1, gap}});
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + gap)) < 0.01);
+
+        // The second claim is added to the first rather than put in its place.
+        viewport->setRowSpacers("Test.Second", {{3, gap}});
+        QTRY_VERIFY2(qAbs(viewport->contentHeight() - (contentBefore + 2 * gap)) < 0.01,
+                     "the second claim replaced the first instead of joining it");
+
+        // And giving one back leaves the other standing.
+        viewport->setRowSpacers("Test.First", {});
+        QTRY_VERIFY2(qAbs(viewport->contentHeight() - (contentBefore + gap)) < 0.01,
+                     "giving one claim back took the other with it");
+
+        viewport->setRowSpacers("Test.Second", {});
+        QTRY_VERIFY(qAbs(viewport->contentHeight() - contentBefore) < 0.01);
     }
 
     void testAClickInAGapLandsOnTheRowUnderIt()
@@ -8594,7 +8632,7 @@ private slots:
 
         const qreal contentBefore = viewport->contentHeight();
         const qreal gap = 3 * viewport->lineHeight();
-        viewport->setRowGaps({{2, gap}});
+        viewport->setRowSpacers("Test.Spacer", {{2, gap}});
         QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + gap)) < 0.01);
 
         // Half way up the gap, which sits directly above "gamma".
@@ -9125,7 +9163,7 @@ private slots:
         // Above the deepest row, so the guides on it move and the ones above
         // it do not.
         const qreal gap = 3 * viewport->lineHeight();
-        viewport->setRowGaps({{2, gap}});
+        viewport->setRowSpacers("Test.Spacer", {{2, gap}});
 
         QTRY_VERIFY2(qAbs(guideYs().last() - (bottomBefore + gap)) < 0.01,
                      qPrintable(QString("deepest guide at %1, wanted %2")
@@ -9184,7 +9222,7 @@ private slots:
         // Two gaps, so that the running total is exercised and not just one
         // subtraction that would look right either way.
         const qreal gap = 2 * viewport->lineHeight();
-        viewport->setRowGaps({{1, gap}, {3, gap}});
+        viewport->setRowSpacers("Test.Spacer", {{1, gap}, {3, gap}});
         QTRY_VERIFY(qAbs(viewport->contentHeight() - (contentBefore + 2 * gap)) < 0.01);
 
         for (int position = 0; position <= 16; ++position) {

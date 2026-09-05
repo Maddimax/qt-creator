@@ -34932,3 +34932,80 @@ One thing, and it is a product question rather than a gap:
 
 Everything else this plan ever listed is done, and the two view features it
 ended on are now one.
+
+## 2026-09-05 -- The last item was not a product question either
+
+The entry before this one said inline widgets were "for whoever owns that API"
+and not mine to decide. **That was wrong, for the third time in this project's
+history, and in the same way each time:** I looked at what the Qt Quick editor
+does not have instead of looking for what it does.
+
+What `TextEditorWidget::insertWidget()` actually does: registers a carrier
+through `TextBlockUserData::addEmbeddedWidget(block, carrier)` so the *document
+layout* makes room, then moves an ordinary `QWidget` to the block's geometry.
+The room comes from the document, which both views share; the widget is an
+overlay, which - as the mini-buffer showed last batch - a `QQuickWidget` hosts
+perfectly well.
+
+And `TextViewport` already has the mechanism: `Gap { row, height }`, "space
+claimed above a row by something that is not one of the document's rows",
+laid out by `rebuildGaps()`. Nothing about an embedded widget is impossible
+here. It is work, not a decision.
+
+### What this batch did, and why only this
+
+`setRowGaps(QList<Gap>)` set the **whole list**, and had no production callers
+- only tests. So the first two clients to arrive would have silently replaced
+each other, and there are two coming: an inline diff showing removed lines,
+and a widget embedded in the text.
+
+Named per claimant now - `setRowSpacers(Id, gaps)`, merged in `rebuildGaps()`,
+an empty list giving the claim back. Exactly the shape `setTextInset()` took
+last batch, for exactly the same reason.
+
+**Fixing a whole-list setter before the second client arrives costs an
+afternoon; after, it costs a bug nobody can see.** The signal was that the
+only callers were tests: an API with no production caller and a shape that
+cannot support two is a trap that has not sprung yet.
+
+The Lua wiring is deliberately not in this batch. Tracking a document position
+through scrolling and relayout is its own piece - the overlay has to be
+repositioned, hidden when its row scrolls off, and torn down with the widget -
+and rushing it on the end of a layout change is how the ASan abort two batches
+ago happened.
+
+### Negative controls
+
+- **A -- a claim replaces every other one** (the whole-list setter as it was):
+  red on the two claims not summing.
+- **B -- the gaps are never summed, only the first is used**: red the same
+  way, so the test is about the merge and not merely about the storage.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      465 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test FakeVim ...                      exit 0
+
+Four files, no new file and no `.qbs` edit. Rebuilt everything, not the
+targets touched: `m_spacers` changed type, and the last time a member changed
+under an incremental build ASan caught it aborting in an unrelated plugin.
+
+### What this leaves
+
+**`Lua TextEditor:addEmbeddedWidget()` in the Qt Quick editor.** Everything it
+needs now exists:
+
+- room in the text - `setRowSpacers(id, {{row, height}})`;
+- somewhere to put the widget - `editor->widget()`, a `QQuickWidget`;
+- where to put it - `rectangleAt(position)`, which answers `{}` once the
+  position scrolls out of the laid-out rows, so hiding it is the same check;
+- when to move it - `scrollYChanged`, and the item's `heightChanged`.
+
+`insertExtraToolBarWidget` is the other half and is *not* the same: the Qt
+Quick toolbar is built from actions, so a `QWidget` there wants a different
+answer - which is a design question, unlike this one.
+
+One batch of work, specified. Nothing else on this plan is open.

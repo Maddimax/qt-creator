@@ -374,7 +374,10 @@ public:
         qreal height = 0;
         bool operator==(const Gap &other) const = default;
     };
-    void setRowGaps(const QList<Gap> &gaps);
+    // Claimed by \a id, so that two things wanting room - an inline diff and
+    // a widget embedded in the text - can each have theirs without one
+    // replacing the other's. An empty list gives that claim back.
+    void setRowSpacers(const Utils::Id &id, const QList<Gap> &gaps);
     QList<Gap> rowGaps() const { return m_rowGaps; }
 
     // Rows shown between the document's own: the lines an inline diff has
@@ -1280,7 +1283,7 @@ private:
     // two things that can open one rather than set directly.
     QList<Gap> m_rowGaps;
     std::vector<qreal> m_gapSums;
-    QList<Gap> m_spacers;
+    QHash<Utils::Id, QList<Gap>> m_spacers;
     QList<GhostRows> m_ghosts;
     // The rest of a multi-line suggestion, which is the view's own doing
     // rather than something set from outside: kept apart so that whoever sets
