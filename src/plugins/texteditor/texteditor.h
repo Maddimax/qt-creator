@@ -1022,6 +1022,13 @@ public:
 TEXTEDITOR_EXPORT void pasteIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void cutIn(Core::IEditor *editor);
 
+// Ask \a editor's view for the tooltip at \a cursor, the way resting the
+// mouse there would. The widget editor calls this processTooltipRequest();
+// a view that is not one asks its own hover runner, which is the same
+// machinery behind a different name.
+TEXTEDITOR_EXPORT void processTooltipRequestIn(Core::IEditor *editor,
+                                               const QTextCursor &cursor);
+
 // Add or remove a hover handler on whichever view \a editor has. A language's
 // own handlers are registered on its editor factory and reach every view from
 // there; these are the ones that arrive later - a language server's tooltips,

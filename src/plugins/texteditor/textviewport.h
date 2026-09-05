@@ -350,13 +350,17 @@ public:
     void clearLink();
     bool openLink(const Utils::Link &link, bool inNextSplit = false);
 
+    // What resting the mouse over \a position asks for. Public because the
+    // editor-level seam processTooltipRequestIn() hands the question on, the
+    // way TextEditorWidget::processTooltipRequest() takes it for a widget.
+    void askForTooltipAt(int position, const QPointF &at);
+
 private:
     void askForTooltip();
     // The same question asked about the caret rather than the mouse, which is
     // what Alt on its own does when "Show help tooltips using the keyboard"
     // is on.
     void askForTooltipAtCaret();
-    void askForTooltipAt(int position, const QPointF &at);
 
 public:
 

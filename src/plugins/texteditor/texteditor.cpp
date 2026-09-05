@@ -10707,6 +10707,16 @@ QObject *keyTargetOf(Core::IEditor *editor)
     return Internal::viewportForEditor(editor);
 }
 
+void processTooltipRequestIn(Core::IEditor *editor, const QTextCursor &cursor)
+{
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->processTooltipRequest(cursor);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->askForTooltipAt(cursor.position(), {});
+}
+
 void addHoverHandlerIn(Core::IEditor *editor, BaseHoverHandler *handler)
 {
     if (!editor || !handler)

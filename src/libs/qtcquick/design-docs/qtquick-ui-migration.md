@@ -37572,3 +37572,98 @@ entry.
 
 - **The `QuickUi` sort flake**, still not reproducing.
 - **An arbitrary widget in a Quick toolbar**, unchanged for twenty entries.
+
+## 2026-09-05 (25) -- A whole test class that could not see this editor
+
+The last entry claimed the gated needles "have a gate everywhere they have
+ever appeared", and noted that the evidence was only the logs of suites this
+session happened to run. Falsifying that meant running suites it had not:
+`ClangCodeModel`, `ClangTools`, `Copilot`, `Lua`, `McpServer`.
+
+**The claim survived** - zero needles in any of them. The sweep found
+something larger instead.
+
+    -test ClangCodeModel -test ClangTools ...    exit=90
+
+### What the failures were
+
+Run both ways, per class:
+
+| class | default (Qt Quick) | `QTC_WIDGET_CPP_EDITOR=1` |
+| --- | --- | --- |
+| `ClangdTestFindReferences` | 5 passed, 10 failed | 5 passed, 10 failed |
+| `ClangdTestFollowSymbol` | 3 passed, 31 failed | 3 passed, 31 failed |
+| **`ClangdTestTooltips`** | **2 passed, 36 failed** | **38 passed, 0 failed** |
+
+Two classes fail identically either way - they want a kit and a clangd this
+machine does not give them, and they are not this plan's. The third is
+entirely the difference.
+
+### The gap was coverage, not behaviour
+
+Every failure was `'editor' returned FALSE`. Not a wrong tooltip - no editor
+at all:
+
+    const auto editor = qobject_cast<BaseTextEditor *>(
+        EditorManager::openEditor(doc->filePath()));
+
+The cast-net pattern, in a class the net skipped because it lives under
+`test/` and the sweep filtered tests out. Every one of the 38 cases fell at the
+`QVERIFY` on the next line, so **nothing in this class had run against the Qt
+Quick editor since it became the default for C++**.
+
+Ported to `Core::IEditor` and a new seam,
+`TextEditor::processTooltipRequestIn(editor, cursor)` - the widget's
+`processTooltipRequest()` on one side, the viewport's `askForTooltipAt()` on
+the other, which is the same hover-runner machinery under a different name.
+
+**Clangd tooltips already worked in the Qt Quick editor.** The 36 failures
+were the test being unable to look. That is worth stating plainly because
+five entries of this plan have said "the goal is met and what remains is
+hygiene": that was true of the behaviour and false of the coverage, and
+nothing here would have told the difference.
+
+### Both views now agree, including on the awkward one
+
+    ClangdTestTooltips   default 37 passed, 1 failed
+                         widget  37 passed, 1 failed
+
+The one is an **XPASS**, not a failure: `testTooltipFromIndex` carries a
+`QEXPECT_FAIL` conditional on `clangd < 20`, and the tooltip contains the
+documentation anyway. It flips run to run **in both views** - the first widget
+run of this batch gave 38 passed and the next two gave 37 - so it is a race on
+when the client's version is known, not something the port did. Measured
+rather than assumed: two runs each way, identical.
+
+### Negative control
+
+- **A -- the seam's viewport branch removed**, so it answers only for a
+  widget: back to 2 passed, 36 failed - and failing on `timer.isActive()`
+  rather than on the cast, which is the right new shape: the seam asked nobody
+  and no help item ever arrived.
+
+### Verification
+
+    -test TextEditor    482 passed, 0 failed, exit 0
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0
+    -test ClangCodeModel,ClangdTestTooltips
+       default 37 passed, widget 37 passed - identical
+
+Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The lesson is about the net rather than about tooltips. The cast-net grep has
+been run seven times in this plan and always with `grep -v _test` on the end,
+because the hits in tests were noise - **except where a test's cast is what
+stops it seeing this editor at all.** `clangcodemodel/test/clangdtests.cpp`
+was in the output every single time and got filtered out every single time.
+
+Two casts remain in that file, at what were lines 687 and 2070, in
+`ClangdTestCompletion` and the completion helper. Both are in classes that
+fail the same way both ways on this machine, so whether they hide anything
+cannot be told here - but they are the obvious next place to look, and the
+next sweep should drop the `-v _test`.
+
+- **The `QuickUi` sort flake**, still not reproducing.
+- **An arbitrary widget in a Quick toolbar**, unchanged for twenty-one entries.

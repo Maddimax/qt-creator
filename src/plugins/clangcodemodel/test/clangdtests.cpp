@@ -688,10 +688,13 @@ void ClangdTestTooltips::testTooltipFromIndex()
 {
     TextEditor::TextDocument * const doc = document("main.cpp");
     QVERIFY(doc);
-    const auto editor = qobject_cast<BaseTextEditor *>(EditorManager::openEditor(doc->filePath()));
+    // Whichever view the file opens in. A C++ file opens in the Qt Quick
+    // editor, which is not a BaseTextEditor - so casting to one answered
+    // nullptr and every case here failed on the QVERIFY below, in a class
+    // that passes 38 of 38 against QTC_WIDGET_CPP_EDITOR=1.
+    Core::IEditor * const editor = EditorManager::openEditor(doc->filePath());
     QVERIFY(editor);
     QCOMPARE(editor->document(), doc);
-    QVERIFY(editor->editorWidget());
 
     QTimer timer;
     timer.setSingleShot(true);
@@ -709,7 +712,7 @@ void ClangdTestTooltips::testTooltipFromIndex()
     QTextCursor cursor(doc->document());
     const int pos = Text::positionInText(doc->document(), 5, 4);
     cursor.setPosition(pos);
-    editor->editorWidget()->processTooltipRequest(cursor);
+    TextEditor::processTooltipRequestIn(editor, cursor);
 
     timer.start(10000);
     loop.exec();
@@ -817,10 +820,13 @@ void ClangdTestTooltips::test()
 
     TextEditor::TextDocument * const doc = document("tooltips.cpp");
     QVERIFY(doc);
-    const auto editor = qobject_cast<BaseTextEditor *>(EditorManager::openEditor(doc->filePath()));
+    // Whichever view the file opens in. A C++ file opens in the Qt Quick
+    // editor, which is not a BaseTextEditor - so casting to one answered
+    // nullptr and every case here failed on the QVERIFY below, in a class
+    // that passes 38 of 38 against QTC_WIDGET_CPP_EDITOR=1.
+    Core::IEditor * const editor = EditorManager::openEditor(doc->filePath());
     QVERIFY(editor);
     QCOMPARE(editor->document(), doc);
-    QVERIFY(editor->editorWidget());
 
     QTimer timer;
     timer.setSingleShot(true);
@@ -836,7 +842,7 @@ void ClangdTestTooltips::test()
     QTextCursor cursor(doc->document());
     const int pos = Text::positionInText(doc->document(), line, column - 1);
     cursor.setPosition(pos);
-    editor->editorWidget()->processTooltipRequest(cursor);
+    TextEditor::processTooltipRequestIn(editor, cursor);
 
     timer.start(10000);
     loop.exec();
