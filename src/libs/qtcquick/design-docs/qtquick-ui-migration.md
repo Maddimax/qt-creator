@@ -37228,3 +37228,99 @@ Three entries running the log has been the source. The pattern behind all
 three is the same: **a question asked by name of an object that used to be the
 only answer**. `invokeMethod(widget, "...")` is the shape to grep for when
 looking for the next one.
+
+## 2026-09-05 (21) -- Two corrections, and a suite that prints nothing
+
+The last entry left three things: the `invokeMethod`-by-name pattern to grep
+for, two `CppEditor` warnings, and `ProjectCommentsPanel` "outside this plan's
+remit". All three were wrong or done. **No gap in the port was closed; two
+claims in this file were.**
+
+### The pattern is exhausted
+
+`grep` for `invokeMethod(` with a string literal, across `src/plugins` and
+`src/libs`, production only: every remaining hit is either a *QML* object -
+which has no C++ type to call, so by name is the only way - or a test helper
+poking a form. The two that reached a widget are the ones the last entry
+turned into `FakeVimEditorAdapter` defaults.
+
+So that lead is closed. Written down so the next batch does not run it again.
+
+### Correction: the panel was the test's own doing
+
+The last entry recorded ten warnings a run from
+`ProjectExplorer/ProjectCommentsPanel.qml` as "a panel whose bindings are
+failing every time it is drawn... a real defect, outside the text editor".
+
+**It is not a defect and it is not ProjectExplorer's.**
+`QuickUiTest::testANestedContainerIsDrawnWithTheQmlItNames()` builds a
+container holding one `BoolAspect` and points it at that panel, on the
+reasoning - written in the test - that "what is checked is which file was
+loaded, not what it draws, so a page of another plugin's does as well as any".
+The panel then asks for six aspects the container has never heard of, draws
+nothing, and prints five binding errors twice over.
+
+The choice of file can stay arbitrary; it just has to be one the container can
+answer. `AcpSettingsPage.qml` asks for exactly one aspect, and the fixture now
+provides it under that name.
+
+    -test QuickUi    warnings 10 -> 0
+
+**That suite now prints nothing at all**, which is the first time any suite
+here has.
+
+### Correction: two duplicate tags, two different fixes
+
+`CompletionTest` had two rows tagged
+`"cyclic_inheritance: indirect cyclic inheritance"`. The last entry's
+duplicate, in `FollowSymbolTest`, was the *same case written twice* and the
+fix was to delete one. **This one is two different cases sharing a tag** - one
+is a `C -> A -> B -> C` chain, the other `A : B` with `B : C, A` - so deleting
+either would have thrown a real case away. Renamed instead, which is what the
+warning asks for.
+
+Worth keeping as a rule: a duplicate tag is not always a duplicate case. Read
+both before removing either.
+
+### What did not get resolved
+
+`testCompletionBasic1` printed `QTextCursor::setPosition: Position '-1' out of
+range` three times in an earlier run. Two candidate sites in
+`cppcompletionassist.cpp` - `endOfExpression` at the unconditional
+`tc.setPosition()` and `index` in `completeConstructorOrFunction()` - were
+probed and **neither fired**. In the build at the end of this batch the
+warning does not appear at all: `CompletionTest` prints zero.
+
+No claim is made about why. It may be conditional on something this run did
+not do. What is written down is the two sites ruled out, so the next attempt
+starts further along than this one did.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      482 passed, 0 failed, exit 0, 1 warning
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+    -test CppEditor,CompletionTest
+      204 passed, 0 failed, exit 0, 0 warnings
+
+Two files, no new file and no `.qbs` edit.
+
+**Neither change has a biting control**, and that is worth saying plainly
+rather than dressing up: nothing asserts on warning counts in `QuickUi` or
+`CppEditor`, so both could regress silently. The guard is that counting
+`QWARN` is now part of running a batch. A message-handler assertion like
+`WarningsSaying` would be better, and adding a third copy of that class to a
+third plugin is the reason there is not one yet.
+
+### What this leaves
+
+- **The one warning left in `TextEditor`**:
+  `CodeAssistTests::initTestCase() QFSFileEngine::open: No file name specified`
+  - a fixture opening a file it has not named.
+- **The `QuickUi` sort flake**, still not reproducing.
+- **An arbitrary widget in a Quick toolbar**, unchanged for seventeen entries.
+
+Four entries have now come out of reading logs, and two of those four had to
+correct something this file had asserted. The reading is cheap; the asserting
+is what keeps needing to be walked back.

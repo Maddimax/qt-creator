@@ -945,7 +945,7 @@ void CompletionTest::testCompletion_data()
             "@\n"
         ) << _("c.") << QStringList({"A", "_a", "B", "_b", "C", "_c"});
 
-    QTest::newRow("cyclic_inheritance: indirect cyclic inheritance") << _(
+    QTest::newRow("cyclic_inheritance: indirect cyclic inheritance through a second base") << _(
             "struct B;\n"
             "struct A : B { int _a; };\n"
             "struct C { int _c; };\n"

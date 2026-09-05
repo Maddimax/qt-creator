@@ -11852,11 +11852,16 @@ void QuickUiTest::testANestedContainerIsDrawnWithTheQmlItNames()
     nested.setLabelText("Nested");
     // A file that takes the "aspects" seam a page is given - not
     // AspectForm.qml, which is the *generic* form and requires a model. What
-    // is checked is which file was loaded, not what it draws, so a page of
-    // another plugin's does as well as any.
-    nested.setQmlSource(
-        QUrl("qrc:/qt/qml/QtCreator/ProjectExplorer/ProjectCommentsPanel.qml"));
-    Utils::BoolAspect inner(&nested);
+    // is checked is which file was loaded, not what it draws.
+    //
+    // It still has to be one this container can answer, though. Pointed at
+    // ProjectCommentsPanel.qml, which asks for six aspects none of which are
+    // here, it drew nothing and printed five binding errors every run - ten
+    // lines in a suite whose log is supposed to be worth reading. This page
+    // asks for one aspect, and gets it.
+    nested.setQmlSource(QUrl("qrc:/qt/qml/QtCreator/AcpClient/AcpSettingsPage.qml"));
+    Utils::AspectList inner(&nested);
+    inner.setQmlName("AcpServers");
     inner.setLabelText("Inner");
 
     const std::unique_ptr<QWidget> form(showForm(&page));
