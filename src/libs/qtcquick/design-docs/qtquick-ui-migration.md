@@ -35378,3 +35378,108 @@ If a next batch wants a target rather than an audit, the honest candidates are
   have one: the two subclasses in the tree behave differently on purpose
   (`CppLocalRenaming` handles keys, FakeVim's only claims them), and nothing
   says so where a third one would be written.
+
+## 2026-09-05 (3) -- Pinning the key order by the C++ behaviour
+
+The previous entry listed this as the first of two candidates: the ordering
+fix was pinned only by a synthetic `TextViewport` test, and the C++ path it
+exists for -- start a rename, walk the caret into a comment, press Enter --
+was written down as "not tested". This closes that.
+
+### The correction the test forced
+
+**The previous entry, and its commit message, described the symptom wrongly.**
+Both said an in-place rename "could not be ended with Enter" and "went on
+editing every use of the name". Running the end-to-end test against the old
+order says otherwise. The assertion that fired was the *text* one:
+
+    'document->document()->toPlainText() == before' returned FALSE.
+    (Enter continued the comment instead of ending the rename)
+
+and `!renaming->isActive()` **passed**. So under the old order the rename does
+end -- just not because anything meant it to. `trySplitComment()` writes a
+comment continuation, that edit lands outside the rename's selection,
+`onContentsChangeOfEditorWidgetDocument()` sees it and calls `stop()`.
+
+So the real defect is narrower and different in kind: **Enter performed an
+edit nobody asked for.** The rename ending was a side effect of the corruption,
+not a symptom of the bug.
+
+The fix committed last batch is still right and still needed -- an unrequested
+comment continuation is a real bug. Only the account of *why* it was bad was
+wrong, and it was wrong in the familiar way: written from the shape of the
+code rather than from a measurement. The synthetic seam test could not have
+caught it, because it has no comment continuation in it -- it only knows the
+document was asked.
+
+*A mechanism inferred from reading is a guess until something runs.* Three
+entries in a row have now had to correct a claim made without running
+anything.
+
+### What the test asserts, and in which order
+
+The file is a local `alpha` used twice and a `/* */` comment to walk into.
+`handleRename()` starts the rename, `gotoLine()` moves the caret into the
+comment without editing, and a `Qt::Key_Return` goes to
+`TextEditor::keyTargetOf(editor)`.
+
+The **text assertion comes first, on purpose**, because it is the only one
+that tells the two orders apart. The rename being over says almost nothing:
+it is over either way. The file being untouched is the whole of it, and the
+comment in the test says so, so that nobody later "simplifies" the order back.
+
+Two implementation notes worth keeping:
+
+- CppEditor does **not** link Qt Quick, so `textviewport.h` cannot be included
+  there and `viewportForEditor()` is `Internal` and unexported. The supported
+  route from outside is `TextEditor::keyTargetOf()`, which hands back a plain
+  `QObject *` -- FakeVim already uses it for exactly this.
+- The rename starts asynchronously through `CppModelManager::startLocalRenaming()`,
+  so the wait is `QTRY_VERIFY` on `isActive()` -- state the code must produce,
+  not a duration.
+
+### Negative controls
+
+Three, one per assertion, because the first version of this test had an
+assertion that could not fail and it took a control to notice.
+
+- **A -- the old order** (document asked before the handlers): red on
+  "Enter continued the comment instead of ending the rename". This is the
+  control that also produced the correction above.
+- **B -- `CppLocalRenaming` declines Enter**: red on the same assertion, by
+  the other route -- the key falls through to the document.
+- **C -- `CppLocalRenaming` takes Enter but never calls `stop()`**: red on
+  "Enter did not end the rename".
+
+C exists only because A and B both fired on the text assertion, which left
+`!isActive()` unproven. Written down because it is a general trap: *a control
+that fires on assertion one says nothing about assertion two.* Every assertion
+needs a control that reaches it.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      468 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,LocalRenamingTest      3 passed, 0 failed, exit 0
+
+Three files, no new file and no `.qbs` edit. No production change: this batch
+is a test and the correction above.
+
+### What this leaves
+
+One of the two candidates the last entry proposed. The other is unchanged and
+is now the only named next step:
+
+- **A census for `EditHandler`.** The two subclasses in the tree behave
+  differently on purpose -- `CppLocalRenaming` handles keys, FakeVim's
+  `QuickEditorKeyClaim` only claims them and returns false because its keys
+  arrive through an event filter first. Nothing says so where a third one
+  would be written, and this migration has already lost half a batch to
+  reading the class list instead of the bodies. A census would make the
+  distinction fail loudly rather than quietly.
+
+Beyond that: an arbitrary **widget** in a Quick toolbar still has no answer,
+and the callers wanting one are combo boxes belonging to languages that still
+open in the widget editor. Nothing C++ needs is blocked on it.

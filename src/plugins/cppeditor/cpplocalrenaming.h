@@ -18,6 +18,10 @@ namespace CppEditor::Internal {
 
 class CppUseSelectionsUpdater;
 
+#ifdef WITH_TESTS
+QObject *createLocalRenamingTest();
+#endif
+
 class CppLocalRenaming : public TextEditor::EditHandler
 {
     Q_OBJECT

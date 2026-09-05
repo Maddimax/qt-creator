@@ -19,6 +19,15 @@
 #include <utils/qtcassert.h>
 #include <utils/textutils.h>
 
+#ifdef WITH_TESTS
+#include "clangdsettings.h"
+#include <coreplugin/editormanager/editormanager.h>
+#include <utils/temporarydirectory.h>
+#include <QKeyEvent>
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 /*!
     \class CppEditor::Internal::CppLocalRenaming
     \brief Renaming every use of a local name at once, in place.
@@ -453,4 +462,108 @@ void CppLocalRenaming::stop()
     emit finished();
 }
 
+
+#ifdef WITH_TESTS
+
+// Enter ends an in-place rename. The Qt Quick view used to ask the document
+// for a key before the handlers, and CppEditorDocument answers Enter inside a
+// comment by continuing it - so a rename whose caret had been walked into a
+// comment wrote a comment continuation nobody asked for instead of finishing.
+//
+// Reachable because a rename ends on a content change outside its selection
+// and not on a caret move, so the caret can be walked out of the name while
+// the rename lasts.
+class LocalRenamingTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testEnterEndsARenameWithTheCaretInAComment()
+    {
+        Utils::TemporaryDirectory dir("cpp-rename-enter-in-comment");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("r.cpp");
+        // alpha is local and used twice, so renaming it happens here rather
+        // than as a search; the comment is where the caret is walked to.
+        const QByteArray source = "void f()\n"
+                                  "{\n"
+                                  "    int alpha = 1;\n"
+                                  "    /*\n"
+                                  "     * note\n"
+                                  "     */\n"
+                                  "    (void) alpha;\n"
+                                  "}\n";
+        QVERIFY(file.writeFileContents(source));
+
+        // The built-in model does local renaming; clangd answers it itself.
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        // Where keys arrive for this view. A QObject rather than the view's
+        // own type, because this plugin does not link Qt Quick.
+        QObject * const keys = TextEditor::keyTargetOf(editor);
+        QVERIFY2(keys, "nothing takes keys for this editor");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // Made by the plugin for a view that is not a widget.
+        auto * const renaming = editor->findChild<CppLocalRenaming *>();
+        QVERIFY2(renaming, "no in-place renaming was made for this editor");
+
+        // On alpha in its declaration, which is line 3. gotoLine() counts
+        // columns from zero.
+        editor->gotoLine(3, 9);
+        QVERIFY2(renaming->handleRename(), "the view was refused an in-place rename");
+        QTRY_VERIFY2(renaming->isActive(), "the rename never started");
+
+        // Walk the caret into the comment without editing anything, which is
+        // what leaves the rename running somewhere the document wants Enter.
+        editor->gotoLine(5, 11);
+        QVERIFY2(renaming->isActive(), "moving the caret ended the rename by itself");
+
+        const QString before = document->document()->toPlainText();
+        QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "\r");
+        QCoreApplication::sendEvent(keys, &enter);
+
+        // The text first, because it is what tells the two orders apart. With
+        // the document asked first the comment is continued - an edit nobody
+        // asked for - and the rename then ends only because that edit lands
+        // outside its selection. So the rename being over says little on its
+        // own; the file being untouched is the whole of it.
+        QVERIFY2(document->document()->toPlainText() == before,
+                 "Enter continued the comment instead of ending the rename");
+        QVERIFY2(!renaming->isActive(), "Enter did not end the rename");
+    }
+};
+
+QObject *createLocalRenamingTest()
+{
+    return new LocalRenamingTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace CppEditor::Internal
+
+#include "cpplocalrenaming.moc"

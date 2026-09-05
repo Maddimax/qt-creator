@@ -810,6 +810,7 @@ void CppEditorPlugin::registerTests()
     addTestCreator(createCppCodeStyleAspectsTest);
     addTestCreator(createCppHeaderSourceTest);
     addTestCreator(createSymbolJumpTest);
+    addTestCreator(createLocalRenamingTest);
     addTestCreator(createUseSelectionsTest);
     addTestCreator(createDeclDefLinkTest);
     addTestCreator(createIncludeGroupsTest);
