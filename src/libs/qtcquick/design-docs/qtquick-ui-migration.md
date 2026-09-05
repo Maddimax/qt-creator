@@ -34859,3 +34859,76 @@ Nothing changed, so this is the tree as it stands:
     -test FakeVim ...                      253 passed, 0 failed, exit 0
 
 One file, and no negative controls: there is no change to control.
+
+## 2026-09-05 -- A strip the text stays out of, and FakeVim's command line
+
+The last entry specified this and costed it as a view feature rather than
+glue. It was the right call to make it explicitly: this is the first batch in
+a long time that changed how the view lays out rather than where it looks
+something up.
+
+The gap this closed: **FakeVim's in-editor command line never appeared on a
+C++ file.** With `commandLineInEditor()` on, the plugin parents a `MiniBuffer`
+over the editor and reserves a strip at the bottom so it never covers text
+(QTCREATORBUG-21005). It asked `TextEditorWidget::fromEditor()` for somewhere
+to put it, got nothing, and silently fell back to the global command line - a
+setting quietly ignored rather than a visible failure.
+
+### The view feature
+
+`TextViewport::setTextInset(id, edge, size)` mirrors
+`PlainTextEdit::setEditorTextMargin()`: named so two clients cannot overwrite
+each other, summed per edge. What it feeds is `textAreaHeight()` - the height
+less whatever is reserved - and **every decision about what is on screen now
+asks that rather than `height()`**: which rows to lay out, `rowsPerPage()`,
+and the three ensure-visible calculations. Eleven call sites, and the reason
+they are all one accessor is so the next inset does not have to find them
+again.
+
+### The overlay is not an inline widget
+
+Worth writing down, because the last entry nearly filed this with Lua's
+`addEmbeddedWidget`. An embedded widget is anchored to a **document position**:
+it has to move and scroll with the text, which needs the view's layout, and a
+`QWidget` cannot live in a Qt Quick scene at all. The mini-buffer is anchored
+to the **editor's rectangle**, and `editor->widget()` is a `QQuickWidget` -
+an ordinary `QWidget`, and a perfectly good parent for an overlay. Same
+picture, different anchor, and only one of them is impossible.
+
+Resizing needed no event filter either: the viewport item is the size of the
+scene, so its `heightChanged` is the `QQuickWidget` having been resized.
+
+The widget path is untouched - it still takes its margin and its geometry from
+`TextEditorWidget`, because that is what it has always drawn.
+
+### Negative controls
+
+- **A -- the command line needs a widget editor again** (the state before this
+  batch): red, no command line was made at all.
+- **B -- the view lends no room**: red on `textAreaHeight() < height()`, which
+  is the half that keeps the strip from covering text. Two controls because
+  the fix has two halves, and either could have carried the other.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      464 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test FakeVim ...                      265 passed, 0 failed, 10 skipped, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+One thing, and it is a product question rather than a gap:
+
+- **Inline widgets in a Qt Quick scene** - Lua's `addEmbeddedWidget` and
+  `insertExtraToolBarWidget`. A `QWidget` anchored to a document position
+  cannot go into the scene; a Qt Quick answer would be a different API, and
+  whether the Lua surface should grow one is for whoever owns that API. Both
+  currently refuse with an error saying why, which is the honest behaviour
+  until someone decides.
+
+Everything else this plan ever listed is done, and the two view features it
+ended on are now one.

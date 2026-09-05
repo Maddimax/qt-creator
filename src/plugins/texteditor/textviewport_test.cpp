@@ -444,6 +444,48 @@ private slots:
         QCOMPARE(QQuickStyle::name(), QString("QtCreatorStyle"));
     }
 
+    // Room kept clear at an edge, so something else can sit there without
+    // covering the text - FakeVim's in-editor command line does exactly this
+    // at the bottom, and the widget editor reserves it with
+    // PlainTextEdit::setEditorTextMargin().
+    void testTextIsKeptOutOfAReservedStrip()
+    {
+        TemporaryDirectory dir("textviewport-text-inset");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "long.txt", 400);
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(viewport->lineHeight() > 0);
+
+        const qreal fullHeight = viewport->textAreaHeight();
+        QCOMPARE(fullHeight, viewport->height());
+        const int rowsBefore = viewport->visibleLineCount();
+        const std::pair<int, int> before = viewport->visibleBlockRange();
+
+        // A strip three lines deep at the bottom.
+        const int strip = int(viewport->lineHeight() * 3);
+        viewport->setTextInset("Test.Strip", Qt::BottomEdge, strip);
+
+        QCOMPARE(viewport->textAreaHeight(), fullHeight - strip);
+        // And the text really is laid out into what is left: fewer rows, and
+        // the last line on screen is one that was on screen before.
+        QTRY_VERIFY2(viewport->visibleLineCount() < rowsBefore,
+                     "the same rows were laid out, so the strip reserved nothing");
+        QCOMPARE(viewport->visibleBlockRange().first, before.first);
+        QVERIFY2(viewport->visibleBlockRange().second < before.second,
+                 "the bottom line did not move up out of the strip");
+
+        // Taking it back gives the room back.
+        viewport->setTextInset("Test.Strip", Qt::BottomEdge, 0);
+        QCOMPARE(viewport->textAreaHeight(), fullHeight);
+        QTRY_COMPARE(viewport->visibleLineCount(), rowsBefore);
+    }
+
     // Which positions are on screen, which is what a command that scrolls
     // past the caret needs in order to bring it back. Only the rows the view
     // has laid out are searched, so this answers no for anything scrolled off.

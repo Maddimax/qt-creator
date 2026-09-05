@@ -523,11 +523,16 @@ public:
     // Optional command line shown at the bottom of the editor instead of the
     // status bar (QTCREATORBUG-21005). Child of the editor, so QPointer.
     void updateEditorCommandLinePlacement();
-    void attachEditorMiniBuffer(FakeVimHandler *handler, TextEditorWidget *tew);
+    void attachEditorMiniBuffer(FakeVimHandler *handler, IEditor *editor);
     void positionEditorMiniBuffer();
     void releaseEditorMiniBuffer();
     QPointer<MiniBuffer> m_editorMiniBuffer;
+    // Whichever view the command line is sitting over, and the two ways of
+    // asking it for room: a widget has a text margin, a Qt Quick view a text
+    // inset. Exactly one of the two is set.
+    QPointer<QWidget> m_miniBufferHost;
     QPointer<TextEditorWidget> m_miniBufferEditor;
+    QPointer<TextEditor::TextViewport> m_miniBufferView;
 
     QString m_lastHighlight;
 
@@ -2163,6 +2168,48 @@ class FakeVimInQuickEditorTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The in-editor command line. It parented a MiniBuffer to a
+    // TextEditorWidget and reserved a strip at the bottom so it never covers
+    // text, so with a C++ file - which opens in the Qt Quick editor - the
+    // setting was silently ignored and the reader got the global one.
+    void testTheCommandLineSitsInTheQuickEditor()
+    {
+        const bool wasOn = settings().useFakeVim();
+        const bool wasInEditor = settings().commandLineInEditor();
+        const QScopeGuard restore([wasOn, wasInEditor] {
+            settings().useFakeVim.setValue(wasOn);
+            settings().commandLineInEditor.setValue(wasInEditor);
+        });
+        settings().useFakeVim.setValue(true);
+        settings().commandLineInEditor.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-command-line-in-the-quick-editor");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("hello\nworld\n"));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const view = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor));
+        QVERIFY2(view, "FakeVim is not driving this editor at all");
+
+        // The command line is put over the editor's own widget, and the view
+        // is asked for room so it never covers the text.
+        QTRY_VERIFY2(dd->m_editorMiniBuffer, "no command line was made for this editor");
+        QCOMPARE(dd->m_editorMiniBuffer->parentWidget(), editor->widget());
+        QTRY_VERIFY2(view->textAreaHeight() < view->height(),
+                     "the view kept all its room, so the command line covers text");
+
+        // And it is given back when the setting goes off.
+        settings().commandLineInEditor.setValue(false);
+        QTRY_COMPARE(view->textAreaHeight(), view->height());
+    }
+
     void testFakeVimDrivesTheQuickEditor()
     {
         const bool wasOn = settings().useFakeVim();
@@ -3794,28 +3841,49 @@ void FakeVimPlugin::updateEditorCommandLinePlacement()
         return;
     }
     IEditor *editor = EditorManager::currentEditor();
-    auto tew = TextEditorWidget::fromEditor(editor);
     FakeVimHandler *handler = editor ? m_editorToHandler.value(editor).handler : nullptr;
-    if (tew && handler)
-        attachEditorMiniBuffer(handler, tew);
+    if (editor && handler)
+        attachEditorMiniBuffer(handler, editor);
     else
         releaseEditorMiniBuffer();
 }
 
-void FakeVimPlugin::attachEditorMiniBuffer(FakeVimHandler *handler, TextEditorWidget *tew)
+void FakeVimPlugin::attachEditorMiniBuffer(FakeVimHandler *handler, IEditor *editor)
 {
+    // The editor's own widget, which is the text edit in one view and the
+    // QQuickWidget the scene lives in for the other. Either is somewhere to
+    // put an overlay; only what is inside them differs.
+    QWidget * const host = editor->widget();
+    auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    if (!host || !document) {
+        releaseEditorMiniBuffer();
+        return;
+    }
+
     if (!m_editorMiniBuffer) {
         m_editorMiniBuffer = new MiniBuffer;
         m_editorMiniBuffer->setAlwaysVisible(true);
     }
-    if (m_miniBufferEditor != tew) {
+    if (m_miniBufferHost != host) {
         releaseEditorMiniBuffer();
-        m_editorMiniBuffer->setParent(tew);
-        connect(tew, &TextEditorWidget::resized, this,
-                [this] { positionEditorMiniBuffer(); });
-        m_miniBufferEditor = tew;
+        m_editorMiniBuffer->setParent(host);
+        m_miniBufferHost = host;
+        m_miniBufferEditor = TextEditorWidget::fromEditor(editor);
+        m_miniBufferView = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor));
+        if (m_miniBufferEditor) {
+            connect(m_miniBufferEditor, &TextEditorWidget::resized, this,
+                    [this] { positionEditorMiniBuffer(); });
+        } else if (m_miniBufferView) {
+            // The item is the size of the scene, so its height changing is
+            // the QQuickWidget having been resized.
+            connect(m_miniBufferView, &QQuickItem::heightChanged, this,
+                    [this] { positionEditorMiniBuffer(); });
+            connect(m_miniBufferView, &QQuickItem::widthChanged, this,
+                    [this] { positionEditorMiniBuffer(); });
+        }
     }
-    m_editorMiniBuffer->setFont(tew->textDocument()->fontSettings().font());
+    m_editorMiniBuffer->setFont(document->fontSettings().font());
     // Show an (empty) command line right away; also wires the handler as the
     // event filter for command-line editing.
     m_editorMiniBuffer->setContents(QString(), -1, -1, MessageMode, handler);
@@ -3824,25 +3892,41 @@ void FakeVimPlugin::attachEditorMiniBuffer(FakeVimHandler *handler, TextEditorWi
 
 void FakeVimPlugin::positionEditorMiniBuffer()
 {
-    if (!m_editorMiniBuffer || !m_miniBufferEditor)
+    if (!m_editorMiniBuffer || !m_miniBufferHost)
         return;
     // Reserve a strip at the editor bottom so the command line never covers
     // text; place the widget into it (QTCREATORBUG-21005).
-    const int h = m_miniBufferEditor->fontMetrics().height() + 4;
-    m_miniBufferEditor->setEditorTextMargin("FakeVim.CommandLine", Qt::BottomEdge, h);
-    const QRect vp = m_miniBufferEditor->viewport()->geometry();
-    m_editorMiniBuffer->setGeometry(vp.x(), vp.y() + vp.height(), vp.width(), h);
+    const int h = m_miniBufferHost->fontMetrics().height() + 4;
+    if (m_miniBufferEditor) {
+        m_miniBufferEditor->setEditorTextMargin("FakeVim.CommandLine", Qt::BottomEdge, h);
+        const QRect vp = m_miniBufferEditor->viewport()->geometry();
+        m_editorMiniBuffer->setGeometry(vp.x(), vp.y() + vp.height(), vp.width(), h);
+    } else {
+        if (m_miniBufferView)
+            m_miniBufferView->setTextInset("FakeVim.CommandLine", Qt::BottomEdge, h);
+        const QRect r = m_miniBufferHost->rect();
+        m_editorMiniBuffer->setGeometry(r.x(), r.y() + r.height() - h, r.width(), h);
+    }
     m_editorMiniBuffer->raise();
     m_editorMiniBuffer->show();
 }
 
 void FakeVimPlugin::releaseEditorMiniBuffer()
 {
-    if (!m_miniBufferEditor)
+    if (!m_miniBufferHost)
         return;
-    disconnect(m_miniBufferEditor, &TextEditorWidget::resized, this, nullptr);
-    m_miniBufferEditor->setEditorTextMargin("FakeVim.CommandLine", Qt::BottomEdge, 0);
+    // Give the room back to whichever view was lending it.
+    if (m_miniBufferEditor) {
+        disconnect(m_miniBufferEditor, &TextEditorWidget::resized, this, nullptr);
+        m_miniBufferEditor->setEditorTextMargin("FakeVim.CommandLine", Qt::BottomEdge, 0);
+    }
+    if (m_miniBufferView) {
+        disconnect(m_miniBufferView, nullptr, this, nullptr);
+        m_miniBufferView->setTextInset("FakeVim.CommandLine", Qt::BottomEdge, 0);
+    }
     m_miniBufferEditor = nullptr;
+    m_miniBufferView = nullptr;
+    m_miniBufferHost = nullptr;
     if (m_editorMiniBuffer)
         m_editorMiniBuffer->hide();
 }

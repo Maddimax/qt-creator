@@ -1582,7 +1582,7 @@ void TextViewport::ensureCursorVisible()
     }
     const qreal top = yOfRow(row);
     const bool above = top < m_scrollY;
-    const bool below = top + rowSpan(row) > m_scrollY + height();
+    const bool below = top + rowSpan(row) > m_scrollY + textAreaHeight();
     if (!above && !below)
         return;
 
@@ -1592,9 +1592,9 @@ void TextViewport::ensureCursorVisible()
     // The reader's setting, or this view's own - a language driving the view
     // can ask for centring for as long as it is in charge.
     if (m_centerOnScroll || displaySettings().centerCursorOnScroll())
-        setScrollY(top - (height() - rowSpan(row)) / 2);
+        setScrollY(top - (textAreaHeight() - rowSpan(row)) / 2);
     else
-        setScrollY(above ? top : top + rowSpan(row) - height());
+        setScrollY(above ? top : top + rowSpan(row) - textAreaHeight());
 }
 
 void TextViewport::setRowGaps(const QList<Gap> &gaps)
@@ -1737,7 +1737,7 @@ void TextViewport::layOutGhostRows()
         // starts rather than down from it.
         const qreal bottom = yOfRow(ghost.row);
         const qreal top = bottom - ghost.lines.size() * m_lineHeight;
-        if (bottom < m_scrollY || top > m_scrollY + height())
+        if (bottom < m_scrollY || top > m_scrollY + textAreaHeight())
             continue;
 
         for (int i = 0; i < ghost.lines.size(); ++i) {
@@ -2923,9 +2923,34 @@ void TextViewport::clearSelection()
     setMultiTextCursor(cursors);
 }
 
+void TextViewport::setTextInset(const Utils::Id &id, Qt::Edge edge, int size)
+{
+    const QPair<Utils::Id, Qt::Edge> key{id, edge};
+    if (m_textInsets.value(key, 0) == size)
+        return;
+    if (size <= 0)
+        m_textInsets.remove(key);
+    else
+        m_textInsets[key] = size;
+    // The rows are laid out into what is left, so they have to be laid out
+    // again - and the caret may now be under the strip.
+    polish();
+    update();
+}
+
+qreal TextViewport::textAreaHeight() const
+{
+    int reserved = 0;
+    for (auto it = m_textInsets.cbegin(); it != m_textInsets.cend(); ++it) {
+        if (it.key().second == Qt::TopEdge || it.key().second == Qt::BottomEdge)
+            reserved += it.value();
+    }
+    return qMax(0.0, height() - reserved);
+}
+
 int TextViewport::rowsPerPage() const
 {
-    return qMax(1, int(height() / qMax(1.0, m_lineHeight)) - 1);
+    return qMax(1, int(textAreaHeight() / qMax(1.0, m_lineHeight)) - 1);
 }
 
 void TextViewport::scrollByRows(int rows)
@@ -4194,9 +4219,9 @@ void TextViewport::gotoLine(int line, int column, bool centerLine)
     const qreal top = yOfRow(row);
     const qreal start = m_scrollY;
     if (centerLine)
-        setScrollY(top - (height() - rowSpan(row)) / 2);
-    else if (top < m_scrollY || top + rowSpan(row) > m_scrollY + height())
-        setScrollY(top < m_scrollY ? top : top + rowSpan(row) - height());
+        setScrollY(top - (textAreaHeight() - rowSpan(row)) / 2);
+    else if (top < m_scrollY || top + rowSpan(row) > m_scrollY + textAreaHeight())
+        setScrollY(top < m_scrollY ? top : top + rowSpan(row) - textAreaHeight());
 
     // Where it ended up rather than where it was asked to go: setScrollY
     // refuses to leave the document, and the animation has to end somewhere
@@ -4752,7 +4777,7 @@ void TextViewport::updatePolish()
     updateParenthesesMatch();
     updateDocumentSelections();
 
-    if (!text || height() <= 0) {
+    if (!text || textAreaHeight() <= 0) {
         m_lineHeight = 0;
         m_contentHeight = 0;
         m_firstVisibleLine = 0;
@@ -4960,7 +4985,7 @@ void TextViewport::updatePolish()
     // The last line that starts before the bottom edge - not one more. A hair
     // off the edge so that a viewport an exact number of lines tall does not
     // lay out one that begins where it ends.
-    const int lastOnScreen = rowAtY(m_scrollY + height() - 0.001);
+    const int lastOnScreen = rowAtY(m_scrollY + textAreaHeight() - 0.001);
     const int last = qMin(totalRows - 1, lastOnScreen);
 
     // By row rather than by block, so that what is folded above the screen

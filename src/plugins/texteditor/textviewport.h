@@ -943,6 +943,16 @@ public:
     // Scroll until the caret is on screen, obeying the setting above.
     void ensureCursorVisible();
 
+    // Keep the text out of a strip at an edge, so something else can sit
+    // there without covering it - FakeVim's command line does this at the
+    // bottom. Named, so that two of them do not overwrite each other, and
+    // summed per edge the way PlainTextEdit::setEditorTextMargin() does.
+    void setTextInset(const Utils::Id &id, Qt::Edge edge, int size);
+    // How much room the text actually has, which is the height less whatever
+    // has been reserved. Every decision about what is on screen asks this
+    // rather than height().
+    qreal textAreaHeight() const;
+
     // Something was applied into the text from outside - a completion, a
     // snippet. See EditHandler::encourageApply().
     bool encourageApply();
@@ -1230,6 +1240,7 @@ private:
     std::optional<BehaviorSettingsData> m_behaviorSettings;
     std::optional<MarginSettingsData> m_marginSettings;
     qreal m_scrollY = 0;
+    QHash<QPair<Utils::Id, Qt::Edge>, int> m_textInsets;
     qreal m_scrollX = 0;
     // The carets after the first. The main one stays a position and a
     // selection, so everything that asks about "the caret" keeps its answer.
