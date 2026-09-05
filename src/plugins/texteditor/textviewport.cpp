@@ -2322,6 +2322,10 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
             // closing brace's, and they want indenting too - and the caret has
             // to come back afterwards, or Return leaves it on the brace's line
             // rather than on the empty one above it.
+            //
+            // Several edits and one thing the reader did, so they are taken
+            // back together. With one caret nothing else opens a block now.
+            caret.beginEditBlock();
             int extraBlocks = m_autoCompleter
                                   ? m_autoCompleter->paragraphSeparatorAboutToBeInserted(caret)
                                   : 0;
@@ -2337,6 +2341,7 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
                 }
                 caret.setPosition(typingHere);
             }
+            caret.endEditBlock();
         });
         event->accept();
         return;
@@ -2507,7 +2512,14 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     QTextCursor probe = cursor;
     const QString closing = m_autoCompleter->autoComplete(probe, typed, false);
 
-    cursor.beginEditBlock();
+    // Only when there is more than one thing to take back together. A plain
+    // character is left to the document, which joins consecutive ones into a
+    // single undo step; an edit block round each would stop that, and Ctrl+Z
+    // after typing a word would take the word back one letter at a time. The
+    // widget editor decides it with the same three questions.
+    const bool group = !electricChar.isNull() || !closing.isEmpty() || caretIsInSnippet();
+    if (group)
+        cursor.beginEditBlock();
     // After the auto-completer has been asked, which reads the caret as the
     // reader left it rather than with a character already selected.
     takeOverwrittenCharacter(cursor);
@@ -2527,7 +2539,8 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     }
     if (!electricChar.isNull() && m_autoCompleter->contextAllowsElectricCharacters(cursor))
         doc->autoIndent(cursor, electricChar, cursor.position());
-    cursor.endEditBlock();
+    if (group)
+        cursor.endEditBlock();
 
     offerCompletionsIfAsked(cursor);
 }
@@ -3725,13 +3738,18 @@ void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &e
     });
 
     // One undo step for the lot: typing once should not take several undos to
-    // take back merely because it happened at several carets.
-    QTextCursor group = carets.first();
+    // take back merely because it happened at several carets. With one caret
+    // there is nothing to group, and a block round every keystroke is what
+    // stops the document joining them.
+    const bool group = carets.size() > 1;
+    QTextCursor groupCursor = carets.first();
     const bool wasEditing = std::exchange(m_editingThroughItsOwnCarets, true);
-    group.beginEditBlock();
+    if (group)
+        groupCursor.beginEditBlock();
     for (const int i : std::as_const(order))
         edit(carets[i]);
-    group.endEditBlock();
+    if (group)
+        groupCursor.endEditBlock();
     m_editingThroughItsOwnCarets = wasEditing;
 
     setTextCursor(carets.takeLast());

@@ -7418,6 +7418,250 @@ private slots:
     // its language does with an OptionalActions mask, and the widget editor
     // greys out the rest - so a plain text file is not offered Rename Symbol.
     // The Quick editor registered all of them enabled whatever the mask said.
+    void testTypingIsTakenBackInTheStepsThatMadeIt_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::addColumn<QString>("script");
+        QTest::addColumn<int>("steps");
+
+        // "\n" is Return and "\b" is Backspace; <Home> moves the caret.
+        // Both views expect the same count, so the widget row is the control
+        // on what the count should be.
+        const QList<std::tuple<QString, QString, int>> scripts{
+            {"a word", "abc", 1},
+            {"a word, a space, a word", "abc def", 1},
+            {"an auto-closed bracket", "f(", 2},
+            {"typing, moving, typing", "abc<Home>x", 2},
+            {"a backspace", "abc\b", 2},
+        };
+        for (const auto &[what, script, steps] : scripts) {
+            QTest::newRow(qPrintable(QString("widget: %1").arg(what))) << false << script << steps;
+            QTest::newRow(qPrintable(QString("quick: %1").arg(what))) << true << script << steps;
+        }
+    }
+
+    // Ctrl+Z takes back a thing the reader did, not an edit the editor made.
+    // A widget editor gets that from QTextDocument, which joins consecutive
+    // typing into one undo step - and it only stops joining where the editor
+    // opens an edit block, which it does when a keystroke turns into more than
+    // one edit. This view opened one round every keystroke, so taking back a
+    // word took a press per letter.
+    void testTypingIsTakenBackInTheStepsThatMadeIt()
+    {
+        QFETCH(bool, quick);
+        QFETCH(QString, script);
+        QFETCH(int, steps);
+
+        Utils::TemporaryDirectory dir("undo-grouping");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        for (int i = 0; i < script.size(); ++i) {
+            const QChar ch = script.at(i);
+            int key = Qt::Key_unknown;
+            if (ch == '<') {
+                const int close = script.indexOf('>', i);
+                QVERIFY2(close > i, qPrintable("unterminated <> in " + script));
+                const QString name = script.mid(i + 1, close - i - 1);
+                i = close;
+                if (name == "Home")
+                    key = Qt::Key_Home;
+                else
+                    QFAIL(qPrintable("no such key in a script: " + name));
+            } else if (ch == '\n') {
+                key = Qt::Key_Return;
+            } else if (ch == '\b') {
+                key = Qt::Key_Backspace;
+            }
+            const QString text = key == Qt::Key_unknown ? QString(ch) : QString();
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+            QCoreApplication::sendEvent(target, &press);
+        }
+        QVERIFY2(!document->document()->toPlainText().isEmpty(),
+                 "the script typed nothing, so counting its undo steps proves nothing");
+
+        int taken = 0;
+        while (document->document()->isUndoAvailable() && taken < 20) {
+            if (quick)
+                Internal::viewportForEditor(editor)->undo();
+            else
+                TextEditorWidget::fromEditor(editor)->undo();
+            ++taken;
+        }
+        QCOMPARE(taken, steps);
+        QCOMPARE(document->document()->toPlainText(), QString());
+    }
+
+    void testBreakingALineComesBackWithWhatWasTypedAfterIt_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Breaking a line is one thing the reader did even though the language
+    // indents the new line afterwards, and it is a *different* thing from the
+    // typing on either side of it. Both halves of that are the edit block:
+    // without one, the break and the indent come back separately; with one
+    // round every keystroke instead, the letters before it come back one at a
+    // time.
+    void testBreakingALineComesBackWithWhatWasTypedAfterIt()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("undo-break");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        // Braces, so that the language has something to indent the new line
+        // to. On a flat file the break is a single edit and this proves
+        // nothing.
+        QVERIFY(file.writeFileContents("void f() {}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        QTextCursor caret(document->document());
+        caret.setPosition(10);
+        TextEditor::setTextCursorOf(editor, caret);
+
+        const auto type = [target](const QString &text) {
+            for (const QChar ch : text) {
+                QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(ch));
+                QCoreApplication::sendEvent(target, &press);
+            }
+        };
+        type("abc");
+        QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QCoreApplication::sendEvent(target, &press);
+        type("x");
+        // Both views produce this, and it is what makes the case worth
+        // counting: the break came with an indent, so it is more than one edit.
+        QCOMPARE(document->plainText(), QString("void f() {abc\n         x}\n"));
+
+        const auto undoOnce = [editor, quick] {
+            if (quick)
+                Internal::viewportForEditor(editor)->undo();
+            else
+                TextEditorWidget::fromEditor(editor)->undo();
+        };
+
+        // One press takes back the break and the indent and the "x" together,
+        // because they are what the reader last did.
+        undoOnce();
+        QCOMPARE(document->plainText(), QString("void f() {abc}\n"));
+
+        // And the next takes back the word, not a letter of it.
+        undoOnce();
+        QCOMPARE(document->plainText(), QString("void f() {}\n"));
+        QVERIFY2(!document->document()->isUndoAvailable(),
+                 "there was more to take back than the reader did");
+    }
+
+    void testACommandIsOneThingToTakeBack_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // The other side of the same rule: a command that takes several edits is
+    // still one thing the reader did. Leaving the edit block out where there
+    // is nothing to group must not reach these.
+    void testACommandIsOneThingToTakeBack()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("undo-commands");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = quick ? Internal::viewportForEditor(editor) : nullptr;
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        QVERIFY(view || widget);
+
+        const QList<std::pair<QString, std::function<void()>>> commands{
+            {"delete a line", [&] { view ? view->deleteLine() : widget->deleteLine(); }},
+            {"move a line down", [&] { view ? view->moveLineDown() : widget->moveLineDown(); }},
+            {"duplicate a selection",
+             [&] { view ? view->duplicateSelection() : widget->duplicateSelection(); }},
+            {"indent", [&] { view ? view->indent() : widget->indent(); }},
+            {"insert a line below",
+             [&] { view ? view->insertLineBelow() : widget->insertLineBelow(); }},
+            {"upper-case a selection",
+             [&] { view ? view->uppercaseSelection() : widget->uppercaseSelection(); }},
+            // Breaking a line is the break plus whatever the language indents
+            // afterwards, and it comes through a key rather than a command.
+            {"break a line", [&] {
+                 QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+                 QCoreApplication::sendEvent(TextEditor::keyTargetOf(editor), &press); }},
+        };
+
+        for (const auto &[what, run] : commands) {
+            // "beta", so that the ones working on a selection have one.
+            QTextCursor caret(document->document());
+            caret.setPosition(6);
+            caret.setPosition(10, QTextCursor::KeepAnchor);
+            TextEditor::setTextCursorOf(editor, caret);
+
+            const QString before = document->document()->toPlainText();
+            run();
+            QVERIFY2(document->document()->toPlainText() != before,
+                     qPrintable(what + " changed nothing, so it has nothing to take back"));
+
+            int taken = 0;
+            while (document->document()->isUndoAvailable() && taken < 20) {
+                if (view)
+                    view->undo();
+                else
+                    widget->undo();
+                ++taken;
+            }
+            QCOMPARE(taken, 1);
+            QCOMPARE(document->document()->toPlainText(), before);
+        }
+    }
+
     void testASuggestionEndsWhenTheReaderGoesElsewhere_data()
     {
         QTest::addColumn<bool>("quick");

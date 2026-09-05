@@ -38666,3 +38666,124 @@ Beyond those the list is empty, which is worth saying plainly: the four things
 the standing warning names all have Quick-side homes and tests, C++ files open
 in this editor by default, and the differential typing test now covers fifteen
 scripts in both views without a divergence left in it.
+
+## 2026-09-05 (36) -- The sort flake, measured away; and one undo per letter
+
+### The sort flake: 28 clean runs, and a proposal
+
+The last entry made this the next batch's job: measure its rate or say what it
+is. Measured, with the method entry 12 left behind:
+
+    -test QuickUi,testTheListingCanBeReadBothWaysRound   0 failures / 20 runs
+    -test QuickUi (the whole suite)                      0 failures / 8 runs
+
+**Twenty-eight runs, no failure.** The base rate is zero today, which means no
+fix can be demonstrated and none should be written - the entry-12 lesson
+exactly. The test already bounds both clicks with `QTRY_VERIFY`, so it is not
+an unbounded assertion either; when it failed, the second click did not arrive
+within a bounded wait.
+
+**Proposal: stop carrying it as a task.** It has been on this list since entry
+11, has cost parts of three batches, and nothing about it is actionable
+without a reproduction. If it returns, the trail is here and in entry 12. What
+is *not* worth doing is another entry saying it is still there.
+
+The `QUnifiedTimer::stopAnimationDriver` warning now has a rate too: **2 runs
+in 8**, always `testARowOfButtonsIsDrawnAsARowOfButtons`, which creates and
+destroys a `QQuickWidget` for every options page in the program. It is Qt's
+animation-driver bookkeeping across that teardown and it touches no editor.
+
+### Which gap this batch closed
+
+With the named list at an end I went back to the method that has paid all
+session - probe the two views against each other on something nothing has
+compared - and picked undo grouping. It was the largest divergence found in
+any batch:
+
+    script            widget   quick (before)
+    "abc"                  1        3
+    "abc def"              1        7
+    "abc<Home>x"           2        4
+    "abc" backspace        2        4
+
+**Ctrl+Z took back one letter at a time.** Typing a word and changing your
+mind cost seven presses where a widget editor costs one. Nothing had noticed
+because every test typed and then asserted the text, never the way back.
+
+The cause is one line the widget has and this view did not:
+
+    bool doEditBlock = !electricChar.isNull() || !autoText.isEmpty() || cursorWithinSnippet;
+
+`QTextDocument` joins consecutive typing into a single undo step by itself,
+and stops joining at an edit block. A widget editor opens one only when a
+keystroke turns into *more* than one edit. `TextViewport` opened one round
+every keystroke in `insertTypedText()`, and `applyToEveryCaret()` opened
+another round that. Both now open one only when there is something to group -
+the same three questions, and more than one caret.
+
+### The half that had to be put back
+
+Taking the blanket block out costs the cases that really are several edits.
+Measured rather than assumed:
+
+- **Six commands** - delete a line, move a line down, duplicate a selection,
+  indent, insert a line below, upper-case a selection - are **1 step in both
+  views, before and after**. They open their own blocks; the outer one was
+  doing nothing for them.
+- **Breaking a line** is not. Return inserts the break, indents it, and can
+  put a closing brace below, and without a block of its own those come back
+  separately: typing `abc`, Return, `x` took **3 undos in the Quick view
+  against the widget's 2**. Return now groups its own edits.
+
+### The control that did not bite, twice
+
+The first control for that block passed - no test covered it. The second, with
+a Return added to the command test, **also** passed: that fixture's Return
+lands on a flat file where the language indents nothing, so it is a single
+edit and proves nothing. Only a Return *between braces, after typing* has more
+than one edit in it, and that is what the test does now.
+
+**Two rounds of "the control does not bite" on one three-line change**, each
+time because the test was aimed at a case where the code cannot be wrong. That
+is the failure mode the rule exists for, and it took being caught twice here.
+
+### Negative controls
+
+- **A -- a block round every keystroke again**: red on four rows of the
+  typing test, all *quick*, the widget rows passing.
+- **B -- Return without a block of its own**: red on the *quick* row of the
+  breaking-a-line test, `"void f() {abc\n}\n"` against `"void f() {abc}\n"`.
+
+### Verification
+
+    -test TextEditor    550 passed, 0 failed, exit 0, 0 warnings   (536 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Two files, no new file and no `.qbs` edit.
+
+### One difference left, measured and not fixed
+
+Typing `void f() {`, Return, `x;` takes **6 undos in the widget and 5 here**.
+The trail says where: the widget separates the space before `{` from the `()`
+put in earlier; this view joins them. It is a difference in which keystrokes
+`QTextDocument` merges either side of an auto-close, both fully restore the
+file, and eleven of the twelve scenarios probed are exact. **Written down
+rather than fitted to** - forcing it would mean opening a block somewhere the
+widget does not, for no reason a reader could see.
+
+### What this leaves
+
+Nothing named. The four things the standing warning lists have Quick-side
+homes and tests, C++ files open in this editor by default, and the two lists
+this batch drew up - fifteen typing scripts and twelve undo scenarios - have
+one measured difference between them, recorded above.
+
+If another batch is wanted, the method rather than the item: **pick something
+neither view has been compared on and compare it.** Undo grouping was found
+that way today, after the named list had run out. The obvious remaining ones,
+none of them examined:
+
+- **the clipboard** - what a block selection or several carets put on it, and
+  what a paste of each does;
+- **mouse selection** - drag, double-click a word, triple-click a line;
+- **redo**, which has had none of the attention undo just got.
