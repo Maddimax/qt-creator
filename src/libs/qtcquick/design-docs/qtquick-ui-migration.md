@@ -37398,3 +37398,88 @@ One file, no new file and no `.qbs` edit.
 - **The `QuickUi` sort flake**, still not reproducing.
 - **The `QUnifiedTimer` warning**, one run in five, benign.
 - **An arbitrary widget in a Quick toolbar**, unchanged for eighteen entries.
+
+## 2026-09-05 (23) -- A gate, put where the defect was rather than where the log was clean
+
+The last entry proposed gating the warning count in the two required suites,
+and argued the timing: cheap to add while the count is zero. **The premise was
+wrong**, and checking it before building took one `grep`:
+
+    polish() loop warnings, by suite
+      -test TextEditor                 0
+      -test QuickUi                    0
+      -test CppEditor,FollowSymbolTest 350
+
+The thirty-fold slowdown that motivated a gate printed **nothing at all** in
+either suite the gate was proposed for. A gate there would have guarded the
+two places the defect was not.
+
+**Which gap this batch closed:** none in the port. It turns "counting `QWARN`
+is part of running a batch" from a habit into something that fails a test -
+in the class where the two defects actually appeared.
+
+### What it gates, and what it deliberately does not
+
+Not "no warnings". Qt's own animation driver prints one run in five, and a
+gate that benign noise trips is a gate someone removes. The needles are the
+two shapes that have cost this project real time:
+
+- `updatePolish` / `polish() loop` - a layout that asks for another layout.
+- `No such method` - a question asked by name of an object that does not have
+  it, which is how FakeVim asked a Qt Quick view something only a widget could
+  answer.
+
+`Utils::GuiTest::CollectedWarnings` is where it lives, beside the other
+in-process test helpers. That answers the objection the last two entries kept
+raising - a third copy of the message-handler class - and `quicktexteditor.cpp`
+now uses the shared one instead of its own.
+
+### The control, and what it taught about the gate
+
+**A -- the polish loop put back** (`setHighlights` comparing against the
+caller's order again).
+
+First attempt: the gate was in `cleanupTestCase()`. The control **timed out at
+500 s instead of failing**, and the reason is the point: with the loop present
+this class takes 1 298 540 ms, so a check that runs when the class finishes is
+a check that never runs. The gate was guarding an end the defect prevents
+reaching.
+
+Moved to `cleanup()`, which QTest calls after *every* test function. The
+control then fails inside a 300 s bound - **46 failures, the first at
+`testFollowSymbolMultipleDocuments(skipForwardDeclarationBasic)`** - loudly and
+early instead of silently and slowly.
+
+That is worth keeping as a rule: **a gate belongs at the smallest unit the
+defect can be seen at, not at the end of the run.** An end-of-run check assumes
+the run ends.
+
+Forty-six failures rather than one is noise, and deliberate: the alternative is
+clearing the hits after the first report, which would make a defect that
+appears once look the same as one that never stops.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      482 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+    -test CppEditor,FollowSymbolTest
+      154 passed, 0 failed, exit 0, 43 666 ms, 0 warnings
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **The gate covers one class.** `FollowSymbolTest` is where both defects
+  showed, and it is the class that drives a real C++ file through a language
+  server, which is what makes it the one worth watching. Others could take the
+  same three lines; none has earned it yet.
+- **The `QuickUi` sort flake**, still not reproducing.
+- **An arbitrary widget in a Quick toolbar**, unchanged for nineteen entries.
+
+Two entries running, the *proposal* at the end of an entry has been wrong and
+checking it has been a `grep`. Entry 21 said a panel was broken when the test
+was; this one said gate the required suites when the defect was somewhere
+else. The habit worth keeping is not "propose better" - it is that the first
+thing a batch does is try to falsify the last entry's proposal.

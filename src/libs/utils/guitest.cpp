@@ -6,6 +6,7 @@
 #ifdef WITH_TESTS
 
 #include "stringutils.h"
+#include "qtcassert.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -118,6 +119,58 @@ DialogHandled onNextDialog(const std::function<void(QWidget *)> &interact, int t
     });
     timer->start(10);
     return handled;
+}
+
+class CollectedWarnings::Private
+{
+public:
+    QStringList needles;
+    QStringList hits;
+};
+
+// One at a time: the handler is global, and two of these at once would have
+// the inner one drop the outer's messages when it puts the previous handler
+// back.
+static const QStringList *s_needles = nullptr;
+static QStringList *s_hits = nullptr;
+static QtMessageHandler s_previousHandler = nullptr;
+
+static void collectWarning(QtMsgType type, const QMessageLogContext &context,
+                           const QString &message)
+{
+    if (s_hits && s_needles) {
+        for (const QString &needle : *s_needles) {
+            if (message.contains(needle)) {
+                s_hits->append(message);
+                break;
+            }
+        }
+    }
+    // Passed on, so the run still prints what it would have.
+    if (s_previousHandler)
+        s_previousHandler(type, context, message);
+}
+
+CollectedWarnings::CollectedWarnings(const QStringList &needles)
+    : d(new Private{needles, {}})
+{
+    QTC_CHECK(!s_hits);
+    s_needles = &d->needles;
+    s_hits = &d->hits;
+    s_previousHandler = qInstallMessageHandler(collectWarning);
+}
+
+CollectedWarnings::~CollectedWarnings()
+{
+    qInstallMessageHandler(s_previousHandler);
+    s_previousHandler = nullptr;
+    s_needles = nullptr;
+    s_hits = nullptr;
+}
+
+QStringList CollectedWarnings::hits() const
+{
+    return d->hits;
 }
 
 } // namespace Utils::GuiTest

@@ -516,6 +516,15 @@ namespace CppEditor::Internal::Tests {
 
 void FollowSymbolTest::initTestCase()
 {
+    // Two things Qt says instead of failing, and both were true here for
+    // months. A layout that asks for another layout made this class take
+    // 1 298 540 ms against the widget editor's 41 598 ms and fail thirteen
+    // cases whose waits it starved; a method invoked by a name the object does
+    // not have is how FakeVim asked a Qt Quick view a question only a widget
+    // could answer. Neither failed anything - they printed.
+    m_mustNotSay = std::make_unique<Utils::GuiTest::CollectedWarnings>(
+        QStringList{"updatePolish", "polish() loop", "No such method"});
+
     const QString clangdFromEnv = Utils::qtcEnvironmentVariable("QTC_CLANGD");
     if (clangdFromEnv.isEmpty())
         return;
@@ -533,6 +542,19 @@ void FollowSymbolTest::initTestCase()
     });
     if (!F2TestCase::m_testKit)
         QSKIP("This test requires at least one kit to be present");
+}
+
+// After every test rather than at the end of the class. The first thing this
+// gate was written to catch makes the class take twenty-one minutes, so a
+// check that runs when the class finishes is a check that never runs: the
+// first attempt at this was in cleanupTestCase() and the control timed out
+// instead of failing.
+void FollowSymbolTest::cleanup()
+{
+    QVERIFY2(m_mustNotSay && m_mustNotSay->hits().isEmpty(),
+             qPrintable(QString("printed %1 of them, first: %2")
+                            .arg(m_mustNotSay ? m_mustNotSay->hits().size() : -1)
+                            .arg(m_mustNotSay ? m_mustNotSay->hits().value(0) : QString())));
 }
 
 void FollowSymbolTest::testSwitchMethodDeclDef_data()

@@ -11,6 +11,7 @@
 #include "utils_global.h"
 
 #include <QtCore/qnamespace.h>
+#include <QStringList>
 
 #include <functional>
 #include <memory>
@@ -67,6 +68,28 @@ using DialogHandled = std::shared_ptr<bool>;
 // instead of hanging.
 QTCREATOR_UTILS_EXPORT DialogHandled onNextDialog(const std::function<void(QWidget *)> &interact,
                                                   int timeoutMs = 5000);
+
+// Warnings Qt prints instead of failing. A message handler is the only way a
+// test sees one, and some of the worst defects say nothing else: a layout that
+// asks for another layout, a method invoked by a name the object does not
+// have, a command registered twice.
+//
+// Construct with the substrings worth failing over and check hits() at the end
+// of the test. Listening for *everything* makes a gate that benign noise trips
+// - Qt's animation driver prints one run in five - so the needles are the
+// point rather than a convenience.
+class QTCREATOR_UTILS_EXPORT CollectedWarnings
+{
+public:
+    explicit CollectedWarnings(const QStringList &needles);
+    ~CollectedWarnings();
+
+    QStringList hits() const;
+
+private:
+    class Private;
+    const std::unique_ptr<Private> d;
+};
 
 } // namespace Utils::GuiTest
 

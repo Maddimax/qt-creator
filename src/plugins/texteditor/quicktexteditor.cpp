@@ -72,6 +72,7 @@
 #include <utils/algorithm.h>
 #include <utils/theme/theme.h>
 #include <utils/mimeutils.h>
+#include <utils/guitest.h>
 #include <utils/infobar.h>
 #include <utils/minimizableinfobars.h>
 #include <utils/macroexpander.h>
@@ -1311,39 +1312,6 @@ private:
 // calls polish() from inside its own updatePolish(), and again once it has
 // happened often enough to look like a loop. The first is the one worth
 // catching - it needs a single pass rather than a thousand.
-class WarningsSaying
-{
-public:
-    explicit WarningsSaying(const QStringList &needles)
-    {
-        s_needles = needles;
-        s_hits = &m_hits;
-        s_previous = qInstallMessageHandler(collect);
-    }
-    ~WarningsSaying() { qInstallMessageHandler(s_previous); s_hits = nullptr; }
-
-    QStringList hits() const { return m_hits; }
-
-private:
-    static void collect(QtMsgType type, const QMessageLogContext &context, const QString &message)
-    {
-        if (s_hits) {
-            for (const QString &needle : std::as_const(s_needles)) {
-                if (message.contains(needle)) {
-                    s_hits->append(message);
-                    break;
-                }
-            }
-        }
-        if (s_previous)
-            s_previous(type, context, message);
-    }
-
-    QStringList m_hits;
-    static inline QStringList s_needles;
-    static inline QStringList *s_hits = nullptr;
-    static inline QtMessageHandler s_previous = nullptr;
-};
 
 // A Repeater's delegates are visual children of the item and QObject children
 // of somewhere else, so findChild() never sees one. See
@@ -3273,7 +3241,7 @@ private slots:
         // complaints in its own order does.
         const QList<TextDocument::ExtraSelection> outOfOrder{rangeAt(12, 17), rangeAt(0, 5)};
 
-        WarningsSaying warnings({"updatePolish", "polish() loop"});
+        Utils::GuiTest::CollectedWarnings warnings({"updatePolish", "polish() loop"});
         QSignalSpy laidOut(view, &TextViewport::metricsChanged);
         document->setExtraSelections(TextEditorWidget::CodeWarningsSelection, outOfOrder);
 
@@ -3325,7 +3293,7 @@ private slots:
         view->setReadOnly(false);
         view->setCursorPosition(0);
 
-        WarningsSaying warnings({"out of range"});
+        Utils::GuiTest::CollectedWarnings warnings({"out of range"});
         view->joinLines();
 
         QVERIFY2(warnings.hits().isEmpty(),

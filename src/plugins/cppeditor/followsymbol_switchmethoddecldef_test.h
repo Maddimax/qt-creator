@@ -3,7 +3,11 @@
 
 #pragma once
 
+#include <utils/guitest.h>
+
 #include <QObject>
+
+#include <memory>
 
 namespace CppEditor::Internal::Tests {
 
@@ -13,6 +17,7 @@ class FollowSymbolTest : public QObject
 
 private slots:
     void initTestCase();
+    void cleanup();
 
     void testSwitchMethodDeclDef_data();
     void testSwitchMethodDeclDef();
@@ -47,6 +52,12 @@ private slots:
     void testFollowVirtualFunctionCallMultipleDocuments();
 
     void testFollowSymbolWithoutAnEditorWidget();
+
+private:
+    // What this class must not print. Not "no warnings at all": Qt's own
+    // animation driver says something one run in five, and a gate that benign
+    // noise trips is a gate that gets removed.
+    std::unique_ptr<Utils::GuiTest::CollectedWarnings> m_mustNotSay;
 };
 
 } // namespace CppEditor::Internal::Tests
