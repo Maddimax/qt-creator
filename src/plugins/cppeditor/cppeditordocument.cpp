@@ -138,6 +138,10 @@ public:
     void showHideInfoBarAboutMultipleParseContexts(bool show);
     void applyIfdefedOutBlocks();
 
+#ifdef WITH_TESTS
+    bool m_inTestMode = false;
+#endif
+
     void initializeTimer();
 
     FilePath filePath() const { return q->filePath(); }
@@ -446,6 +450,25 @@ QList<QAction *> CppEditorDocument::ownToolBarActions() const
     }
     return {d->m_preprocessorAction};
 }
+
+#ifdef WITH_TESTS
+void CppEditorDocument::enableTestMode()
+{
+    d->m_inTestMode = true;
+}
+
+bool CppEditorDocument::isInTestMode() const
+{
+    return d->m_inTestMode;
+}
+
+void CppEditorDocument::setProposals(const TextEditor::IAssistProposal *immediateProposal,
+                                     const TextEditor::IAssistProposal *finalProposal)
+{
+    QTC_ASSERT(isInTestMode(), return);
+    emit proposalsReady(immediateProposal, finalProposal);
+}
+#endif
 
 bool CppEditorDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)
 {

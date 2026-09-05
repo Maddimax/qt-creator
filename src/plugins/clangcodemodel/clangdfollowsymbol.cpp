@@ -7,7 +7,7 @@
 #include "clangdast.h"
 #include "clangdclient.h"
 
-#include <cppeditor/cppeditorwidget.h>
+#include <cppeditor/cppeditordocument.h>
 #include <cppeditor/cppvirtualfunctionassistprovider.h>
 #include <cppeditor/cppvirtualfunctionproposalitem.h>
 
@@ -15,10 +15,13 @@
 #include <languageserverprotocol/lsptypes.h>
 #include <languageserverprotocol/jsonrpcmessages.h>
 
+#include <coreplugin/editormanager/ieditor.h>
+
 #include <texteditor/codeassist/assistinterface.h>
 #include <texteditor/codeassist/iassistprocessor.h>
 #include <texteditor/codeassist/iassistprovider.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
 
 #include <QApplication>
 #include <QPointer>
@@ -74,12 +77,12 @@ class ClangdFollowSymbol::Private
 {
 public:
     Private(ClangdFollowSymbol *q, ClangdClient *client, Origin origin, const QTextCursor &cursor,
-            CppEditorWidget *editorWidget, const FilePath &filePath, const LinkHandler &callback,
+            Core::IEditor *editor, TextDocument *document, const LinkHandler &callback,
             bool openInSplit)
-        : q(q), client(client), origin(origin), cursor(cursor), editorWidget(editorWidget),
-          uri(client->hostPathToServerUri(filePath)), callback(callback),
-          virtualFuncAssistProvider(q),
-          docRevision(editorWidget ? editorWidget->textDocument()->document()->revision() : -1),
+        : q(q), client(client), origin(origin), cursor(cursor), editor(editor),
+          document(document), uri(client->hostPathToServerUri(document->filePath())),
+          callback(callback), virtualFuncAssistProvider(q),
+          docRevision(document->document()->revision()),
           openInSplit(openInSplit) {}
 
     void goToTypeDefinition();
@@ -96,7 +99,10 @@ public:
     ClangdClient * const client;
     const Origin origin;
     const QTextCursor cursor;
-    const QPointer<CppEditor::CppEditorWidget> editorWidget;
+    // The view the reader asked from, and the file they asked about. Neither
+    // is a widget: the same question is asked from the Qt Quick editor.
+    const QPointer<Core::IEditor> editor;
+    const QPointer<TextDocument> document;
     const DocumentUri uri;
     const LinkHandler callback;
     VirtualFunctionAssistProvider virtualFuncAssistProvider;
@@ -119,17 +125,16 @@ public:
 };
 
 ClangdFollowSymbol::ClangdFollowSymbol(ClangdClient *client, Origin origin,
-        const QTextCursor &cursor, CppEditorWidget *editorWidget, TextDocument *document,
+        const QTextCursor &cursor, Core::IEditor *editor, TextDocument *document,
         const LinkHandler &callback, FollowTo followTo, bool openInSplit)
     : QObject(client),
-      d(new Private(this, client, origin, cursor, editorWidget, document->filePath(), callback,
-                    openInSplit))
+      d(new Private(this, client, origin, cursor, editor, document, callback, openInSplit))
 {
     // Abort if the user does something else with the document in the meantime.
     connect(document, &TextDocument::contentsChanged, this, [this] { emitDone(); },
             Qt::QueuedConnection);
-    if (editorWidget) {
-        connect(editorWidget, &CppEditorWidget::cursorPositionChanged,
+    if (editor) {
+        connect(editor, &Core::IEditor::cursorPositionChanged,
                 this, [this] { emitDone(); }, Qt::QueuedConnection);
     }
     d->focusChangedConnection = connect(qApp, &QApplication::focusChanged,
@@ -218,9 +223,9 @@ bool ClangdFollowSymbol::Private::defLinkIsAmbiguous() const
 
     // If we have up-to-date highlighting info, we know whether we are dealing with
     // a virtual call.
-    if (editorWidget) {
-        const auto result = client->hasVirtualFunctionAt(editorWidget->textDocument(),
-                                                         docRevision, cursorNode->range());
+    if (document) {
+        const auto result = client->hasVirtualFunctionAt(document, docRevision,
+                                                         cursorNode->range());
         if (result.has_value())
             return *result;
     }
@@ -290,23 +295,31 @@ void ClangdFollowSymbol::Private::sendGotoImplementationRequest(const Link &link
 
 void ClangdFollowSymbol::VirtualFunctionAssistProcessor::update()
 {
-    if (!m_followSymbol->d->editorWidget)
+    if (!m_followSymbol->d->editor)
         return;
     setAsyncProposalAvailable(createProposal(false));
 }
 
 void ClangdFollowSymbol::VirtualFunctionAssistProcessor::finalize()
 {
-    if (!m_followSymbol->d->editorWidget)
+    if (!m_followSymbol->d->editor)
         return;
     const auto proposal = createProposal(true);
-    if (m_followSymbol->d->editorWidget->isInTestMode()) {
+#ifdef WITH_TESTS
+    // A test asks the document for the proposals rather than reading them off
+    // a popup it cannot see - either view, since this no longer knows what a
+    // widget is.
+    const auto cppDocument
+        = qobject_cast<CppEditor::CppEditorDocument *>(m_followSymbol->d->document);
+    if (cppDocument && cppDocument->isInTestMode()) {
         m_followSymbol->d->symbolsToDisplay.clear();
         const auto immediateProposal = createProposal(false);
-        m_followSymbol->d->editorWidget->setProposals(immediateProposal, proposal);
-    } else {
-        setAsyncProposalAvailable(proposal);
+        cppDocument->setProposals(immediateProposal, proposal);
+        resetData();
+        return;
     }
+#endif
+    setAsyncProposalAvailable(proposal);
     resetData();
 }
 
@@ -454,9 +467,9 @@ void ClangdFollowSymbol::Private::handleGotoImplementationResult(
 
     // As soon as we know that there is more than one candidate, we start the code assist
     // procedure, to let the user know that things are happening.
-    if (allLinks.size() > 1 && !virtualFuncAssistProcessor && editorWidget) {
+    if (allLinks.size() > 1 && !virtualFuncAssistProcessor && editor) {
         QObject::disconnect(focusChangedConnection);
-        editorWidget->invokeTextEditorWidgetAssist(FollowSymbol, &virtualFuncAssistProvider);
+        TextEditor::invokeAssistIn(editor, FollowSymbol, &virtualFuncAssistProvider);
     }
 
     if (!pendingGotoImplRequests.isEmpty())

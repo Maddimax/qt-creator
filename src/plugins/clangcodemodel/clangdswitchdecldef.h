@@ -7,7 +7,7 @@
 
 #include <QObject>
 
-namespace CppEditor { class CppEditorWidget; }
+namespace Core { class IEditor; }
 namespace TextEditor { class TextDocument; }
 
 QT_BEGIN_NAMESPACE
@@ -22,7 +22,7 @@ class ClangdSwitchDeclDef : public QObject
     Q_OBJECT
 public:
     ClangdSwitchDeclDef(ClangdClient *client, TextEditor::TextDocument *doc,
-                        const QTextCursor &cursor, CppEditor::CppEditorWidget *editorWidget,
+                        const QTextCursor &cursor, Core::IEditor *editor,
                         const Utils::LinkHandler &callback);
     ~ClangdSwitchDeclDef() override;
 

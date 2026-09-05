@@ -1030,7 +1030,7 @@ ClangdFollowSymbol *ClangdClient::currentFollowSymbolOperation()
 
 void ClangdClient::followSymbol(TextDocument *document,
         const QTextCursor &cursor,
-        CppEditor::CppEditorWidget *editorWidget,
+        Core::IEditor *editor,
         const Utils::LinkHandler &callback,
         bool resolveTarget,
         FollowTo followTo,
@@ -1067,7 +1067,7 @@ void ClangdClient::followSymbol(TextDocument *document,
 
     qCDebug(clangdLog) << "follow symbol requested" << document->filePath()
                        << adjustedCursor.blockNumber() << adjustedCursor.positionInBlock();
-    auto clangdFollowSymbol = new ClangdFollowSymbol(this, origin, adjustedCursor, editorWidget,
+    auto clangdFollowSymbol = new ClangdFollowSymbol(this, origin, adjustedCursor, editor,
                                                      document, callback, followTo, openInSplit);
     connect(clangdFollowSymbol, &ClangdFollowSymbol::done, this, [this, clangdFollowSymbol] {
         clangdFollowSymbol->deleteLater();
@@ -1077,7 +1077,7 @@ void ClangdClient::followSymbol(TextDocument *document,
 }
 
 void ClangdClient::switchDeclDef(TextDocument *document, const QTextCursor &cursor,
-                                 CppEditor::CppEditorWidget *editorWidget,
+                                 Core::IEditor *editor,
                                  const Utils::LinkHandler &callback)
 {
     QTC_ASSERT(documentOpen(document), openDocument(document));
@@ -1085,7 +1085,7 @@ void ClangdClient::switchDeclDef(TextDocument *document, const QTextCursor &curs
     qCDebug(clangdLog) << "switch decl/dev requested" << document->filePath()
                        << cursor.blockNumber() << cursor.positionInBlock();
     delete d->switchDeclDef;
-    d->switchDeclDef = new ClangdSwitchDeclDef(this, document, cursor, editorWidget, callback);
+    d->switchDeclDef = new ClangdSwitchDeclDef(this, document, cursor, editor, callback);
     connect(d->switchDeclDef, &ClangdSwitchDeclDef::done, this, [this] {
         d->switchDeclDef->deleteLater();
         d->switchDeclDef = nullptr;

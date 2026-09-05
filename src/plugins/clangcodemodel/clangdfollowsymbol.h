@@ -7,7 +7,7 @@
 
 #include <QObject>
 
-namespace CppEditor { class CppEditorWidget; }
+namespace Core { class IEditor; }
 namespace TextEditor { class TextDocument; }
 
 QT_BEGIN_NAMESPACE
@@ -26,7 +26,7 @@ public:
     enum class Origin { User, Code };
 
     ClangdFollowSymbol(ClangdClient *client, Origin origin, const QTextCursor &cursor,
-                       CppEditor::CppEditorWidget *editorWidget,
+                       Core::IEditor *editor,
                        TextEditor::TextDocument *document, const Utils::LinkHandler &callback,
                        FollowTo followTo, bool openInSplit);
     ~ClangdFollowSymbol() override;

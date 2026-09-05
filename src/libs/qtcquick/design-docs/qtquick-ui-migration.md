@@ -33436,3 +33436,95 @@ Four files, no new file and no `.qbs` edit.
 - Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- The virtual-function chooser, both ends
+
+The gap this closed: **following a symbol onto a virtual call showed no
+chooser in the Qt Quick editor.** With more than one candidate,
+`ClangdFollowSymbol` did
+
+    if (allLinks.size() > 1 && !virtualFuncAssistProcessor && editorWidget)
+        editorWidget->invokeTextEditorWidgetAssist(FollowSymbol, &provider);
+
+so with clangd - the default for C++ - the reader got no list of overrides at
+all. `ClangdFollowSymbol` and `ClangdSwitchDeclDef` now hold a
+`QPointer<Core::IEditor>` and the document instead of a
+`QPointer<CppEditorWidget>`, and `ClangdClient::followSymbol()` /
+`switchDeclDef()` take an editor. Each use had somewhere to go:
+
+- `docRevision` and `hasVirtualFunctionAt()` want the **document**, which was
+  passed in all along. In the Quick editor `docRevision` used to be `-1`, so
+  `defLinkIsAmbiguous()` always took its conservative branch.
+- the cursor-moved abort connects to `Core::IEditor::cursorPositionChanged`,
+  which for a widget editor is a **direct forward** of the widget's own signal
+  (texteditor.cpp:10504) - so that path is unchanged, not merely similar.
+- the chooser goes through `TextEditor::invokeAssistIn()`, which an earlier
+  batch built for exactly this and which dispatches the widget case to
+  `invokeAssist()` as before.
+
+### The test hatch had to come too
+
+Porting production alone leaves an inconsistency that bites: `isInTestMode()`
+/ `setProposals()` / `proposalsReady` were `CppEditorWidget`'s, so a test
+driving the Quick editor would now pop a real chooser and wait for a choice
+nobody makes. They moved to **`CppEditorDocument`**, which both views share -
+the same reasoning as `semanticInfo()` before them: it belongs to the file,
+not to a view of it. `CppEditorWidget` keeps none of it, and the F2 test asks
+the document.
+
+### What the measurement actually said
+
+Three separate attempts to compare configurations with `FollowSymbolTest`
+gave, for **identical code**, both of its two modes:
+
+    port:      27/1, 44/26, 27/1, 27/1
+    HEAD:      41/28, 42/28
+    port minus the chooser:  40/29, 27/1
+
+The counts are worthless, and not because of ordinary flakiness: the class
+aborts on a 300 s watchdog, so **passed/failed counts measure where the abort
+landed, not what passed.** No sample size fixes that.
+
+What worked was picking the one function that drives this feature,
+`testFollowVirtualFunctionCall`. In its completing mode it is deterministic,
+and HEAD and the port are **identical - `5 passed, 19 failed`, 5.36 s, exit
+19, bit for bit**. (Those 19 failures pre-date this batch.) That is the
+apples-to-apples comparison; the truncated runs are noise.
+
+**A truncated run is not a sample.** When a suite aborts partway, its totals
+are a measure of the abort, and averaging more of them just measures the abort
+more precisely. Find the function that covers the change and compare that.
+
+### Negative controls
+
+None new, and worth saying rather than dressing up: every behaviour this
+changes needs an indexed clangd to reach, and the suite that provides one
+cannot be trusted to complete. What stands in for a control is the identical
+`5/19` above - the widget path demonstrably unchanged - plus the required
+suites.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      457 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,SymbolJumpTest ...
+      7 passed, 0 failed, exit 0
+    -test CppEditor,testFollowVirtualFunctionCall ... (completing mode)
+      5 passed, 19 failed - same at HEAD
+
+Twelve files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **`FollowSymbolTest`'s 300 s watchdog abort**, still, and now clearly the
+  thing standing between this port and a usable gate. It is not this batch's
+  and not the previous one's; `testFollowSymbolMultipleDocuments` and
+  `testFollowVirtualFunctionCall` both reach it. Worth its own batch, starting
+  from a `sample` of a run in the truncating mode rather than from the counts.
+- Unchanged: the clang-tools toolbar button, the parse-context highlight,
+  Refactor submenu nesting - one presentation question in three places.
+- Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

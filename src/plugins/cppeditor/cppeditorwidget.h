@@ -102,15 +102,6 @@ public:
                                       TextEditor::IAssistProvider *provider);
 
 
-    bool isInTestMode() const;
-    void setProposals(const TextEditor::IAssistProposal *immediateProposal,
-                      const TextEditor::IAssistProposal *finalProposal);
-#ifdef WITH_TESTS
-    void enableTestMode();
-signals:
-    void proposalsReady(const TextEditor::IAssistProposal *immediateProposal,
-                        const TextEditor::IAssistProposal *finalProposal);
-#endif
 
 protected:
     bool event(QEvent *e) override;

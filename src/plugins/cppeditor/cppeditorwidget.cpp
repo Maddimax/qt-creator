@@ -425,7 +425,6 @@ public:
     CppFunctionParamRenamingHandler m_paramRenamingHandler;
     CppUseSelectionsUpdater m_useSelectionsUpdater;
     CppSelectionChanger m_cppSelectionChanger;
-    bool inTestMode = false;
 };
 
 CppEditorWidgetPrivate::CppEditorWidgetPrivate(CppEditorWidget *q)
@@ -555,18 +554,6 @@ void CppEditorWidget::finalizeInitializationAfterDuplication(TextEditorWidget *o
     d->m_parseContextWidget->syncToModel();
     d->m_parseContextAction->setVisible(
                 d->m_cppEditorDocument->parseContextModel().areMultipleAvailable());
-}
-
-void CppEditorWidget::setProposals(const TextEditor::IAssistProposal *immediateProposal,
-                                   const TextEditor::IAssistProposal *finalProposal)
-{
-    QTC_ASSERT(isInTestMode(), return);
-#ifdef WITH_TESTS
-    emit proposalsReady(immediateProposal, finalProposal);
-#else
-    Q_UNUSED(immediateProposal)
-    Q_UNUSED(finalProposal)
-#endif
 }
 
 CppEditorWidget::~CppEditorWidget() = default;
@@ -1297,11 +1284,5 @@ void CppEditorWidget::invokeTextEditorWidgetAssist(TextEditor::AssistKind assist
     invokeAssist(assistKind, provider);
 }
 
-
-bool CppEditorWidget::isInTestMode() const { return d->inTestMode; }
-
-#ifdef WITH_TESTS
-void CppEditorWidget::enableTestMode() { d->inTestMode = true; }
-#endif
 
 } // namespace CppEditor

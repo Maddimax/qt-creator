@@ -317,7 +317,7 @@ void ClangModelManagerSupport::followSymbol(const CursorInEditor &data,
                                           mode, CppModelManager::Backend::Builtin);
 
         };
-        client->followSymbol(data.textDocument(), data.cursor(), data.editorWidget(),
+        client->followSymbol(data.textDocument(), data.cursor(), editorFor(data),
                              extendedCallback, resolveTarget, FollowTo::SymbolDef, inNextSplit);
         return;
     }
@@ -331,7 +331,7 @@ void ClangModelManagerSupport::followSymbolToType(const CursorInEditor &data,
                                                   bool inNextSplit)
 {
     if (ClangdClient * const client = clientForFile(data.filePath())) {
-        client->followSymbol(data.textDocument(), data.cursor(), data.editorWidget(),
+        client->followSymbol(data.textDocument(), data.cursor(), editorFor(data),
                              processLinkCallback, false, FollowTo::SymbolType, inNextSplit);
         return;
     }
@@ -351,7 +351,7 @@ void ClangModelManagerSupport::switchDeclDef(const CursorInEditor &data,
 {
     if (ClangdClient * const client = clientForFile(data.filePath());
             client && client->isFullyIndexed()) {
-        client->switchDeclDef(data.textDocument(), data.cursor(), data.editorWidget(),
+        client->switchDeclDef(data.textDocument(), data.cursor(), editorFor(data),
                               processLinkCallback);
         return;
     }

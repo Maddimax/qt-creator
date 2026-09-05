@@ -343,8 +343,8 @@ F2TestCase::F2TestCase(CppEditorAction action,
     case FollowSymbolUnderCursorAction: {
         Core::IEditor * const editor = initialTestFile->m_anyEditor;
         if (useClangd) {
-            if (const auto widget = qobject_cast<CppEditorWidget *>(editor->widget()))
-                widget->enableTestMode();
+            if (const auto doc = qobject_cast<CppEditorDocument *>(editor->document()))
+                doc->enableTestMode();
             TextEditor::followSymbolUnderCursorIn(editor);
             break;
         }
@@ -390,9 +390,9 @@ F2TestCase::F2TestCase(CppEditorAction action,
             QObject::connect(&t, &QTimer::timeout, &l, &QEventLoop::quit);
             const IAssistProposal *immediateProposal = nullptr;
             const IAssistProposal *finalProposal = nullptr;
-            QObject::connect(qobject_cast<CppEditorWidget *>(
-                                 initialTestFile->m_anyEditor->widget()),
-                             &CppEditorWidget::proposalsReady, &l,
+            QObject::connect(qobject_cast<CppEditorDocument *>(
+                                 initialTestFile->m_anyEditor->document()),
+                             &CppEditorDocument::proposalsReady, &l,
                              [&](const IAssistProposal *i, const IAssistProposal *f) {
                 immediateProposal = i;
                 finalProposal = f;

@@ -67,7 +67,7 @@ public:
                      const Utils::LinkHandler &callback);
     void followSymbol(TextEditor::TextDocument *document,
             const QTextCursor &cursor,
-            CppEditor::CppEditorWidget *editorWidget,
+            Core::IEditor *editor,
             const Utils::LinkHandler &callback,
             bool resolveTarget,
             FollowTo followTo,
@@ -75,7 +75,7 @@ public:
 
     void switchDeclDef(TextEditor::TextDocument *document,
             const QTextCursor &cursor,
-            CppEditor::CppEditorWidget *editorWidget,
+            Core::IEditor *editor,
             const Utils::LinkHandler &callback);
     void switchHeaderSource(const Utils::FilePath &filePath, bool inNextSplit);
 

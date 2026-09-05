@@ -16,6 +16,8 @@
 
 namespace ProjectExplorer { class Node; }
 
+namespace TextEditor { class IAssistProposal; }
+
 namespace CppEditor {
 
 namespace Internal {
@@ -54,6 +56,16 @@ public:
     bool isSemanticInfoValid() const;
 
     bool handleKeyPress(QKeyEvent *event, const QTextCursor &cursor) override;
+
+#ifdef WITH_TESTS
+    // A test cannot read a choice off a popup, so it asks for the proposals
+    // instead. On the document because the thing producing them - following a
+    // symbol onto a virtual call - no longer knows what a widget is.
+    void enableTestMode();
+    bool isInTestMode() const;
+    void setProposals(const TextEditor::IAssistProposal *immediateProposal,
+                      const TextEditor::IAssistProposal *finalProposal);
+#endif
 
     std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
         const QTextCursor &cursor,
@@ -96,6 +108,10 @@ public:
 #endif
 
 signals:
+#ifdef WITH_TESTS
+    void proposalsReady(const TextEditor::IAssistProposal *immediateProposal,
+                        const TextEditor::IAssistProposal *finalProposal);
+#endif
     void codeWarningsUpdated(unsigned contentsRevision,
                              const QList<QTextEdit::ExtraSelection> selections,
                              const QList<TextEditor::RefactorMarker> &refactorMarkers);

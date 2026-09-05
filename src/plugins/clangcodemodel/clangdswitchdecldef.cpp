@@ -6,9 +6,9 @@
 #include "clangdast.h"
 #include "clangdclient.h"
 
-#include <cppeditor/cppeditorwidget.h>
 #include <languageclient/documentsymbolcache.h>
 #include <languageserverprotocol/lsptypes.h>
+#include <coreplugin/editormanager/ieditor.h>
 #include <texteditor/textdocument.h>
 #include <utils/qtcassert.h>
 
@@ -30,9 +30,9 @@ class ClangdSwitchDeclDef::Private
 {
 public:
     Private(ClangdSwitchDeclDef * q, ClangdClient *client, TextDocument *doc,
-            const QTextCursor &cursor, CppEditorWidget *editorWidget, const LinkHandler &callback)
+            const QTextCursor &cursor, Core::IEditor *editor, const LinkHandler &callback)
         : q(q), client(client), document(doc), uri(client->hostPathToServerUri(doc->filePath())),
-          cursor(cursor), editorWidget(editorWidget), callback(callback)
+          cursor(cursor), editor(editor), callback(callback)
     {}
 
     std::optional<ClangdAstNode> getFunctionNode() const;
@@ -44,7 +44,7 @@ public:
     const QPointer<TextDocument> document;
     const DocumentUri uri;
     const QTextCursor cursor;
-    const QPointer<CppEditorWidget> editorWidget;
+    const QPointer<Core::IEditor> editor;
     const LinkHandler callback;
     std::optional<ClangdAstNode> ast;
     std::optional<DocumentSymbolsResult> docSymbols;
@@ -52,14 +52,14 @@ public:
 };
 
 ClangdSwitchDeclDef::ClangdSwitchDeclDef(ClangdClient *client, TextDocument *doc,
-        const QTextCursor &cursor, CppEditorWidget *editorWidget, const LinkHandler &callback)
-    : QObject(client), d(new Private(this, client, doc, cursor, editorWidget, callback))
+        const QTextCursor &cursor, Core::IEditor *editor, const LinkHandler &callback)
+    : QObject(client), d(new Private(this, client, doc, cursor, editor, callback))
 {
     // Abort if the user does something else with the document in the meantime.
     connect(doc, &TextDocument::contentsChanged, this, &ClangdSwitchDeclDef::emitDone,
             Qt::QueuedConnection);
-    if (editorWidget) {
-        connect(editorWidget, &CppEditorWidget::cursorPositionChanged,
+    if (editor) {
+        connect(editor, &Core::IEditor::cursorPositionChanged,
                 this, &ClangdSwitchDeclDef::emitDone, Qt::QueuedConnection);
     }
     connect(qApp, &QApplication::focusChanged,
@@ -170,7 +170,7 @@ void ClangdSwitchDeclDef::Private::handleDeclDefSwitchReplies()
     // so we have to look for it in the document symbols.
     const QTextCursor funcNameCursor = cursorForFunctionName(*functionNode);
     if (!funcNameCursor.isNull()) {
-        client->followSymbol(document.data(), funcNameCursor, editorWidget, callback,
+        client->followSymbol(document.data(), funcNameCursor, editor, callback,
                              true, FollowTo::SymbolDef, false);
     }
     q->emitDone();
