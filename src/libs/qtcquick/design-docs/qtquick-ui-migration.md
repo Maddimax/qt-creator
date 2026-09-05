@@ -36150,3 +36150,113 @@ finishing the last one rather than instead of finding one. A batch that wants
 a target should use the method that has worked all along - take a list the
 widget editor keeps and read the view's equivalent beside it - rather than
 trusting this paragraph.
+
+## 2026-09-05 (10) -- What the server says is wrong with the file
+
+The last entry left no named step and prescribed the method instead: take a
+list the widget editor keeps and read the view's equivalent beside it. Applied
+to `TextEditorWidget`'s thirteen extra-selection kinds, it found a gap in one
+pass.
+
+### The list, and the one row that mattered
+
+Counting production users of each kind and then checking which seam each uses:
+
+| producer | seam | reaches the Qt Quick view |
+| --- | --- | --- |
+| `CppUseSelectionsUpdater` | `setViewSelections(editor, ...)` | yes |
+| `CppEditorDocument` (built-in warnings) | `TextDocument::setExtraSelections` | yes |
+| VcsBase, GLSL, QmlJS, diff, QML debugger | widget | widget-only languages |
+| **`DiagnosticManager`** | **`widget->setExtraSelections()`** | **no** |
+
+`DiagnosticManager` is every language server's diagnostics. Both
+`showDiagnostics()` and `hideDiagnostics()` iterated
+
+    TextEditorWidget::textEditorWidgetsForDocument(doc)
+
+which answers with **nothing** for a file open in the Qt Quick editor. So the
+loop body never ran and **clangd's warnings and errors were underlined on no
+view at all** - in every C++ file, with the default code model. The gutter
+marks still appeared, because those are made separately and go on the
+document; only the squiggles were missing, which is why this could sit here
+unnoticed while the marks looked right.
+
+**Which gap this batch closed:** a language server's diagnostics reaching the
+Qt Quick view.
+
+### Why the document, and why the widget loop stayed
+
+A diagnostic is a fact about the file, not about a caret, so it belongs on the
+document - and `CodeWarningsSelection` is already in the widget's
+`documentWideSelectionKinds()`, so the document reaches both views.
+
+The widget loop was **kept anyway**, and the reason is worth writing down: the
+two views mirror the document differently.
+
+- `TextViewport` draws **every** kind the document knows.
+- `TextEditorWidget` mirrors only the five in `documentWideSelectionKinds()`.
+
+`CocoLanguageClient` calls `setExtraSelectionsId("CocoExtraSelections")`, which
+is not one of the five. Switching to the document alone would have given Coco
+the Quick view and taken the widget away from it. Both calls, both commented.
+
+That asymmetry is now the interesting thing on this seam, and a candidate for
+a later batch: the widget's fixed list against the viewport's "everything".
+
+The publish cycle was checked rather than assumed: document set -> widget
+reads -> widget sets -> publishes back -> `m_publishingToDocument` stops the
+second read. It terminates.
+
+### Negative controls
+
+- **A -- shown through widgets only** (the state before this batch): red, "the
+  server's complaint was drawn on no view at all".
+- **B -- the complaint is never taken back from the document: did not bite**,
+  at first.
+
+B is the interesting one. Withdrawing a diagnostic goes through
+`showDiagnostics()` with an empty list, not through `hideDiagnostics()`, so
+the test never reached the line the control broke. **The response was to check
+whether the line was needed rather than to assume it was:**
+`Client::deactivateDocument()` calls `hideDiagnostics()` with no fresh set of
+complaints behind it, so without it a warning outlives the client's interest
+in the file. The test was extended to that path and control B then bites.
+
+A non-biting control means one of three things, and this time it was the third
+- the test did not reach it. Finding out which took reading one caller.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      477 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient ...          39 passed, 0 failed, exit 0  (38 before)
+
+Two files, no new file and no `.qbs` edit.
+
+### A note on the machine, not the code
+
+`cp` is aliased to `-i` here, and backing a file up over an existing `.bak`
+blocked on a prompt that no one could answer - burning a ten-minute timeout
+with nothing run. This is written in `~/.claude/CLAUDE.md` and was still
+walked into. `cat src >| dst` is the form that works.
+
+### What this leaves
+
+The method worked, so the honest thing is to name what it has not been pointed
+at yet rather than to declare the migration finished:
+
+- **The other twelve selection kinds** were checked in this pass and are
+  either view-agnostic already or belong to languages that still open in the
+  widget editor. That row of the table is done.
+- **The widget's `documentWideSelectionKinds()` against the viewport's
+  "every kind"** - the asymmetry above. Nothing is known to be broken by it;
+  it is the kind of thing that bites the next producer to pick an id of its
+  own, as Coco did.
+- **The untested `ViewportAssistTarget` overrides** and **an arbitrary widget
+  in a Quick toolbar**, both unchanged.
+
+Other lists the widget keeps that this method has not yet been run against:
+the `QEvent` switch in `TextEditorWidget::event()`, the optional-action mask,
+and the context-menu assembly. Any of those is a reasonable next pass.

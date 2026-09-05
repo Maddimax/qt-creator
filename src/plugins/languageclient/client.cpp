@@ -2769,6 +2769,92 @@ private slots:
                  "the client's refactor marker outlived its interest in the document");
     }
 
+    // What the server says is wrong with the file, underlined. Every producer
+    // of these went through TextEditorWidget::textEditorWidgetsForDocument(),
+    // which answers with nothing for a file open in the Qt Quick editor - so
+    // clangd's warnings and errors were drawn on no view at all there, which
+    // is every C++ file.
+    void testTheServersDiagnosticsAreDrawnInAnyView()
+    {
+        Utils::TemporaryDirectory dir("lsp-diagnostics-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("marked.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        // handleDiagnostics() is what the notification arrives at, and it is
+        // protected: what is under test is where the complaint is drawn, not
+        // how it travelled.
+        class DiagnosingClient final : public Client
+        {
+        public:
+            using Client::Client;
+            using Client::handleDiagnostics;
+        };
+
+        auto * const server = new RecordingServer({});
+        auto * const client = new DiagnosingClient(server);
+        client->setName("diagnostics test client");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY(client->reachable());
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        LanguageClientManager::openDocumentWithClient(document, client);
+        QTRY_VERIFY(LanguageClientManager::clientForFilePath(file) == client);
+
+        const Utils::Id warnings(TextEditor::TextEditorWidget::CodeWarningsSelection);
+        QVERIFY2(document->extraSelections(warnings).isEmpty(),
+                 "something had already marked the file, so this tests nothing");
+
+        // The notification a server sends, with one complaint about "alpha".
+        Diagnostic diagnostic;
+        diagnostic.setRange(Range(Position(0, 0), Position(0, 5)));
+        diagnostic.setMessage("alpha is not beta");
+        diagnostic.setSeverity(DiagnosticSeverity::Warning);
+        PublishDiagnosticsParams params;
+        params.setUri(client->hostPathToServerUri(file));
+        params.setDiagnostics({diagnostic});
+        client->handleDiagnostics(params);
+
+        // On the document, which is what every view draws from.
+        const QList<TextEditor::TextDocument::ExtraSelection> drawn
+            = document->extraSelections(warnings);
+        QVERIFY2(drawn.size() == 1,
+                 "the server's complaint was drawn on no view at all");
+        QCOMPARE(drawn.first().cursor.selectionStart(), 0);
+        QCOMPARE(drawn.first().cursor.selectionEnd(), 5);
+
+        // And taken back when the server stops complaining, or a warning
+        // outlives the thing it was about.
+        params.setDiagnostics({});
+        client->handleDiagnostics(params);
+        QVERIFY2(document->extraSelections(warnings).isEmpty(),
+                 "the complaint stayed after the server withdrew it");
+
+        // And the client letting the document go takes them with it. That is
+        // its own path - hideDiagnostics() with no fresh set of complaints
+        // behind it - so withdrawing above does not cover it.
+        params.setDiagnostics({diagnostic});
+        client->handleDiagnostics(params);
+        QVERIFY2(document->extraSelections(warnings).size() == 1,
+                 "the fixture could not put the complaint back");
+        client->deactivateDocument(document);
+        QVERIFY2(document->extraSelections(warnings).isEmpty(),
+                 "the complaint outlived the client's interest in the document");
+    }
+
     // ... but not over the language's own answer. CppEditor's link finder
     // goes through CppModelManager, which asks clangd and falls back to the
     // built-in model; the raw request this client would install knows only
