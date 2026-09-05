@@ -186,6 +186,19 @@ public:
             m_view->setSnippetPlaceholders(placeholders);
     }
 
+    // The language's own indenter, which the view has and a bare document
+    // does not.
+    void autoIndentRange(int from, int to) override
+    {
+        TextDocument * const doc = m_view ? m_view->textDocument() : nullptr;
+        if (!doc || !doc->typingSettings().m_autoIndent)
+            return;
+        QTextCursor over(doc->document());
+        over.setPosition(from);
+        over.setPosition(to, QTextCursor::KeepAnchor);
+        doc->autoIndent(over);
+    }
+
 private:
     const QPointer<TextViewport> m_view;
 };

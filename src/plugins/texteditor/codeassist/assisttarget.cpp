@@ -108,21 +108,64 @@ void DocumentAssistTarget::insertCodeSnippet(int basePosition,
         return;
 
     const ParsedSnippet parsed = std::get<ParsedSnippet>(result);
-    QString text;
-    QList<SnippetPlaceholder> placeholders;
+
+    // Written part by part, recording where each hole landed. The cursors
+    // come afterwards: one built while the text is still going in sits exactly
+    // where the next part is inserted and gets carried along with it. The
+    // widget editor builds its cursors after the same loop, for the same
+    // reason.
+    QTextCursor writer(m_document);
+    writer.setPosition(basePosition);
+    writer.setPosition(m_cursor.position(), QTextCursor::KeepAnchor);
+    writer.beginEditBlock();
+    writer.removeSelectedText();
+
+    const int from = writer.position();
+
+    struct Written
+    {
+        int start = 0;
+        int end = 0;
+        int variableIndex = -1;
+        bool finalPart = false;
+        NameMangler *mangler = nullptr;
+    };
+    QList<Written> written;
+
     for (const ParsedSnippet::Part &part : parsed.parts) {
-        const int start = int(text.size());
-        text += part.text;
+        const int partFrom = writer.position();
+        writer.insertText(part.text);
         if (part.variableIndex >= 0) {
-            placeholders.append({basePosition + start,
-                                 basePosition + int(text.size()),
-                                 part.variableIndex,
-                                 part.finalPart,
-                                 part.mangler});
+            written.append({partFrom, writer.position(), part.variableIndex,
+                            part.finalPart, part.mangler});
         }
     }
 
-    replace(basePosition, m_cursor.position() - basePosition, text);
+    // Held over the indent, which moves the text under them.
+    QList<QTextCursor> held;
+    held.reserve(written.size());
+    for (const Written &hole : std::as_const(written)) {
+        QTextCursor over(m_document);
+        over.setPosition(hole.start);
+        over.setPosition(hole.end, QTextCursor::KeepAnchor);
+        held.append(over);
+    }
+
+    // A snippet is written for column zero and inserted wherever the caret
+    // happens to be, so every line after the first lands short without this.
+    autoIndentRange(from, writer.position());
+
+    writer.endEditBlock();
+    m_cursor = writer;
+
+    QList<SnippetPlaceholder> placeholders;
+    for (int i = 0; i < written.size(); ++i) {
+        placeholders.append({held.at(i).selectionStart(),
+                             held.at(i).selectionEnd(),
+                             written.at(i).variableIndex,
+                             written.at(i).finalPart,
+                             written.at(i).mangler});
+    }
 
     if (placeholders.isEmpty())
         return;
@@ -131,6 +174,12 @@ void DocumentAssistTarget::insertCodeSnippet(int basePosition,
     // placeholder, and the caret standing on it is what is left of that.
     setCursorPosition(placeholders.first().start);
     snippetInserted(placeholders);
+}
+
+void DocumentAssistTarget::autoIndentRange(int from, int to)
+{
+    Q_UNUSED(from)
+    Q_UNUSED(to)
 }
 
 void DocumentAssistTarget::snippetInserted(const QList<SnippetPlaceholder> &placeholders)

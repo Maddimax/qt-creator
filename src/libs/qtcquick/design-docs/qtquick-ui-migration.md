@@ -36046,3 +36046,107 @@ completion proposal.
 
 Everything else the overlay does - holes, drawing, Tab, mirrors, manglers,
 accept on Escape and on leaving - is in.
+
+## 2026-09-05 (9) -- Laying out what a snippet put in
+
+The last entry named auto-indent as the one item left of the overlay, and
+guessed the shape: "an overridable hook beside `snippetInserted()` - but that
+is a guess, and the first thing the next batch should do is check it". Checked,
+and the guess held: `TextViewport` already calls `doc->autoIndent()` in four
+places, so the view has the indenter and the bare `DocumentAssistTarget` does
+not. First end-of-batch proposal in seven entries to survive its own audit,
+and the difference is that it was written *as* a guess.
+
+### Why it matters for C++
+
+25 of the shipped C++ snippets are multi-line. A snippet is written for column
+zero and inserted wherever the caret happens to be, so inserting `if`, `class`
+or `switch` inside an indented block left every line after the first at the
+snippet's own indentation. The widget editor calls
+`m_document->autoIndent()` over what it inserted; the Qt Quick view did not.
+
+**Which gap this batch closed:** what a snippet puts in is now laid out the
+way the code style asks, in the Qt Quick view.
+
+### The part the guess did not cover
+
+Indenting *moves the text under the holes*, and the holes were recorded as
+plain integers. Reporting them as they stood before the indent points them at
+the whitespace that was put in front - control B prints the hole's contents as
+`"    "` where `"body"` was expected.
+
+So the insertion was rewritten to hold a cursor over each hole across the
+indent, which is what the widget does. Getting there took one wrong turn worth
+recording:
+
+**A cursor built while the text is still going in is carried along by it.** The
+first attempt created each hole's cursor inside the insertion loop, at
+`writer.position()` - which is exactly where the *next* part is about to be
+inserted, so the end cursor was pushed to the end of the whole snippet. The
+existing test caught it immediately: `end` reported as 28 where 10 was
+expected. The widget avoids this by recording integers in the loop and turning
+them into cursors *after* it, and that ordering is the whole of the fix.
+
+Two batches running, the hard part has been Qt's cursor-adjustment rules
+rather than anything about editors:
+
+- `setKeepPositionOnInsert(true)` pins a position and not an anchor.
+- A cursor sitting at an insertion point moves with what is inserted there.
+
+Neither is wrong; both are invisible until something runs.
+
+### Negative controls
+
+- **A -- what was inserted is never laid out**: red, the range offered for
+  indenting is still `-1`.
+- **B -- the positions are taken from before the indent**: red, the hole's
+  contents read `"    "` instead of `"body"`. This is the control that says
+  why cursors are held at all.
+- **C -- the cursors are built while the text is still going in** (the wrong
+  turn above): red on the *existing* test, `end` 28 against 10.
+
+The test writes its own stand-in indenter - four spaces in front of every line
+after the first - so that what indenting does is known rather than borrowed
+from a language. Without a hook that actually moves text, B could not fail.
+
+### Still not covered
+
+`ViewportAssistTarget` now has two overrides no test reaches -
+`snippetInserted()` and `autoIndentRange()` - for the same reason as three
+entries ago: getting at it means driving a real completion proposal. The
+contract each implements is tested through a subclass written for it; the
+join is not.
+
+That is now the largest untested thing in the snippet path, and if snippets
+misbehave in the Qt Quick editor it is where to look first.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      477 passed, 0 failed, exit 0     (476 before)
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient ...          38 passed, 0 failed, exit 0
+
+Four files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**The snippet overlay is done**: holes, drawing, Tab and Shift+Tab, mirrors,
+manglers, indentation, accept on Escape, on leaving, and on the final hole.
+That was the last item the plan carried with a name on it.
+
+What is left is not a list of gaps but two pieces of tidying, and neither is
+urgent:
+
+- **The untested join** above. Worth doing only if a way to drive a proposal
+  in a test turns up cheaply; it is not worth building one for.
+- **An arbitrary widget in a Quick toolbar**, unchanged for six entries. The
+  callers wanting one are combo boxes belonging to languages that still open
+  in the widget editor, so nothing C++ needs is blocked on it.
+
+So: no named next step, and this time the sentence is being written after
+finishing the last one rather than instead of finding one. A batch that wants
+a target should use the method that has worked all along - take a list the
+widget editor keeps and read the view's equivalent beside it - rather than
+trusting this paragraph.

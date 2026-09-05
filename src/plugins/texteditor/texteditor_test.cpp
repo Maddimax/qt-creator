@@ -28,6 +28,7 @@
 #include <QSignalSpy>
 #include <QTest>
 #include <QTextCursor>
+#include <QTextBlock>
 #include <QTextDocument>
 
 namespace TextEditor::Internal {
@@ -831,6 +832,7 @@ private slots:
     void testASnippetLeavesNoMarkupInAPlainView();
     void testASnippetSaysWhereItsHolesAre();
     void testASnippetSaysHowAHoleIsToBeWritten();
+    void testASnippetsHolesSurviveBeingIndented();
 };
 
 void SnippetTest::testVariableMirroring()
@@ -1002,6 +1004,77 @@ void SnippetTest::testASnippetSaysHowAHoleIsToBeWritten()
     QVERIFY2(target.holes.at(1).mangler,
              "the hole after WRITE lost the capital it asked for");
     QCOMPARE(target.holes.at(1).mangler->mangle("foo"), QString("Foo"));
+}
+
+// A snippet is written for column zero and inserted wherever the caret is, so
+// what was put in has to be laid out the way the code style asks. Indenting
+// moves the text under the holes, and a hole recorded as a number would then
+// point at the indent instead of at what it stands for.
+void SnippetTest::testASnippetsHolesSurviveBeingIndented()
+{
+    class IndentingTarget final : public DocumentAssistTarget
+    {
+    public:
+        using DocumentAssistTarget::DocumentAssistTarget;
+
+        QList<SnippetPlaceholder> holes;
+        int indentedFrom = -1;
+        int indentedTo = -1;
+
+    protected:
+        void snippetInserted(const QList<SnippetPlaceholder> &placeholders) override
+        {
+            holes = placeholders;
+        }
+
+        // A stand-in for a language's indenter, written here so that what it
+        // does is known: four spaces in front of every line after the first.
+        void autoIndentRange(int from, int to) override
+        {
+            indentedFrom = from;
+            indentedTo = to;
+
+            QList<int> blockStarts;
+            for (QTextBlock block = document()->findBlock(from); block.isValid();
+                 block = block.next()) {
+                if (block.position() > to)
+                    break;
+                if (block.position() > from)
+                    blockStarts.append(block.position());
+            }
+            // Backwards, so that inserting does not move the starts still to
+            // be visited.
+            std::reverse(blockStarts.begin(), blockStarts.end());
+            for (const int at : std::as_const(blockStarts)) {
+                QTextCursor cursor(document());
+                cursor.setPosition(at);
+                cursor.insertText("    ");
+            }
+        }
+    };
+
+    QTextDocument document;
+    IndentingTarget target(&document);
+    target.setCursorPosition(0);
+    target.insertCodeSnippet(0, "if ($cond$) {\n$body$\n}", &Snippet::parse);
+
+    // The whole of what was put in was offered for laying out.
+    QCOMPARE(target.indentedFrom, 0);
+    QVERIFY2(target.indentedTo > target.indentedFrom, "nothing was offered for indenting");
+
+    QCOMPARE(document.toPlainText(), QString("if (cond) {\n    body\n    }"));
+    QCOMPARE(target.holes.size(), 2);
+
+    // Both holes still stand over what they stand for. The second one is the
+    // one that moved: without a cursor held across the indent it would still
+    // say 12 and point into the four spaces put in front of "body".
+    const QString text = document.toPlainText();
+    QCOMPARE(text.mid(target.holes.first().start,
+                      target.holes.first().end - target.holes.first().start),
+             QString("cond"));
+    QCOMPARE(text.mid(target.holes.at(1).start,
+                      target.holes.at(1).end - target.holes.at(1).start),
+             QString("body"));
 }
 
 QObject *createSnippetTest()

@@ -97,6 +97,11 @@ protected:
     // can draw them and tab between them overrides it.
     virtual void snippetInserted(const QList<SnippetPlaceholder> &placeholders);
 
+    // Lay out what was just inserted the way the code style asks. A bare
+    // QTextDocument has no indenter - that belongs to the TextDocument - so
+    // this does nothing here and a view that has one overrides it.
+    virtual void autoIndentRange(int from, int to);
+
 private:
     QTextDocument *m_document = nullptr;
     QTextCursor m_cursor;
