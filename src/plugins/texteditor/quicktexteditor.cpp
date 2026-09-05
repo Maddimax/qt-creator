@@ -3306,6 +3306,62 @@ private slots:
         QCOMPARE(document->document()->findBlockByNumber(0).text(), QString("first second"));
     }
 
+    // Typing the closing half of a bracket the view put in itself. Both views
+    // insert the closing one when "(" is typed; only the widget stepped over
+    // it when ")" followed, so a C++ file in this editor answered "(" with
+    // "()" and then ")" with "())" - every bracket, brace and quote a reader
+    // types, doubled.
+    void testTypingAClosingBracketStepsOverTheOneTheViewAdded_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTypingAClosingBracketStepsOverTheOneTheViewAdded()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("closing-bracket");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("b.cpp");
+        QVERIFY(file.writeFileContents("int f\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const auto type = [editor](Qt::Key key, const QString &text) {
+            QObject * const target = TextEditor::keyTargetOf(editor);
+            QVERIFY2(target, "nothing takes keys for this editor");
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+            QCoreApplication::sendEvent(target, &press);
+        };
+
+        editor->gotoLine(1, 5);
+
+        // The view puts the closing half in for us.
+        type(Qt::Key_ParenLeft, "(");
+        QCOMPARE(document->document()->toPlainText().trimmed(), QString("int f()"));
+
+        // And typing that half goes over it rather than adding another.
+        type(Qt::Key_ParenRight, ")");
+        QCOMPARE(document->document()->toPlainText().trimmed(), QString("int f()"));
+
+        // The caret is past the bracket, not still inside it, so the next
+        // thing typed lands after the call rather than in it.
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), 7);
+    }
+
     // A language server attaches to a document rather than to a language, so
     // it cannot register a finder on a factory - and for a C++ file it has to
     // be preferred over the one CppEditor registers, or Follow Symbol answers

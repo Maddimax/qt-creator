@@ -37764,3 +37764,80 @@ case is waiting.
   way to tell here.
 - **The `QuickUi` sort flake**, and **an arbitrary widget in a Quick toolbar**,
   both unchanged.
+
+## 2026-09-05 (27) -- Every closing bracket was being doubled
+
+The last entry listed three things the eleven skipped completion cases need,
+and said of one of them that it "might be a behaviour gap rather than test
+plumbing": what `autoCompleteHighlightPosition()` means for a view that has no
+such notion. Trying to falsify that is what this batch did, and it did not
+falsify.
+
+`m_autoCompleteHighlightPos` is a cursor over whatever the auto-completer put
+in on the reader's behalf. The widget keeps it for two things: drawing that
+text differently, and **stepping over it when the reader types it**. The
+viewport has an `AutoCompleter` - it inserts the closing half - and keeps no
+such range.
+
+A probe, both views, same file, same keys:
+
+    widget   "(" -> int f()      ")" -> int f()
+    quick    "(" -> int f()      ")" -> int f())
+
+**Which gap this batch closed:** every closing bracket, brace and quote typed
+in the Qt Quick editor was doubled.
+
+That is not a corner: it is what happens when anybody types a function call.
+It has been true for as long as C++ has opened here, and no test caught it
+because nothing typed a closing bracket - the tests that type at all type
+words.
+
+### The fix
+
+`TextViewport::insertTypedText()` now keeps a cursor over what the
+auto-completer inserted, and before inserting compares the typed text against
+it: a matching prefix moves the caret over instead of being typed. Gated on
+`skipAutoCompletedText()`, the same setting the widget gates on.
+
+**Not** the other half. The auto-inserted text is still not *drawn* any
+differently here - the widget's `AutoCompleteSelection`. That is a second,
+smaller gap and it is left open deliberately: this one changes what the file
+ends up containing, and that one changes only how it looks while you type.
+
+### Negative control
+
+- **A -- the view forgets what it inserted**: red on the **quick** row with
+  `"int f())"`, and the **widget** row still passes.
+
+That shape is the point. The test is `_data`-driven over both views, so the
+widget row is the fixture control: it says the expectation is not something
+invented for this test but what the other editor already does. A control that
+fails both rows would have meant the expectation was wrong.
+
+### Verification
+
+    -test TextEditor    484 passed, 0 failed, exit 0, 0 warnings   (482 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Three files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The method that found this is worth stating, because it is the third time in
+three entries: **the last entry's parenthetical doubt was the lead.** Entry 25
+ended "the next sweep should drop the `-v _test`" and that found a blind
+class; entry 26 ended with "might be a behaviour gap" and that was this. The
+uncertainty in a proposal has been more productive than the confidence.
+
+Still open:
+
+- **Drawing the auto-inserted text**, above.
+- **The eleven skipped completion cases**, still needing
+  `assistTargetFor(IEditor *)` and something for `lineColumn()`.
+- **The `QuickUi` sort flake**, and **an arbitrary widget in a Quick toolbar**.
+
+And a question this batch raises about all of it: nothing here types. The
+tests that drive this editor set cursors, invoke commands and send single
+keys, but almost none of them type a *sequence* the way a reader does. That is
+where this bug lived, and it is the obvious place to look for the next one -
+type a line of C++ into both views and compare the files.

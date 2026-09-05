@@ -2353,9 +2353,31 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
         return;
     }
 
+    // Typing the closing half of something this view put in steps over it
+    // rather than adding a second one. The widget editor does the same, from
+    // the range it keeps for highlighting what it inserted; without it a C++
+    // file here answered "(" with "()" and then ")" with "())".
+    QString typed = text;
+    if (globalCompletionSettings().skipAutoCompletedText() && !m_autoCompleted.isNull()
+        && m_autoCompleted.selectionStart() == cursor.position()) {
+        const QString already = m_autoCompleted.selectedText();
+        int skipped = 0;
+        while (skipped < already.size() && skipped < typed.size()
+               && already.at(skipped) == typed.at(skipped)) {
+            ++skipped;
+        }
+        if (skipped > 0) {
+            cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::MoveAnchor, skipped);
+            m_autoCompleted = QTextCursor();
+            typed = typed.mid(skipped);
+            if (typed.isEmpty())
+                return;
+        }
+    }
+
     QChar electricChar;
     if (doc->typingSettings().m_autoIndent) {
-        for (const QChar c : text) {
+        for (const QChar c : typed) {
             if (doc->indenter()->isElectricCharacter(c)) {
                 electricChar = c;
                 break;
@@ -2364,16 +2386,19 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     }
 
     QTextCursor probe = cursor;
-    const QString closing = m_autoCompleter->autoComplete(probe, text, false);
+    const QString closing = m_autoCompleter->autoComplete(probe, typed, false);
 
     cursor.beginEditBlock();
     // After the auto-completer has been asked, which reads the caret as the
     // reader left it rather than with a character already selected.
     takeOverwrittenCharacter(cursor);
-    cursor.insertText(text);
+    cursor.insertText(typed);
     if (!closing.isEmpty()) {
         const int before = cursor.position();
         cursor.insertText(closing);
+        // Remembered before the caret goes back in front of it.
+        m_autoCompleted = cursor;
+        m_autoCompleted.setPosition(before, QTextCursor::KeepAnchor);
         cursor.setPosition(before);
     }
     if (!electricChar.isNull() && m_autoCompleter->contextAllowsElectricCharacters(cursor))
