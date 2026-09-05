@@ -33172,3 +33172,105 @@ Unchanged from the last entry: the clang-tools toolbar button, the
 parse-context highlight, and Refactor submenu nesting are one presentation
 question in three places - **what does a toolbar or menu do in the Quick
 editor when the widget one had a popup?** That one wants a person.
+
+## 2026-09-05 -- Follow Symbol's fallback, and a suite used as a gate it cannot be
+
+The gap this closed: **clangd's fallback to the built-in code model never ran
+for a C++ file in the Qt Quick editor.** `ClangModelManagerSupport::
+followSymbol()` wraps the callback so that a fuzzy follow that clangd answers
+with no target is asked again of the built-in model - the case that matters
+inside a macro or a template. The wrapper's guard was
+
+    [editor = QPointer(data.editorWidget()), ...]
+    if (link.hasValidTarget() || mode == FollowSymbolMode::Exact || !editor)
+        return processLinkCallback(link);
+
+`data.editorWidget()` is a `CppEditorWidget *`, so in the Quick editor it is
+null, `!editor` is true, and the second lookup was skipped outright. Ctrl+click
+on a name clangd could not resolve simply did nothing.
+
+The guard is about **liveness** - the slower lookup is worth doing only while
+the reader is still somewhere to be sent - and that is a property of the
+editor, not of the widget. `cppfollowsymbolundercursor.cpp` already had a
+static `editorFor(const CursorInEditor &)` doing exactly the right thing; it
+moved to `cpptoolsreuse` and is exported, and the guard holds a
+`QPointer<Core::IEditor>` to it. Nothing else changed: the built-in
+`findLink()` has handled a null widget since an earlier batch (its own comment
+says so), so the fallback works once it is allowed to run.
+
+Also checked and found already done, so that the next person does not
+re-examine them: `languageclientutils.cpp:311` and
+`languageclientmanager.cpp:555` have Quick branches; `callandtypehierarchy.cpp:
+664` is a test guard; `languageclientsettings.cpp:1005` builds a standalone
+JSON editor for a settings page, not a document view; `ClangdFollowSymbol` is
+null-widget-safe throughout, degrading to the conservative branch of
+`defLinkIsAmbiguous()`; `BuiltinModelManagerSupport::semanticDocumentOf()`
+already falls back to the document.
+
+### What is tested, and what is not
+
+The seam is tested: `testTheAskingViewIsFoundWithoutAWidget` opens a C++ file
+in the Quick editor, builds the `CursorInEditor` that every C++ jump carries,
+and asserts `editorFor(data)` finds the editor although `editorWidget()` is
+null - and that with the reader gone to another file it finds *nothing*,
+rather than whichever editor is in front.
+
+The guard's use of it is **not** unit-tested: reaching that line needs a
+`ClangdClient` that `isFullyIndexed()`, which needs a real clangd binary and
+the clangdtests suite. Said plainly rather than papered over.
+
+### Negative controls
+
+- **A -- the seam does not reach a view that is not a widget**: red, compared
+  pointers differ.
+- **B -- any editor in front will do, not the one showing the file**: red, so
+  the liveness half is load-bearing and not decoration.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      457 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,SymbolJumpTest ...
+      6 passed, 0 failed, exit 0
+
+Four files, no new file and no `.qbs` edit.
+
+### The hour this batch actually cost
+
+A whole-suite `-test CppEditor` run came back with 26 failures, 24 of them
+`FollowSymbolTest::testSwitchMethodDeclDef`, which is precisely the area this
+batch touches. Chasing it produced, with **identical code**:
+
+    decl/def failures:  0   9   23        (three runs)
+    passed:           539 1289  247
+
+and a clean-tree baseline that also aborted, failing a *different* set of
+classes. Per class, `testSwitchMethodDeclDef` is 28/28 green both with and
+without the change, and `FollowSymbolTest` times out at 310 s and aborts with
+SIGABRT **2/2 on the clean tree** and 2/2 with the change - identically,
+`27 passed, 1 failed` either way.
+
+None of this was new. `~/.claude/qt-creator.md` already says, under "Whole-suite
+order is not stable": *a whole-suite run cannot be used to compare two
+configurations*, and names `FollowSymbolTest` as the example. I used one as a
+gate anyway and then spent an hour interrogating its noise.
+
+**A suite you have already written down as unusable for comparison does not
+become usable because this time the diff looks scary.** The rule that applies
+to a frightening result is the same one that applied before it appeared.
+
+### What this leaves
+
+- **`FollowSymbolTest` hangs on its own now** - 310 s timeout, 4/4 runs, at
+  HEAD of this branch. The note from 2026-09-02 records it passing 155/155
+  standalone, so this appeared since, and the branch is the obvious suspect.
+  It is not this batch (measured clean 2/2), but it is the best next batch:
+  bisect the branch for it. A suite that aborts is a gate nobody can use.
+- Unchanged: the clang-tools toolbar button, the parse-context highlight, and
+  Refactor submenu nesting - one presentation question in three places.
+- Net entries still unexamined: `clangdclient.cpp:1391` (`widgetFromDocument`,
+  feeding `adjustedCursor()`), `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

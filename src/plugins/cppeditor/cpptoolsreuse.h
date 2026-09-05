@@ -31,6 +31,7 @@ namespace CppEditor {
 class CppEditorDocument;
 class CppEditorWidget;
 class CppRefactoringFile;
+class CursorInEditor;
 class ProjectInfo;
 class CppCompletionAssistProcessor;
 
@@ -58,6 +59,10 @@ void CPPEDITOR_EXPORT showRenameWarningIfFileIsGenerated(const Utils::FilePath &
 // The editor \a widget is the view of. What gets from a widget-side object to
 // the view-agnostic functions above, and to TextEditor::setViewSelections().
 Core::IEditor CPPEDITOR_EXPORT *editorFor(TextEditor::TextEditorWidget *widget);
+
+// The editor \a data was taken in - the view the reader asked from, which a
+// CursorInEditor only names directly where that view is a widget.
+Core::IEditor CPPEDITOR_EXPORT *editorFor(const CursorInEditor &data);
 
 #ifdef WITH_TESTS
 namespace Internal { QObject *createSymbolJumpTest(); }

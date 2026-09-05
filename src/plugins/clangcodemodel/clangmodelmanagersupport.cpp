@@ -305,10 +305,13 @@ void ClangModelManagerSupport::followSymbol(const CursorInEditor &data,
 {
     if (ClangdClient * const client = clientForFile(data.filePath());
             client && client->isFullyIndexed()) {
-        LinkHandler extendedCallback = [editor = QPointer(data.editorWidget()), data,
+        // The second, slower lookup is worth doing only while the reader is
+        // still in the view they asked from - which is an editor, not a
+        // widget, or a C++ file in the Qt Quick editor never falls back.
+        LinkHandler extendedCallback = [origin = QPointer(editorFor(data)), data,
                                         processLinkCallback, mode, resolveTarget, inNextSplit]
             (const Link &link) {
-            if (link.hasValidTarget() || mode == FollowSymbolMode::Exact || !editor)
+            if (link.hasValidTarget() || mode == FollowSymbolMode::Exact || !origin)
                 return processLinkCallback(link);
             CppModelManager::followSymbol(data, processLinkCallback, resolveTarget, inNextSplit,
                                           mode, CppModelManager::Backend::Builtin);

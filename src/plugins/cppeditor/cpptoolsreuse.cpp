@@ -186,6 +186,19 @@ void renameUsagesOf(Core::IEditor *editor, const QString &replacement, QTextCurs
     CppModelManager::followSymbol(data, continuation, false, false, FollowSymbolMode::Exact);
 }
 
+// The widget where \a data carries one, and otherwise whichever editor is
+// showing that document - which is the one the reader is in, because asking
+// about the symbol under the caret is something they just did.
+Core::IEditor *editorFor(const CursorInEditor &data)
+{
+    if (data.editorWidget())
+        return TextEditor::editorForWidget(data.editorWidget());
+    Core::IEditor * const current = Core::EditorManager::currentEditor();
+    if (current && current->document() == data.textDocument())
+        return current;
+    return nullptr;
+}
+
 Core::IEditor *editorFor(TextEditor::TextEditorWidget *widget)
 {
     if (!widget)
@@ -731,6 +744,55 @@ private slots:
         // position being reachable.
         switchDeclarationDefinition(editor, /*inNextSplit=*/false);
         QTRY_COMPARE(editor->currentLine(), 2);
+    }
+
+    // Which view a question about the caret was asked from. Every C++ jump
+    // carries a CursorInEditor, and the only view it names is a widget - so
+    // clangd's fallback to the built-in model, which runs only while the
+    // reader is still there to be sent somewhere, was skipped outright for a
+    // file in the Qt Quick editor.
+    void testTheAskingViewIsFoundWithoutAWidget()
+    {
+        Utils::TemporaryDirectory dir("cpp-asking-view-without-a-widget");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("origin.cpp");
+        QVERIFY(file.writeFileContents("struct C {\n    void f();\n};\n"));
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+
+        const CursorInEditor data(TextEditor::textCursorOf(editor),
+                                  document->filePath(),
+                                  qobject_cast<CppEditorWidget *>(editor->widget()),
+                                  document);
+        QVERIFY2(!data.editorWidget(),
+                 "the fixture named a widget, so finding one proves nothing");
+        QCOMPARE(editorFor(data), editor);
+
+        // And the half the guard is there for: with the reader gone to another
+        // file there is nowhere to send them, so nothing is found rather than
+        // whichever editor happens to be in front.
+        const Utils::FilePath elsewhere = dir.filePath("elsewhere.cpp");
+        QVERIFY(elsewhere.writeFileContents("int x;\n"));
+        Core::IEditor * const other = Core::EditorManager::openEditor(elsewhere);
+        QVERIFY2(other, "the editor manager opened nothing for the second file");
+        QCOMPARE(Core::EditorManager::currentEditor(), other);
+        QVERIFY2(!editorFor(data),
+                 "an editor showing another file was offered as where to send the reader");
     }
 
     // Find Usages, which the viewport asks for through a relay rather than by

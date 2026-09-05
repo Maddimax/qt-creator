@@ -526,19 +526,6 @@ FollowSymbolUnderCursor::FollowSymbolUnderCursor()
 {
 }
 
-// The editor \a data was taken in. The widget where it carries one, and
-// otherwise whichever editor is showing that document - which is the one the
-// reader is in, because following a symbol is something they just did.
-static Core::IEditor *editorFor(const CursorInEditor &data)
-{
-    if (data.editorWidget())
-        return TextEditor::editorForWidget(data.editorWidget());
-    Core::IEditor * const current = Core::EditorManager::currentEditor();
-    if (current && current->document() == data.textDocument())
-        return current;
-    return nullptr;
-}
-
 static int skipMatchingParentheses(const Tokens &tokens, int idx, int initialDepth)
 {
     int j = idx;
