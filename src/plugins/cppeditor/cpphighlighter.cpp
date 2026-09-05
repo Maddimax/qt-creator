@@ -1100,13 +1100,24 @@ private slots:
 
         // The document is what says so, whichever view is drawing.
         const QList<QAction *> actions = document->toolBarActions();
-        QCOMPARE(actions.size(), 1);
-        QCOMPARE(actions.first()->text(), QString("#"));
-        QVERIFY2(!actions.first()->toolTip().isEmpty(),
+        // The language's own button, among whatever else the toolbar has
+        // gained since - an analyser's entry, another plugin's. What this is
+        // about is that the language's button is there, not that it is alone,
+        // and asserting the count made every plugin that adds one a failure
+        // here.
+        QAction *hash = nullptr;
+        for (QAction * const action : actions) {
+            if (action->text() == QLatin1String("#"))
+                hash = action;
+        }
+        QVERIFY2(hash, qPrintable(QString("no # button among the %1 the toolbar offers")
+                                      .arg(actions.size())));
+        QVERIFY2(!hash->toolTip().isEmpty(),
                  "the button says nothing about what it does");
-        // Asked twice, the same action: the toolbar is rebuilt whenever a view
-        // is, and a fresh one each time would lose what is connected to it.
-        QCOMPARE(document->toolBarActions().first(), actions.first());
+        // Asked twice, the same actions: the toolbar is rebuilt whenever a
+        // view is, and fresh ones each time would lose what is connected to
+        // them.
+        QCOMPARE(document->toolBarActions(), actions);
 
         // And the choice of parse context, which is the document's rather
         // than a view's: which project part a file belongs to is a fact about

@@ -39364,3 +39364,107 @@ The four that broke were the ones that never asked.
 Also still open, unchanged: **drag and drop of text**, which needs
 `QDragEnterEvent`/`QDropEvent` delivered by hand and is separate infrastructure
 from the drag drive built in entry 41.
+
+## 2026-09-06 (43) -- CppEditor, both ways: no divergence, one stale test of ours
+
+The census the last entry set up, continued. `QuickUi` and `CppEditor` are
+now measured both ways; the runner and the 300-second cap work.
+
+### QuickUi
+
+    -test QuickUi     quick 207/0/1      widget 207/0/1
+
+Identical. Nothing in it depends on which view a C++ file opens in, which is
+what one would hope and had never been checked.
+
+### CppEditor: the counts are not the answer
+
+    -test CppEditor   quick 754/6/1 (cut off)   widget 937/4/15 (cut off)
+
+**Both hit the cap**, so those totals are where each run happened to be when
+it was killed - not results. Comparing them would be comparing two different
+prefixes of a test list.
+
+What *is* comparable is the verdicts of the tests both runs reached - 416 of
+them - and there **exactly one differs**:
+
+    QuickEditorHighlighterTest::testACppFileOpensInTheQuickEditor
+        quick=PASS   widget=SKIP
+
+which is a test skipping honestly under the override, not a defect. Every
+other shared verdict matches.
+
+### And a slowdown that is not one
+
+The truncated counts invite the reading that the Quick editor is ~30% slower -
+605 tests reached against 874. **Measured directly, it is not.** Running one
+class both ways, to completion:
+
+    SynchronizeMemberFunctionOrderTest   quick 31941ms   widget 32606ms
+
+Under a second apart on a 32-second class. The count difference is about which
+classes ran before the cut, not about speed. Written down because the wrong
+reading was the obvious one and this file has had to withdraw six claims that
+were obvious and unmeasured.
+
+### Which gap this batch closed
+
+Of CppEditor's six failures with the Quick editor, five fail **identically
+with the widget editor** and are nothing to do with this migration:
+
+    MoveClassToOwnFileTest::test(complex, decl, header, template)   both ways
+    SynchronizeMemberFunctionOrderTest::test(different impl locations)  both ways
+
+The sixth is ours. `LanguageToolBarTest::testTheLanguagesButtonIsInTheToolBar`
+came in with this branch's own commit "TextEditor: Let a language put
+something in the toolbar", and asserted
+
+    QCOMPARE(actions.size(), 1);
+
+The toolbar now offers three - `#`, an empty-titled one, and `Analyze File...`
+- so the test failed, **both ways**, saying only "Actual 3, Expected 1".
+
+Asserting the count made every plugin that adds a toolbar entry a failure in
+CppEditor's suite. The test is about the language's own button being there; it
+now looks for that button among whatever else the toolbar has gained, and says
+what it found when it is missing.
+
+### Negative controls
+
+- **A -- the language offers no toolbar action** (`ownToolBarActions()` returns
+  nothing): red, and the message now names the state - "no # button among the
+  2 the toolbar offers" rather than "Actual 3, Expected 1".
+
+One control, because the change is one assertion. The five pre-existing
+failures were each re-run alone both ways to place them, which is the other
+half of the evidence.
+
+### Verification
+
+    -test TextEditor    586 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+    -test CppEditor,testTheLanguagesButtonIsInTheToolBar
+                        3 passed, 0 failed, exit 0 - and the same with
+                        QTC_WIDGET_CPP_EDITOR=1
+
+One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+**Seventeen plugins of the twenty still unrun:**
+
+    ClangCodeModel ClangFormat ClangTools FakeVim Macros LanguageClient
+    QmlJSEditor QmlJSTools Beautifier Todo DiffEditor CodePaster EmacsKeys
+    CompilerExplorer Core ProjectExplorer Debugger
+
+The method is settled and cheap now: run the pair, compare the verdicts of the
+tests **both** runs reached, and re-run anything that differs on its own before
+believing it. Three plugins in, the score is one honest skip and one stale
+assertion of our own - no divergence in behaviour anywhere.
+
+`CppEditor` also wants a run with a much longer cap than 300 seconds, so that
+its full list is compared rather than a prefix. It is the one suite big enough
+to need it.
+
+Unchanged and still open: **drag and drop of text**, which needs
+`QDragEnterEvent`/`QDropEvent` delivered by hand.
