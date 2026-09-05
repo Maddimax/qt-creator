@@ -37667,3 +37667,100 @@ next sweep should drop the `-v _test`.
 
 - **The `QuickUi` sort flake**, still not reproducing.
 - **An arbitrary widget in a Quick toolbar**, unchanged for twenty-one entries.
+
+## 2026-09-05 (26) -- The net with the test filter taken off
+
+The last entry said the next sweep should drop the `grep -v _test`, because a
+test's cast is what stops it seeing this editor. It did, and there was a second
+class in the same file.
+
+    ClangdTestCompletion    default 2 passed, 31 failed
+                            widget 32 passed,  1 failed
+
+Same cause as the tooltips: `qobject_cast<BaseTextEditor *>` on a `.cpp`, which
+has not been one since this editor became the default. Ported to
+`Core::IEditor` and the seams that already exist - `textCursorOf()` /
+`setTextCursorOf()` for the typing, `invokeAssistIn()` for the request, and the
+document's own `undo()`.
+
+**Which gap this batch closed:** twenty-one clangd completion tests that had
+never run against the Qt Quick editor.
+
+### And underneath it, a crash
+
+Porting the helper made the tests reach code that had not been reachable since
+the default changed, and that code aborted:
+
+    SUMMARY: AddressSanitizer: SEGV texteditor.cpp:3200
+        in TextEditor::TextEditorWidget::position() const
+      #1 TextEditor::WidgetAssistTarget::position()
+      #2 ClangdCompletionItem::apply(AssistTarget&, int)
+      #3 ClangdTestCompletion::testCompleteGlobals()
+
+Eleven places in this file do
+
+    auto editor = TextEditorWidget::currentTextEditorWidget();   // null here
+    TextEditor::WidgetAssistTarget target(editor);               // wraps null
+    item->apply(target, cursorPos);                              // dereferences
+
+A **third pattern**, and one neither sweep would have found: it names no cast
+and no `fromEditor`. `WidgetAssistTarget(...)` in a test is the needle, and it
+is now written down.
+
+The eleven were **skipped, not ported**. What follows each one reads
+`lineColumn()` and `autoCompleteHighlightPosition()` off the widget, and there
+is no seam for either - the viewport has no notion of the second at all, which
+may be a real gap rather than a missing accessor. Porting them is its own
+batch; wrapping a null widget so it segfaults is not something to leave
+reachable in the meantime.
+
+    ClangdTestCompletion    default 21 passed, 1 failed, 11 skipped
+                            widget  32 passed, 1 failed
+
+The one failure is `testSignalCompletion(positive: connect() on QObject
+pointer rvalue)` and it is **the same failure in both views** - pre-existing,
+not this port's.
+
+### On landing a skip
+
+A skip is a marker for work not done, and this file's own rules say to use one
+only with an honest reason. The reason here is that the alternative was worse
+in both directions: leaving the port out keeps thirty-one tests blind, and
+landing it without the guards turns a class that fails into a class that
+aborts. Eleven honest skips buy twenty-one tests their first run against this
+editor.
+
+### Verification
+
+    -test TextEditor    482 passed, 0 failed, exit 0
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0
+    -test ClangCodeModel,ClangdTestCompletion
+        default 21 passed, 1 failed, 11 skipped
+        widget  32 passed, 1 failed - same failure
+
+One file, no new file and no `.qbs` edit.
+
+### The control, and why there is not a better one
+
+- **A -- the helper's cast put back**: 2 passed, 31 failed, every one
+  `'editor' returned FALSE`. That is the state this batch found, measured
+  again rather than remembered.
+
+There is no control that makes the *skips* bite, because a skip is the absence
+of a test. That is exactly why they are eleven separate `QSKIP`s with a reason
+naming what is missing, rather than one guard around the class: each says which
+case is waiting.
+
+### What this leaves
+
+- **The eleven skipped cases**, needing an `assistTargetFor(IEditor *)` seam,
+  something for `lineColumn()`, and an answer to what
+  `autoCompleteHighlightPosition()` means for a view that has no such notion.
+  That last one is the only part that might be a behaviour gap rather than
+  test plumbing.
+- **`ClangdTestFollowSymbol` and `ClangdTestFindReferences`** fail identically
+  in both views on this machine - a kit and a clangd they do not have. They may
+  be hiding the same blindness behind an environment failure and there is no
+  way to tell here.
+- **The `QuickUi` sort flake**, and **an arbitrary widget in a Quick toolbar**,
+  both unchanged.
