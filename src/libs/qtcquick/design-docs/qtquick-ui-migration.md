@@ -36644,3 +36644,84 @@ different question from the rest of this plan - not "what has not been
 ported", but "where have the two views drifted apart" - and the remaining
 places to point it are the viewport's own public API and its QML-exposed
 properties, neither of which has been read beside the widget's.
+
+## 2026-09-05 (15) -- Taking the belt off, now that the braces are tested
+
+The last entry ended with `DiagnosticManager` doing the same thing twice -
+setting the selections on the document *and* looping over the widgets - and
+said the loop could come out, "but it is a second batch, with its own control,
+and leaving a redundant call is safer than removing one on the strength of
+this entry rather than a test". This is that batch.
+
+### The order the work was done in
+
+Deliberately, because removing code on the strength of an argument is what the
+last entry declined to do:
+
+1. **Write the test first, with the loop still in place.** Green - so the test
+   is not measuring the removal, it is measuring the behaviour.
+2. **Remove both loops.** Still green - so the loops were redundant, and that
+   is a measurement rather than a reading of the code.
+3. **Control: narrow the widget's document read back to five names.** Red - so
+   what carries the diagnostics to the widget now is the previous entry's
+   change and nothing else.
+
+Step 3 is the one that matters. Without it, step 2 proves only that *something*
+still works, not that the thing put in last time is what does it.
+
+### What the test pins
+
+There was no test for the case the loop existed for. `CocoLanguageClient`
+names its own kind through a `DiagnosticManager` subclass, and nothing
+exercised that path - so the loop was protecting a case that no test would
+have noticed breaking.
+
+The new test builds the same shape: a `DiagnosticManager` subclass with
+`setExtraSelectionsId()`, a `Client` subclass that returns it from
+`createDiagnosticManager()`, a **widget** editor on purpose, and a real
+`publishDiagnostics`. The Qt Quick view would prove nothing here, because it
+has always drawn every kind the document holds.
+
+**Which gap this batch closed:** none - this is the tidying half of the
+previous one, plus the test that the previous one should have had.
+
+### Negative controls
+
+- **A -- the widget's document read knows only five names again**: red, "the
+  widget drew nothing for a diagnostic under the client's own name".
+- **B -- the complaint is never taken back from the document**: red, on the
+  entry-10 test rather than this one, which is the right place for it.
+
+### One thing that would have gone stale
+
+The comment above the document call still read "a C++ file in the Qt Quick
+editor has no widget for **the loop below** to find" - and the loop below was
+gone. Rewritten to say what is true now. A comment describing a neighbour that
+no longer exists is the same failure as a plan entry describing code that no
+longer exists, and this file has corrected six of those.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      480 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient ...          40 passed, 0 failed, exit 0  (39 before)
+
+Two files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **The sort flake**, with the interleaved-runs method from entry 12. It is
+  the oldest open item and the only one that costs anything day to day: it
+  breaks the standing rule to check `QuickUi`'s exit code every batch.
+- **An arbitrary widget in a Quick toolbar**, unchanged for eleven entries.
+- **The inverted method's remaining targets**: the viewport's public API and
+  its QML-exposed properties, neither read beside the widget's yet. Its first
+  outing found the selection-kind asymmetry two entries ago, so it is worth
+  another.
+
+Nothing here is C++-blocking, and nothing here is a gap in the port. The plan
+has been in that state for three entries now, which is worth saying plainly
+rather than restating the same list a fourth time: **the migration's stated
+goal is met and the remaining items are hygiene.**

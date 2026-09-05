@@ -123,10 +123,6 @@ void DiagnosticManager::hideDiagnostics(const Utils::FilePath &filePath)
         if (doc == TextDocument::currentTextDocument())
             TaskHub::clearTasks(d->m_taskCategory);
         doc->setExtraSelections(d->m_extraSelectionsId, {});
-        // See showDiagnostics(): a client using an id of its own still needs
-        // its widgets told directly.
-        for (TextEditorWidget *widget : TextEditorWidget::textEditorWidgetsForDocument(doc))
-            widget->setExtraSelections(d->m_extraSelectionsId, {});
     }
     d->m_marks.remove(filePath);
     d->m_issuePaneEntries.remove(filePath);
@@ -173,20 +169,14 @@ void DiagnosticManager::showDiagnostics(const FilePath &filePath, int version)
         }
 
         // What the server says about the file is a fact about the file, so it
-        // goes on the document: every view draws what the document holds, and
-        // a C++ file in the Qt Quick editor has no widget for the loop below
-        // to find - which is why nothing was underlined there at all.
+        // goes on the document, and every view draws what the document holds -
+        // whatever the kind is called, which matters because a client can name
+        // its own and CocoLanguageClient does.
         QList<TextDocument::ExtraSelection> shared;
         shared.reserve(extraSelections.size());
         for (const QTextEdit::ExtraSelection &selection : std::as_const(extraSelections))
             shared.append({selection.cursor, selection.format});
         doc->setExtraSelections(d->m_extraSelectionsId, shared);
-
-        // And the widgets as well: a widget mirrors only the kinds it knows
-        // are document-wide, and a client can ask for an id of its own -
-        // Coco does - which is not among them.
-        for (TextEditorWidget *widget : TextEditorWidget::textEditorWidgetsForDocument(doc))
-            widget->setExtraSelections(d->m_extraSelectionsId, extraSelections);
 
         if (doc == TextDocument::currentTextDocument())
             d->showTasks(doc);

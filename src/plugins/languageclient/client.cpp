@@ -63,6 +63,7 @@
 
 #ifdef WITH_TESTS
 #include "languageclientoutline.h"
+#include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
@@ -2853,6 +2854,100 @@ private slots:
         client->deactivateDocument(document);
         QVERIFY2(document->extraSelections(warnings).isEmpty(),
                  "the complaint outlived the client's interest in the document");
+    }
+
+    // A client can name the kind its diagnostics are drawn under - Coco does,
+    // so that its coverage marks do not collide with a compiler's warnings -
+    // and that name is one nothing in TextEditor knows. Both views have to
+    // draw it, and the widget is the half that used to need telling directly.
+    void testADiagnosticUnderAClientsOwnNameReachesAWidget()
+    {
+        const Utils::Id ours("TestExtraSelections");
+
+        class NamedManager final : public DiagnosticManager
+        {
+        public:
+            explicit NamedManager(Client *client, const Utils::Id &id)
+                : DiagnosticManager(client)
+            {
+                setExtraSelectionsId(id);
+            }
+        };
+
+        class NamedClient final : public Client
+        {
+        public:
+            NamedClient(BaseClientInterface *interface, const Utils::Id &id)
+                : Client(interface)
+                , m_id(id)
+            {}
+
+            using Client::handleDiagnostics;
+
+        protected:
+            DiagnosticManager *createDiagnosticManager() override
+            {
+                return new NamedManager(this, m_id);
+            }
+
+        private:
+            const Utils::Id m_id;
+        };
+
+        Utils::TemporaryDirectory dir("lsp-named-diagnostics");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("marked.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        auto * const server = new RecordingServer({});
+        auto * const client = new NamedClient(server, ours);
+        client->setName("named diagnostics test client");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY(client->reachable());
+
+        // The widget editor on purpose: the Qt Quick one draws every kind the
+        // document holds and always did, so it would prove nothing here.
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const base = qobject_cast<TextEditor::BaseTextEditor *>(editor);
+        QVERIFY2(base, "the plain text editor is not a BaseTextEditor any more");
+        TextEditor::TextEditorWidget * const widget = base->editorWidget();
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(widget && document);
+
+        LanguageClientManager::openDocumentWithClient(document, client);
+        QTRY_VERIFY(LanguageClientManager::clientForFilePath(file) == client);
+        QVERIFY2(widget->extraSelections(ours).isEmpty(),
+                 "something had already drawn under this name");
+
+        Diagnostic diagnostic;
+        diagnostic.setRange(Range(Position(0, 0), Position(0, 5)));
+        diagnostic.setMessage("alpha is not beta");
+        diagnostic.setSeverity(DiagnosticSeverity::Warning);
+        PublishDiagnosticsParams params;
+        params.setUri(client->hostPathToServerUri(file));
+        params.setDiagnostics({diagnostic});
+        client->handleDiagnostics(params);
+
+        const QList<QTextEdit::ExtraSelection> drawn = widget->extraSelections(ours);
+        QVERIFY2(drawn.size() == 1,
+                 "the widget drew nothing for a diagnostic under the client's own name");
+        QCOMPARE(drawn.first().cursor.selectionStart(), 0);
+        QCOMPARE(drawn.first().cursor.selectionEnd(), 5);
+
+        // And withdrawn when the server stops complaining.
+        params.setDiagnostics({});
+        client->handleDiagnostics(params);
+        QVERIFY2(widget->extraSelections(ours).isEmpty(),
+                 "the complaint stayed after the server withdrew it");
     }
 
     // ... but not over the language's own answer. CppEditor's link finder
