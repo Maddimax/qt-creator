@@ -33528,3 +33528,93 @@ Twelve files, no new file and no `.qbs` edit.
 - Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- C++ Follow Symbol in the Quick editor was not CppEditor's
+
+The plan said to start from a `sample` of a run in the truncating mode. That
+caught the hang on the first attempt, and the trace ended:
+
+    TextViewport::openLink                      textviewport.cpp:1376
+      EditorManager::openEditorAt
+        EditorManagerPrivate::openEditor
+          QDialog::exec()                       <- modal, in a test
+
+A modal "could not open" box, waiting for a click that never comes, until
+QTest's watchdog fires at 300 s. The widget's `openLink()` makes the *same*
+call, so the difference had to be upstream - in which link was produced.
+
+It was. `CppEditorWidget` **overrides** `findLinkAt()`, and the override does
+three things the generic path does not: follows a URL in a comment, redirects
+`ui_*.h` to the designer, and routes through
+`CppModelManager::followSymbol(..., FollowSymbolMode::Fuzzy)`. A view that is
+not a widget has none of that - it has only `linkFinderFor(document)`, and
+that prefers **the document's** finder, which `Client::openDocument()` installs.
+
+So with clangd running - the default for C++ - Follow Symbol in the Qt Quick
+editor was a **bare LSP goto-definition**. No dispatch through the model
+manager, no fuzzy fallback to the built-in model when clangd has no answer, no
+`adjustedCursor()`, no override chooser. The last three batches fixed things on
+`CppModelManager::followSymbol`'s path; **this path never reached it.**
+
+The gap this closed: the client no longer replaces a link finder the file's
+own factory provides. Its comment had the reasoning right and the scope too
+wide - *"the factory that claims a Python file is the plain text one, which
+has no idea a server is here"* is true, and is why the document-level finder
+exists; it just does not apply to a language whose factory answers Follow
+Symbol itself and reaches the server on the way. `findCppLinkAt()` also asks
+for `Fuzzy` now, as `CppEditorWidget::findLinkAt()` does, since Exact is what
+short-circuits the built-in fallback.
+
+### This is what had been hanging
+
+    testFollowVirtualFunctionCall
+      HEAD:      6/18, then 300 s watchdog, then 300 s watchdog
+      with fix:  24 passed, 0 failed, exit 0, ~5.2 s  (x3, no watchdog)
+
+    FollowSymbolTest (whole class)
+      HEAD:      27/1 or 41/28, watchdog every time
+      with fix:  155 passed, 0 failed, exit 0, 41.8 s  (x2, no watchdog)
+
+155/155 is exactly what `~/.claude/qt-creator.md` recorded for this class on
+2026-09-02, before C++ began opening in the Quick editor. The suite is a gate
+again, and the three batches spent circling this hang were all downstream of
+one line of precedence.
+
+**A view is not only what it draws.** `CppEditorWidget` overrode a virtual and
+the Quick viewport could not, so a whole language's behaviour quietly fell back
+to the generic one. Worth asking of every remaining widget: which of its
+`virtual` overrides is behaviour the language needs, rather than painting?
+
+### Negative controls
+
+- **A -- the client replaces the language's own finder again**
+  (`languageAnswersItself = false`): red on the C++ half.
+- **B -- the client stops answering where nothing else does**
+  (`= true`): red on the plain text half.
+
+Opposite directions, which is the shape that matters here: the test pins both
+sides, so neither "always install" nor "never install" can pass it.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      457 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test LanguageClient ...            38 passed, 0 failed, exit 0
+    -test CppEditor,SymbolJumpTest ...   7 passed, 0 failed, exit 0
+    -test CppEditor,FollowSymbolTest ...155 passed, 0 failed, exit 0
+
+Two files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **`CppEditorWidget`'s other overrides**, by the reasoning above. `findTypeAt()`
+  is the immediate neighbour and has the same shape; `followUrl()` and the
+  `ui_*.h` designer redirect are still widget-only even now, because they live
+  in the override rather than in `findCppLinkAt()`.
+- Unchanged: the clang-tools toolbar button, the parse-context highlight,
+  Refactor submenu nesting - one presentation question in three places.
+- Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

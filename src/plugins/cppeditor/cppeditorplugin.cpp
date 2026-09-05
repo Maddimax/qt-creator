@@ -193,8 +193,10 @@ static void findCppLinkAt(TextEditor::TextDocument *document,
                               nullptr,
                               document,
                               CppModelManager::snapshot().document(document->filePath()));
+    // Fuzzy, as CppEditorWidget::findLinkAt() asks for: it is what lets an
+    // answer clangd cannot give fall back to the built-in model.
     CppModelManager::followSymbol(data, processLinkCallback, resolveTarget, inNextSplit,
-                                  FollowSymbolMode::Exact);
+                                  FollowSymbolMode::Fuzzy);
 }
 
 class CppEditorFactory : public TextEditorFactory

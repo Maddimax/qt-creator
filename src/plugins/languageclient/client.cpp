@@ -1049,8 +1049,19 @@ void Client::activateDocument(TextEditor::TextDocument *document)
     // Follow Symbol, for a language whose definitions only this server knows.
     // On the document rather than on a factory: the factory that claims a
     // Python file is the plain text one, which has no idea a server is here.
+    //
+    // Unless that factory answers Follow Symbol itself, in which case it is
+    // the language's own way in and knows more than this: CppEditor's goes
+    // through CppModelManager, which asks clangd and falls back to the
+    // built-in model when the server has no answer. Replacing it here would
+    // cost a C++ file in the Qt Quick editor all of that, since a view that
+    // is not a widget has only what linkFinderFor() hands it.
+    //
     // Held by QPointer because the document can outlive the client.
-    if (symbolSupport().supportsFindLink(document, LinkTarget::SymbolDef)) {
+    TextEditor::TextEditorFactory * const claimant
+        = TextEditor::TextEditorFactory::preferredFactoryFor(document->filePath());
+    const bool languageAnswersItself = claimant && claimant->linkFinder();
+    if (!languageAnswersItself && symbolSupport().supportsFindLink(document, LinkTarget::SymbolDef)) {
         document->setLinkFinder([self = QPointer(this)](
                                     TextEditor::TextDocument *doc,
                                     const QTextCursor &cursor,
@@ -2756,6 +2767,70 @@ private slots:
                  "the client's semantic selection outlived its interest in the document");
         QVERIFY2(document->refactorMarkers(client->id()).isEmpty(),
                  "the client's refactor marker outlived its interest in the document");
+    }
+
+    // ... but not over the language's own answer. CppEditor's link finder
+    // goes through CppModelManager, which asks clangd and falls back to the
+    // built-in model; the raw request this client would install knows only
+    // the server. A C++ file in the Qt Quick editor has nothing but what
+    // linkFinderFor() hands it, so which one that is decides whether Follow
+    // Symbol there is CppEditor's or a bare goto-definition.
+    void testTheLanguagesOwnFollowSymbolIsNotReplaced()
+    {
+        Utils::TemporaryDirectory dir("lsp-finder-precedence");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath cpp = dir.filePath("claimed.cpp");
+        QVERIFY(cpp.writeFileContents("struct C { void f(); };\n"));
+        const Utils::FilePath txt = dir.filePath("unclaimed.txt");
+        QVERIFY(txt.writeFileContents("alpha beta\n"));
+
+        // The fixture only means anything if the two files differ in exactly
+        // the way under test: one factory answers Follow Symbol, one does not.
+        TextEditor::TextEditorFactory * const forCpp
+            = TextEditor::TextEditorFactory::preferredFactoryFor(cpp);
+        TextEditor::TextEditorFactory * const forTxt
+            = TextEditor::TextEditorFactory::preferredFactoryFor(txt);
+        QVERIFY(forCpp && forTxt);
+        QVERIFY2(forCpp->linkFinder(), "no C++ factory answers Follow Symbol");
+        QVERIFY2(!forTxt->linkFinder(), "the plain text factory grew a link finder");
+
+        QJsonObject capabilities;
+        capabilities["definitionProvider"] = true;
+
+        auto * const server = new RecordingServer(capabilities);
+        auto * const client = new Client(server);
+        client->setName("finder precedence test client");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList({"text/plain", "text/x-c++src"});
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+
+        client->start();
+        QTRY_VERIFY(client->reachable());
+
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+        Core::IEditor * const cppEditor = Core::EditorManager::openEditor(cpp);
+        Core::IEditor * const txtEditor = Core::EditorManager::openEditor(txt);
+        QVERIFY(cppEditor && txtEditor);
+        auto * const cppDoc = qobject_cast<TextEditor::TextDocument *>(cppEditor->document());
+        auto * const txtDoc = qobject_cast<TextEditor::TextDocument *>(txtEditor->document());
+        QVERIFY(cppDoc && txtDoc);
+
+        LanguageClientManager::openDocumentWithClient(cppDoc, client);
+        LanguageClientManager::openDocumentWithClient(txtDoc, client);
+        QTRY_VERIFY(client->documentOpen(cppDoc) && client->documentOpen(txtDoc));
+
+        // Where nothing else answers, the client does - that is the case the
+        // document-level finder exists for.
+        QTRY_VERIFY2(txtDoc->linkFinder(),
+                     "the client left a plain text file with no way to follow a symbol");
+
+        // Where the language answers, the client keeps out of it and
+        // linkFinderFor() falls through to the factory.
+        QVERIFY2(!cppDoc->linkFinder(),
+                 "the client overrode the language's own Follow Symbol");
+        QCOMPARE(TextEditor::TextEditorFactory::linkFinderFor(cppDoc).target_type().name(),
+                 forCpp->linkFinder().target_type().name());
     }
 
     void testFollowSymbolReachesTheServerFromAnyView()
