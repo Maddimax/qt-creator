@@ -3362,6 +3362,58 @@ private slots:
         QCOMPARE(TextEditor::textCursorOf(editor).position(), 7);
     }
 
+    // A line of C++ typed a character at a time, into each view, and the two
+    // files compared. Every other test here sets a cursor, invokes a command
+    // or sends one key; none types a *sequence*, and that is where the closing
+    // bracket bug lived - and where this one did.
+    //
+    // The closers nest: "{" leaves "}", then "(" leaves ")}", then a quote
+    // leaves "\"" in front of both. Stepping over one has to leave the rest,
+    // and putting one in has to join what is already waiting. Getting either
+    // wrong leaves the line ending in ")}" - which is what typing this line
+    // into this editor did.
+    void testTypingALineOfCppLeavesTheSameFileInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTypingALineOfCppLeavesTheSameFileInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("probe-typing");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        const QString line = "void f() { g(\"a\"); }";
+        for (const QChar ch : line) {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(ch));
+            QCoreApplication::sendEvent(target, &press);
+        }
+
+        // What was typed, with nothing left over. Both rows assert the same
+        // thing, so the widget row is the control on the expectation.
+        QCOMPARE(document->document()->toPlainText(), line);
+    }
+
     // A language server attaches to a document rather than to a language, so
     // it cannot register a finder on a factory - and for a C++ file it has to
     // be preferred over the one CppEditor registers, or Follow Symbol answers

@@ -37841,3 +37841,77 @@ tests that drive this editor set cursors, invoke commands and send single
 keys, but almost none of them type a *sequence* the way a reader does. That is
 where this bug lived, and it is the obvious place to look for the next one -
 type a line of C++ into both views and compare the files.
+
+## 2026-09-05 (28) -- Typing a whole line, which nothing had done
+
+The last entry ended by naming what no test here does: **type a sequence.**
+Everything drives this editor by setting a cursor, invoking a command or
+sending one key. The closing-bracket bug lived in the gap that leaves, so the
+proposal was to type a line of C++ into both views and compare the files.
+
+    typed    void f() { g("a"); }
+    widget   void f() { g("a"); }
+    quick    void f() { g("a"); })}
+
+**Which gap this batch closed:** two stray closing characters at the end of
+every line with nested brackets in it - which is most lines of C++.
+
+### Why the previous fix was not enough
+
+Entry 27 kept *one* range for what the auto-completer had inserted, and
+cleared it after stepping over. That is right for `f(` then `)` and wrong for
+anything nested, which is the normal case:
+
+    "{"   leaves  }        pending
+    " g(" leaves  )}       pending
+    "\""  leaves  "}) ...  pending
+
+Each new closer **replaced** the record instead of joining it, and each skip
+**cleared** the record instead of leaving the rest. So the `}` was forgotten
+the moment `(` was typed, and the `)` the moment the quote was.
+
+Both halves are fixed: putting a closer in joins what is already waiting -
+the insertion pushes it to sit immediately after, which is how it is
+recognised - and stepping over one leaves the remainder pending.
+
+That the entry-27 test still passed throughout is the point: it types `(`
+then `)` and nothing else, so it never had two closers waiting at once. **A
+test written from the bug it was chasing covers the bug it was chasing.**
+
+### Negative controls
+
+- **A -- a new closer forgets the ones already waiting**: red on the *quick*
+  row, `"void f() { g(\\"a\\"); })}"`.
+- **B -- stepping over one forgets the rest**: red the same way.
+
+Two controls because the fix has two halves and either alone leaves the same
+visible wreckage. Both rows of the test assert the same string and only the
+quick row failed either time, so the **widget row is the control on the
+expectation** - it says this is what the other editor does, not what this test
+imagines.
+
+### Verification
+
+    -test TextEditor    486 passed, 0 failed, exit 0, 0 warnings   (484 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+Three files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+The differential-typing test is now one line. It found a bug on its first run,
+which is an argument for more of them rather than for stopping:
+
+- **A line with a string containing a bracket** - `g("(")` - where the
+  auto-completer should not be counting the one inside the quotes.
+- **Enter inside braces**, which is where auto-indent and the pending closers
+  meet; nothing types a newline mid-construct here.
+- **Backspace over an auto-inserted pair**, which the widget removes both
+  halves of.
+
+Each is a row in the same test and each is a plausible place for the same
+family of bug. That is the next batch, and it is cheap: the fixture exists.
+
+Unchanged: **drawing** the auto-inserted text, the **eleven skipped
+completion cases**, the **`QuickUi` sort flake**, and **an arbitrary widget in
+a Quick toolbar**.

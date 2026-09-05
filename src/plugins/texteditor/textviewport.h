@@ -1263,6 +1263,7 @@ private:
     // half of a bracket or a quote. Kept so that typing that half steps
     // over it rather than adding a second one.
     QTextCursor m_autoCompleted;
+    void setAutoCompletedRange(int from, int to);
     // Whether the one in use came from the source, so that a source that
     // stops offering one gets the plain default back rather than keeping the
     // last language's.

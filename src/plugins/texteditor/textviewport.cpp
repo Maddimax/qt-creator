@@ -2336,6 +2336,22 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
 // quote, and the indentation a character like '}' asks for. The closing text is
 // left *after* the caret, which is what makes it something to type over rather
 // than something to delete.
+// The stretch of text the auto-completer has put in and the reader has not
+// typed over yet. Empty clears it.
+void TextViewport::setAutoCompletedRange(int from, int to)
+{
+    QTextDocument * const text = m_document && m_document->textDocument()
+                                     ? m_document->textDocument()->document()
+                                     : nullptr;
+    if (!text || from >= to) {
+        m_autoCompleted = QTextCursor();
+        return;
+    }
+    m_autoCompleted = QTextCursor(text);
+    m_autoCompleted.setPosition(from);
+    m_autoCompleted.setPosition(to, QTextCursor::KeepAnchor);
+}
+
 void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
 {
     // Overwriting: what is under the caret goes, unless the caret is at the end
@@ -2368,7 +2384,12 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
         }
         if (skipped > 0) {
             cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::MoveAnchor, skipped);
-            m_autoCompleted = QTextCursor();
+            // What is left of it. Closers nest - typing "{ g(" leaves ")}" -
+            // so stepping over one has to leave the rest pending rather than
+            // forget them, which is what made a whole line come out as
+            // "void f() { g(\"a\"); })}".
+            setAutoCompletedRange(m_autoCompleted.selectionStart() + skipped,
+                                  m_autoCompleted.selectionEnd());
             typed = typed.mid(skipped);
             if (typed.isEmpty())
                 return;
@@ -2397,8 +2418,13 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
         const int before = cursor.position();
         cursor.insertText(closing);
         // Remembered before the caret goes back in front of it.
-        m_autoCompleted = cursor;
-        m_autoCompleted.setPosition(before, QTextCursor::KeepAnchor);
+        // Joined to whatever is still pending, which the insertion has just
+        // pushed to sit immediately after what was put in.
+        const int after = cursor.position();
+        const int end = !m_autoCompleted.isNull() && m_autoCompleted.selectionStart() == after
+                            ? m_autoCompleted.selectionEnd()
+                            : after;
+        setAutoCompletedRange(before, end);
         cursor.setPosition(before);
     }
     if (!electricChar.isNull() && m_autoCompleter->contextAllowsElectricCharacters(cursor))
