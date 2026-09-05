@@ -34530,3 +34530,83 @@ Two things, both decisions rather than tasks:
 - **The presentation questions** - the clang-tools toolbar button, the
   parse-context highlight, whether the Refactor submenu nests or goes inline.
   Fourteen batches deferred.
+
+## 2026-09-05 -- The Lua editor bindings, and a question I could answer myself
+
+The last two entries parked this on "nobody has said whether scripting against
+the editor is supported". That was a question I could have answered by looking:
+`src/plugins/lua/meta/texteditor.lua` is a documented, versioned API surface -
+"since 17.0.0", "since 17.0.1" - for script authors. It is supported.
+
+**Deferring to a decision is only right when the decision is not already
+written down somewhere.** Two batches were spent asking.
+
+The gap this closed: **every Lua editor binding was dead on a C++ file.**
+`QuickTextEditor` and `BaseTextEditor` are siblings under `Core::IEditor`, so
+`qobject_cast<BaseTextEditor *>` answered null, `TextEditor.currentEditor()`
+returned nil, and nothing hanging off it could run. The usertype is registered
+on `Core::IEditor` now and the registry tracks any editor whose document is a
+`TextDocument`.
+
+Most members already had somewhere to go, which is what the previous batches
+were for: `visibleLinesIn()` for the first and last visible line,
+`setRefactorMarkersIn()` for the markers, `TextDocument::addToolBarAction()`
+for a toolbar action. Two seams were missing and are added here -
+`multiTextCursorOf()`/`setMultiTextCursorOf()`, and `hasFocusIn()`/
+`setFocusIn()`. Both are pure dispatchers: `TextViewport` already had
+`multiTextCursor()` under the same name, and focus is `hasActiveFocus()` where
+a widget says `hasFocus()`.
+
+### Three members that are genuinely a widget's
+
+Refused with an error rather than quietly doing nothing, so a script author
+finds out:
+
+- **`addEmbeddedWidget`** parents a `QWidget` among the text. The Qt Quick
+  view has nowhere to put one.
+- **`insertExtraToolBarWidget`** likewise - that toolbar is built from
+  actions. `insertExtraToolBarAction` *does* work in both, through the
+  document.
+- **`hasLockedSuggestion`** asks `suggestionVisible()`, which is a
+  `SuggestionHost` question. The Qt Quick view shows and takes suggestions but
+  is not a `SuggestionHost`, so this wants a seam rather than a guess.
+
+### What is tested, and what is not
+
+The seams are: `testEveryCaretIsReachedInEitherView` sets two carets through
+`setMultiTextCursorOf()` and reads them back, in **both** views.
+
+The binding itself is not. The Lua plugin has no `WITH_TESTS` and no harness
+for running a script, and building one is a batch of its own. Focus is not
+tested either, for the reason the last entry recorded: an editor opened in a
+test never renders, and focus follows an exposed window.
+
+### Negative controls
+
+- **A -- the seam does not reach a view that is not a widget**: red on the
+  `quick` row only, which is the right shape - the widget row is untouched.
+- **B -- only the main caret survives the round trip**: red on **both** rows,
+  so the assertion is about every caret rather than about the view.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      462 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test EmacsKeys ...                      3 passed, 0 failed, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **`hasLockedSuggestion`** - one member, wants the Qt Quick view to answer
+  "is a suggestion showing". Small, and the last widget-shaped thing in the
+  bindings that is not inherently a widget.
+- **A Lua test harness**, if the bindings are to be tested at all. Worth its
+  own batch and worth deciding on: everything in that plugin is currently
+  untested.
+- **The presentation questions** - the clang-tools toolbar button, the
+  parse-context highlight, whether the Refactor submenu nests or goes inline.
+  Fifteen batches deferred. This is the only item left that genuinely needs a
+  person, and the deferral has become the answer by default.

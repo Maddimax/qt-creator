@@ -39,19 +39,21 @@ Return get_or_throw(const Argument &arg, const char *key)
 
 TextEditor::TextEditorWidget *getSuggestionReadyEditorWidget(TextEditor::TextDocument *document)
 {
-    const auto textEditor = BaseTextEditor::currentTextEditor();
+    Core::IEditor * const textEditor = Core::EditorManager::currentEditor();
     if (!textEditor || textEditor->document() != document)
         return nullptr;
 
-    auto *widget = textEditor->editorWidget();
-    if (widget->isReadOnly() || widget->multiTextCursor().hasMultipleCursors())
+    // Still widget-only: what this hands back is a SuggestionHost, and the Qt
+    // Quick view is not one even though it shows suggestions. See the doc.
+    auto * const widget = TextEditorWidget::fromEditor(textEditor);
+    if (!widget || widget->isReadOnly() || widget->multiTextCursor().hasMultipleCursors())
         return nullptr;
 
     return widget;
 }
 
 std::unique_ptr<EmbeddedWidgetInterface> addEmbeddedWidget(
-    BaseTextEditor *editor, QWidget *widget, std::variant<int, Position> cursorPosition)
+    Core::IEditor *editor, QWidget *widget, std::variant<int, Position> cursorPosition)
 {
     if (!widget)
         throw sol::error("No widget provided");
@@ -59,41 +61,44 @@ std::unique_ptr<EmbeddedWidgetInterface> addEmbeddedWidget(
     if (!editor)
         throw sol::error("No editor provided");
 
-    if (!editor->textDocument() || !editor->textDocument()->document())
+    auto * const textDocument = qobject_cast<TextDocument *>(editor->document());
+    if (!textDocument || !textDocument->document())
         throw sol::error("No text document set");
 
-    widget->setParent(editor->editorWidget()->viewport());
-    TextEditorWidget *editorWidget = editor->editorWidget();
+    // A QWidget put among the text is the widget editor's own trick; the Qt
+    // Quick one has no place to parent it to. Refused rather than ignored, so
+    // a script is told instead of silently showing nothing.
+    TextEditorWidget * const editorWidget = TextEditorWidget::fromEditor(editor);
+    if (!editorWidget)
+        throw sol::error("addEmbeddedWidget needs a widget editor");
+    widget->setParent(editorWidget->viewport());
 
     int pos = cursorPosition.index() == 0
                   ? std::get<int>(cursorPosition)
                   : std::get<Position>(cursorPosition)
-                        .toPositionInDocument(editor->textDocument()->document());
+                        .toPositionInDocument(textDocument->document());
 
     std::unique_ptr<EmbeddedWidgetInterface> embed = editorWidget->insertWidget(widget, pos);
     return embed;
 }
 
-void clearRefactorMarkers(BaseTextEditor *editor, const Utils::Id &id)
+void clearRefactorMarkers(Core::IEditor *editor, const Utils::Id &id)
 {
-    TextEditorWidget *editorWidget = editor->editorWidget();
-    QTC_ASSERT(editorWidget, throw sol::error("TextEditorWidget is not valid"));
-
-    editorWidget->clearRefactorMarkers(id);
+    QTC_ASSERT(editor, throw sol::error("TextEditor is not valid"));
+    setRefactorMarkersIn(editor, id, {});
 }
 
 void setRefactorMarker(
-    BaseTextEditor *editor,
+    Core::IEditor *editor,
     const Utils::Icon &icon,
     int position,
     const Utils::Id &id,
     bool anchorLeft,
     sol::main_function callback)
 {
-    TextEditorWidget *editorWidget = editor->editorWidget();
-    QTC_ASSERT(editorWidget, throw sol::error("TextEditorWidget is not valid"));
+    auto * const textDocument = qobject_cast<TextDocument *>(editor->document());
+    QTC_ASSERT(textDocument, throw sol::error("TextEditor has no text document"));
 
-    TextDocument *textDocument = editor->textDocument();
     QTextCursor cursor = QTextCursor(textDocument->document());
     cursor.setPosition(position);
 
@@ -110,13 +115,15 @@ void setRefactorMarker(
     };
     marker.type = id;
 
-    editorWidget->setRefactorMarkers({std::move(marker)}, id);
+    setRefactorMarkersIn(editor, id, {std::move(marker)});
 }
 } // namespace
 
 namespace Lua::Internal {
 
-using TextEditorPtr = QPointer<BaseTextEditor>;
+// The editor, not a widget editor: a C++ file opens in the Qt Quick one, and
+// a script that asked for the current editor used to be handed nil.
+using TextEditorPtr = QPointer<Core::IEditor>;
 using TextDocumentPtr = QPointer<TextDocument>;
 
 class TextEditorRegistry : public QObject
@@ -144,12 +151,16 @@ public:
 
                 if (m_currentTextEditor) {
                     m_currentTextEditor->disconnect(this);
-                    m_currentTextEditor->editorWidget()->disconnect(this);
+                    if (QWidget * const view = m_currentTextEditor->widget())
+                        view->disconnect(this);
                     m_currentTextEditor->document()->disconnect(this);
                     m_currentTextEditor = nullptr;
                 }
 
-                m_currentTextEditor = qobject_cast<BaseTextEditor *>(editor);
+                // Any view of a text document, which is what these bindings
+                // are about - the file, not the kind of view.
+                if (qobject_cast<TextDocument *>(editor->document()))
+                    m_currentTextEditor = editor;
 
                 if (m_currentTextEditor) {
                     if (!connectTextEditor(m_currentTextEditor))
@@ -163,28 +174,25 @@ public:
             &Core::EditorManager::editorCreated,
             this,
             [this](Core::IEditor *editor) {
-                auto textEditor = qobject_cast<BaseTextEditor *>(editor);
-                if (textEditor)
-                    emit editorCreated(textEditor);
+                if (editor && qobject_cast<TextDocument *>(editor->document()))
+                    emit editorCreated(editor);
             });
     }
 
-    bool connectTextEditor(BaseTextEditor *editor)
+    bool connectTextEditor(Core::IEditor *editor)
     {
-        auto textEditorWidget = editor->editorWidget();
-        if (!textEditorWidget)
-            return false;
-
-        TextDocument *textDocument = editor->textDocument();
+        auto * const textDocument = qobject_cast<TextDocument *>(editor->document());
         if (!textDocument)
             return false;
 
+        // The editor says the caret moved whichever view it has; what the
+        // carets then are is asked of that view.
         connect(
-            textEditorWidget,
-            &TextEditorWidget::cursorPositionChanged,
+            editor,
+            &Core::IEditor::cursorPositionChanged,
             this,
-            [editor, textEditorWidget, this]() {
-                emit currentCursorChanged(editor, textEditorWidget->multiTextCursor());
+            [editor, this]() {
+                emit currentCursorChanged(editor, multiTextCursorOf(editor));
             });
 
         connect(
@@ -199,12 +207,12 @@ public:
     }
 
 signals:
-    void currentEditorChanged(BaseTextEditor *editor);
-    void editorCreated(BaseTextEditor *editor);
+    void currentEditorChanged(Core::IEditor *editor);
+    void editorCreated(Core::IEditor *editor);
     void documentContentsChanged(
         TextDocument *document, int position, int charsRemoved, int charsAdded);
 
-    void currentCursorChanged(BaseTextEditor *editor, MultiTextCursor cursor);
+    void currentCursorChanged(Core::IEditor *editor, MultiTextCursor cursor);
 
 protected:
     TextEditorPtr m_currentTextEditor = nullptr;
@@ -221,13 +229,17 @@ void setupTextEditorModule()
         sol::table result = lua.create_table();
 
         result["currentEditor"] = []() -> TextEditorPtr {
-            return BaseTextEditor::currentTextEditor();
+            Core::IEditor * const editor = Core::EditorManager::currentEditor();
+            if (editor && qobject_cast<TextDocument *>(editor->document()))
+                return editor;
+            return nullptr;
         };
 
         result["openedEditors"] = [lua]() mutable -> sol::table {
-            QList<BaseTextEditor *> editors = BaseTextEditor::openedTextEditors();
             sol::table result = lua.create_table();
-            for (auto& editor : editors) {
+            for (Core::IEditor * const editor : Core::DocumentModel::editorsForOpenedDocuments()) {
+                if (!qobject_cast<TextDocument *>(editor->document()))
+                    continue;
                 result.add(TextEditorPtr(editor));
             }
             return result;
@@ -430,18 +442,18 @@ void setupTextEditorModule()
             for (const auto &[k, v] : activeMarkers->asKeyValueRange()) {
                 if (k) {
                     for (const auto &id : std::as_const(v))
-                        k->editorWidget()->clearRefactorMarkers(id);
+                        setRefactorMarkersIn(k, id, {});
                 }
             }
         });
 
-        result.new_usertype<BaseTextEditor>(
+        result.new_usertype<Core::IEditor>(
             "TextEditor",
             sol::no_constructor,
             "document",
             [](const TextEditorPtr &textEditor) -> TextDocumentPtr {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                return textEditor->textDocument();
+                return qobject_cast<TextDocument *>(textEditor->document());
             },
             "addEmbeddedWidget",
             [](const TextEditorPtr &textEditor,
@@ -453,12 +465,25 @@ void setupTextEditorModule()
             "insertExtraToolBarWidget",
             [](const TextEditorPtr &textEditor, TextEditorWidget::Side side, LayoutOrWidget widget) {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                textEditor->editorWidget()->insertExtraToolBarWidget(side, toWidget(widget));
+                // A QWidget in the toolbar has nowhere to go in the Qt Quick
+                // editor, whose toolbar is built from actions. Refused rather
+                // than ignored, so a script learns why nothing appeared.
+                TextEditorWidget * const view = TextEditorWidget::fromEditor(textEditor);
+                if (!view)
+                    throw sol::error("insertExtraToolBarWidget needs a widget editor");
+                view->insertExtraToolBarWidget(side, toWidget(widget));
             },
             "insertExtraToolBarAction",
             [](const TextEditorPtr &textEditor, TextEditorWidget::Side side, QAction *action) {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                textEditor->editorWidget()->insertExtraToolBarAction(side, action);
+                // An action the document carries, which either toolbar builds
+                // from - see TextDocument::addToolBarAction().
+                if (TextEditorWidget * const view = TextEditorWidget::fromEditor(textEditor)) {
+                    view->insertExtraToolBarAction(side, action);
+                    return;
+                }
+                if (auto * const doc = qobject_cast<TextDocument *>(textEditor->document()))
+                    doc->addToolBarAction(action);
             },
             "setRefactorMarker",
             [pluginSpec, activeMarkers](
@@ -490,49 +515,47 @@ void setupTextEditorModule()
             "cursor",
             [](const TextEditorPtr &textEditor) {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                return textEditor->editorWidget()->multiTextCursor();
+                return multiTextCursorOf(textEditor);
             },
             "setCursor",
             [](const TextEditorPtr &textEditor, MultiTextCursor *cursor) {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                textEditor->editorWidget()->setMultiTextCursor(*cursor);
+                setMultiTextCursorOf(textEditor, *cursor);
             },
             "hasLockedSuggestion",
             [](const TextEditorPtr &textEditor) {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                return textEditor->editorWidget()->suggestionVisible();
+                // Still widget-only: suggestionVisible() is a SuggestionHost
+                // question and the Qt Quick view is not one. It offers and
+                // takes suggestions, so this wants a seam of its own rather
+                // than a guess. See the design doc.
+                TextEditorWidget * const view = TextEditorWidget::fromEditor(textEditor);
+                return view && view->suggestionVisible();
             },
             "insertText",
             [](TextEditorPtr editor, const QString &text) {
-                editor->editorWidget()->multiTextCursor().insertText(text);
+                MultiTextCursor cursor = multiTextCursorOf(editor);
+                cursor.insertText(text);
             },
             "hasFocus",
             [](const TextEditorPtr &textEditor) {
-                QTC_ASSERT(
-                    textEditor && textEditor->editorWidget(),
-                    throw sol::error("TextEditor is not valid"));
-                return textEditor->editorWidget()->hasFocus();
+                QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
+                return hasFocusIn(textEditor);
             },
             "setFocus",
             [](const TextEditorPtr &textEditor) {
-                QTC_ASSERT(
-                    textEditor && textEditor->editorWidget(),
-                    throw sol::error("TextEditor is not valid"));
-                textEditor->editorWidget()->setFocus();
+                QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
+                setFocusIn(textEditor);
             },
             "firstVisibleBlockNumber",
             [](const TextEditorPtr &textEditor) -> int {
-                QTC_ASSERT(
-                    textEditor && textEditor->editorWidget(),
-                    throw sol::error("TextEditor is not valid"));
-                return textEditor->editorWidget()->firstVisibleBlockNumber();
+                QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
+                return visibleLinesIn(textEditor).first;
             },
             "lastVisibleBlockNumber",
             [](const TextEditorPtr &textEditor) -> int {
-                QTC_ASSERT(
-                    textEditor && textEditor->editorWidget(),
-                    throw sol::error("TextEditor is not valid"));
-                return textEditor->editorWidget()->lastVisibleBlockNumber();
+                QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
+                return visibleLinesIn(textEditor).second;
             });
 
         result["Side"] = lua.create_table_with(
@@ -620,7 +643,7 @@ void setupTextEditorModule()
             TextEditorRegistry::instance(),
             &TextEditorRegistry::currentEditorChanged,
             guard,
-            [func](BaseTextEditor *editor) {
+            [func](Core::IEditor *editor) {
                 Result<> res = void_safe_call(func, editor);
                 QTC_CHECK_RESULT(res);
             });
@@ -654,7 +677,7 @@ void setupTextEditorModule()
             TextEditorRegistry::instance(),
             &TextEditorRegistry::currentCursorChanged,
             guard,
-            [func](BaseTextEditor *editor, const MultiTextCursor &cursor) {
+            [func](Core::IEditor *editor, const MultiTextCursor &cursor) {
                 Result<> res = void_safe_call(func, editor, cursor);
                 QTC_CHECK_RESULT(res);
             });

@@ -1070,6 +1070,18 @@ TEXTEDITOR_EXPORT void scrollHalfPageIn(Core::IEditor *editor, int direction);
 // Whether \a position is inside what \a editor's view is showing.
 TEXTEDITOR_EXPORT bool isPositionVisibleIn(Core::IEditor *editor, int position);
 
+// Every caret in \a editor's view, not just the one the reader last moved.
+// Both views keep a MultiTextCursor; this is which one to ask.
+TEXTEDITOR_EXPORT Utils::MultiTextCursor multiTextCursorOf(Core::IEditor *editor);
+TEXTEDITOR_EXPORT void setMultiTextCursorOf(Core::IEditor *editor,
+                                            const Utils::MultiTextCursor &cursor);
+
+// Whether \a editor's view is where typing would go, and putting it there.
+// A widget has focus; a Qt Quick item has active focus, which is the same
+// question asked of a scene rather than of a window.
+TEXTEDITOR_EXPORT bool hasFocusIn(Core::IEditor *editor);
+TEXTEDITOR_EXPORT void setFocusIn(Core::IEditor *editor);
+
 // What a key press should be sent to for \a editor: the widget, or the Quick
 // item - not the QQuickWidget wrapping that item, which forwards nothing.
 TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);

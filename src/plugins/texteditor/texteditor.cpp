@@ -10495,6 +10495,52 @@ void scrollHalfPageIn(Core::IEditor *editor, int direction)
     }
 }
 
+Utils::MultiTextCursor multiTextCursorOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return {};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->multiTextCursor();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->multiTextCursor();
+    return {};
+}
+
+void setMultiTextCursorOf(Core::IEditor *editor, const Utils::MultiTextCursor &cursor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setMultiTextCursor(cursor);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->setMultiTextCursor(cursor);
+}
+
+bool hasFocusIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return false;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->hasFocus();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->hasActiveFocus();
+    return false;
+}
+
+void setFocusIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setFocus();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->forceActiveFocus();
+}
+
 bool isPositionVisibleIn(Core::IEditor *editor, int position)
 {
     if (!editor || position < 0)

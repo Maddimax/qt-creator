@@ -3912,6 +3912,54 @@ private slots:
         QCOMPARE(textCursorOf(editor).positionInBlock(), 8);
     }
 
+    void testEveryCaretIsReachedInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Scripting asks for *every* caret, not just the one last moved - the Lua
+    // binding's cursor()/setCursor() are MultiTextCursor. Both views keep one;
+    // the binding read it off a TextEditorWidget, so a C++ file had none.
+    void testEveryCaretIsReachedInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("multi-cursor-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("carets.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\nint beta = 2;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Two carets, one on each line, which is the state a script sets up
+        // before inserting at both at once.
+        QTextCursor first(document->document());
+        first.setPosition(4);
+        QTextCursor second(document->document());
+        second.setPosition(document->plainText().indexOf("beta"));
+        setMultiTextCursorOf(editor, Utils::MultiTextCursor({first, second}));
+
+        const Utils::MultiTextCursor read = multiTextCursorOf(editor);
+        QCOMPARE(read.cursors().size(), 2);
+        QCOMPARE(read.cursors().at(0).position(), first.position());
+        QCOMPARE(read.cursors().at(1).position(), second.position());
+        QVERIFY2(read.hasMultipleCursors(),
+                 "the view kept only one caret, so a multi-caret edit would miss the others");
+    }
+
     // Which languages open in the Qt Quick editor, written down rather than
     // grepped for. Three times in this migration a gap has been "closed" in
     // code that nothing reaches, because the language's files still open in
