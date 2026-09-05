@@ -1059,9 +1059,15 @@ private:
         // the widget editor's too - it is applied in TextEditorFactory's editor
         // creator rather than kept on the factory, which is why asking the
         // factory for it comes back empty for plain text.
-        static DocumentContentCompletionProvider wordsInTheDocument;
-        CompletionAssistProvider * const provider = factory->completionAssistProvider();
-        m_document->setCompletionAssistProvider(provider ? provider : &wordsInTheDocument);
+        // Only where nothing has one yet. TextEditorFactory's editor creator
+        // already did this for a document it built, and a language may have
+        // chosen its own since - CppEditorDocument installs the C++ one when
+        // it learns its mime type, and setting a provider here clears that.
+        if (!m_document->completionAssistProvider()) {
+            static DocumentContentCompletionProvider wordsInTheDocument;
+            CompletionAssistProvider * const provider = factory->completionAssistProvider();
+            m_document->setCompletionAssistProvider(provider ? provider : &wordsInTheDocument);
+        }
 
         // The base AutoCompleter only knows how to take a bracket pair apart
         // again; closing one as it is typed is what a language's subclass adds.

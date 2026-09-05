@@ -1111,39 +1111,14 @@ void CppEditorWidget::updateSemanticInfo(const SemanticInfo &semanticInfo,
     updateFunctionDeclDefLink();
 }
 
-bool CppEditorWidget::isOldStyleSignalOrSlot() const
-{
-    return CppEditor::CppModelManager::instance()
-               ->getSignalSlotType(textDocument()->filePath(), textCursor())
-           == CppEditor::SignalSlotType::OldStyleSignal;
-}
-
 std::unique_ptr<AssistInterface> CppEditorWidget::createAssistInterface(AssistKind kind,
                                                                         AssistReason reason) const
 {
+    // Completion and the function hint are the document's answer now, so that
+    // a view which is not this one gets the same interface.
     if (kind == Completion || kind == FunctionHint) {
-        CppCompletionAssistProvider * const cap = kind == Completion
-                ? qobject_cast<CppCompletionAssistProvider *>(cppEditorDocument()->completionAssistProvider())
-                : qobject_cast<CppCompletionAssistProvider *>(cppEditorDocument()->functionHintAssistProvider());
-
-        auto getFeatures = [this] {
-            LanguageFeatures features = LanguageFeatures::defaultFeatures();
-            if (Document::Ptr doc = d->m_lastSemanticInfo.doc)
-                features = doc->languageFeatures();
-            features.objCEnabled |= cppEditorDocument()->isObjCEnabled();
-            return features;
-        };
-
-        if (cap)
-            return cap->createAssistInterface(textDocument()->filePath(), textCursor(),
-                                              getFeatures(), reason);
-
-        if (isOldStyleSignalOrSlot()
-            || isInCommentOrString(textCursor(), LanguageFeatures::defaultFeatures())) {
-            return CppModelManager::completionAssistProvider()
-                ->createAssistInterface(textDocument()->filePath(), textCursor(),
-                                        getFeatures(), reason);
-        }
+        return cppEditorDocument()->createAssistInterface(
+            textCursor(), kind, reason, editorFor(const_cast<CppEditorWidget *>(this)));
     }
     if (kind == QuickFix && isSemanticInfoValid())
         return std::make_unique<CppQuickFixInterface>(const_cast<CppEditorWidget *>(this), reason);

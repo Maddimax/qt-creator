@@ -33784,3 +33784,90 @@ for body. What is left of `CppEditorWidget`'s overrides:
 - Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
   `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
   `acpclient:282`, `coco/cocolanguageclient.cpp:68`.
+
+## 2026-09-05 -- Completion, which was not C++ completion at all
+
+The last entry said `createAssistInterface()` "looks answered by
+`CppEditorDocument`" and flagged it as a guess. It was wrong, and the way to
+find that out was the one the entry proposed: open a C++ file in each view and
+print what completion actually gets.
+
+    quick=0  provider=CppCompletionAssistProvider        document-> AssistInterface
+    quick=0  widget->                                    CppCompletionAssistInterface
+    quick=1  provider=DocumentContentCompletionProvider  document-> AssistInterface
+
+Two gaps, and the second is the one that matters:
+
+1. `CppEditorDocument::createAssistInterface()` answered only `QuickFix`.
+   Completion and the function hint fell through to the base, so a view going
+   through the document got an interface that knows no C++ - no language
+   features, no ObjC flag, none of the SIGNAL/SLOT and comment handling.
+2. **The Quick editor was not even asking the C++ provider.**
+   `CppEditorDocument` installs it in `onMimeTypeChanged()`, and its
+   `setCompletionAssistProvider()` *clears* that when something sets a provider
+   from outside. `TextEditorFactory`'s editor creator does that once for either
+   view, **before** the file is opened, so the mime type arrives afterwards and
+   the C++ provider wins. Configuring the Quick view did it a second time,
+   **after** - so C++ completion in the Qt Quick editor was
+   `DocumentContentCompletionProvider`: the words already in the file.
+
+The gap this closed: both. The Quick path only sets a provider where the
+document has none, and the completion/function-hint interface moved to
+`CppEditorDocument`, with `CppEditorWidget` delegating to it. One body again,
+and `isOldStyleSignalOrSlot()` went with it.
+
+The widget's version read language features from *its* semantic info; the
+document's reads the document's. They can differ for as long as one cache is
+behind the other, which is the same trade the parse lookup already makes.
+
+### The first probe measured nothing
+
+Run one printed `AssistInterface` for **both** views and would have said "no
+gap". It was wrong because clangd was on, so `completionAssistProvider()` was
+the language client's, `qobject_cast<CppCompletionAssistProvider *>` gave null,
+and the widget skipped its own special case too. Turning clangd off made the
+two views disagree immediately.
+
+**A probe that reports the same answer everywhere has usually disabled the
+thing it meant to compare.** Equal results are a reason to check the fixture,
+not a finding.
+
+### Negative controls
+
+- **A -- configuring the Quick view clears the language's provider again**:
+  red on the provider assertion.
+- **B -- the document answers completion with the base interface**: red on the
+  interface assertion.
+
+One per gap, each on its own assertion, so neither fix is covering for the
+other.
+
+### Verification
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+      458 passed, 0 failed, exit 0
+    -test QuickUi -load all -noload QmlDesigner -noload UpdateInfo
+      207 passed, 0 failed, 1 skipped, exit 0
+    -test CppEditor,SymbolJumpTest ...      9 passed, 0 failed, exit 0
+    -test CppEditor,FollowSymbolTest ...  155 passed, 0 failed, exit 0
+    -test CppEditor,CompletionTest ...    204 passed, 0 failed, exit 0
+
+Five files, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **`encourageApply()` and `inInlineRename()`**, the last two overrides not
+  traced to a seam. Both are about the in-place rename and the decl/def link,
+  which `CppLocalRenaming` drives from the widget - so unlike completion these
+  are likely to be genuinely widget-shaped, and the question is what the Quick
+  editor does instead rather than where to move them. Measure before deciding:
+  rename a local in the Quick editor and see what happens.
+- The quick-fix half of `createAssistInterface()` still builds
+  `CppQuickFixInterface` from a widget on the widget path and from the document
+  on the other. Two constructors for one thing; worth collapsing, and cheap now
+  that completion has shown the shape.
+- Unchanged: the clang-tools toolbar button, the parse-context highlight,
+  Refactor submenu nesting - one presentation question in three places.
+- Net entries still unexamined: `mcpserver/mcpcommands.cpp`,
+  `lua/bindings/texteditor.cpp:152,166`, `emacskeys:174`, `devcontainer:412`,
+  `acpclient:282`, `coco/cocolanguageclient.cpp:68`.

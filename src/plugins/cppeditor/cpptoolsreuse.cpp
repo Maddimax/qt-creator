@@ -882,6 +882,65 @@ private slots:
         QTRY_COMPARE(editor->currentLine(), 2);
     }
 
+    // Completion. CppEditorWidget built the C++ assist interface itself, and
+    // the document only answered quick fixes - so in the Qt Quick editor a C++
+    // file completed with the words already in the file. Worse, configuring
+    // the view cleared the provider CppEditorDocument installs when it learns
+    // its mime type, so the C++ one was not even asked.
+    void testCppCompletionIsOfferedInEitherView()
+    {
+        Utils::TemporaryDirectory dir("cpp-completion-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("complete.cpp");
+        QVERIFY(file.writeFileContents("struct S { int member; };\n"
+                                       "void f() { S s; s.\n}\n"));
+
+        // The built-in model, so that the provider under test is CppEditor's
+        // rather than a language client's.
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        // Both views, because what this fixes is the two disagreeing.
+        for (const bool quick : {false, true}) {
+            factory->setUsesQuickEditor(quick);
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+            QVERIFY(document);
+            document->recalculateSemanticInfo();
+            QTRY_VERIFY(document->isSemanticInfoValid());
+
+            // The C++ provider, not the words already in the file.
+            QVERIFY2(qobject_cast<CppCompletionAssistProvider *>(
+                         document->completionAssistProvider()),
+                     "the language's completion provider was replaced by a generic one");
+
+            // On the member access, which is where a C++ completion differs
+            // from any other kind.
+            QTextCursor cursor(document->document());
+            cursor.setPosition(document->plainText().indexOf("s.") + 2);
+            const std::unique_ptr<TextEditor::AssistInterface> interface
+                = document->createAssistInterface(cursor, TextEditor::Completion,
+                                                  TextEditor::ExplicitlyInvoked, editor);
+            QVERIFY2(interface, "nothing answered the request for a completion interface");
+            QVERIFY2(dynamic_cast<const Internal::CppCompletionAssistInterface *>(interface.get()),
+                     "the completion got a plain interface, so it knows no C++");
+
+            Core::EditorManager::closeEditors({editor}, false);
+        }
+    }
+
     // A URL in a string literal is a link, and CppEditor answered that inside
     // CppEditorWidget::findLinkAt() - so in the Qt Quick editor Ctrl+click on
     // one did nothing. It needs a project only because the same code path

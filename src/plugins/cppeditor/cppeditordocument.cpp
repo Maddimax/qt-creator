@@ -16,6 +16,7 @@
 #include "cppeditorwidget.h"
 #include "cpphighlighter.h"
 #include "cppmodelmanager.h"
+#include "cpptoolsreuse.h"
 #include "cppoutlinemodel.h"
 #include "cppparsecontext.h"
 #include "cppqtstyleindenter.h"
@@ -483,6 +484,38 @@ std::unique_ptr<TextEditor::AssistInterface> CppEditorDocument::createAssistInte
     const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
     Core::IEditor *editor) const
 {
+    // Completion and the function hint want a C++ interface carrying the
+    // language features this file is parsed with - on the document because
+    // what they need is the caret and the file, which every view has.
+    if (kind == TextEditor::Completion || kind == TextEditor::FunctionHint) {
+        CppCompletionAssistProvider * const cap = kind == TextEditor::Completion
+            ? qobject_cast<CppCompletionAssistProvider *>(completionAssistProvider())
+            : qobject_cast<CppCompletionAssistProvider *>(functionHintAssistProvider());
+
+        const auto features = [this] {
+            CPlusPlus::LanguageFeatures features
+                = CPlusPlus::LanguageFeatures::defaultFeatures();
+            if (const CPlusPlus::Document::Ptr doc = semanticInfo().doc)
+                features = doc->languageFeatures();
+            features.objCEnabled |= isObjCEnabled();
+            return features;
+        };
+
+        if (cap)
+            return cap->createAssistInterface(filePath(), cursor, features(), reason);
+
+        // An old-style SIGNAL()/SLOT() argument, or a comment or string, is
+        // completed by the built-in model whatever else claims the language.
+        const bool oldStyleSignal
+            = CppModelManager::getSignalSlotType(filePath(), cursor)
+              == SignalSlotType::OldStyleSignal;
+        if (oldStyleSignal
+            || isInCommentOrString(cursor, CPlusPlus::LanguageFeatures::defaultFeatures())) {
+            return CppModelManager::completionAssistProvider()
+                ->createAssistInterface(filePath(), cursor, features(), reason);
+        }
+    }
+
     // Only quick fixes need more than the base interface offers, and only when
     // there is something for them to work from: CppQuickFixInterface walks the
     // AST, so an unparsed document would take it apart.
