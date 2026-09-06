@@ -42615,3 +42615,110 @@ something live, and it is the last question this file has that has not been
 asked once.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — The document audit: a file that did not decode was editable (batch 73)
+
+Entry 72 said the document audit was the only remaining item that could hold
+something live, and the last question this file had never asked. It held the
+most serious defect of the whole sequence.
+
+### The question that found it
+
+Not "what does the document carry" - that surface is huge and mostly shared.
+The sharp version: **what does the document announce that a view has to react
+to?** A missing reaction cannot be read from one view's code; it only shows
+against the other.
+
+`TextDocument` has twelve signals. For each, whether the widget and the Qt
+Quick view use it:
+
+    aboutToOpen                widget 3   quick 0   <- candidate
+    openFinishedSuccessfully   widget 3   quick 0   <- candidate
+    markRemoved                widget 4   quick 1
+    everything else            both, or neither
+
+`aboutToOpen` is an **empty virtual hook** - `Q_UNUSED` twice - so it is a
+subclass extension point and not behaviour. `markRemoved` clears the widget's
+mark-*drag* state, which is a widget interaction. Read, not counted, and both
+dismissed.
+
+`openFinishedSuccessfully` does four things in the widget, and one of them is
+serious.
+
+### A file whose bytes do not decode
+
+Measured, on a file containing bytes that are not valid UTF-8, read as UTF-8:
+
+    widget  decodingError=1  banner=1  readOnly=1
+    quick   decodingError=1  banner=0  readOnly=0
+
+The widget shows *"**Error:** Could not decode "x" with "UTF-8"-encoding.
+Editing not possible."* with a **Select Encoding** button, and makes the
+editor read-only.
+
+The Qt Quick editor did neither. The buffer holds replacement characters where
+the undecodable bytes were, nothing says so, and **the file is editable** - so
+typing anything and saving writes the replacements over the original bytes.
+That is silent data loss, in every language in that view, C++ included.
+
+It is by some distance the worst thing found in this sequence, and it was
+found by the audit that entry 64 proposed and five batches deferred.
+
+### The fix
+
+`QuickTextEditor` connects to `openFinishedSuccessfully` and
+`conflictedChanged` - the widget's two triggers - and mirrors
+`updateCannotDecodeInfo()` and `updateReadOnlyState()`: same message, same
+button, and `setReadOnly(isConflicted() || hasDecodingError())`.
+
+`TextViewport::selectEncoding()` already existed and was already bound to the
+`SELECT_ENCODING` command, so the button had somewhere to go. Nothing new was
+needed on the view.
+
+### Controls
+
+- **X**: the two connections removed - red on the **quick** row and green on
+  the **widget** row, which is what a per-view data row is for.
+- The test refuses to run vacuously: `QVERIFY2(document->hasDecodingError(),
+  "the bytes decoded after all, so this tests nothing")`.
+- It also checks the offer is takeable, not just readable - the entry has at
+  least one button - because a banner with no way to fix the problem is not
+  the widget's behaviour either.
+
+A wrong assertion caught on the way: the test first asserted the banner was
+**absent** before the explicit UTF-8 reload. Both rows failed, because the
+default encoding is already UTF-8 and the file had already failed to decode on
+open. The assertion was wrong, not the code; it was dropped rather than worked
+around.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 636 passed, 0 failed (was 634) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+The other three things `openFinishedSuccessfully` does are **not** yet mirrored
+and are the obvious next look, in decreasing order of likely worth:
+
+1. `updateTextCodecLabel()` - the encoding shown in the toolbar. The Qt Quick
+   toolbar may have no such label at all, which would be a missing feature
+   rather than a missing reaction.
+2. `d->moveCursor(QTextCursor::Start)` - the caret goes to the top when a file
+   finishes opening. Probably invisible on first open, where the caret is at 0
+   anyway; visible on **reload**, which is worth measuring.
+3. `updateVisualWrapColumn()`.
+
+Then the rest of the document audit: this batch asked only about *signals*.
+What a view reads from the document without being told - marks,
+`TextBlockUserData`, the indenter, the encoding - has still not been compared.
+
+**Suggested next: (1) and (2) above, measured the way this batch measured
+decoding.** They are the same shape, in the same function, and the harness is
+now written.
+
+The printing decision (keep / drop / move) remains the owner's call.

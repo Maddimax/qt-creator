@@ -369,6 +369,16 @@ public:
         // is why a document built outside one is never highlighted at all.
         // The highlighter first: it is what puts the mime type on the document,
         // and the language's services are looked up by mime type.
+        // A file whose bytes did not decode is not safe to edit: what is in
+        // the buffer is not what is on disk, and saving would write the
+        // buffer over it. Say so, and refuse the edit until the reader picks
+        // an encoding - which is what the widget editor does in
+        // updateCannotDecodeInfo() and updateReadOnlyState().
+        connect(m_document.get(), &TextDocument::openFinishedSuccessfully,
+                this, &QuickTextEditor::updateCannotDecodeInfo);
+        connect(m_document.get(), &TextDocument::conflictedChanged,
+                this, &QuickTextEditor::updateCannotDecodeInfo);
+
         connect(m_document.get(), &Core::IDocument::filePathChanged, this, [this] {
             configureHighlighter();
             configureLanguageServices();
@@ -1076,6 +1086,31 @@ private:
     {
         auto * const quick = qobject_cast<QtcQuick::QuickWidget *>(widget());
         return quick ? quick->quickWidget()->rootObject() : nullptr;
+    }
+
+    void updateCannotDecodeInfo()
+    {
+        TextViewport * const view = viewport();
+        if (!view)
+            return;
+        view->setReadOnly(m_document->isConflicted() || m_document->hasDecodingError());
+
+        Utils::InfoBar * const infoBar = m_document->infoBar();
+        const Utils::Id selectEncoding(Constants::SELECT_ENCODING);
+        if (!m_document->hasDecodingError()) {
+            infoBar->removeInfo(selectEncoding);
+            return;
+        }
+        if (!infoBar->canInfoBeAdded(selectEncoding))
+            return;
+        Utils::InfoBarEntry info(
+            selectEncoding,
+            Tr::tr("<b>Error:</b> Could not decode \"%1\" with \"%2\"-encoding. "
+                   "Editing not possible.")
+                .arg(m_document->displayName(), m_document->encoding().displayName()));
+        info.addCustomButton(Tr::tr("Select Encoding"),
+                             [view] { view->selectEncoding(); });
+        infoBar->addInfo(info);
     }
 
     void configureLanguageServices()
@@ -8862,6 +8897,65 @@ private slots:
 
         QCOMPARE(quickText, widgetText);
         QCOMPARE(quickCarets, widgetCarets);
+    }
+
+    // A file whose bytes do not decode with the encoding chosen for it. The
+    // buffer then holds something other than what is on disk, so editing it
+    // and saving would write the replacement characters over the original
+    // bytes. Both views have to refuse, and say why.
+    void testAFileThatDidNotDecodeIsNotEditableInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFileThatDidNotDecodeIsNotEditableInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("decoding-error");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath(quick ? "q.txt" : "w.txt");
+        // Not valid UTF-8 by any reading.
+        QVERIFY(file.writeFileContents(QByteArray("ok\n\xff\xfe\x80\x81 bad\n")));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(
+            file, quick ? Utils::Id(QUICK_TEXT_EDITOR_ID)
+                        : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID));
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const Utils::Id selectEncoding(Constants::SELECT_ENCODING);
+        // Read as UTF-8 explicitly, rather than relying on what the default
+        // happens to be: the point of the row is the failure to decode.
+        document->reload(Utils::TextEncoding::Utf8);
+        QVERIFY2(document->hasDecodingError(),
+                 "the bytes decoded after all, so this tests nothing");
+
+        QVERIFY2(document->infoBar()->containsInfo(selectEncoding),
+                 "nothing said the file could not be decoded");
+
+        const auto readOnly = [editor] {
+            if (TextEditorWidget * const w = TextEditorWidget::fromEditor(editor))
+                return w->isReadOnly();
+            TextViewport * const v = Internal::viewportForEditor(editor);
+            return v && v->isReadOnly();
+        };
+        QVERIFY2(readOnly(), "a file that did not decode was left editable");
+
+        // And the offer to fix it is there to be taken, not just to be read.
+        const QList<Utils::InfoBarEntry> entries = document->infoBar()->entries();
+        const auto entry = std::find_if(entries.begin(), entries.end(),
+                                        [selectEncoding](const Utils::InfoBarEntry &e) {
+                                            return e.id() == selectEncoding;
+                                        });
+        QVERIFY(entry != entries.end());
+        QVERIFY2(!entry->buttons().isEmpty(), "the error offered no way to choose an encoding");
     }
 
     void testAWatcherHearsTheCaretMoveInEitherView()
