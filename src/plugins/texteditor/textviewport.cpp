@@ -2370,11 +2370,24 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
 
     switch (event->key()) {
     case Qt::Key_Backspace:
-        applyToEveryCaret([this](QTextCursor &caret) {
+        applyToEveryCaret([this, doc](QTextCursor &caret) {
             // Between the two halves of a pair this editor inserted, Backspace
             // takes both - otherwise it leaves the closing one orphaned.
-            if (!caret.hasSelection() && m_autoCompleter->autoBackspace(caret))
+            //
+            // A pair *this editor* inserted, and only where the reader has
+            // left that on. autoBackspace() decides from the text in front of
+            // the caret and cannot tell a pair that was typed by hand from one
+            // it put in, so asking it every time ate the closing bracket of an
+            // "f(|)" that was already in the file. The widget editor asks it
+            // only at the range it is highlighting as auto-completed, which is
+            // the same range this view keeps for stepping over one.
+            if (!caret.hasSelection() && !m_autoCompleted.isNull()
+                && m_autoCompleted.selectionStart() == caret.position()
+                && doc && doc->typingSettings().m_autoIndent
+                && globalCompletionSettings().autoRemove()
+                && m_autoCompleter->autoBackspace(caret)) {
                 return;
+            }
             // With a selection, Backspace removes it rather than one more
             // character before it, which deletePreviousChar() already does.
             if (caret.hasSelection() || !handleSmartBackspace(caret))

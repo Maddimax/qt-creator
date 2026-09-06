@@ -1788,6 +1788,119 @@ private slots:
         QCOMPARE(secondLine(), QString("        bet"));
     }
 
+    // Backspace between the two halves of a bracket pair takes both, which is
+    // right for a pair the editor put in and wrong for one that was already in
+    // the file: AutoCompleter::autoBackspace() reads the text and cannot tell
+    // them apart, so the widget editor asks it only where it knows it inserted
+    // something, and only when the reader has not turned that off. This view
+    // asked it every time.
+    void testBackspaceOnlyTakesAPairThisViewPutIn()
+    {
+        TemporaryDirectory dir("qtc-viewport-autobackspace");
+        const FilePath file = dir.filePath("brackets.txt");
+        QVERIFY(file.writeFileContents("f()\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(fixture.hasFocus());
+
+        // A viewport is a view until told otherwise, and a read-only one
+        // never reaches the key at all.
+        viewport->setReadOnly(false);
+
+        TextDocument * const doc = viewport->textDocument();
+        QVERIFY(doc);
+        const auto firstLine = [doc] { return doc->document()->firstBlock().text(); };
+        const auto startFrom = [doc, viewport](const QString &line) {
+            QTextCursor c(doc->document());
+            c.select(QTextCursor::Document);
+            c.insertText(line + "\n");
+            viewport->setCursorPosition(0);
+        };
+
+        // The base AutoCompleter allows brackets nowhere and inserts nothing -
+        // both are what a language's subclass adds. This test is about what
+        // happens once one has, not about which languages do, so it brings the
+        // smallest one that answers "(" with ")".
+        class ClosesParentheses final : public AutoCompleter
+        {
+        public:
+            bool contextAllowsAutoBrackets(const QTextCursor &, const QString &) const final
+            {
+                return true;
+            }
+            QString insertMatchingBrace(const QTextCursor &, const QString &text, QChar, bool,
+                                        int *) const final
+            {
+                return text == "(" ? QString(")") : QString();
+            }
+        };
+        viewport->setAutoCompleter(new ClosesParentheses);
+
+        // The fixture is only worth anything if brackets are inserted at all.
+        QVERIFY2(globalCompletionSettings().autoInsertBrackets(),
+                 "brackets are not auto-inserted, so nothing here is about them");
+        QVERIFY2(globalCompletionSettings().autoRemove(),
+                 "the preference under test starts turned off");
+
+        // A pair that was already in the file. Backspace over the "(" takes
+        // the "(" - the ")" belongs to whoever wrote it.
+        QCOMPARE(firstLine(), QString("f()"));
+        viewport->setCursorPosition(2);
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(firstLine(), QString("f)"));
+
+        // And a pair this view put in: typing "(" answers with "()", and
+        // Backspace takes both, or the ")" is left orphaned.
+        startFrom("f");
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, '(');
+        QCOMPARE(firstLine(), QString("f()"));
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(firstLine(), QString("f"));
+
+        // Which is what the preference turns off: the trigger goes and what
+        // was inserted for it stays.
+        const bool was = globalCompletionSettings().autoRemove();
+        const QScopeGuard restore(
+            [was] { globalCompletionSettings().autoRemove.setValue(was); });
+        globalCompletionSettings().autoRemove.setValue(false);
+
+        startFrom("f");
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, '(');
+        QCOMPARE(firstLine(), QString("f()"));
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(firstLine(), QString("f)"));
+
+        // And away from a pair it is an ordinary Backspace, taking one
+        // character and leaving what is in front of the caret alone.
+        startFrom("ab()");
+        viewport->setCursorPosition(2);
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(firstLine(), QString("a()"));
+
+        // And automatic indentation turns it off as well, which is what the
+        // widget editor gates it on: an editor that does not indent for the
+        // reader does not take away what it inserted for them either.
+        globalCompletionSettings().autoRemove.setValue(true);
+        const TypingSettingsData wasTyping = doc->typingSettings();
+        const QScopeGuard restoreTyping([doc, wasTyping] { doc->setTypingSettings(wasTyping); });
+        TypingSettingsData typing = wasTyping;
+        typing.m_autoIndent = false;
+        doc->setTypingSettings(typing);
+
+        startFrom("f");
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, '(');
+        QCOMPARE(firstLine(), QString("f()"));
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(firstLine(), QString("f)"));
+    }
+
     // A closed fold says what it swallowed. The widget editor draws "{...};"
     // after the line rather than leaving a gap, and puts back the brackets the
     // hidden text opened and closed - which is the part that has to come from
@@ -3329,52 +3442,6 @@ private slots:
     // somebody else asked to have drawn differently. They go through the same
     // format list the selection does, so this is the only way to see that one
     // arrived at all.
-    // Backspace between the two halves of a bracket pair takes both. That is
-    // the whole of what the base AutoCompleter offers - inserting the closing
-    // half is a language-specific subclass, handed out per editor factory, so
-    // the plain text widget editor does not do it either and neither can this.
-    void testBackspaceBetweenAPairTakesBothHalves()
-    {
-        const bool wasBrackets = globalCompletionSettings().autoInsertBrackets();
-        const QScopeGuard restore([wasBrackets] {
-            globalCompletionSettings().autoInsertBrackets.setValue(wasBrackets);
-        });
-        globalCompletionSettings().autoInsertBrackets.setValue(true);
-
-        TemporaryDirectory dir("qtc-viewport-autobrackets");
-        const FilePath file = dir.filePath("typed.txt");
-        QVERIFY(file.writeFileContents("()\n"));
-
-        ViewportFixture fixture(file);
-        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
-        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
-        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
-
-        TextViewport * const viewport = fixture.viewport;
-        viewport->setReadOnly(false);
-        QTRY_VERIFY(viewport->visibleLineCount() > 0);
-
-        QTextDocument * const text = fixture.document.textDocument()->document();
-
-        // Between them, so the closing half would be orphaned.
-        viewport->setCursorPosition(1);
-        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
-        QCOMPARE(text->toPlainText(), QString("\n"));
-
-        // Elsewhere it is an ordinary Backspace: only what is behind the caret.
-        text->setPlainText("ab()\n");
-        viewport->setCursorPosition(2);
-        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
-        QCOMPARE(text->toPlainText(), QString("a()\n"));
-
-        // And the setting turns the pairing off, leaving a plain Backspace.
-        globalCompletionSettings().autoInsertBrackets.setValue(false);
-        text->setPlainText("()\n");
-        viewport->setCursorPosition(1);
-        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
-        QCOMPARE(text->toPlainText(), QString(")\n"));
-    }
-
     // A line too long for the width is broken across rows. Off by default,
     // because with it on the viewport has to know where every block starts and
     // nothing knows that without laying out the whole file.

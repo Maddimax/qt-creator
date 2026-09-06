@@ -48052,3 +48052,146 @@ That is a census - the third kind, after "which factories are Quick" and "what
 a factory configures reaches its editor" - and it is the one with the best
 prior of the three, because the preference text states the expectation in
 words a test can be written against.
+
+## 2026-09-06 — A preference census, and the test that asserted the bug (batch 130)
+
+Entry 129 proposed asking a different question: **what does a preference
+promise that the Qt Quick view does not deliver?** This batch asked it of every
+preference, not just Display.
+
+### The census
+
+Sixty-odd aspects across seven groups, checked against what the Quick view's
+files actually read. Almost all of it comes back clean, and the near-misses are
+worth naming because each looked like a gap for a minute:
+
+| Looked missing | Actually |
+| --- | --- |
+| `mouseHiding` | read, through `hideMouseWhileTyping(behaviorSettings())` rather than by name |
+| `showMargin`, `useIndenter` | read inside `visibleMarginColumn()` |
+| `displayMinimap` | read by `minimapview.cpp`, which was not in the first grep |
+| `smartSelectionChanging` | read by CppEditor's Quick path, with a test of its own |
+| `markDiffChangeSigns` | an inline-diff feature; the Quick view shows no inline diff |
+| most of Completion, Storage, ExtraEncoding | consumed by the assist machinery and `TextDocument`, shared by both views |
+| `forceOpenLinksInNextSplit` | **read by nobody, in either view.** No settings key, no label. Dead, and not this migration's doing |
+
+A name-presence grep is a weak instrument and the first pass produced four
+false alarms out of five. Recorded so the next census is run the same way:
+**grep, then read every hit and every miss.**
+
+### The one real gap
+
+`autoRemove` - *"Remove automatically inserted text on backspace"*, on by
+default - is read at exactly one place in the tree, and it is the widget:
+
+```cpp
+if (typingSettings.m_autoIndent && !m_autoCompleteHighlightPos.isNull()
+    && m_autoCompleteHighlightPos == c && removeAutoCompletedText
+    && m_autoCompleter->autoBackspace(c)) {
+```
+
+Four conditions. The Qt Quick view checked one:
+
+```cpp
+if (!caret.hasSelection() && m_autoCompleter->autoBackspace(caret))
+```
+
+`AutoCompleter::autoBackspace()` decides from the text in front of the caret -
+it cannot tell a pair somebody typed from one the editor inserted. So the
+missing checks are not only about a preference being ignored:
+
+**Open a C++ file containing `f()`, put the caret between the brackets, press
+Backspace, and the Qt Quick editor deletes both.** The widget editor deletes
+the `(` and leaves the `)`, because it only asks `autoBackspace()` at the range
+it is highlighting as auto-completed.
+
+That is an everyday edit on existing code, and it silently eats a character.
+
+The fix asks the same four questions, using the range this view already keeps
+for stepping over what it inserted (`m_autoCompleted`, the one
+`skipAutoCompletedText` reads).
+
+### An existing test asserted the defect
+
+`testBackspaceBetweenAPairTakesBothHalves` opened a file containing `()`, put
+the caret between them and asserted **both** went. It went red.
+
+Its comment says why it was written that way: *"That is the whole of what the
+base AutoCompleter offers."* True, and beside the point - the question is not
+what `autoBackspace()` does when asked, it is **when the editor should ask it**.
+The test reasoned about the callee and never checked the caller.
+
+Not argued, measured. A throwaway probe drove a real `TextEditorWidget` over
+the same `()` with the caret in the middle:
+
+```
+WIDGETPROBE after backspace between () : )\n
+```
+
+The widget leaves the `)`. The old test asserted behaviour the editor it is
+modelled on does not have, so it was replaced rather than kept - its one still-
+true case (away from a pair, Backspace takes one character) moved into the new
+one.
+
+**Two entries running, a test has been the thing that was wrong.** Entry 129's
+absence assertion passed for the wrong reason; this one asserted the wrong
+answer outright. Both were written from reasoning about a mechanism instead of
+from measuring the reference implementation, which is the same mistake in two
+shapes.
+
+### The fixture the test had to bring
+
+The base `AutoCompleter` returns `false` from `contextAllowsAutoBrackets()` and
+an empty string from `insertMatchingBrace()` - **both halves of auto-insertion
+are a language subclass's**, so a plain fixture can never type a pair into
+existence. Found by two failed runs, not by reading. The test carries the
+smallest completer that answers `(` with `)`, which is also what makes it
+independent of which languages happen to be loaded.
+
+### Controls
+
+Four clauses, four controls, each red on a different assertion:
+
+- **ED**: the `m_autoCompleted` position check dropped - red at "a pair already
+  in the file lost its closing bracket".
+- **EG**: `autoBackspace()` never called - red at the opposite case, which is
+  what says the positive assertion is not vacuous.
+- **EE**: `autoRemove()` not consulted - red at the preference case.
+- **EF**: `m_autoIndent` not consulted - red at the auto-indent case.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 680 passed, 0 failed (one test replaced by one test) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+1. **QmlJS's context pane** - a UI decision.
+2. **The whitespace drawing difference** - declined, entry 68.
+3. **Printing** - open since entry 31.
+4. **The four pinned factories** - see entry 130's reasoning on why converting
+   their casts is not worth a batch on its own.
+5. **`forceOpenLinksInNextSplit` is dead** - a preference aspect nothing reads.
+   Not a Quick gap; somebody should delete it or wire it up.
+
+### What I would do next
+
+The preference census is spent: it found one gap and that gap is closed. What
+it *did* establish is worth reusing though, and it is not about preferences.
+
+Every gap in the last six entries has had the same shape: **the widget editor
+asks several questions where the Qt Quick view asks one.** The mask and the
+context menu on a duplicate (126), the decorator and the context help on a
+duplicate (127), the whole file versus the rows on screen (129), four
+conditions versus one (130). None was a missing feature; each was a missing
+*condition* on a feature that was already there.
+
+So the census I would write next is a diff, not a list: for each thing both
+views do, does the Qt Quick side guard it with everything the widget guards it
+with? That cannot be automated, but it can be walked - `texteditor.cpp`'s key
+handling and `textviewport.cpp`'s are the same twenty-odd operations side by
+side, and the four found this way so far were all in that file pair.
