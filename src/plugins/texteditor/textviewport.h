@@ -527,6 +527,11 @@ public:
     // "show help tooltips using the mouse: on Shift+mouseover" means nothing
     // on a plain hover. The rule TextEditorWidget::viewportEvent() applies.
     bool hoverTooltipsAllowed(Qt::KeyboardModifiers modifiers) const;
+
+    // Redraw the lines the preprocessor left out. Public because the language
+    // marks them long after the text last changed - when its highlighter
+    // catches up - and whoever knows that has to be able to say so.
+    void updateDisabledCode();
     // Called by the form when the pointer moves: a mouse that has moved is a
     // mouse the user is looking for again.
     Q_INVOKABLE void showMouse();

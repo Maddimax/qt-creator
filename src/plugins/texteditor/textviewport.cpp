@@ -4003,6 +4003,7 @@ void TextViewport::zoomBy(int steps)
 // The kind under which the bracket pair is highlighted, so that setting it
 // replaces the previous pair and nobody else's ranges.
 const char PARENTHESES_MATCH[] = "TextEditor.TextViewport.ParenthesesMatch";
+const char DISABLED_CODE[] = "TextEditor.TextViewport.DisabledCode";
 
 void TextViewport::prepareSuggestion(const QTextBlock &block)
 {
@@ -4210,6 +4211,34 @@ void TextViewport::updateParenthesesMatch()
         m_pendingPulse = PendingPulse{animatePosition, matched.foreground().color(),
                                       matched.background().color()};
     }
+}
+
+// Code the preprocessor left out. CppEditorDocument marks the blocks once the
+// highlighter has caught up, and the widget editor paints them with
+// C_DISABLED_CODE and drops the syntax colours; here they are a highlight
+// like any other, so the same format arrives by the same route.
+void TextViewport::updateDisabledCode()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+
+    const QTextCharFormat disabled = doc->fontSettings().toTextCharFormat(C_DISABLED_CODE);
+    QList<Highlight> found;
+    for (QTextBlock block = text->firstBlock(); block.isValid(); block = block.next()) {
+        if (!TextBlockUserData::ifdefedOut(block))
+            continue;
+        // Whole lines, and joined to the one before where they are adjacent,
+        // so a run of left-out code is one range rather than one per line.
+        const int start = block.position();
+        const int end = block.position() + block.length() - 1;
+        if (!found.isEmpty() && found.last().end + 1 == start)
+            found.last().end = end;
+        else
+            found.append({start, end, disabled});
+    }
+    setHighlights(DISABLED_CODE, found);
 }
 
 void TextViewport::setHighlights(Utils::Id kind, const QList<Highlight> &highlights,
@@ -5249,6 +5278,15 @@ void TextViewport::documentChangedInternal()
         if (text) {
             connect(text, &QTextDocument::contentsChange, this,
                     &TextViewport::carryPositionsThroughEdit);
+            // The language marks the left-out lines only once its highlighter
+            // has caught up - CppEditorDocument::applyIfdefedOutBlocks()
+            // returns early until then - so the text having settled is not
+            // the moment to ask. Queued, so that the marking, which runs off
+            // the same signal, has been done by the time this looks.
+            if (SyntaxHighlighter * const highlighter = doc->syntaxHighlighter()) {
+                connect(highlighter, &SyntaxHighlighter::finished, this,
+                        &TextViewport::updateDisabledCode, Qt::QueuedConnection);
+            }
             connect(text, &QTextDocument::contentsChanged, this, [this] {
                 // What was typed decides whether the suggestion still
                 // describes anything - including the case where taking it is
@@ -5264,6 +5302,8 @@ void TextViewport::documentChangedInternal()
                 // already had the edit in them, and carrying it as well would
                 // move it twice.
                 refreshAutoCompletedHighlight();
+                // Which lines the preprocessor left out moves with the text.
+                updateDisabledCode();
                 polish();
                 update();
             });

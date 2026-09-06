@@ -9015,6 +9015,64 @@ private slots:
         QCOMPARE(TextEditor::textCursorOf(editor).position(), before);
     }
 
+    // Code the preprocessor left out. CppEditorDocument marks those blocks
+    // and the widget editor paints them with C_DISABLED_CODE; this view drew
+    // nothing for them at all, so an inactive #if branch looked like live
+    // code.
+    void testCodeTheProcessorLeftOutIsDrawnAsSuch()
+    {
+        Utils::TemporaryDirectory dir("disabled-code");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("int live = 1;\nint out = 2;\nint alsoOut = 3;\n"
+                                       "int liveAgain = 4;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY(view);
+
+        const Utils::Id kind("TextEditor.TextViewport.DisabledCode");
+        const auto drawn = [view, kind] { return view->highlights(kind); };
+        QVERIFY2(drawn().isEmpty(), "something was greyed out before anything was left out");
+
+        // What the language does when it works out which branch is live.
+        // Marked here rather than driven through the code model: the view's
+        // job starts once the blocks carry the flag, and that is what this is
+        // about.
+        QTextBlock second = document->document()->findBlockByNumber(1);
+        QTextBlock third = document->document()->findBlockByNumber(2);
+        TextBlockUserData::setIfdefedOut(second);
+        TextBlockUserData::setIfdefedOut(third);
+        view->updateDisabledCode();
+
+        // Two adjacent lines are one range, not two: a run of left-out code
+        // reads as one block.
+        QCOMPARE(drawn().size(), 1);
+        QCOMPARE(drawn().first().start, second.position());
+        QCOMPARE(drawn().first().end, third.position() + third.length() - 1);
+        QCOMPARE(drawn().first().format,
+                 document->fontSettings().toTextCharFormat(C_DISABLED_CODE));
+
+        // And it goes when the branch becomes live again.
+        TextBlockUserData::clearIfdefedOut(second);
+        TextBlockUserData::clearIfdefedOut(third);
+        view->updateDisabledCode();
+        QVERIFY2(drawn().isEmpty(), "the greying outlived the #if that caused it");
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

@@ -42829,3 +42829,96 @@ parentheses and suggestions all live, both views read it constantly, and
 nothing has ever compared what they make of it.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Code the preprocessor left out was not drawn as such (batch 75)
+
+Entry 74 named `TextBlockUserData` as the last unexamined surface: folding,
+marks, parentheses and suggestions all live there, both views read it
+constantly, nothing had compared what they make of it.
+
+### The comparison
+
+Fifty-three static accessors; thirty-three of them are read by one view or
+the other. Six are read by the widget and not by the Qt Quick view:
+
+    addEmbeddedWidget            additionalAnnotationHeight
+    braceDepth                   ifdefedOut
+    parentheses                  removeEmbeddedWidget
+
+`parentheses` is a false hit of the kind this file has now seen five ways: the
+Qt Quick view reads it through `matchCursorBackward()` and
+`matchCursorForward()`, which both views use, rather than by name.
+
+### `ifdefedOut`, and the premise checked first
+
+The widget keys **three** visible effects off it: the block's background is
+filled with `C_DISABLED_CODE`, the syntax colours are suppressed and the text
+drawn in that format's foreground, and the minimap paints the block in it.
+The Qt Quick view has no mention of it anywhere - the only greps that matched
+were `#ifdef WITH_TESTS`.
+
+Before writing anything: **is it ever set?** Entry 65 spent a look on
+`markDiffChangeSigns`, which no plugin ever populates, and this is the same
+shape. It is not dormant - `CppEditorDocument::setIfdefedOutBlocks()` is
+driven both by the built-in code model and by clangd's semantic
+highlighting.
+
+So: **an inactive `#if` branch looked exactly like live code in the Qt Quick
+editor**, for every C++ file, which is the language the whole migration is
+about.
+
+### The fix
+
+`TextViewport::updateDisabledCode()` walks the blocks, collects the ones
+carrying the flag and sets them as a highlight in `C_DISABLED_CODE` - the
+same format by the same route as the search scope and the parentheses match.
+Adjacent lines are joined into one range, so a run of left-out code is one
+block rather than one highlight per line.
+
+When to recompute was the part worth care. The text settling is **not** the
+moment: `applyIfdefedOutBlocks()` returns early until
+`syntaxHighlighterUpToDate()`, so the flags are not there yet. It is wired to
+`SyntaxHighlighter::finished` **queued**, so that the marking - which runs off
+the same signal - has happened by the time this looks, and to
+`contentsChanged`, so the ranges follow the text.
+
+### Controls
+
+- **Z**: the flag never noticed - red with `drawn().size()` 0 against 1.
+- The test asserts nothing is drawn *before* the flags are set, that adjacent
+  lines are **one** range rather than two, that the format is the document's
+  own `C_DISABLED_CODE`, and that clearing the flags takes the greying away
+  again. Four assertions, so a fix that drew something arbitrary would not
+  pass.
+
+The test marks the blocks itself rather than driving the C++ code model. That
+is deliberate and it is the limit of what it covers: **the view's reaction is
+tested, the language's marking is not.** The premise that the marking happens
+was established by reading its two callers, not by this test.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 639 passed, 0 failed (was 638) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+Five of the six candidates are unaddressed, and they divide:
+
+- **`addEmbeddedWidget` / `removeEmbeddedWidget` / `additionalAnnotationHeight`**
+  - embedded widgets in the text. `insertWidgetIn(IEditor *)` exists as a
+  seam, so the Qt Quick view has *something* here; whether it reaches the
+  block data has not been checked. **This is the next look.**
+- **`braceDepth`** - one widget read. Likely bookkeeping, like `parentheses`
+  turned out to be; worth one grep before believing that.
+
+After those, `TextBlockUserData` is done and with it entry 64's audit, and
+the surfaces this file knows how to ask about are exhausted. What would remain
+is the one thing never attempted: **moving a second language and seeing what
+happens**, with entry 69's three measured costs as the starting point.
+
+The printing decision (keep / drop / move) remains the owner's call.
