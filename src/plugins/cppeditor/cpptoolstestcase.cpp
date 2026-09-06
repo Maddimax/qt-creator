@@ -189,16 +189,6 @@ static bool closeEditorsWithoutGarbageCollectorInvocation(const QList<Core::IEdi
     return closeEditorsSucceeded;
 }
 
-static bool snapshotContains(const CPlusPlus::Snapshot &snapshot, const QSet<FilePath> &filePaths)
-{
-    for (const FilePath &filePath : filePaths) {
-        if (!snapshot.contains(filePath)) {
-            qWarning() << "Missing file in snapshot:" << qPrintable(filePath.toUrlishString());
-            return false;
-        }
-    }
-    return true;
-}
 
 TestCase::TestCase(bool runGarbageCollector)
     : m_succeededSoFar(false)
@@ -370,13 +360,18 @@ CPlusPlus::Document::Ptr TestCase::waitForRehighlightedSemanticDocument(
 bool TestCase::parseFiles(const QSet<FilePath> &filePaths)
 {
     CppModelManager::updateSourceFiles(filePaths).waitForFinished();
-    QCoreApplication::processEvents();
-    const CPlusPlus::Snapshot snapshot = globalSnapshot();
-    if (snapshot.isEmpty()) {
-        qWarning("After parsing: snapshot is empty.");
-        return false;
-    }
-    if (!snapshotContains(snapshot, filePaths)) {
+
+    // The parse finishing is not the same as its result being in the global
+    // snapshot: the merge happens on this thread, and a single turn of the
+    // event loop is not guaranteed to carry it. Waiting for the documents
+    // themselves is the condition that means what this function claims -
+    // and it is the wait waitForFileInGlobalSnapshot() already uses.
+    //
+    // Checked immediately, this reported "After parsing: snapshot is empty"
+    // and failed, a few times per run of CppEditor's suite and never when the
+    // test was run on its own.
+    const FilePaths wanted(filePaths.cbegin(), filePaths.cend());
+    if (waitForFilesInGlobalSnapshot(wanted).size() != wanted.size()) {
         qWarning("After parsing: snapshot does not contain all expected files.");
         return false;
     }

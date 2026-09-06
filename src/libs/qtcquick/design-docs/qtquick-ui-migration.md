@@ -39651,3 +39651,104 @@ One file changed, and it is this one.
 - Unchanged: **drag and drop of text**; **`-test all`**, blocked by
   QmlDesigner's link error; **`-test ClangFormat`**, which is not an accepted
   name and went unmeasured.
+
+## 2026-09-06 (46) -- CppEditor's flakiness has two causes, and one is fixed
+
+Entry 45 put CppEditor's run-to-run noise in the way of the census and
+proposed measuring the three tests that varied. Measured, and the first result
+changed the question.
+
+### The three are not flaky
+
+    BringIdentifierIntoScopeTest   0 failures of 10 runs, alone
+    GlobalRenamingTest             0 failures of 10 runs, alone
+    LocatorFilterTest              0 failures of 10 runs, alone
+
+Thirty runs, nothing. **The tests are fine; the suite around them is not.** So
+what looked like three flaky tests is contamination, and the natural next
+assumption - that something earlier leaves documents behind - is what the
+failure message immediately contradicted:
+
+    QWARN: After parsing: snapshot is empty.
+
+Not too much state. **None.**
+
+### Which gap this batch closed
+
+`TestCase::parseFiles()` did this:
+
+    CppModelManager::updateSourceFiles(filePaths).waitForFinished();
+    QCoreApplication::processEvents();          // one turn
+    const Snapshot snapshot = globalSnapshot(); // and check
+
+The parse task finishing is not the same as its result reaching the global
+snapshot: that merge happens on this thread, and **one turn of the event loop
+is not guaranteed to carry it**. Under load - a full suite rather than one
+class - it sometimes did not, and the test failed saying the snapshot was
+empty.
+
+The right primitive was already in the same file, twelve lines below, and its
+neighbour `waitForFileInGlobalSnapshot()` already used it:
+`waitForFilesInGlobalSnapshot()` loops until the documents are actually there
+or a timeout expires. `parseFiles()` now uses it, which also subsumes the
+"contains all expected files" check that followed - so `snapshotContains()`
+went with it, the build having said it was unused.
+
+This is the repo's own rule about tests, applied to a test helper: **bound the
+wait on the thing you are about to assert, not on a proxy for it.**
+
+### The rate, and what it does and does not say
+
+    before   2 runs: one had the parse-empty family (3 tests), one did not
+    after    4 runs: 6, 6, 7, 6 failures - and the parse-empty family in none
+
+Four clean runs against a pre-fix rate of about one run in two is roughly a
+one-in-sixteen coincidence. **Suggestive, not proof** - the pre-fix sample is
+two runs, and no honest rate can be built on two. The change stands on the
+rule above rather than on that number, which is the right way round: a fix
+that needs a small sample to justify it is a fix that has not been understood.
+
+There is no deterministic control for it. A race cannot be reddened on demand,
+and a control that fires half the time is the trap this file has written down
+twice. Said plainly rather than dressed up.
+
+### The other cause, diagnosed and not fixed
+
+Every one of the four runs still failed in `LocatorFilterTest`, and **in both
+directions**:
+
+    testLocatorFilter(CppFunctionsFilter-ObjC)   5 results, 3 expected
+    testFunctionsFilterHighlighting()            no results at all
+
+That test garbage-collects the global snapshot *before* it parses, so it does
+not start dirty. The extra entries - and the missing ones - come from the
+**locator's own symbol index**, which a snapshot GC does not clear and which
+is built asynchronously. Same shape as the bug above, a layer along: a thing
+updated in the background, queried immediately.
+
+Not fixed here. It needs someone to find what the locator index offers as a
+"settled" signal, and that is a batch rather than a paragraph.
+
+### Verification
+
+    -test TextEditor    586 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+    -test CppEditor     four full runs: 6, 6, 7, 6 failures, all of them the
+                        five known-stable ones plus locator flakes; no test
+                        newly failing
+
+One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+- **The locator index race**, above. While it fires every run, CppEditor's
+  suite still cannot be compared configuration against configuration - which
+  is what entry 45 wanted and this batch has only half delivered.
+- **Five stable CppEditor failures** that fail identically both ways and
+  predate this work: `MoveClassToOwnFileTest` x4 and
+  `SynchronizeMemberFunctionOrderTest(different impl locations)`. Nobody has
+  looked at them; they are not this migration's, but they are red.
+- Unchanged: **drag and drop of text**; **`-test all`**, blocked by
+  QmlDesigner's link error; **`-test ClangFormat`**, not an accepted name; and
+  the **shared "this test is about the Qt Quick view"** helper, still at three
+  call sites and still short of the fourth that would justify it.
