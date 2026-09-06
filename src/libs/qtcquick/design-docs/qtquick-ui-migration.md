@@ -45806,3 +45806,92 @@ And the goal at the top of every batch has been met since long before this
 one: a C++ file opens in `TextViewport`. So do JSON, qmake, CMake, Python,
 vcpkg, Java, Nim, the compilation database, the generic project's file lists,
 Markdown's text pane, and every text file without a factory of its own.
+
+## 2026-09-06 — GLSL's parse moves off the editor widget (batch 105)
+
+Markdown is done, so GLSL - entry 93's table. This is the first of its
+batches and it takes the largest row: **what the shader means stops being
+something an editor widget works out.**
+
+### The gap this closed
+
+`GlslEditorWidget` owned the parse: a 150 ms debounce on `textChanged`, the
+`Document::Ptr` it produced, and the diagnostics and semantic ranges it wrote
+back with `setExtraSelections()`. None of that is about how a file is drawn,
+and all of it was unreachable to anything that was not that widget.
+
+`GlslSemantics` is a child of the `TextDocument` now, made by the factory's
+document creator. It holds the timer, the Vulkan flag and the parse result,
+and writes its selections to the **document** - which entry 97 established is
+where a view that is not a widget reads them, and which
+`TextEditorWidgetPrivate` merges into a widget's own, so the widget editor is
+unchanged.
+
+The widget keeps only what is about the editor: the Vulkan tool button drives
+`setVulkanEnabled()`, the tooltip asks `GlslSemantics::of(textDocument())`,
+and so does `createAssistInterface()`.
+
+Two knock-ons worth noting:
+
+- `CreateRangesMarkSemanticDetails` produced `QTextEdit::ExtraSelection`; it
+  produces `TextDocument::ExtraSelection` now, which is the same pair without
+  a QtWidgets header in front of it.
+- `cursorForDiagnosticMessage()` was a widget member using nothing but the
+  document; it takes one.
+- `Document`'s `friend class GlslEditorWidget` is `friend class GlslSemantics`.
+  Whoever fills the parse in is the friend, and that is no longer an editor.
+
+GLSL has never had a test. It has two.
+
+### A control that did not bite, and the test that had to grow
+
+**BY** made the parse always use the Vulkan lexer variant, and the first
+version of the Vulkan test **stayed green**. It asserted
+`glslDocument()->vulkanEnabled()` - the flag the parse *records* - and never
+what the flag *does*, which is admit `texture2D` and the other types only
+Vulkan knows.
+
+The test now writes `uniform texture2D t;` under `#version 450` and checks it
+draws no diagnostic with the switch on and does with it off. BY bites.
+
+**The lesson is the one this document keeps relearning**: a test that reads
+back the input it just set is measuring the setter. Ask what the setting
+changes.
+
+### Controls
+
+- **BX**: the diagnostics never written to the document - red at "a shader
+  that does not parse was given no diagnostics".
+- **BY**: the Vulkan switch ignored when building the lexer variant - green
+  against the first test, red against the one above.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 670 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test GLSLEditor` | 0 | 4 passed, 0 failed (was none) |
+
+No `.qbs` change: no files added. `glsleditor.cpp` needed
+`#include "glsleditor.moc"` for the first time - it had no `Q_OBJECT` in it
+before.
+
+### What is left, for GLSL
+
+From entry 93's table, with this batch's row struck out:
+
+| What | State |
+| --- | --- |
+| the parse, its diagnostics and semantic ranges | **done** |
+| `setAutoCompleter(new GlslCompleter)` | move to `setAutoCompleterCreator()` |
+| `createAssistInterface()` override | asks the document now; needs a home that is not a widget |
+| `onTooltipRequested` | asks the document now; same |
+| the checkable Vulkan button | a checkable `QAction` - entries 93 and 103 made both halves possible |
+| the outline `QComboBox` | **ask first**: its model is commented out, so it draws an empty box |
+
+The outline question is the only one that is not ordinary work, and it is
+smaller than it sounds: the answer may simply be to delete it.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

@@ -5,10 +5,18 @@
 
 #include <QString>
 
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace GlslEditor::Internal {
 
 int languageVariant(const QString &mimeType);
 
 void setupGlslEditorFactory();
+
+#ifdef WITH_TESTS
+QObject *createGlslEditorTest();
+#endif
 
 } // GlslEditor::Internal

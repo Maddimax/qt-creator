@@ -51,7 +51,9 @@ private:
     int _currentGlslVersion = -1;
     bool _vulkanEnabled = false;
 
-    friend class GlslEditorWidget;
+    // Whoever fills this in. The parse lives on the document now, not on an
+    // editor widget.
+    friend class GlslSemantics;
 };
 
 class GlslCompletionAssistInterface : public TextEditor::AssistInterface

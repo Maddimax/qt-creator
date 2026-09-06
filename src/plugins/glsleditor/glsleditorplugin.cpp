@@ -35,6 +35,10 @@ public:
     {
         setupGlslEditorFactory();
 
+#ifdef WITH_TESTS
+        addTestCreator(createGlslEditorTest);
+#endif
+
         ActionContainer *contextMenu = ActionManager::createMenu(Constants::M_CONTEXT);
         ActionContainer *glslToolsMenu = ActionManager::createMenu(Id(Constants::M_TOOLS_GLSL));
         glslToolsMenu->setOnAllDisabledBehavior(ActionContainer::Hide);
