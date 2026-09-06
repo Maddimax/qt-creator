@@ -40,6 +40,11 @@
 #include <QTextBlock>
 #include <QXmlStreamWriter>
 
+#ifdef WITH_TESTS
+#include <QTest>
+#include <utils/temporarydirectory.h>
+#endif
+
 using namespace TextEditor;
 using namespace Utils;
 
@@ -438,12 +443,9 @@ void ClangFormat::formatLines()
 
 void ClangFormat::disableFormattingSelectedText()
 {
-    TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
-    if (!widget)
-        return;
-
-    const QTextCursor tc = widget->textCursor();
-    if (!tc.hasSelection())
+    Core::IEditor * const editor = Core::EditorManager::currentEditor();
+    const QTextCursor tc = TextEditor::textCursorOf(editor);
+    if (tc.isNull() || !tc.hasSelection())
         return;
 
     // Insert start marker
@@ -463,7 +465,7 @@ void ClangFormat::disableFormattingSelectedText()
     // Reset the cursor position in order to clear the selection.
     QTextCursor restoreCursor(tc.document());
     restoreCursor.setPosition(positionToRestore);
-    widget->setTextCursor(restoreCursor);
+    TextEditor::setTextCursorOf(editor, restoreCursor);
 
     // The indentation of these markers might be undesired, so reformat.
     // This is not optimal because two undo steps will be needed to remove the markers.
@@ -526,4 +528,66 @@ void setupClangFormat()
     static ClangFormat theClangFormat;
 }
 
+#ifdef WITH_TESTS
+
+namespace {
+
+class ClangFormatTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testDisablingFormattingWrapsTheSelection()
+    {
+        Utils::TemporaryDirectory dir("clangformat-disable");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("int a = 1;\nint b = 2;\nint c = 3;\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // The middle line.
+        QTextCursor pick(document->document());
+        pick.setPosition(document->document()->findBlockByNumber(1).position());
+        pick.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        QCOMPARE(pick.selectedText(), QString("int b = 2;"));
+        TextEditor::setTextCursorOf(editor, pick);
+
+        Core::Command * const cmd
+            = Core::ActionManager::command("ClangFormat.DisableFormattingSelectedText");
+        QVERIFY2(cmd, "the command is not registered at all");
+        QVERIFY2(cmd->action()->isEnabled(), "the command is registered but disabled");
+        cmd->action()->trigger();
+
+        QCOMPARE(document->plainText(),
+                 QString("int a = 1;\n// clang-format off\nint b = 2;\n"
+                         "// clang-format on\nint c = 3;\n"));
+    }
+};
+
+} // namespace
+
+QObject *createClangFormatTest()
+{
+    return new ClangFormatTest;
+}
+
+#endif // WITH_TESTS
+
 } // Beautifier::Internal
+
+#include "clangformat.moc"

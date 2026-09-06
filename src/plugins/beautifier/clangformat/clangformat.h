@@ -3,8 +3,14 @@
 
 #pragma once
 
+#include <QObject>
+
 namespace Beautifier::Internal {
 
 void setupClangFormat();
+
+#ifdef WITH_TESTS
+QObject *createClangFormatTest();
+#endif
 
 } // Beautifier::Internal

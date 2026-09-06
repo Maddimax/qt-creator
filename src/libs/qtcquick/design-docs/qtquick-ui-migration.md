@@ -40570,3 +40570,124 @@ The lesson from this one: **the count in entry 54 was a search result, not a
 finding.** Three sites read, three retired. That does not make entry 54 wrong -
 two gaps in it are verified - but the number will shrink, and quoting 42 as if
 it were a defect list would be the same mistake in the other direction.
+
+## 2026-09-06 — Beautifier's "Disable Formatting for Selected Text" (batch 56)
+
+Entry 55 named this and Git's Instant Blame as the two verified gaps to do
+next, and said why they were the right shape: they change the document, so a
+test can assert *what happened* rather than where a view is looking. This
+batch did the first one.
+
+### What was broken
+
+All four of ClangFormat's entry points open the same way:
+
+```cpp
+const TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
+if (!widget)
+    return;
+```
+
+`currentTextEditorWidget()` is null for a file in the Quick view, so on a C++
+file **Beautifier does nothing at all** — and does it silently: no error, no
+log entry, no marker, the menu item enabled and inert.
+
+`disableFormattingSelectedText()` needs only the cursor and the ability to put
+one back, so it converted directly to the editor-level seams:
+
+```cpp
+Core::IEditor * const editor = Core::EditorManager::currentEditor();
+const QTextCursor tc = TextEditor::textCursorOf(editor);
+if (tc.isNull() || !tc.hasSelection())
+    return;
+...
+TextEditor::setTextCursorOf(editor, restoreCursor);
+```
+
+Both includes were already there. The body in between is untouched: it works
+on `tc.document()` and a detached `QTextCursor`, neither of which was ever a
+widget thing.
+
+### The test
+
+`ClangFormatTest::testDisablingFormattingWrapsTheSelection` — Beautifier's
+second test creator, registered next to `createConfigurationsAspectTest` in
+`beautifierplugin.cpp` and following the same `#include "clangformat.moc"`
+convention. It writes a three-line `.cpp` to a temporary directory, forces the
+C++ factory to the Quick view, opens it, selects the middle line, triggers
+`ClangFormat.DisableFormattingSelectedText` through its registered `Core::Command`
+(not by calling the method — that also covers the action still being wired and
+enabled), and compares the whole document text against the expected
+marker-wrapped result.
+
+**It needs no clang-format binary.** The tail of the method calls
+`formatAtPosition()`, which is still widget-gated and so returns immediately.
+That is worth stating plainly: the test covers the marker insertion, and the
+reformat-after-insert step is *not* covered because it is still broken. See
+below.
+
+### Controls — both bite
+
+- **A: put the widget gate back** (`currentTextEditorWidget()` + early
+  return), fix otherwise intact. Red, and red in the informative way: actual
+  text is the original three lines, i.e. nothing happened at all, which is
+  exactly the user-visible symptom.
+- **B: `setUsesQuickEditor(false)`** in the test. Red at the guard
+  `QVERIFY2(!TextEditorWidget::fromEditor(editor), "the file opened in a
+  widget editor, so this tests nothing")`. This is the control that matters
+  for a migration test: it proves the pass is a *Quick-view* pass and the test
+  cannot silently start measuring the widget again.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 589 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Beautifier` | 0 | 13 passed, 0 failed (was 10) |
+
+No `.qbs` change: no files were added, and `clangformat.cpp`/`.h` are already
+listed under the `clangformat/` prefix.
+
+### What is still broken in Beautifier, and it is most of it
+
+This batch closed **one of four** gates. Still widget-only, all with the same
+two-line opening:
+
+- `formatAtPosition()` — clangformat.cpp:376
+- `formatAtCursor()` — clangformat.cpp:395
+- `formatLines()` — clangformat.cpp:416
+
+and behind them the real choke point:
+
+```cpp
+void formatCurrentFile(const Command &command, int startPos, int endPos)
+{
+    if (TextEditorWidget *editor = TextEditorWidget::currentTextEditorWidget())
+        formatEditorAsync(editor, command, startPos, endPos);
+}
+```
+
+`formattexteditor.cpp` is already half-converted — `updateEditorText(IEditor *)`
+and `formatEditor(IEditor *)` both have viewport branches — but
+`formatEditorAsync()` takes a `TextEditorWidget *` and
+`checkAndApplyTask()` a `QPointer<PlainTextEdit>`, so the async path is
+widget-shaped end to end. Converting `formatCurrentFile` means converting
+those two signatures, which is a bigger piece than this batch and touches
+every beautifier tool (uncrustify, artistic style), not just clang-format.
+
+**Honest limit on testing that piece:** it runs an external process. Without a
+clang-format binary on the machine a test can assert that the *right command
+is assembled and dispatched*, but not that the document comes back formatted.
+Do not let a batch claim more than that.
+
+### Next
+
+Git's Instant Blame (`instantblame.cpp:274,405,443,562`) is the other verified
+gap from entry 54 and is the last small one. After that the remaining ~37
+widget-only paths need triaging rather than fixing — entry 51 was explicit
+that 42 is an *upper bound*, not a defect list, and `qmljseditor` /
+`qmldesigner` are expected to come off it.
+
+The printing decision (keep / drop / move) remains the owner's call, not a
+batch's.

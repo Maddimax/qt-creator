@@ -76,6 +76,7 @@ class BeautifierPlugin final : public ExtensionSystem::IPlugin
 
 #ifdef WITH_TESTS
         addTestCreator(createConfigurationsAspectTest);
+        addTestCreator(createClangFormatTest);
 #endif
     }
 
