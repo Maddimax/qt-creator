@@ -113,14 +113,17 @@ const char QUICK_TEXT_EDITOR_ID[] = "TextEditor.QuickTextEditor";
 class AdoptedSource final : public CodeSource
 {
 public:
-    explicit AdoptedSource(TextDocument *document)
+    explicit AdoptedSource(const TextDocumentPtr &document)
         : m_document(document)
     {}
 
-    TextDocument *textDocument() const final { return m_document; }
+    TextDocument *textDocument() const final { return m_document.get(); }
 
 private:
-    TextDocument * const m_document;
+    // A share rather than a pointer: the view asks the document on the way out
+    // - clearing its scope highlight reads the revision - and a host whose own
+    // reference goes first would leave it asking freed memory.
+    const TextDocumentPtr m_document;
 };
 
 const char QUICK_FIND_HIGHLIGHTS[] = "TextEditor.QuickTextEditor.FindResults";
@@ -262,7 +265,7 @@ public:
                              uint optionalActions = OptionalActions::None,
                              Utils::Id contextMenuId = {})
         : m_document(std::move(document))
-        , m_source(std::make_unique<AdoptedSource>(m_document.get()))
+        , m_source(std::make_unique<AdoptedSource>(m_document))
         , m_gate(new OptionalActionGate(this, [this] { return viewport(); }))
         , m_jumps(new JumpRecorder(this, [this] { return saveState(); }))
         , m_contextMenuId(contextMenuId)
@@ -1390,7 +1393,7 @@ QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
     return bar;
 }
 
-QtcQuick::QuickWidget *createQuickTextViewOver(TextDocument *document,
+QtcQuick::QuickWidget *createQuickTextViewOver(const TextDocumentPtr &document,
                                                QtcQuick::ActionModel *contextActions)
 {
     QTC_ASSERT(document, return nullptr);
@@ -5327,7 +5330,8 @@ private slots:
             {"build.sh", true},
             // And a language that has one does not, however plain its text.
             {"script.py", true},
-            {"README.md", false},
+            // Its text pane is the Qt Quick view now; its preview is not.
+            {"README.md", true},
             {"Thing.qml", false},
             {"project.pro", true},
             {"CMakeLists.txt", true},
@@ -9915,7 +9919,7 @@ private slots:
         QVERIFY(document);
 
         const std::unique_ptr<QWidget> host(
-            Internal::createQuickTextViewOver(document, nullptr));
+            Internal::createQuickTextViewOver(document->sharedFromThis(), nullptr));
         QVERIFY2(host.get(), "no view was built over the editor's document");
         host->resize(400, 300);
         host->show();

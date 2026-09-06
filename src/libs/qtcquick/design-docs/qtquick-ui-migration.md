@@ -45713,3 +45713,96 @@ That is one batch, and there is no decision left in it.
 Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
 the question about its empty outline combo), the whitespace difference
 (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — Markdown's text pane is the Qt Quick view (batch 104)
+
+The substitution. `MarkdownEditor` holds no `TextEditorWidget` at all now: its
+left pane is `createQuickTextViewOver()` and its tool bar row is
+`createQuickTextToolBar()`, with the seven actions entry 95 made in an
+`ActionModel`.
+
+`README.md` is `true` in the language census.
+
+### The gap this closed
+
+The last one on Markdown's list, which was nothing but doing it. Every piece
+came from a previous batch and needed no new seam:
+
+| Piece | From |
+| --- | --- |
+| the view over the editor's document | entry 100 |
+| the tool bar row | entry 98 |
+| find | entry 96 - it comes with the view |
+| the text context | entry 97 |
+| Follow Symbol, gated | entry 101 |
+| navigation history | entry 102 |
+| the styled glyphs | entry 103 |
+
+`setWidgetOrder()` used to reorder actions in a `QToolBar`; it sets the
+`ActionModel`'s list now, which is the same idea with the row's order in one
+place instead of two.
+
+### Two crashes, and what they were really about
+
+**`QTextDocument::revision()` on freed memory.** `AdoptedSource` held a raw
+`TextDocument *`. `MarkdownEditor` owns a `TextDocumentPtr`, and its members
+are destroyed before the widget tree that holds the view - so the document
+went first and the view asked it a question on the way out
+(`clearScopeHighlight()` reads the revision).
+
+The first fix was `delete m_textView` in a destructor, and it was **wrong** and
+made things worse: the view is in an `Aggregate`, and deleting one component
+tears down the whole aggregate, so the wrapper widget was freed twice.
+
+The right fix is that `AdoptedSource` holds a **share** of the document rather
+than a pointer to it. A view that outlives its host's own reference then keeps
+the document alive for exactly as long as it needs to ask it things.
+`QuickTextEditor` gets the same guarantee for free.
+
+**Worth keeping:** *deleting one object in an Aggregate deletes all of them.*
+An `Aggregate` is not a bag of pointers; it is a joint lifetime.
+
+### The visual tree is not the QObject tree
+
+Rewriting the tool bar test cost a build: `rootObject()->findChildren<
+QQuickItem *>("languageToolBarButton")` finds **nothing**. A `Repeater`
+parents its delegates into the item they are drawn in, not into the QObject
+tree of the root. `quicktexteditor.cpp`'s `itemNamed()` has always walked
+`childItems()` for exactly this reason; the new helper does too.
+
+### The controls, and one that had to be earned
+
+- **BW**: the four editing actions left out of the row's model - red at "not
+  drawn in the row: Emphasis, Strong, Inline Code...".
+- **BV**: `IContext::attach()` on the text pane removed - **green at first**.
+  Nothing covered it. Rather than leave a line no control can reach, the
+  structural test now asserts the pane carries the Markdown text context; it
+  asks the attachment rather than focus, because a test that shows no window
+  cannot give anything focus (entry 97). With that assertion, BV bites.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 670 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+The count is unchanged because three tests were rewritten rather than added:
+the ones that asserted Markdown had a widget pane now assert it has a Qt Quick
+one. No `.qbs` change: no files added.
+
+### What is left
+
+**Markdown is done.** What remains in this document is:
+
+1. **GLSL** - entry 93's table, with entry 97's correction that
+   `setExtraSelections()` already has a document-level twin. Several batches,
+   and one question for a human: its outline combo's model is commented out,
+   so it draws an empty box. Ask whether it should exist before porting it.
+2. The whitespace drawing difference - declined, entry 68.
+3. Printing - keep, drop or move. The owner's since entry 31.
+
+And the goal at the top of every batch has been met since long before this
+one: a C++ file opens in `TextViewport`. So do JSON, qmake, CMake, Python,
+vcpkg, Java, Nim, the compilation database, the generic project's file lists,
+Markdown's text pane, and every text file without a factory of its own.

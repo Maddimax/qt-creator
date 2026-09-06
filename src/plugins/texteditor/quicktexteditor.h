@@ -77,7 +77,7 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
 // the editor manager opens the document before the editor is ever shown.
 // CodeBuffer holds text of its own and CodeDocument opens a file; neither is
 // that. The source pointing at \a document belongs to the widget handed back.
-QtcQuick::QuickWidget *createQuickTextViewOver(TextDocument *document,
+QtcQuick::QuickWidget *createQuickTextViewOver(const TextDocumentPtr &document,
                                                QtcQuick::ActionModel *contextActions);
 
 // Where a jump landed, kept until the reader moves off it. Go Back is meant to

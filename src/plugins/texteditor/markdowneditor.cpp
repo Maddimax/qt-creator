@@ -4,6 +4,11 @@
 
 #include "markdowneditor.h"
 
+#include "quicktexteditor.h"
+#include "textviewport.h"
+#include "highlighterhelper.h"
+#include "texteditorconstants.h"
+
 #include "textdocument.h"
 #include "texteditor.h"
 #include "texteditortr.h"
@@ -12,10 +17,14 @@
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/ieditorfactory.h>
 #include <coreplugin/find/basetextfind.h>
+#include <qtcquick/actionmodel.h>
+#include <qtcquick/qtcquickwidget.h>
+#include <coreplugin/find/ifindsupport.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/minisplitter.h>
 
 #include <utils/action.h>
+#include <utils/algorithm.h>
 #include <utils/aggregate.h>
 #include <utils/link.h>
 #include <utils/markdownbrowser.h>
@@ -36,6 +45,8 @@
 #include <QHBoxLayout>
 #include <QRegularExpression>
 #include <QScrollBar>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QTextBrowser>
 #include <QTimer>
 #include <QToolBar>
@@ -94,6 +105,8 @@ public:
 
     explicit MarkdownEditor(const TextDocumentPtr &doc)
         : m_document(doc)
+        , m_gate(new Internal::OptionalActionGate(this, [this] { return m_viewport; }))
+        , m_jumps(new Internal::JumpRecorder(this, [this] { return viewState(); }))
     {
         setDuplicateSupported(true);
 
@@ -125,35 +138,25 @@ public:
                 });
 
         // editor
-        m_textEditorWidget = new TextEditorWidget;
-        m_textEditorWidget->setOptionalActions(OptionalActions::FollowSymbolUnderCursor);
         m_document->setLinkFinder(&findMarkdownLinkAt);
-        m_textEditorWidget->setTextDocument(m_document);
-        m_textEditorWidget->setupGenericHighlighter();
-        m_textEditorWidget->setMarksVisible(false);
-        QObject::connect(
-            m_textEditorWidget,
-            &TextEditorWidget::saveCurrentStateForNavigationHistory,
-            this,
-            &MarkdownEditor::saveCurrentStateForNavigationHistory);
-        QObject::connect(
-            m_textEditorWidget,
-            &TextEditorWidget::addSavedStateToNavigationHistory,
-            this,
-            &MarkdownEditor::addSavedStateToNavigationHistory);
-        QObject::connect(
-            m_textEditorWidget,
-            &TextEditorWidget::addCurrentStateToNavigationHistory,
-            this,
-            &MarkdownEditor::addCurrentStateToNavigationHistory);
+        // Markdown is coloured by a generic definition; the bare view
+        // configures none of its own, unlike the Qt Quick editor.
+        const HighlighterHelper::Definitions definitions
+            = HighlighterHelper::definitionsForDocument(m_document.data());
+        if (!definitions.isEmpty())
+            HighlighterHelper::setDefinitionOn(m_document.data(), definitions.first());
 
-        IContext::attach(m_textEditorWidget, Context(MARKDOWNVIEWER_TEXT_CONTEXT));
+        m_textView = Internal::createQuickTextViewOver(m_document, nullptr);
+        m_viewport = Internal::viewportIn(m_textView);
+        QTC_ASSERT(m_viewport, return);
 
-        // synchronize highlighting of search results between the two views
-        auto textFind = Aggregation::query<BaseTextFindBase>(m_textEditorWidget);
+        // Search results shown in one view are shown in the other. The text
+        // side is a viewport now, and the find it is asked for is the one
+        // aggregated onto its host rather than onto a widget editor.
+        auto textFind = Aggregation::query<BaseTextFindBase>(m_textView);
         if (QTC_GUARD(textFind)) {
             m_editorHighlight.find = textFind;
-            m_editorHighlight.view = m_textEditorWidget;
+            m_editorHighlight.view = m_textView;
             m_previewHighlight.find = previewFind;
             m_previewHighlight.view = m_previewWidget;
             connect(textFind,
@@ -170,12 +173,36 @@ public:
                     });
         }
 
-        m_splitter->addWidget(m_textEditorWidget); // sets splitter->focusWidget() on non-Windows
+        // Where a jump landed, so Go Back returns to it - the rule being that
+        // the entry is recorded when the reader leaves, not on arrival.
+        connect(m_viewport, &TextViewport::cursorPositionChanged,
+                m_jumps, &Internal::JumpRecorder::caretMoved);
+
+        // Follow Symbol. The link finder above is what answers it; the gate is
+        // what says this language can, which addOptionalActionsIn() may add to
+        // later.
+        const auto follow = [this](Utils::Id id, bool inNextSplit) {
+            m_gate->gate(Core::ActionBuilder(this, id)
+                             .setContext(Context(MARKDOWNVIEWER_TEXT_CONTEXT))
+                             .addOnTriggered(this, [this, inNextSplit] {
+                                 m_viewport->followSymbolUnderCursor(
+                                     m_viewport->opensInNextSplit(inNextSplit));
+                             })
+                             .contextAction(),
+                         OptionalActions::FollowSymbolUnderCursor);
+        };
+        follow(TextEditor::Constants::FOLLOW_SYMBOL_UNDER_CURSOR, false);
+        follow(TextEditor::Constants::FOLLOW_SYMBOL_UNDER_CURSOR_IN_NEXT_SPLIT, true);
+        m_gate->setOptionalActions(OptionalActions::FollowSymbolUnderCursor);
+
+        IContext::attach(m_textView, Context(MARKDOWNVIEWER_TEXT_CONTEXT));
+
+        m_splitter->addWidget(m_textView); // sets splitter->focusWidget() on non-Windows
         m_splitter->addWidget(m_previewWidget);
 
         // Ignore size hints and just distribute equally 50%/50%
         m_previewWidget->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-        m_textEditorWidget->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        m_textView->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
         m_splitter->setSizes({1, 1});
 
         setContext(Context(MARKDOWNVIEWER_ID));
@@ -188,10 +215,10 @@ public:
         setWidget(widget);
         m_widget->installEventFilter(this);
         using namespace Aggregation;
-        Aggregate *agg = Aggregate::parentAggregate(m_textEditorWidget);
+        Aggregate *agg = Aggregate::parentAggregate(m_textView);
         if (!agg) {
             agg = new Aggregate;
-            agg->add(m_textEditorWidget);
+            agg->add(m_textView);
         }
         agg->add(m_widget.get());
 
@@ -203,7 +230,7 @@ public:
         m_toggleEditorVisible = Command::createActionWithShortcutToolTip(TOGGLEEDITOR_ACTION, this);
         m_toggleEditorVisible->setCheckable(true);
         m_toggleEditorVisible->setChecked(showEditor);
-        m_textEditorWidget->setVisible(showEditor);
+        m_textView->setVisible(showEditor);
 
         const auto markdownAction = [this](Utils::Id command, const QString &glyph,
                                            void (MarkdownEditor::*trigger)()) {
@@ -228,8 +255,6 @@ public:
                 action->setVisible(false);
         }
 
-        for (auto it = m_markDownActions.rbegin(); it != m_markDownActions.rend(); ++it)
-            m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Left, *it);
 
         // These two are a styled glyph rather than an icon. A QAction carries
         // a font, so it says so itself and either tool bar can read it.
@@ -239,9 +264,6 @@ public:
         m_swapViews = Command::createActionWithShortcutToolTip(SWAPVIEWS_ACTION, this);
         m_swapViews->setEnabled(showEditor && showPreview);
 
-        m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Right, m_swapViews);
-        m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Right, m_toggleEditorVisible);
-        m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Right, m_togglePreviewVisible);
         setWidgetOrder(textEditorRight);
 
         const auto viewToggled =
@@ -273,7 +295,7 @@ public:
                 &QAction::toggled,
                 this,
                 [this, viewToggled, saveViewSettings](bool visible) {
-                    viewToggled(m_textEditorWidget,
+                    viewToggled(m_textView,
                                 visible,
                                 m_previewWidget,
                                 m_togglePreviewVisible);
@@ -288,7 +310,7 @@ public:
             &QAction::toggled,
             this,
             [this, viewToggled, saveViewSettings](bool visible) {
-                viewToggled(m_previewWidget, visible, m_textEditorWidget, m_toggleEditorVisible);
+                viewToggled(m_previewWidget, visible, m_textView, m_toggleEditorVisible);
                 if (visible && m_performDelayedUpdate) {
                     m_performDelayedUpdate = false;
                     updatePreviewNow();
@@ -298,7 +320,7 @@ public:
                 saveViewSettings();
             });
 
-        connect(m_swapViews, &QAction::triggered, m_textEditorWidget, [this] {
+        connect(m_swapViews, &QAction::triggered, m_textView, [this] {
             const bool textEditorRight = isTextEditorRight();
             setWidgetOrder(!textEditorRight);
             // save settings
@@ -412,37 +434,47 @@ public:
     {
         QTC_ASSERT(m_splitter->count() > 1, return);
         QWidget *left = textEditorRight ? static_cast<QWidget *>(m_previewWidget)
-                                        : m_textEditorWidget;
-        QWidget *right = textEditorRight ? static_cast<QWidget *>(m_textEditorWidget)
+                                        : static_cast<QWidget *>(m_textView);
+        QWidget *right = textEditorRight ? static_cast<QWidget *>(m_textView)
                                          : m_previewWidget;
         m_splitter->insertWidget(0, left);
         m_splitter->insertWidget(1, right);
         // buttons
         const auto leftAction = textEditorRight ? m_togglePreviewVisible : m_toggleEditorVisible;
         const auto rightAction = textEditorRight ? m_toggleEditorVisible : m_togglePreviewVisible;
-        m_textEditorWidget->toolBar()->insertAction(m_swapViews, leftAction);
-        m_textEditorWidget->toolBar()->insertAction(m_swapViews, rightAction);
+        m_toolBarActions.setActions(m_markDownActions
+                                    + QList<QAction *>{leftAction, rightAction, m_swapViews});
     }
 
     Core::IDocument *document() const override { return m_document.data(); }
 
-    QWidget *toolBar() override { return m_textEditorWidget->toolBarWidget(); }
+    // The Qt Quick row over the text pane. Built on demand and once: the
+    // editor manager asks whenever this editor becomes current.
+    QWidget *toolBar() override
+    {
+        if (!m_toolBar) {
+            m_toolBar = Internal::createQuickTextToolBar(m_viewport, &m_toolBarActions,
+                                                         nullptr, m_document->toolBarChoice());
+        }
+        return m_toolBar;
+    }
 
-    int currentLine() const override { return m_textEditorWidget->textCursor().blockNumber() + 1; }
+    int currentLine() const override { return m_viewport->textCursor().blockNumber() + 1; }
 
     int currentColumn() const override
     {
-        const QTextCursor cursor = m_textEditorWidget->textCursor();
+        const QTextCursor cursor = m_viewport->textCursor();
         return cursor.position() - cursor.block().position() + 1;
     }
 
-    QString selectedText() const override { return m_textEditorWidget->selectedText(); }
+    QString selectedText() const override { return m_viewport->selectedText(); }
 
     void gotoLine(int line, int column, bool centerLine) override
     {
         if (!m_toggleEditorVisible->isChecked())
             m_toggleEditorVisible->toggle();
-        m_textEditorWidget->gotoLine(line, column, centerLine);
+        m_viewport->gotoLine(line, column, centerLine);
+        m_jumps->jumped();
     }
 
     bool eventFilter(QObject *obj, QEvent *ev) override
@@ -450,8 +482,8 @@ public:
         if (obj == m_widget && ev->type() == QEvent::FocusIn) {
             if (m_splitter->focusWidget())
                 m_splitter->focusWidget()->setFocus();
-            else if (m_textEditorWidget->isVisible())
-                m_textEditorWidget->setFocus();
+            else if (m_textView->isVisible())
+                m_textView->quickWidget()->setFocus();
             else
                 m_splitter->widget(0)->setFocus();
             return true;
@@ -459,12 +491,34 @@ public:
         return IEditor::eventFilter(obj, ev);
     }
 
+    // Where the reader was in the text pane. A private format: only this
+    // editor is ever handed it back.
+    QByteArray viewState() const
+    {
+        QByteArray state;
+        QDataStream stream(&state, QIODevice::WriteOnly);
+        stream << m_viewport->cursorPosition() << m_viewport->scrollY();
+        return state;
+    }
+
+    void restoreViewState(const QByteArray &state)
+    {
+        if (state.isEmpty())
+            return;
+        QDataStream stream(state);
+        int position = 0;
+        qreal scrollY = 0;
+        stream >> position >> scrollY;
+        m_viewport->setCursorPosition(position);
+        m_viewport->setScrollY(scrollY);
+    }
+
     QByteArray saveState() const override
     {
         QByteArray state;
         QDataStream stream(&state, QIODevice::WriteOnly);
         stream << 1; // version number
-        stream << m_textEditorWidget->saveState();
+        stream << viewState();
         stream << m_previewWidget->horizontalScrollBar()->value();
         stream << m_previewWidget->verticalScrollBar()->value();
         stream << isTextEditorRight();
@@ -495,7 +549,7 @@ public:
         stream >> previewShown;
         stream >> textEditorShown;
         stream >> splitterState;
-        m_textEditorWidget->restoreState(editorState);
+        restoreViewState(editorState);
         m_previewRestoreScrollPosition.emplace(previewHV, previewVV);
         setWidgetOrder(textEditorRight);
         m_splitter->restoreState(splitterState);
@@ -503,20 +557,20 @@ public:
         m_previewWidget->setVisible(m_togglePreviewVisible->isChecked());
         // ensure at least one is shown
         m_toggleEditorVisible->setChecked(textEditorShown || !previewShown);
-        m_textEditorWidget->setVisible(m_toggleEditorVisible->isChecked());
+        m_textView->setVisible(m_toggleEditorVisible->isChecked());
     }
 
 private:
     void triggerFormatingAction(std::function<void(QString *selectedText, int *cursorOffset)> action)
     {
-        auto formattedText = m_textEditorWidget->selectedText();
+        auto formattedText = m_viewport->selectedText();
         int cursorOffset = 0;
         action(&formattedText, &cursorOffset);
         format(formattedText, cursorOffset);
     }
     void triggerFormatingAction(std::function<void(QString *selectedText, int *cursorOffset, int *selectionLength)> action)
     {
-        auto formattedText = m_textEditorWidget->selectedText();
+        auto formattedText = m_viewport->selectedText();
         int cursorOffset = 0;
         int selectionLength = 0;
         action(&formattedText, &cursorOffset, &selectionLength);
@@ -524,7 +578,7 @@ private:
     }
     void format(const QString &formattedText, int cursorOffset = 0, int selectionLength = 0)
     {
-        auto cursor = m_textEditorWidget->textCursor();
+        auto cursor = m_viewport->textCursor();
         int start = cursor.selectionStart();
         int end = cursor.selectionEnd();
         cursor.setPosition(start, QTextCursor::MoveAnchor);
@@ -534,13 +588,13 @@ private:
         if (cursorOffset != 0) {
             auto pos = cursor.position();
             cursor.setPosition(pos + cursorOffset);
-            m_textEditorWidget->setTextCursor(cursor);
+            m_viewport->setTextCursor(cursor);
         }
 
         if (selectionLength != 0) {
             cursor.setPosition(cursor.position(), QTextCursor::MoveAnchor);
             cursor.setPosition(cursor.position() + selectionLength, QTextCursor::KeepAnchor);
-            m_textEditorWidget->setTextCursor(cursor);
+            m_viewport->setTextCursor(cursor);
         }
     }
 
@@ -589,7 +643,12 @@ private:
     bool m_performDelayedUpdate = false;
     MiniSplitter *m_splitter;
     Utils::MarkdownBrowser *m_previewWidget;
-    TextEditorWidget *m_textEditorWidget;
+    QtcQuick::QuickWidget *m_textView = nullptr;
+    TextViewport *m_viewport = nullptr;
+    QtcQuick::ActionModel m_toolBarActions;
+    QPointer<QWidget> m_toolBar;
+    Internal::OptionalActionGate * const m_gate;
+    Internal::JumpRecorder * const m_jumps;
     TextDocumentPtr m_document;
     QByteArray m_savedNavigationState;
     QList<QAction *> m_markDownActions;
@@ -746,6 +805,38 @@ private slots:
     // rest through TextEditorWidget::fromEditor() - the text pane. This editor
     // is two panes and answers for itself, so that the text one can be
     // replaced without the editor going with it.
+    static QWidget *m_textViewOf(Core::IEditor *editor)
+    {
+        return editor->widget()->findChild<QtcQuick::QuickWidget *>();
+    }
+
+    // The buttons the Qt Quick tool bar row drew, by the action text each
+    // carries. The row is a QML form now, so there is no QToolBar to ask.
+    static QHash<QString, QQuickItem *> toolBarButtons(Core::IEditor *editor)
+    {
+        QHash<QString, QQuickItem *> byText;
+        QWidget * const bar = editor->toolBar();
+        if (!bar)
+            return byText;
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        if (!quick || !quick->rootObject())
+            return byText;
+        // The visual tree, not the QObject one: a Repeater parents its
+        // delegates into the item they are drawn in, so findChildren() misses
+        // every one of them.
+        const std::function<void(QQuickItem *)> collect = [&](QQuickItem *item) {
+            if (!item)
+                return;
+            if (item->objectName() == "languageToolBarButton")
+                byText.insert(item->property("text").toString(), item);
+            const QList<QQuickItem *> children = item->childItems();
+            for (QQuickItem * const child : children)
+                collect(child);
+        };
+        collect(quick->rootObject());
+        return byText;
+    }
+
     // The emphasis and strong buttons are a styled glyph rather than an icon.
     // The action carries the font now, so both kinds of tool bar can read it -
     // this checks the widget one still draws it, which is what styling the
@@ -761,13 +852,8 @@ private slots:
         QVERIFY(editor);
         const QScopeGuard closeIt(
             [editor] { Core::EditorManager::closeEditors({editor}, false); });
-        QWidget * const bar = editor->toolBar();
-        QVERIFY(bar);
-        QToolBar * const toolBar = bar->findChild<QToolBar *>();
-        QVERIFY(toolBar);
-
         QHash<QString, QAction *> byText;
-        for (QAction * const action : toolBar->actions())
+        for (QAction * const action : editor->findChildren<QAction *>())
             byText.insert(action->text(), action);
 
         QAction * const emphasis = byText.value("Emphasis");
@@ -783,11 +869,17 @@ private slots:
         QVERIFY2(!inlineCode->font().italic() && !inlineCode->font().bold(),
                  "a plain action came out styled");
 
-        // And the widget tool bar draws it, which is what this replaced.
-        auto * const italicButton = qobject_cast<QWidget *>(toolBar->widgetForAction(emphasis));
-        QVERIFY2(italicButton, "the toolbar made no button for the emphasis action");
-        QVERIFY2(italicButton->font().italic(),
-                 "the button the toolbar made ignores the action's font");
+        // And the row draws it.
+        QHash<QString, QQuickItem *> drawn;
+        QTRY_VERIFY2(!(drawn = toolBarButtons(editor)).isEmpty(), "the row drew nothing");
+        QQuickItem * const italicButton = drawn.value("Emphasis");
+        QVERIFY2(italicButton, "the row drew no button for the emphasis action");
+        const QFont drawnFont = italicButton->property("emphasisedLabelFont").value<QFont>();
+        QVERIFY2(drawnFont.italic(), "the row drew the emphasis action upright");
+        QQuickItem * const plainButton = drawn.value("Inline Code");
+        QVERIFY2(plainButton, "the row drew no button for the inline code action");
+        QVERIFY2(!plainButton->property("emphasisedLabelFont").value<QFont>().italic(),
+                 "the row drew every label italic");
     }
 
     void testTheEditorAnswersWithoutBeingAWidgetEditor()
@@ -805,28 +897,46 @@ private slots:
         QVERIFY2(!qobject_cast<BaseTextEditor *>(editor),
                  "the Markdown editor is a BaseTextEditor again");
 
-        // The text pane is still found through the aggregate, which is how
-        // everything outside this file reaches it and does not care what the
-        // editor is.
-        TextEditorWidget * const text = TextEditorWidget::fromEditor(editor);
-        QVERIFY2(text, "the text pane is no longer reachable from the editor");
+        // No widget pane at all now: the text side is a Qt Quick view.
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the text pane is a widget editor again");
+        TextViewport * const view = Internal::viewportIn(
+            editor->widget()->findChild<QtcQuick::QuickWidget *>());
+        QVERIFY2(view, "the editor has no Qt Quick text view");
 
-        QCOMPARE(editor->document(), text->textDocument());
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(view->textDocument(), document);
         QVERIFY2(editor->toolBar(), "the editor offers no toolbar row");
 
+        // The text pane carries the Markdown text context, so a command
+        // registered for it is live only while that pane has focus. Asked of
+        // the attachment rather than of focus, which a test that shows no
+        // window cannot give it.
+        const QList<Core::IContext *> attached = m_textViewOf(editor)->findChildren<Core::IContext *>();
+        QVERIFY2(Utils::anyOf(attached, [](Core::IContext *c) {
+                     return c->context().contains(Utils::Id(MARKDOWNVIEWER_TEXT_CONTEXT));
+                 }),
+                 "the text pane carries no Markdown text context");
+
+        // Ctrl+F in the text pane, which comes with the view rather than
+        // being arranged here.
+        QVERIFY2(Utils::Aggregation::query<Core::IFindSupport>(editor->widget()),
+                 "nothing in the editor answers Ctrl+F");
+
         // Where the caret is, which BaseTextEditor used to answer.
-        QTextCursor cursor(text->document());
-        cursor.setPosition(text->document()->findBlockByNumber(1).position() + 2);
-        text->setTextCursor(cursor);
+        QTextCursor cursor(document->document());
+        cursor.setPosition(document->document()->findBlockByNumber(1).position() + 2);
+        view->setTextCursor(cursor);
         QCOMPARE(editor->currentLine(), 2);
         QCOMPARE(editor->currentColumn(), 3);
 
         // And the state it saves puts the caret back, which is what the
         // navigation history and reopening both ride on.
         const QByteArray state = editor->saveState();
-        QTextCursor elsewhere(text->document());
+        QTextCursor elsewhere(document->document());
         elsewhere.setPosition(0);
-        text->setTextCursor(elsewhere);
+        view->setTextCursor(elsewhere);
         QCOMPARE(editor->currentLine(), 1);
         editor->restoreState(state);
         QCOMPARE(editor->currentLine(), 2);
@@ -844,45 +954,40 @@ private slots:
         QVERIFY(editor);
         const QScopeGuard closeIt(
             [editor] { Core::EditorManager::closeEditors({editor}, false); });
-        QWidget * const bar = editor->toolBar();
-        QVERIFY(bar);
-        QToolBar * const toolBar = bar->findChild<QToolBar *>();
-        QVERIFY2(toolBar, "the editor's toolbar row holds no toolbar");
-
-        QHash<QString, QAction *> byText;
-        for (QAction * const action : toolBar->actions())
-            byText.insert(action->text(), action);
+        QHash<QString, QQuickItem *> drawn;
+        QTRY_VERIFY2(!(drawn = toolBarButtons(editor)).isEmpty(),
+                     "the toolbar row drew nothing at all");
 
         const QStringList expected{"Emphasis", "Strong", "Inline Code", "Hyperlink",
                                    "Show Editor", "Show Preview", "Swap Views"};
         QStringList missing;
-        QStringList asWidgets;
         for (const QString &name : expected) {
-            QAction * const action = byText.value(name);
-            if (!action)
+            if (!drawn.contains(name))
                 missing << name;
-            else if (qobject_cast<QWidgetAction *>(action))
-                asWidgets << name;
         }
-        QVERIFY2(missing.isEmpty(), qPrintable("not in the toolbar: " + missing.join(", ")));
-        QVERIFY2(asWidgets.isEmpty(),
-                 qPrintable("still a widget the toolbar cannot describe: " + asWidgets.join(", ")));
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable("not drawn in the row: " + missing.join(", ")
+                            + " (drawn: " + QStringList(drawn.keys()).join(", ") + ")"));
 
         // The two that say which views are showing carry that state
-        // themselves, which is what a view drawing them would read.
-        QVERIFY2(byText.value("Show Editor")->isCheckable(), "Show Editor cannot be checked");
-        QVERIFY2(byText.value("Show Preview")->isCheckable(), "Show Preview cannot be checked");
+        // themselves, and the row draws it.
+        QVERIFY2(drawn.value("Show Editor")->property("checkable").toBool(),
+                 "Show Editor is not drawn as something that can be checked");
+        QVERIFY2(drawn.value("Show Preview")->property("checkable").toBool(),
+                 "Show Preview is not drawn as something that can be checked");
 
-        // And the actions still do what the buttons did.
+        // And pressing one does what the button did.
         auto * const document = qobject_cast<TextDocument *>(editor->document());
         QVERIFY(document);
+        TextViewport * const view = Internal::viewportIn(
+            editor->widget()->findChild<QtcQuick::QuickWidget *>());
+        QVERIFY(view);
         QTextCursor cursor(document->document());
-        cursor.select(QTextCursor::WordUnderCursor);
         cursor.setPosition(0);
         cursor.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-        TextEditor::setTextCursorOf(editor, cursor);
-        byText.value("Strong")->trigger();
-        QCOMPARE(document->document()->findBlockByNumber(0).text(), QString("**word**"));
+        view->setTextCursor(cursor);
+        QMetaObject::invokeMethod(drawn.value("Strong"), "clicked");
+        QTRY_COMPARE(document->document()->findBlockByNumber(0).text(), QString("**word**"));
     }
 
     void testFollowingALinkNeedsNoEditorWidget()
