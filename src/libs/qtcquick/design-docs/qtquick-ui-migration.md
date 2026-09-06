@@ -44937,3 +44937,94 @@ tool bar keeps its font.
 Unchanged elsewhere: GLSL (the table in entry 93, plus the question about its
 empty outline combo), the whitespace difference (declined, entry 68), and
 printing (entry 31, the owner's).
+
+## 2026-09-06 — Find belongs to the view, not to the editor (batch 96)
+
+Entry 95 left Markdown with only the view swap, and named three things needing
+somewhere to go: the navigation-history signals, `IContext::attach`, and the
+`Aggregate` carrying `BaseTextFind`. This batch closed the third and
+**measured the first out of existence**.
+
+### The gap this closed
+
+`createQuickTextView()` - entry 89's seam, the thing that builds a Qt Quick
+text view for anyone who wants one - built a view that **could not be
+searched**. The aggregation was in `QuickTextEditor`'s constructor:
+
+    // Ctrl+F reaches an editor by asking its widget for an IFindSupport,
+    // so this has to hang off the widget rather than off the editor.
+    Utils::Aggregation::aggregate({widget, new QuickTextFind(view, widget)});
+
+The comment was already most of the argument: it hangs off the *widget*, and
+the widget is what `createQuickTextView()` returns. So it moved there. An
+editor made of two panes now gets Ctrl+F in the text one without arranging
+anything.
+
+It is one line moved, and the control below is what makes it worth an entry:
+**both** the new test and the editor's own `testFindMovesTheCaretAndMarksEveryMatch`
+go red when it is removed. That is what says the editor's find genuinely comes
+through the view builder now rather than a second copy having been left
+behind - the failure mode a move like this actually has.
+
+### One of entry 95's three was not a gap
+
+`MarkdownEditor` forwards three signals from its `TextEditorWidget`:
+
+    saveCurrentStateForNavigationHistory
+    addSavedStateToNavigationHistory
+    addCurrentStateToNavigationHistory
+
+They are emitted by `TextEditorWidget` and by nothing else, so on the face of
+it a view that is not one leaves the editor without navigation history.
+
+It does not. `QuickTextEditor` does the job directly - it keeps
+`m_stateOfAJumpNotYetLeft = saveState()` and calls
+`Core::EditorManager::addCurrentPositionToNavigationHistory()` itself. The
+three signals are a *widget's* way of asking its editor to do this; the Qt
+Quick editor skipped the asking.
+
+So this is not a missing seam in `TextEditor`. It is wiring `MarkdownEditor`
+will have to write for itself, the same way `QuickTextEditor` did, because it
+is a `BaseTextEditor` and inherits neither.
+
+**Entry 95's list was three items; it is two, and one of those is smaller than
+it read.** Worth the ten minutes: an unmeasured item on a remaining-work list
+gets quoted back as a cost.
+
+### The test
+
+`testAViewBuiltWithoutAnEditorCanBeSearched` builds a view over a `CodeBuffer`
+with no editor anywhere, asks its widget for an `IFindSupport`, and searches:
+a term that is there, a term that is not, and then a third whose match it
+checks the *caret* landed on - so the assertion is the search rather than a
+stub that answers `Found` to everything.
+
+### Controls
+
+- **BF**: the aggregation removed from `createQuickTextView()` - red twice, at
+  "nothing on the view's widget answers Ctrl+F" and at "the editor offers no
+  find support, so Ctrl+F does nothing in it".
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 662 passed, 0 failed (was 661) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown
+
+1. `IContext::attach()` on the text pane, so the Markdown text context and its
+   shortcuts follow focus into the view. Not yet measured.
+2. The swap itself: `m_textEditorWidget` becomes the view, which also moves
+   the tool bar host - the actions are ready since entry 95, but they are
+   still inserted into `TextEditorWidget::toolBar()`, and that goes with the
+   widget. This is the substantial half.
+3. Navigation history, written for `MarkdownEditor` the way `QuickTextEditor`
+   writes it. Small, and only after 2.
+
+Unchanged elsewhere: GLSL (the table in entry 93, plus the question about its
+empty outline combo), the whitespace difference (declined, entry 68), and
+printing (entry 31, the owner's).

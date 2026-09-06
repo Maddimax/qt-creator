@@ -789,10 +789,8 @@ public:
                  .contextAction(),
              OptionalActions::TypeHierarchy);
 
-        // Ctrl+F reaches an editor by asking its widget for an IFindSupport,
-        // so this has to hang off the widget rather than off the editor.
+        // Find comes with the view; createQuickTextView() aggregates it.
         if (TextViewport * const view = viewport()) {
-            Utils::Aggregation::aggregate({widget, new QuickTextFind(view, widget)});
             // Two of the gated commands edit, so being allowed to is part of
             // whether they are offered - the widget editor asks the same
             // question in updateActions().
@@ -1353,6 +1351,12 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
          {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
          {"showAnnotations", displaySettings().displayAnnotations()}});
     widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
+
+    // Ctrl+F reaches a view by asking its widget for an IFindSupport, so this
+    // belongs to the view rather than to whoever hosts it - an editor made of
+    // two panes wants Ctrl+F in the text one without arranging it itself.
+    if (TextViewport * const view = viewportIn(widget))
+        Utils::Aggregation::aggregate({widget, new QuickTextFind(view, widget)});
     return widget;
 }
 
@@ -9635,6 +9639,38 @@ private slots:
         typed.insertText("x");
         view->setTextCursor(typed);
         QCOMPARE(document->plainText(), QString("xalpha\nbeta\ngamma\n"));
+    }
+
+    // Ctrl+F reaches an editor by asking its *widget* for an IFindSupport, so
+    // whoever builds the widget has to put one there. An editor made of two
+    // panes should not have to know that.
+    void testAViewBuiltWithoutAnEditorCanBeSearched()
+    {
+        CodeBuffer source;
+        source.setText("alpha\nbeta\nalpha again\n");
+        QVERIFY(source.textDocument());
+
+        const std::unique_ptr<QWidget> host(Internal::createQuickTextView(&source, nullptr));
+        QVERIFY(host.get());
+        host->resize(400, 300);
+        host->show();
+        const QScopeGuard hideIt([&host] { host->hide(); });
+
+        TextViewport *view = nullptr;
+        QTRY_VERIFY2(view = Internal::viewportIn(host.get()),
+                     "the widget holds no viewport, so the form never loaded");
+
+        auto * const find = Utils::Aggregation::query<Core::IFindSupport>(host.get());
+        QVERIFY2(find, "nothing on the view's widget answers Ctrl+F");
+
+        // Found and not found, so that the answer is the search rather than a
+        // stub that always agrees.
+        QCOMPARE(find->findStep("beta", {}), Core::IFindSupport::Found);
+        QCOMPARE(find->findStep("nowhere", {}), Core::IFindSupport::NotFound);
+
+        // And it moved the caret to what it found rather than only saying so.
+        QCOMPARE(find->findStep("alpha again", {}), Core::IFindSupport::Found);
+        QCOMPARE(view->textCursor().selectedText(), QString("alpha again"));
     }
 
     void testAWatcherHearsTheCaretMoveInEitherView()
