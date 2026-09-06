@@ -44605,3 +44605,121 @@ some time, and a `.qbs` edit here is checked by reading, not by building.
 sweep turns up. Everything else is unchanged: Markdown (a tool bar design
 question, then hosting the view entry 89 separated out), the whitespace
 difference (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — A tool bar action can be checkable now (batch 93)
+
+Entry 92 left GLSL as the last language a sweep turns up. It was measured
+first, and it is **not one batch**. `GlslEditorWidget` still does all of:
+
+| What | Where it would have to go |
+| --- | --- |
+| `setAutoCompleter(new GlslCompleter)` | `setAutoCompleterCreator()` - exists |
+| a 150 ms debounce on `textChanged` reparsing the GLSL document | a decoration on the document |
+| an outline `QComboBox` in the left tool bar | nowhere yet - and see below |
+| a **checkable** Vulkan `QToolButton` on the right | nowhere yet |
+| `createAssistInterface()` override | nowhere yet |
+| `onTooltipRequested` | the `tooltipRequested` consumer this document already lists |
+| `setExtraSelections()` for diagnostics and semantic ranges | nowhere yet |
+
+So this batch took the one of those that is **also** the open Markdown
+question, and closed it for both.
+
+The outline combo is worth a note for whoever takes GLSL: its model is
+commented out (`// ### m_outlineCombo->setModel(m_outlineModel);`), so it draws
+an empty box. Do not port it without asking whether it should exist.
+
+### The gap this closed
+
+`QtcButton` decided for itself whether it could be checked:
+
+    readonly property bool checkable: root.role === QtcButton.Role.SmallList
+
+**`readonly`**, and tied to the role - which also decides how the button
+looks. A button standing for a checkable action had to become a `SmallList` to
+be allowed to be checkable, which is a different button. That is why entry 87
+recorded the tool bar question as a *design* question rather than work.
+
+The answer is that these are two different things and only one of them is the
+role's:
+
+    // The role decides how a checked button looks; whether it is checkable
+    // at all is the caller's [...]
+    property bool checkable: root.role === QtcButton.Role.SmallList
+
+The default is unchanged, so no existing button changes, and `filled` already
+keys off `checked` - a checked tool bar button draws filled, which is what a
+checked `QToolButton` looks like. Nothing new had to be designed; what was
+needed was to stop conflating "looks like a list button" with "can be checked".
+
+`ActionModel` has had `CheckableRole` and `CheckedRole` all along. The tool bar
+delegate simply never bound them; it does now.
+
+### The binding that must not be a binding
+
+`QtcButton::activate()` does `if (checkable) checked = !checked` on every
+click. **A JavaScript assignment destroys a QML binding**, so
+
+    checked: languageButton.actionChecked
+
+would work exactly once and then never again. The delegate assigns instead:
+
+    onActionCheckedChanged: languageButton.checked = languageButton.actionChecked
+
+Both directions then hold: a click flips the button optimistically and
+triggers the action, which toggles, which reaches the model, which reaches
+this handler; and an action changed from anywhere else arrives the same way.
+
+The optimistic flip is always right, because it only happens when
+`actionCheckable` is true, and a checkable `QAction` always toggles when
+triggered.
+
+### A control that did not bite, and the line that went with it
+
+The delegate first also had
+
+    Component.onCompleted: languageButton.checked = languageButton.actionChecked
+
+for the initial state. **Control AZ removed it and the test stayed green** - a
+required property is set before `Component.onCompleted`, and the change
+handler fires when it is first set, so the first value arrives that way too.
+
+Removed rather than kept: a line no control can make bite is a line that is
+not doing anything. The comment now says the handler covers the first time.
+
+### Controls
+
+- **AX**: `checkable` back to `readonly` - QML warns "Invalid property
+  assignment" and the delegate fails to build at all, so the test goes red at
+  "the toolbar drew nothing for the action".
+- **AY**: the `onActionCheckedChanged` handler removed - red at "the button
+  was drawn unchecked for an action that is checked".
+- **AZ**: the initial assignment removed - **green**, so the line went.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 657 passed, 0 failed (was 656) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+`QtcQuick_qmllint` and `TextEditor_qmllint` both clean on the two changed
+files. No `.qbs` change: no files added.
+
+### What this is ahead of
+
+Nothing in the tree hands a **checkable** action to
+`insertExtraToolBarActionIn()` yet - Python's and Vcpkg's all just fire. So
+there was no live defect here, and the seam is ahead of its users, which is
+the order this migration is supposed to work in.
+
+Its two waiting users are GLSL's Vulkan switch and Markdown's preview toggle.
+
+### What is left
+
+1. **Markdown**: the tool bar question is answered, so what remains is
+   hosting the view - which entry 89 separated out - in `MarkdownEditor`'s
+   `MiniSplitter` beside its `MarkdownBrowser`. That is now ordinary work.
+2. **GLSL**: the table above. Several batches, and one question for a human
+   about the empty outline combo.
+3. The whitespace difference (declined, entry 68) and printing (entry 31, the
+   owner's).

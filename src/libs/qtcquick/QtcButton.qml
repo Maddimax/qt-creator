@@ -41,7 +41,10 @@ Item {
     property int iconSize: 16
     property bool checked: false
 
-    readonly property bool checkable: root.role === QtcButton.Role.SmallList
+    // The role decides how a checked button looks; whether it is checkable
+    // at all is the caller's, so a button standing for a checkable action
+    // can say so without having to become a SmallList to be allowed to.
+    property bool checkable: root.role === QtcButton.Role.SmallList
     readonly property bool hovered: hoverHandler.hovered
     readonly property bool pressed: tapHandler.pressed
 

@@ -6721,6 +6721,58 @@ private slots:
         QVERIFY2(fired.isEmpty(), "pressing the button ran the action instead of opening its menu");
     }
 
+    // A tool bar action that is checkable rather than one that just fires.
+    // GLSL's Vulkan switch is the one in the tree, and Markdown wants one for
+    // its preview - neither could have had it, because the button the form
+    // draws decided for itself whether it was checkable, from its role.
+    void testACheckableActionShowsItsStateInTheToolBar()
+    {
+        Utils::TemporaryDirectory dir("checkable-toolbar-action");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("notes.txt");
+        QVERIFY(file.writeFileContents("one\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor), "not the Qt Quick editor");
+
+        // Checked before the tool bar ever sees it, so that what is drawn is
+        // the action's state rather than a default that happens to match.
+        QAction vulkan;
+        vulkan.setText("Vulkan");
+        vulkan.setCheckable(true);
+        vulkan.setChecked(true);
+        TextEditor::insertExtraToolBarActionIn(editor, TextEditorWidget::Left, &vulkan);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY(bar);
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "languageToolBarButton")),
+                     "the toolbar drew nothing for the action");
+        QVERIFY2(drawn->property("checkable").toBool(),
+                 "the button does not consider itself checkable");
+        QTRY_VERIFY2(drawn->property("checked").toBool(),
+                     "the button was drawn unchecked for an action that is checked");
+
+        // The action changing elsewhere reaches the button.
+        vulkan.setChecked(false);
+        QTRY_VERIFY2(!drawn->property("checked").toBool(),
+                     "turning the action off left the button looking on");
+
+        // And pressing the button is what turns the action back on - the
+        // button does not keep a state of its own that the action never hears
+        // about.
+        QMetaObject::invokeMethod(drawn, "clicked");
+        QTRY_VERIFY2(vulkan.isChecked(), "pressing the button did not check the action");
+        QTRY_VERIFY2(drawn->property("checked").toBool(),
+                     "the action is on but the button is not");
+    }
+
     // What a language wants in the toolbar row. The document says so and the
     // form draws it; CppEditorDocument's is the button that asks how the file
     // should be preprocessed, and this is the same seam with a document made

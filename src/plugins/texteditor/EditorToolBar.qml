@@ -133,6 +133,8 @@ Row {
             required property bool actionEnabled
             required property bool actionVisible
             required property string actionToolTip
+            required property bool actionCheckable
+            required property bool actionChecked
             // An action can carry an icon instead of a text - the button that
             // brings back a minimized info bar is a warning sign and nothing
             // else - so a button bound only to the text would draw empty.
@@ -152,6 +154,13 @@ Row {
             visible: languageButton.actionVisible
             ToolTip.text: languageButton.actionToolTip
             ToolTip.visible: hovered && ToolTip.text !== ""
+            checkable: languageButton.actionCheckable
+            // Assigned rather than bound: activate() writes to checked on
+            // every click of a checkable button, and a JavaScript assignment
+            // destroys a binding. The action is what decides, so its answer is
+            // taken every time it changes - including the first time, which is
+            // when the delegate is given it.
+            onActionCheckedChanged: languageButton.checked = languageButton.actionChecked
             onClicked: {
                 if (languageButton.actionMenu)
                     languageMenu.popup()
