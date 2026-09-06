@@ -48572,3 +48572,127 @@ Ctrl+click for a link all have conditions in `TextEditorWidget` that nobody has
 compared against `TextViewport`. Multi-caret editing is made with the mouse,
 and this batch found that half of it did not work; the other half is a mouse
 gesture nobody has measured.
+
+## 2026-09-06 — Two carets in one place, typing twice (batch 134)
+
+Entry 133 made several carets movable. This finishes the key handler diff -
+`Key_Delete`, `Key_Insert`, the text-insertion path - and the one thing it
+found is the other half of the same feature.
+
+### The gap
+
+`applyToEveryCaret()` ends:
+
+```cpp
+setTextCursor(carets.takeLast());
+m_extraCursors = carets;
+```
+
+No merge. An edit can bring two carets together - Delete with one just behind
+the other does exactly that - and both stay. The next key then happens **twice
+in the same place**.
+
+`abcdef` with carets at 1 and 2, Delete, then type `x`:
+
+```
+WDEL after typing x: axdef      <- widget
+QDEL after typing x: axxdef     <- Qt Quick
+```
+
+### The assertion that would have passed
+
+This is the part worth keeping. The obvious test is to count the carets after
+the Delete. Both editors answer **one**:
+
+```
+WDEL text adef carets 1
+QDEL text adef carets 1
+```
+
+`multiTextCursor()` builds a `Utils::MultiTextCursor`, which is keyed by
+position and collapses the duplicate as it is built - while `m_extraCursors`
+still physically holds the second cursor, and *that* is the list
+`applyToEveryCaret()` walks. **The count says the bug is not there. Only typing
+says it is.** The test says so in a comment, because the next person's instinct
+will be to assert the count.
+
+Five entries running the first version of an assertion would have passed. This
+one is a new species: not a fixture that was overruled (132) or a key that
+means something else (133), but **a reader that normalises what the writer
+does not**. Where a value is read back through a different type than it is kept
+in, the read can be right while the state is wrong.
+
+### The fix, and one deliberate divergence
+
+Merged in `applyToEveryCaret()` rather than in each caller, because every edit
+can bring carets together.
+
+That makes the Qt Quick view differ from the widget in one place, on purpose.
+Measured, both before and after:
+
+| | Delete then type | Backspace then type |
+| --- | --- | --- |
+| widget | `axdef` | **`ayydef`** |
+| Qt Quick, before | `axxdef` | `ayydef` |
+| Qt Quick, after | `axdef` | `aydef` |
+
+`TextEditorWidget` merges after `Key_Delete` and `DeleteCompleteLine` and
+nowhere else, so its own Backspace has the same bug. **The Quick view now does
+not.** Called out rather than buried: the widget's Delete shows what was
+intended, so the miss elsewhere is an oversight and not a rule - and merging in
+one place is what stops the Quick view growing the same hole in the six other
+paths that go through `applyToEveryCaret()`. If parity beats correctness here,
+narrowing it is one condition.
+
+### Controls
+
+- **EQ**: the merge taken back out - red at the Delete case, `axxdef`.
+- **ER**: the merge still out, and the Backspace case moved ahead of the Delete
+  one - red at `ayydef`. The second case rides on nothing; each fails on its
+  own.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 693 passed, 0 failed (was 692) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### The rest of the diff, read and clean
+
+- **`Key_Insert`**: same modifier gate, same toggle. The widget also repaints
+  the caret's block on the way out, which a Quick view does by declaring the
+  property.
+- **`Key_Delete`**: the widget gates on `NoModifier || KeypadModifier`; this
+  view takes any Delete. Every modified Delete that means something else -
+  Cut on Shift, Delete-word on Ctrl - is matched *before* the switch, so
+  nothing is swallowed that the widget would pass on. Left as it is.
+- **The text-insertion path**: `insertTypedText()` already asks the auto
+  completer, the overwrite mode and `skipAutoCompletedText` - checked against
+  the widget's tail and nothing is missing.
+
+**The key handler seam is read out.** Four gaps came from it - one on
+Backspace, two on Tab, one on every navigation key - plus this one, which is on
+all of them at once.
+
+### Where this leaves it
+
+1. **The mouse handler**, which nothing has compared. Double-click, middle-
+   click paste, Alt+drag for a block selection, Ctrl+click for a link.
+2. **Home on a wrapped line** - entry 133, needs word wrap on to see.
+3. **QmlJS's context pane** - a UI decision.
+4. **The whitespace drawing difference** - declined, entry 68.
+5. **Printing** - open since entry 31.
+6. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+Item 1, for the reason this batch and the last one give together: multi-caret
+editing is **made** with the mouse - Alt+click puts the extra carets there -
+and two batches running have found the rest of that feature broken in ways
+nobody had noticed. The gestures have conditions in `TextEditorWidget::
+mousePressEvent` and friends that have never been listed beside
+`TextViewport`'s, and the method that read the key handler out transfers
+unchanged.

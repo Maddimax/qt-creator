@@ -5279,6 +5279,60 @@ private slots:
         Q_UNUSED(text)
     }
 
+    // An edit can bring two carets together - Delete with one just behind the
+    // other does - and two carets in one place make the next key happen twice
+    // there. The widget editor merges after Delete; this view merged after
+    // nothing.
+    //
+    // Note what is *not* asserted below: the number of carets. It already
+    // reads one, because MultiTextCursor is keyed by position and collapses
+    // the duplicate as it is built - while m_extraCursors still holds it and
+    // is what the edit walks. Counting carets says this works. Only typing
+    // says it does not.
+    void testCaretsThatHaveMetBecomeOneCaret()
+    {
+        TemporaryDirectory dir("qtc-viewport-caretsmeet");
+        const FilePath file = dir.filePath("letters.txt");
+        QVERIFY(file.writeFileContents("abcdef\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(fixture.hasFocus());
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const auto startOver = [&](int first, int second) {
+            QTextCursor all(text);
+            all.select(QTextCursor::Document);
+            all.insertText("abcdef\n");
+            viewport->setCursorPosition(first);
+            viewport->addCaretAt(second);
+            QCOMPARE(viewport->multiTextCursor().cursorCount(), 2);
+        };
+
+        // Delete: the caret at 1 takes "b", the one at 2 takes "c", and they
+        // are both at 1 afterwards. One "x", not two - which is the widget
+        // editor's answer, measured.
+        startOver(1, 2);
+        QTest::keyClick(&fixture.view, Qt::Key_Delete);
+        QCOMPARE(text->toPlainText().trimmed(), QString("adef"));
+        QTest::keyClick(&fixture.view, 'x');
+        QCOMPARE(text->toPlainText().trimmed(), QString("axdef"));
+
+        // Backspace brings them together the same way. The widget editor does
+        // *not* merge here - it types "yy" - and this is the one place the two
+        // views are meant to differ: merging is what its own Delete does, so
+        // not doing it after every edit is an oversight rather than a rule.
+        startOver(2, 3);
+        QTest::keyClick(&fixture.view, Qt::Key_Backspace);
+        QCOMPARE(text->toPlainText().trimmed(), QString("adef"));
+        QTest::keyClick(&fixture.view, 'y');
+        QCOMPARE(text->toPlainText().trimmed(), QString("aydef"));
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()

@@ -4004,8 +4004,17 @@ void TextViewport::applyToEveryCaret(const std::function<void(QTextCursor &)> &e
         groupCursor.endEditBlock();
     m_editingThroughItsOwnCarets = wasEditing;
 
-    setTextCursor(carets.takeLast());
-    m_extraCursors = carets;
+    // Carets that have met are one caret. An edit can bring two together -
+    // Delete with one just behind the other does - and leaving both makes the
+    // next key happen twice in the same place. Merged here rather than in each
+    // caller, because every edit can do it; the widget editor merges after its
+    // own Delete and misses the rest.
+    //
+    // The main caret stays the main one: it is last in the list, and merging
+    // keeps the order of what it is given.
+    Utils::MultiTextCursor merged(carets);
+    merged.mergeCursors();
+    setMultiTextCursor(merged);
 }
 
 QTextBlock TextViewport::cursorBlock() const
