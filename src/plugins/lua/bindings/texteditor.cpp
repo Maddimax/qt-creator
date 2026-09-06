@@ -475,14 +475,7 @@ void setupTextEditorModule()
             "insertExtraToolBarAction",
             [](const TextEditorPtr &textEditor, TextEditorWidget::Side side, QAction *action) {
                 QTC_ASSERT(textEditor, throw sol::error("TextEditor is not valid"));
-                // An action the document carries, which either toolbar builds
-                // from - see TextDocument::addToolBarAction().
-                if (TextEditorWidget * const view = TextEditorWidget::fromEditor(textEditor)) {
-                    view->insertExtraToolBarAction(side, action);
-                    return;
-                }
-                if (auto * const doc = qobject_cast<TextDocument *>(textEditor->document()))
-                    doc->addToolBarAction(action);
+                TextEditor::insertExtraToolBarActionIn(textEditor, side, action);
             },
             "setRefactorMarker",
             [pluginSpec, activeMarkers](

@@ -1177,6 +1177,13 @@ TEXTEDITOR_EXPORT void setMarginSettingsIn(Core::IEditor *editor,
 // widens it once it has said what it supports.
 TEXTEDITOR_EXPORT void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
 
+// Put \a action in \a editor's toolbar, on \a side where the view has sides.
+// The widget editor keeps its own list and places it; a view that is not one
+// builds its toolbar from what the document carries, so the action goes there
+// instead - see TextDocument::addToolBarAction().
+TEXTEDITOR_EXPORT void insertExtraToolBarActionIn(Core::IEditor *editor,
+                                                  TextEditorWidget::Side side, QAction *action);
+
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax
 // tree where it has an opinion - a SelectionExpander parented to \a editor -

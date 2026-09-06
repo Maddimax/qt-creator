@@ -10439,6 +10439,18 @@ void setMarginSettingsIn(Core::IEditor *editor,
         view->setMarginSettings(settings);
 }
 
+void insertExtraToolBarActionIn(Core::IEditor *editor, TextEditorWidget::Side side,
+                               QAction *action)
+{
+    QTC_ASSERT(editor && action, return);
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->insertExtraToolBarAction(side, action);
+        return;
+    }
+    if (auto * const document = qobject_cast<TextDocument *>(editor->document()))
+        document->addToolBarAction(action);
+}
+
 void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
 {
     if (!editor)

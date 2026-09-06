@@ -93,6 +93,7 @@
 
 #ifdef WITH_TESTS
 #include <QTest>
+#include <QToolBar>
 #endif
 
 #include <memory>
@@ -9167,6 +9168,58 @@ private slots:
         QVERIFY2(widgetText != start, "nothing was edited, so this compares nothing");
 
         QCOMPARE(quickText, widgetText);
+    }
+
+    // Something that is not the language putting a button in the toolbar -
+    // DevContainer's "restart the container" on a devcontainer.json is the
+    // one in the tree. It reached for the widget, so it would have vanished
+    // the moment JSON moved.
+    void testAnActionPutInTheToolBarArrivesInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAnActionPutInTheToolBarArrivesInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("toolbar-action");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(
+            file, quick ? Utils::Id(QUICK_TEXT_EDITOR_ID)
+                        : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID));
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Each view is asked where it actually keeps them: the widget editor
+        // puts the action straight into its own tool bar, and a view that is
+        // not one builds its tool bar from what the document carries.
+        const auto shown = [editor, document]() -> QList<QAction *> {
+            if (TextEditorWidget * const w = TextEditorWidget::fromEditor(editor)) {
+                QWidget * const bar = w->toolBar();
+                return bar ? bar->actions() : QList<QAction *>();
+            }
+            return document->toolBarActions();
+        };
+        const int before = shown().size();
+
+        QAction restart;
+        restart.setText("Start or Restart");
+        TextEditor::insertExtraToolBarActionIn(editor, TextEditorWidget::Side::Left, &restart);
+
+        const QList<QAction *> after = shown();
+        QCOMPARE(after.size(), before + 1);
+        QVERIFY2(after.contains(&restart),
+                 "the action was not put anywhere this view's toolbar reads");
     }
 
     void testAWatcherHearsTheCaretMoveInEitherView()

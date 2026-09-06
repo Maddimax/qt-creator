@@ -43230,3 +43230,98 @@ order:
   defects, all closed, is a reasonable place to stop looking.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Unblocking the JSON move: DevContainer's toolbar button (batch 79)
+
+Entry 78 said the remaining work was decisions, and that the one worth doing
+was to take a move and do it properly. Taking JSON, the audit that should come
+first found a blocker - and **entry 60 had predicted this exact one, five
+months of batches ago**, in a comment next to a census row:
+
+> `{"devcontainer.json", false}` - Measured, not assumed: DevContainerPlugin
+> decorates this file through a TextEditorWidget, and that is fine only for as
+> long as this row says widget. Moving JSON is what makes that code
+> unreachable, and this is where it says so.
+
+That is the census earning its keep. The row was written to fire on exactly
+this occasion, and it did.
+
+### What JSON's own factory needs: nothing
+
+`JsonEditorFactory` sets an id, a display name, an auto-completer, an
+indenter, `OptionalActions::Format` and the generic highlighter - **all of
+which the Qt Quick side already reads** (entries 63, 64). Its editor creator
+returns a plain `BaseTextEditor` and its widget creator a plain
+`TextEditorWidget`: nothing is subclassed, so there is no widget behaviour to
+port. JSON is the cleanest of the four moves.
+
+### The blocker, and it is not JSON's
+
+`DevContainerPlugin` puts a "Start or Restart Development Container" button in
+the toolbar of a `devcontainer.json`. It reached for the widget three times:
+
+```cpp
+auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);   // not a Quick editor
+TextEditor::TextEditorWidget *w = textEditor->editorWidget();           // widget only
+w->insertExtraToolBarAction(Side::Left, restartAction);
+```
+
+The third one is the interesting one, because **a toolbar *action* does have a
+Qt Quick path** where a toolbar *widget* does not: the document carries it and
+either toolbar builds from that - `TextDocument::addToolBarAction()`. Entry 59
+found that when it converted the Lua binding, which has done the dispatch
+inline ever since.
+
+Two call sites is where a pattern becomes a seam:
+`insertExtraToolBarActionIn(IEditor *, Side, QAction *)`. DevContainer uses it,
+and the Lua binding's inline copy is replaced by it.
+
+### Controls
+
+- **AC**: the document branch of the seam removed - red on the **quick** row,
+  green on the **widget** row.
+- The test asks each view where it actually keeps toolbar actions - the widget
+  editor's own `toolBar()`, the document's `toolBarActions()` for a view that
+  is not one - rather than looking in one place and calling the other absent.
+  Two earlier versions of the test failed because they looked in the wrong
+  place; both failures were the test's, and both were fixed rather than
+  worked around.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 645 passed, 0 failed (was 643) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Lua` | 0 | 4 passed, 0 failed |
+| `-test DevContainer` | 134 | 1 passed, **2 failed** |
+
+The DevContainer failures are **not this batch's**, measured the way entry 58
+established: park the work as a commit, restore `src/` from `HEAD~1`, rebuild
+everything, re-run. Identical - `testSimpleProject` and `testWithKit`, same
+two, on a clean tree. They start a real container and this machine has no
+runtime for one.
+
+No `.qbs` change: no files added.
+
+### The JSON move is now unblocked, and still not taken
+
+The gap is closed, so flipping `JsonEditorFactory` would no longer silently
+drop DevContainer's button. **The flip itself is still a decision and is not
+made here** - it changes which editor every JSON file in Qt Creator opens in,
+which is not a change to slip into a batch that set out to audit one.
+
+What it would take, in full: add `setUsesQuickEditor(true)` to
+`JsonEditorFactory`, and update the two census tests in the same commit -
+`testWhichFactoriesAreQuick` and the `devcontainer.json` row of
+`testWhichLanguagesOpenInTheQuickEditor` - which is what those tests are for.
+
+### What is left
+
+1. **Flip JSON.** One line and two test rows. Unblocked.
+2. Python, qmake, CMake - the same shape, each with its own audit still to do.
+   JSON took one; the others have their own editor widgets and will take more.
+3. Markdown - measured in entry 78, needs the toolbar-widget decision.
+4. The whitespace drawing difference - declined.
+
+The printing decision (keep / drop / move) remains the owner's call.

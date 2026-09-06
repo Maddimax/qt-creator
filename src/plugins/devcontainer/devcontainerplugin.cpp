@@ -409,8 +409,10 @@ void DevContainerPlugin::onEditorCreated(Core::IEditor *editor, const FilePath &
     if (filePath.fileName() != "devcontainer.json" && filePath.fileName() != ".devcontainer.json")
         return;
 
-    auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-    if (!textEditor)
+    // Asked of the editor rather than of a widget: a devcontainer.json opens
+    // in whichever view claims JSON, and only the widget one is a
+    // BaseTextEditor.
+    if (!qobject_cast<TextEditor::TextDocument *>(editor->document()))
         return;
 
     Project *project = ProjectManager::projectForFile(filePath);
@@ -420,11 +422,7 @@ void DevContainerPlugin::onEditorCreated(Core::IEditor *editor, const FilePath &
     if (!DevContainer::Config::isValidConfigPath(project->rootProjectDirectory(), filePath))
         return;
 
-    TextEditor::TextEditorWidget *textEditorWidget = textEditor->editorWidget();
-    if (!textEditorWidget)
-        return;
-
-    QAction *restartAction = new QAction(textEditorWidget);
+    QAction *restartAction = new QAction(editor);
     restartAction->setIcon(DEVCONTAINER_ICON.icon());
     restartAction->setText(Tr::tr("Start or Restart Development Container"));
     restartAction->setToolTip(Tr::tr("Start or stop and restart the development container."));
@@ -455,8 +453,8 @@ void DevContainerPlugin::onEditorCreated(Core::IEditor *editor, const FilePath &
         startDeviceForProject(project, instanceConfig);
     });
 
-    textEditorWidget
-        ->insertExtraToolBarAction(TextEditor::TextEditorWidget::Side::Left, restartAction);
+    TextEditor::insertExtraToolBarActionIn(editor, TextEditor::TextEditorWidget::Side::Left,
+                                          restartAction);
 }
 
 void DevContainerPlugin::startDeviceForProject(
