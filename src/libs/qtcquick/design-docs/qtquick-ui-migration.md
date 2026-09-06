@@ -40010,3 +40010,114 @@ standing warning names has a home and a test, seventeen plugins compared both
 ways showed no behavioural difference, and the differential suites now cover
 typing, undo, redo, the clipboard, find, focus, the mouse, the editing
 commands, and - as of this entry - dropping text.
+
+## 2026-09-06 (50) -- Two plan items retired, one of them by being wrong
+
+Entry 49 left three things. Two of them are settled here, and neither the way
+the plan expected.
+
+### The shared helper: not four call sites, fifty-two - and all of them correct
+
+Entry 44 said a fourth call site would justify extracting "hold the C++
+factory to the Qt Quick view" into a helper, and entry 49 said the fourth had
+arrived. Counted:
+
+    52 sites, across TextEditor, CppEditor, FakeVim, Debugger, EmacsKeys
+    and the MCP server
+
+So the count was wrong by an order of magnitude. But a helper is extracted to
+stop a *recurring mistake*, so the question is whether any of the 52 forgets
+to restore - which would force the Qt Quick view on every later test in a
+`QTC_WIDGET_CPP_EDITOR=1` run and quietly invalidate the widget half of the
+census.
+
+**None of them does.** Thirteen looked wrong to a crude check that searched 25
+lines back; every one was either a factory the test constructs itself, which
+has nothing to restore, or a `QScopeGuard` sitting further up than the window
+reached - `cppquickfixassistant.cpp` keeps its 38 lines above the call.
+
+**The item is retired.** The helper would guard against a mistake nobody has
+made, and this file has concluded four times that speculative changes without
+a measurement do not ship.
+
+### `-test all`: unblocked, and the unblocking is not free
+
+The blocker was diagnosed, and it is not a source problem:
+
+    AspectContainer::setLayouter removed on this branch, 5ff8aebe490, Aug 23
+    QmlDesigner never calls it
+    BUILD_PLUGIN_QMLDESIGNER:BOOL=OFF - it is not rebuilt in this configuration
+    libQmlDesigner.dylib in the bundle is dated Jul 16
+
+A stale artefact of a plugin this build does not make. The plugin manager
+loads it, fails on the removed symbol, and **refuses to run any test at all** -
+including with `-noload QmlDesigner`, which is why that flag is in this file's
+standing rules and why it does not help.
+
+Moved aside, `-test all` runs. **The whole suite, for the first time on this
+branch:**
+
+    217 test classes, 3586 verdicts, 20 failures
+
+      10  QtSupport::QtProjectImporterTest
+       4  CppEditor::MoveClassToOwnFileTest        known, both ways, entry 43
+       3  CppEditor::LocatorFilterTest             known flake, entries 46-48
+       2  ProjectExplorer  (RunWorkerConflictTest, ProjectTest)
+       1  CppEditor::SynchronizeMemberFunctionOrderTest   known, both ways
+
+**And then the required suites stopped working.**
+
+    -test TextEditor -load all -noload QmlDesigner -noload UpdateInfo
+    The plugin "QmlDesigner" does not exist.   -> usage, exit 255
+
+Removing the artefact trades one breakage for another: `-test all` runs and
+`-noload QmlDesigner` errors, because the option names a plugin that is no
+longer there. **The dylib was put back**, and the required suites pass again.
+
+So the honest state is a fork, not a fix:
+
+- **leave it**: every batch's two suites work, `-test all` never runs;
+- **remove it**: `-test all` runs, and every command in this file's standing
+  rules has to drop `-noload QmlDesigner` first.
+
+The real repair is neither: **turn `BUILD_PLUGIN_QMLDESIGNER` on and rebuild
+it**, so the bundle holds a plugin that matches the libraries beside it. That
+is a build-configuration decision for whoever owns this checkout, not
+something a batch should make silently, and it is why nothing was committed
+for it.
+
+### Negative controls
+
+None. Nothing was kept: the helper was not written, and the artefact was moved
+and put back. The measurements are the argument, and both are reproducible
+from the paragraphs above.
+
+### Verification
+
+    -test TextEditor    589 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0
+    -test all           217 classes, 3586 verdicts, 20 failures (with the
+                        artefact moved aside; restored afterwards)
+
+**This batch changed no code.** One file, and it is this one. The build
+directory is as it was found.
+
+### What this leaves
+
+Of the migration: **nothing.** Both remaining items are retired above, one as
+unjustified and one as a build-configuration decision that is not a batch's to
+take.
+
+What is left in this file is other people's: **CppEditor's locator index
+race**, three failures a run, two hypotheses eliminated in entries 47 and 48;
+**four `QtSupport` project-importer failures** nobody has looked at, now
+visible for the first time because `-test all` ran; and **two
+`ProjectExplorer` failures** likewise.
+
+The editor migration is finished. C++ files open in the Qt Quick view; every
+gap the standing warning names has a Quick-side home and a test; seventeen
+plugins were compared both ways with no behavioural difference; and the
+differential suites cover typing, undo, redo, the clipboard, find, focus, the
+mouse, dropping text, and twenty-three editing commands. **A batch asked for
+after this one should be told that, rather than given work invented to fill
+it.**
