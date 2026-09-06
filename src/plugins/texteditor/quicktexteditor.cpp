@@ -7922,6 +7922,52 @@ private slots:
     // And the reader has to be able to see which part is being searched. A
     // widget editor paints the scope; this view was told about it and drew
     // nothing, so "Selection only" looked exactly like searching the file.
+    void testAWatcherHearsTheCaretMoveInEitherView()
+    {
+        Utils::TemporaryDirectory dir("caret-watcher");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+
+        // The same watcher, over both views, so that a caller which has only
+        // an IEditor can be written once.
+        for (const bool quick : {false, true}) {
+            factory->setUsesQuickEditor(quick);
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+
+            int moves = 0;
+            const QMetaObject::Connection conn
+                = TextEditor::whenCursorMoved(editor, this, [&moves] { ++moves; });
+            QVERIFY2(conn, quick ? "no watcher on the Quick view" : "no watcher on the widget");
+
+            QTextCursor to(document->document());
+            to.setPosition(document->document()->findBlockByNumber(2).position());
+            TextEditor::setTextCursorOf(editor, to);
+            QTRY_VERIFY(moves > 0);
+
+            // And it stops when the caller says so, which is what a watcher
+            // that can be turned off needs the connection back for.
+            QObject::disconnect(conn);
+            const int afterDisconnect = moves;
+            QTextCursor back(document->document());
+            back.setPosition(0);
+            TextEditor::setTextCursorOf(editor, back);
+            QCOMPARE(TextEditor::lineColumnOf(editor).line, 1);
+            QCOMPARE(moves, afterDisconnect);
+        }
+    }
+
     void testTheSearchScopeIsDrawn()
     {
         Utils::TemporaryDirectory dir("find-scope-drawn");

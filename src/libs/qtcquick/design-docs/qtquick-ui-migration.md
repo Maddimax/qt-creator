@@ -40691,3 +40691,136 @@ that 42 is an *upper bound*, not a defect list, and `qmljseditor` /
 
 The printing decision (keep / drop / move) remains the owner's call, not a
 batch's.
+
+## 2026-09-06 — Git's Instant Blame, and a seam for "the caret moved" (batch 57)
+
+The second of the two gaps entry 54 verified by reading the code they gate,
+and the one entry 56 named as next. Instant Blame did nothing on a C++ file:
+four sites in `InstantBlame` opened with `currentTextEditorWidget()` and
+returned when it was null, which it always is while a Quick view is current.
+
+### The seam this needed
+
+Three of the four sites only wanted the document or the cursor, both of which
+already have editor-level answers (`TextDocument::currentTextDocument()`,
+`textCursorOf()`). The fourth wanted something that had no seam at all:
+**a connection to "the caret went somewhere new"**. The widget editor has
+`PlainTextEdit::cursorPositionChanged`; `TextViewport` emits
+`cursorPositionChanged()` from `caretMoved()`. Neither is reachable from the
+other, so:
+
+```cpp
+TEXTEDITOR_EXPORT QMetaObject::Connection whenCursorMoved(
+    Core::IEditor *editor, QObject *context, const std::function<void()> &onMove,
+    Qt::ConnectionType type = Qt::AutoConnection);
+```
+
+It is `whenScrolled`'s shape with two differences, both of which Instant Blame
+needed and would have had to work around otherwise:
+
+- it **returns the connection**, because `setupBlameForEditor` stores it in
+  `m_blameCursorPosConn` and disconnects it when the setting goes off;
+- it takes a **connection type**, because `once()` wants
+  `Qt::SingleShotConnection` — the one-shot blame clears its mark on the next
+  caret move and then stops caring.
+
+A callback-only seam would have forced both callers to invent their own
+one-shot and their own off switch, which is how a seam ends up not being used.
+
+### The four sites
+
+- **`setupBlameForEditor` :274** wanted existence, the VCS check, the caret
+  signal and the document. Now `currentTextDocument()`, `whenCursorMoved()`,
+  and `fromEditor()` for the VCS check alone.
+- **`once()` :405** wanted existence and a one-shot caret signal. Now
+  `currentTextDocument()` and `whenCursorMoved(..., SingleShotConnection)`.
+- **`perform()` :443** wanted the modified flag, the cursor, the document and
+  two document properties. Now `currentTextDocument()` + `textCursorOf()`.
+- **`refreshWorkingDirectory()` :562** wanted the `GitRepository` property.
+  Now `currentTextDocument()`.
+
+The VCS check is the one that **stays** a widget question and is right to:
+
+```cpp
+if (qobject_cast<const VcsBaseEditorWidget *>(TextEditorWidget::fromEditor(editor)))
+```
+
+A log or blame view is a `VcsBaseEditorWidget`, which is a `TextEditorWidget`
+subclass and will not be ported; asking a Quick view whether it is one has no
+meaning. `fromEditor()` returning null *is* the answer "no".
+
+`perform()`'s guard is now `!document || cursor.isNull()` rather than a bare
+document check. The cursor is what the null case actually loses: a null
+`QTextCursor` has `blockNumber() == -1`, so the old shape would have blamed
+line 0 and asked git for `-L0,0`.
+
+`BaselineBlame` still takes a `TextEditorWidget *` and is left alone — it
+annotates the baseline side of the inline diff editor, which is a widget
+editor by construction.
+
+### The test, which is the part entry 54 said did not exist
+
+> nothing tests Instant Blame in an editor, so nothing noticed it stopped
+> working.
+
+`InstantBlameTest::testALineIsBlamedInAViewThatIsNotAWidget` is end to end and
+runs real git: it makes a repository in a temporary directory, commits a
+three-line `.cpp` as "A Tester", opens it **in the Quick view**, puts the
+caret on line 2, calls `InstantBlame::once()`, and waits for a text mark of
+category `Git.Mark.Blame` to appear. It then checks the line number *and* that
+the annotation contains the author — a mark in the right place with empty text
+would mean the parse, not the blame, was what worked.
+
+`QSKIP`s with "no git to blame with" when git is not on PATH. That is the
+honest form: the feature is a git feature and cannot be tested without one.
+
+A second test, `testAWatcherHearsTheCaretMoveInEitherView` in
+`QuickTextEditorTest`, covers the new seam directly and runs the same body
+over both views in a loop, asserting per iteration that the view is the one it
+claims (`QCOMPARE(fromEditor(editor) == nullptr, quick)`). It also disconnects
+and checks that a later move is *not* counted, which is the half of the
+contract Instant Blame depends on and that a fire-and-forget seam would not
+have.
+
+### Controls — three, all biting
+
+- **A: `perform()`'s widget gate restored.** Red at
+  `!blameMarks().isEmpty()` — no mark ever appears, the user-visible symptom
+  exactly. Note it took 93s to fail, against 1.1s to pass: the failure is the
+  30s `QTRY` timing out, so this test is fast when right and slow when wrong.
+- **B: `setUsesQuickEditor(false)`.** Red at the vacuity guard, so the pass is
+  a Quick-view pass and cannot drift back to measuring the widget.
+- **C: the `TextViewport` branch of `whenCursorMoved` removed.** Red at
+  `'conn' returned FALSE. (no watcher on the Quick view)`.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 590 passed, 0 failed (was 589) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Git` | 0 | 131 passed, 0 failed (was 128) |
+
+No `.qbs` change: no files added.
+
+### What this leaves
+
+Both gaps entry 54 verified by reading are now closed, and both were closed
+with a test that asserts a document changed rather than where a view is
+looking — the shape entry 55 predicted would work.
+
+What is left of the 42 is **triage, not fixing**. Entry 51 was explicit that
+42 is an upper bound; `qmljseditor` and `qmldesigner` are expected to come off
+it, and entry 55 already took `refactoringchanges.cpp` off. The remaining
+Beautifier gates (`formatAtPosition`, `formatAtCursor`, `formatLines` and
+`formatCurrentFile` behind them) are the one known-broken cluster left, and
+entry 56 recorded why they are a bigger piece: `formatEditorAsync` and
+`checkAndApplyTask` are widget-shaped signatures shared by every beautifier
+tool, and testing them past the dispatch needs an external binary.
+
+**Suggested next**, in order: finish the Beautifier cluster, since it is the
+only remaining *verified* breakage; then triage the rest of the 42 by reading
+rather than counting, because entry 54's lesson was that a census only finds
+what its question can see.
+
+The printing decision (keep / drop / move) is still the owner's call.

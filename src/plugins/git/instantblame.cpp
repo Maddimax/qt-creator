@@ -155,6 +155,13 @@ class BlameController : public QObject
 public:
     explicit BlameController(QObject *parent = nullptr);
 
+    void setContext(Core::IEditor *editor,
+                    const Utils::FilePath &topLevel,
+                    const QString &ref,
+                    const QString &commandFilePath,
+                    const Utils::FilePath &workingFilePath,
+                    bool allowModifiedDocument,
+                    bool useDocumentContents);
     void setContext(TextEditor::TextEditorWidget *widget,
                     const Utils::FilePath &topLevel,
                     const QString &ref,
@@ -170,6 +177,9 @@ private:
     void perform();
     void waitForRepositoryChange();
 
+    QPointer<Core::IEditor> m_editor;
+    // The inline diff draws its baseline pane as a bare widget, with no
+    // IEditor of its own; that view is asked directly.
     QPointer<TextEditor::TextEditorWidget> m_widget;
     QPointer<TextEditor::TextDocument> m_document;
     Utils::FilePath m_topLevel;
@@ -425,14 +435,14 @@ void InstantBlame::setupForCurrentEditor()
         return;
     }
 
-    TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
-    if (!setEditor(widget)) {
+    IEditor * const editor = EditorManager::currentEditor();
+    if (!setEditor(editor)) {
         qCInfo(log) << "Cannot set up instant blame for the current editor.";
         return;
     }
 
-    m_blameCursorPosConn = connect(widget, &PlainTextEdit::cursorPositionChanged,
-                                   this, [this] { m_controller->schedule(500); });
+    m_blameCursorPosConn = TextEditor::whenCursorMoved(
+        editor, this, [this] { m_controller->schedule(500); });
     m_documentChangedConn = connect(m_document, &IDocument::changed,
                                     this, &InstantBlame::slotDocumentChanged);
     m_documentContentsChangedConn = connect(m_document, &IDocument::contentsChanged,
@@ -440,16 +450,20 @@ void InstantBlame::setupForCurrentEditor()
     m_modified = m_document->isModified();
 }
 
-bool InstantBlame::setEditor(TextEditorWidget *widget)
+bool InstantBlame::setEditor(Core::IEditor *editor)
 {
-    if (!widget)
+    if (!editor)
         return false;
-    if (qobject_cast<const VcsBaseEditorWidget *>(widget)) {
+    // A log or blame view is a widget editor and stays one, so asking the
+    // widget is the whole question.
+    if (qobject_cast<const VcsBaseEditorWidget *>(TextEditorWidget::fromEditor(editor))) {
         qCDebug(log) << "Deactivating in version control editors";
         return false;
     }
 
-    m_document = widget->textDocument();
+    m_document = qobject_cast<TextDocument *>(editor->document());
+    if (!m_document)
+        return false;
     FilePath topLevel = currentState().currentFileTopLevel();
     if (topLevel.isEmpty()) {
         const QString repository = m_document->property("GitRepository").toString();
@@ -588,13 +602,13 @@ void InstantBlame::once()
     }
 
     stop();
-    TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
-    if (!setEditor(widget)) {
-        qCWarning(log) << "Cannot get a suitable text editor widget";
+    IEditor * const editor = EditorManager::currentEditor();
+    if (!setEditor(editor)) {
+        qCWarning(log) << "Cannot get a suitable text editor";
         return;
     }
-    m_blameCursorPosConn = connect(widget, &PlainTextEdit::cursorPositionChanged,
-                                   this, &InstantBlame::stop, Qt::SingleShotConnection);
+    m_blameCursorPosConn = TextEditor::whenCursorMoved(
+        editor, this, &InstantBlame::stop, Qt::SingleShotConnection);
 }
 
 void InstantBlame::scheduleInstantBlame()
@@ -650,7 +664,7 @@ BlameController::BlameController(QObject *parent)
     connect(m_timer, &QTimer::timeout, this, &BlameController::perform);
 }
 
-void BlameController::setContext(TextEditorWidget *widget,
+void BlameController::setContext(Core::IEditor *editor,
                                  const FilePath &topLevel,
                                  const QString &ref,
                                  const QString &commandFilePath,
@@ -658,8 +672,9 @@ void BlameController::setContext(TextEditorWidget *widget,
 {
     clear();
     ++m_contextGeneration;
-    m_widget = widget;
-    m_document = widget ? widget->textDocument() : nullptr;
+    m_editor = editor;
+    m_widget = nullptr;
+    m_document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
     m_topLevel = topLevel;
     m_ref = ref;
     m_commandFilePath = commandFilePath;
@@ -669,6 +684,20 @@ void BlameController::setContext(TextEditorWidget *widget,
     loadRepositoryConfiguration();
     if (m_enabled)
         schedule();
+}
+
+void BlameController::setContext(TextEditorWidget *widget,
+                                 const FilePath &topLevel,
+                                 const QString &ref,
+                                 const QString &commandFilePath,
+                                 const FilePath &workingFilePath,
+                                 bool allowModifiedDocument,
+                                 bool useDocumentContents)
+{
+    setContext(static_cast<Core::IEditor *>(nullptr), topLevel, ref, commandFilePath,
+               workingFilePath, allowModifiedDocument, useDocumentContents);
+    m_widget = widget;
+    m_document = widget ? widget->textDocument() : nullptr;
 }
 
 void BlameController::setEnabled(bool enabled)
@@ -777,12 +806,21 @@ static void addModifiedLineDiff(BlameMark &mark, const EditorLineDiff &diff)
 
 void BlameController::perform()
 {
-    if (!m_widget || !m_document || m_topLevel.isEmpty()) {
+    if ((!m_editor && !m_widget) || !m_document || m_topLevel.isEmpty()) {
         clear();
         return;
     }
-    const int line = m_widget->textCursor().blockNumber() + 1;
-    if (isPhantomLine(m_widget->document(), line)) {
+    if (!m_allowModifiedDocument && m_document->isModified()) {
+        qCDebug(log) << "Document is modified, pausing blame";
+        m_blameMark.reset();
+        m_lastLine = -1;
+        return;
+    }
+
+    const QTextCursor caret = m_editor ? TextEditor::textCursorOf(m_editor)
+                                       : m_widget->textCursor();
+    const int line = caret.blockNumber() + 1;
+    if (isPhantomLine(m_document->document(), line)) {
         m_lastLine = -1;
         m_blameMark.reset();
         return;
@@ -934,11 +972,30 @@ BaselineBlame::BaselineBlame(TextEditorWidget *widget,
     , m_controller(new BlameController(this))
 {
     m_controller->setContext(widget, topLevel, ref, relativeFile, workingFilePath);
-    connect(widget, &PlainTextEdit::cursorPositionChanged,
-            this, [this] {
-                if (settings().instantBlame())
-                    m_controller->schedule(500);
-            });
+    connect(widget, &PlainTextEdit::cursorPositionChanged, this, [this] {
+        if (settings().instantBlame())
+            m_controller->schedule(500);
+    });
+    connect(&settings().instantBlame, &BaseAspect::changed, this,
+            [this] { m_controller->setEnabled(settings().instantBlame()); });
+    m_controller->setEnabled(settings().instantBlame());
+}
+
+BaselineBlame::BaselineBlame(Core::IEditor *editor,
+                             const FilePath &topLevel,
+                             const QString &ref,
+                             const QString &relativeFile,
+                             const FilePath &workingFilePath)
+    : QObject(editor)
+    , m_controller(new BlameController(this))
+{
+    m_controller->setContext(editor, topLevel, ref, relativeFile, workingFilePath,
+                             /*allowModifiedDocument=*/true,
+                             /*useDocumentContents=*/true);
+    TextEditor::whenCursorMoved(editor, this, [this] {
+        if (settings().instantBlame())
+            m_controller->schedule(500);
+    });
     connect(&settings().instantBlame, &BaseAspect::changed, this,
             [this] { m_controller->setEnabled(settings().instantBlame()); });
     const auto schedule = [this] { m_controller->schedule(); };

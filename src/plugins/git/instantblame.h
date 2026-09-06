@@ -17,6 +17,7 @@ class QTimer;
 QT_END_NAMESPACE
 
 #ifdef WITH_TESTS
+namespace Core { class IEditor; }
 namespace ExtensionSystem { class IPlugin; }
 #endif
 
@@ -32,7 +33,14 @@ class BaselineBlame : public QObject
     Q_OBJECT
 
 public:
+    // Either a real editor, or the inline diff's baseline pane - a view with
+    // no IEditor of its own.
     BaselineBlame(TextEditor::TextEditorWidget *widget,
+                  const Utils::FilePath &topLevel,
+                  const QString &ref,
+                  const QString &relativeFile,
+                  const Utils::FilePath &workingFilePath);
+    BaselineBlame(Core::IEditor *editor,
                   const Utils::FilePath &topLevel,
                   const QString &ref,
                   const QString &relativeFile,
@@ -58,7 +66,7 @@ private:
     friend class InstantBlameTest;
 #endif
     void setupForCurrentEditor();
-    bool setEditor(TextEditor::TextEditorWidget *widget);
+    bool setEditor(Core::IEditor *editor);
     void scheduleInstantBlame();
     void stop();
     void slotDocumentChanged();

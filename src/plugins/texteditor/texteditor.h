@@ -1142,6 +1142,15 @@ TEXTEDITOR_EXPORT QPoint toolTipPositionIn(Core::IEditor *editor, int position);
 TEXTEDITOR_EXPORT void whenScrolled(Core::IEditor *editor, QObject *context,
                                     const std::function<void()> &onScroll);
 
+// Call \a onMove whenever the caret in \a editor goes somewhere new, for as
+// long as \a context lives. The widget editor has a cursor to watch and the
+// Qt Quick one has a caret position; neither is reachable from the other.
+// Returns the connection, so that a caller which stops watching can
+// disconnect it, and takes a \a type for one that wants only the next move.
+TEXTEDITOR_EXPORT QMetaObject::Connection whenCursorMoved(
+    Core::IEditor *editor, QObject *context, const std::function<void()> &onMove,
+    Qt::ConnectionType type = Qt::AutoConnection);
+
 // How \a editor's view should behave - camel-case navigation, wheel zooming,
 // what the mouse does. A project can keep its own instead of the global ones;
 // an empty \a settings puts the view back to following the globals as they

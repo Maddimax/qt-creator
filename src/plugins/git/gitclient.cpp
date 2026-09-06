@@ -1375,7 +1375,7 @@ static IEditor *openInlineDiff(const FilePath &topLevel,
         // the editor, so do not stack blame helpers on the same widget.
         if (TextEditor::TextEditorWidget *widget = DiffEditor::inlineDiffEditorWidget(diffEditor);
             widget && !widget->findChild<BaselineBlame *>()) {
-            new BaselineBlame(widget, topLevel, /*ref=*/{},
+            new BaselineBlame(diffEditor, topLevel, /*ref=*/{},
                               filePath.relativeChildPath(topLevel).path(), filePath);
         }
         if (line > 0)
@@ -1680,7 +1680,7 @@ void GitClient::openSnapshotInlineDiff(const FilePath &topLevel, const FilePath 
              // empty), so that the history can be followed from both sides
              if (TextEditor::TextEditorWidget *widget
                  = DiffEditor::inlineDiffEditorWidget(diffEditor)) {
-                 new BaselineBlame(widget, topLevel, blameRev, snapshotFileName, filePath);
+                 new BaselineBlame(diffEditor, topLevel, blameRev, snapshotFileName, filePath);
              }
          }});
 }
@@ -1789,7 +1789,7 @@ DiffEditor::InlineDiffBaseline GitClient::revisionBaseline(const FilePath &worki
     const QString blameRef = ref.isEmpty() ? QString("HEAD") : ref;
     baseline.setupBaselineView = [workingDirectory, blameRef, relativeFile,
                                   sourceFile](TextEditor::TextEditorWidget *widget) {
-        new BaselineBlame(widget, workingDirectory, blameRef, relativeFile, sourceFile);
+        new BaselineBlame(editor, workingDirectory, blameRef, relativeFile, sourceFile);
     };
     return baseline;
 }

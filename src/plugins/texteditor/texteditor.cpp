@@ -10390,6 +10390,24 @@ void whenScrolled(Core::IEditor *editor, QObject *context,
     }
 }
 
+QMetaObject::Connection whenCursorMoved(Core::IEditor *editor, QObject *context,
+                                        const std::function<void()> &onMove,
+                                        Qt::ConnectionType type)
+{
+    if (!editor || !context || !onMove)
+        return {};
+
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        return QObject::connect(widget, &Utils::PlainTextEdit::cursorPositionChanged,
+                                context, [onMove] { onMove(); }, type);
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        return QObject::connect(view, &TextViewport::cursorPositionChanged,
+                                context, [onMove] { onMove(); }, type);
+    }
+    return {};
+}
+
 void setBehaviorSettingsIn(Core::IEditor *editor,
                            const std::optional<BehaviorSettingsData> &settings)
 {
