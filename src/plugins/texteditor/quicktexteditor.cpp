@@ -1372,6 +1372,18 @@ QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
     return bar;
 }
 
+QtcQuick::QuickWidget *createQuickTextViewOver(TextDocument *document,
+                                               QtcQuick::ActionModel *contextActions)
+{
+    QTC_ASSERT(document, return nullptr);
+    // Parented to the view: the source is an implementation detail of showing
+    // this document, and nobody outside should have to keep it alive.
+    auto * const source = new AdoptedSource(document);
+    QtcQuick::QuickWidget * const widget = createQuickTextView(source, contextActions);
+    source->setParent(widget);
+    return widget;
+}
+
 TextViewport *viewportIn(QWidget *host)
 {
     auto * const quick = qobject_cast<QtcQuick::QuickWidget *>(host);
@@ -9717,6 +9729,56 @@ private slots:
     // The row above the view, built for a host that is not the Qt Quick
     // editor. An editor made of two panes wants the same row over its text
     // pane, and should not have to know which QML file it lives in.
+    // An editor's document is opened by the editor manager before the editor
+    // exists, so a view for one cannot own its text the way CodeBuffer does
+    // nor open the file the way CodeDocument does. This is the third case, and
+    // it is what an editor made of two panes needs for its text pane.
+    void testAViewCanBeBuiltOverADocumentAnEditorOwns()
+    {
+        Utils::TemporaryDirectory dir("adopted-document");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("shared.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const std::unique_ptr<QWidget> host(
+            Internal::createQuickTextViewOver(document, nullptr));
+        QVERIFY2(host.get(), "no view was built over the editor's document");
+        host->resize(400, 300);
+        host->show();
+        const QScopeGuard hideIt([&host] { host->hide(); });
+
+        TextViewport *view = nullptr;
+        QTRY_VERIFY2(view = Internal::viewportIn(host.get()),
+                     "the widget holds no viewport, so the form never loaded");
+
+        // The source belongs to the view, so a caller holding only the widget
+        // is holding everything.
+        QVERIFY2(host->findChild<CodeSource *>(),
+                 "the source is not owned by the view, so it leaks or dangles");
+
+        // The editor's document, not a copy of its text.
+        QCOMPARE(view->textDocument(), document);
+        QCOMPARE(view->textDocument()->plainText(), QString("alpha\nbeta\n"));
+
+        // And editing through this view is editing that document, which is
+        // what makes two panes over one file two views rather than two copies.
+        QVERIFY(!document->isModified());
+        view->setCursorPosition(0);
+        QTextCursor typed = view->textCursor();
+        typed.insertText("x");
+        view->setTextCursor(typed);
+        QCOMPARE(document->plainText(), QString("xalpha\nbeta\n"));
+        QVERIFY2(document->isModified(),
+                 "the editor's document did not notice the edit");
+    }
+
     void testAToolBarCanBeBuiltWithoutAnEditor()
     {
         CodeBuffer source;

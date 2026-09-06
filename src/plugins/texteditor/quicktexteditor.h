@@ -16,6 +16,7 @@ namespace QtcQuick { class ActionModel; class QuickWidget; }
 namespace TextEditor {
 
 class CodeSource;
+class TextDocument;
 class TextViewport;
 class ToolBarChoice;
 class ToolBarOutline;
@@ -68,6 +69,13 @@ Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
 // view that offers none.
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
                                            QtcQuick::ActionModel *contextActions);
+
+// The same, over a document somebody else owns - which is what an editor has:
+// the editor manager opens the document before the editor is ever shown.
+// CodeBuffer holds text of its own and CodeDocument opens a file; neither is
+// that. The source pointing at \a document belongs to the widget handed back.
+QtcQuick::QuickWidget *createQuickTextViewOver(TextDocument *document,
+                                               QtcQuick::ActionModel *contextActions);
 
 // The view inside a widget createQuickTextView() handed back.
 TextViewport *viewportIn(QWidget *host);

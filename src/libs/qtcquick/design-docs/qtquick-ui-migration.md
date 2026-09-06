@@ -45326,3 +45326,106 @@ Two things will change in the substitution and should not be discovered then:
 Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
 the question about its empty outline combo), the whitespace difference
 (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — A view over somebody else's document, and the gap behind it (batch 100)
+
+Entry 99 named the last missing seam and called it three lines. It is, and it
+is here. It also said the substitution was mechanical after that. **It is
+not**, and this batch found out why before starting it rather than halfway
+through.
+
+### The gap this closed
+
+    QtcQuick::QuickWidget *createQuickTextViewOver(TextDocument *document,
+                                                   QtcQuick::ActionModel *contextActions);
+
+`createQuickTextView()` takes a `CodeSource`, and the two public ones are
+wrong for an editor: `CodeBuffer` holds text of its own, `CodeDocument` opens
+a file. An editor's document is opened by the **editor manager** before the
+editor exists, so it needs the third case - point at it, own nothing. That
+was `AdoptedSource`, file-local to `quicktexteditor.cpp` since the Qt Quick
+editor was written.
+
+The source is parented to the view rather than handed back, so a caller
+holding the widget is holding everything. The test asserts that with
+`host->findChild<CodeSource *>()`, which is what makes the parenting line
+controllable rather than a comment nobody can check - **control BN removes it
+and the test goes red**, which is the standard entry 93 set after a line
+turned out to be doing nothing.
+
+`testAViewCanBeBuiltOverADocumentAnEditorOwns` opens a real file, builds a
+second view over the editor's document, and edits through it: the editor's
+document changes and reports itself modified. Two views over one file, not two
+copies - which is exactly Markdown's shape.
+
+### What the substitution will actually lose
+
+    void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
+    {
+        if (auto * const quick = qobject_cast<QuickTextEditor *>(editor))
+            quick->addOptionalActions(optionalActions);
+    }
+
+That is the whole function. **The editor-level commands are welded to
+`QuickTextEditor`** the way the view was before entry 89, the find before
+entry 96, and the tool bar row before entry 98 - and a Qt Quick view hosted by
+anything else gets none of them.
+
+Concretely for Markdown: it sets
+`OptionalActions::FollowSymbolUnderCursor`, which on the widget side enables
+`m_followSymbolAction` - an action the *widget* owns
+(`texteditor.cpp:4377`) - and on the Qt Quick side gates `ActionBuilder`
+commands the *editor* owns (`quicktexteditor.cpp:758`). A `MarkdownEditor`
+holding a bare view is neither, so **F2 would stop working**. Ctrl+click would
+survive, because that goes through the link finder entry 94 put on the
+document.
+
+So the substitution is not mechanical: it is mechanical plus one decision -
+either Markdown registers its own Follow Symbol against its text context
+(small, and it has the link finder already), or the command registrations come
+out of `QuickTextEditor` the way everything else has. The second is the
+general answer and a batch of its own.
+
+**Written down before the substitution rather than discovered inside it.** The
+last three entries each corrected a remaining-work item that had been asserted
+without measurement; this is the same check done in advance.
+
+### Controls
+
+- **BN**: the source not parented to the view - red at "the source is not
+  owned by the view, so it leaks or dangles".
+- **BO**: the view built over a fresh document instead of the one passed in -
+  red at "Compared QObject pointers are not the same", so the argument is what
+  the view shows rather than something it finds for itself.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 666 passed, 0 failed (was 665) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown
+
+The substitution, and it now has a known shape:
+
+| Piece | Answer |
+| --- | --- |
+| the view | `createQuickTextViewOver()` - this entry |
+| the tool bar row | `createQuickTextToolBar()` - entry 98 |
+| find | comes with the view - entry 96 |
+| the text context | `IContext::attach()` on the view - entry 97 |
+| state, caret, goto line | `TextViewport` twins, one line each |
+| highlighting | `HighlighterHelper::setDefinitionOn()`; the bare view configures none |
+| **Follow Symbol (F2)** | **decide: Markdown registers it, or unweld it from `QuickTextEditor`** |
+| the italic "i" and bold "b" | lose their font; entry 95 deferred this and it comes due |
+
+`TextEditorWidget::fromEditor()` will start returning null for Markdown, which
+is worth knowing because entry 99's test asserts it does not - that assertion
+belongs to the widget pane and goes with it.
+
+Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
+the question about its empty outline combo), the whitespace difference
+(declined, entry 68), and printing (entry 31, the owner's).
