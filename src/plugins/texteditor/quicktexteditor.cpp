@@ -369,6 +369,19 @@ public:
         // is why a document built outside one is never highlighted at all.
         // The highlighter first: it is what puts the mime type on the document,
         // and the language's services are looked up by mime type.
+        // A file reread from disk is the same file, so the reader should be
+        // left looking at the same place in it - a rebase or a formatter run
+        // should not throw them back to the top. Saved and put back the way
+        // the widget editor does it in documentAboutToBeReloaded().
+        connect(m_document.get(), &Core::IDocument::aboutToReload, this, [this] {
+            m_stateBeforeReload = saveState();
+        });
+        connect(m_document.get(), &Core::IDocument::reloadFinished, this, [this](bool success) {
+            if (success)
+                restoreState(m_stateBeforeReload);
+            m_stateBeforeReload.clear();
+        });
+
         // A file whose bytes did not decode is not safe to edit: what is in
         // the buffer is not what is on disk, and saving would write the
         // buffer over it. Say so, and refuse the edit until the reader picks
@@ -1301,6 +1314,7 @@ public:
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
     bool m_codeFoldingSupported = false;
+    QByteArray m_stateBeforeReload;
     const Utils::Id m_editorContext = Utils::Id::generate();
     std::unique_ptr<AdoptedSource> m_source;
 };
@@ -8956,6 +8970,49 @@ private slots:
                                         });
         QVERIFY(entry != entries.end());
         QVERIFY2(!entry->buttons().isEmpty(), "the error offered no way to choose an encoding");
+    }
+
+    // A file reread from disk - a rebase, a formatter, a build system rewrite
+    // - is the same file. The reader should be left where they were in it.
+    void testAReloadLeavesTheReaderWhereTheyWere_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAReloadLeavesTheReaderWhereTheyWere()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("reload-place");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath(quick ? "q.txt" : "w.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(
+            file, quick ? Utils::Id(QUICK_TEXT_EDITOR_ID)
+                        : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID));
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const QTextBlock third = document->document()->findBlockByNumber(2);
+        QTextCursor away(document->document());
+        away.setPosition(third.position() + 2);
+        TextEditor::setTextCursorOf(editor, away);
+        const int before = TextEditor::textCursorOf(editor).position();
+        QVERIFY2(before > 0, "the caret never left the start, so this tests nothing");
+
+        // Rereading with a different encoding is a reload like any other, and
+        // one a test can ask for without waiting on the file system.
+        QVERIFY(document->reload(Utils::TextEncoding("ISO-8859-1")));
+        QCOMPARE(document->encoding().displayName(), QString("ISO-8859-1"));
+
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), before);
     }
 
     void testAWatcherHearsTheCaretMoveInEitherView()

@@ -42722,3 +42722,110 @@ decoding.** They are the same shape, in the same function, and the harness is
 now written.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — A reload threw the reader back to the top (batch 74)
+
+Entry 73 left three things `openFinishedSuccessfully` does that the Qt Quick
+view did not mirror, and said to measure them the way the decoding one was
+measured. Two turned out to be already covered. The third was a defect, **in
+the opposite direction to the one entry 73 predicted**.
+
+### Two already covered
+
+- `updateTextCodecLabel()` - the Qt Quick toolbar has an `encodingLabel` in
+  `EditorToolBar.qml` and it follows the document. Measured: after a reload as
+  ISO-8859-1 both views report `UTF-8 -> ISO-8859-1`.
+- `updateVisualWrapColumn()` - the Qt Quick view calls
+  `visibleMarginColumn(marginSettings(), doc->indenter())` during layout
+  rather than on a signal. Computed live, so there is nothing to be told.
+
+### The third, and entry 73 guessed it backwards
+
+Entry 73 read `d->moveCursor(QTextCursor::Start)` in the widget's
+`openFinishedSuccessfully()` and predicted the *widget* would jump to the top
+on reload while the Qt Quick view stayed put. Measured, caret on line 3, then
+reloaded:
+
+    widget  caret 13 -> 13
+    quick   caret 13 -> 0
+
+**The other way round.** The widget saves its whole state on
+`aboutToReload` and puts it back on `reloadFinished`:
+
+```cpp
+void TextEditorWidgetPrivate::documentAboutToBeReloaded()
+{ m_tempState = q->saveState(); }
+void TextEditorWidgetPrivate::documentReloadFinished(bool success)
+{ if (success) q->restoreState(m_tempState); ... }
+```
+
+so the `moveCursor(Start)` that entry 73 latched onto is undone a moment later
+by the restore. Reading one of the two functions and not the other produced a
+prediction that was exactly inverted.
+
+The Qt Quick editor connected to neither signal, so **every reload sent the
+reader back to the top of the file**: a rebase, a formatter run, a build
+system rewriting a file - anything that changes it on disk - lost your place.
+Live, in every language in that view.
+
+### The fix
+
+`QuickTextEditor` connects to `aboutToReload` and `reloadFinished` and does
+the same save and restore. `saveState()` and `restoreState()` already existed
+on it - entry 63's `IEditor` comparison listed them as answered by both
+editors - and they already carry the caret and the scroll position, so nothing
+new was needed.
+
+### A third trigger noticed in passing
+
+`documentReloadFinished()` also calls `updateCannotDecodeInfo()`. Entry 73
+connected the Qt Quick editor's version to `openFinishedSuccessfully` and
+`conflictedChanged` but not to reload-finished. Checked rather than assumed:
+entry 73's test reaches it through `document->reload()` and passes, so the
+reload path is covered by one of the two connections already made.
+
+### Controls
+
+- **Y**: the state saved but never put back - red on the **quick** row with
+  `0` against `13`, green on the **widget** row.
+- The test refuses to run vacuously: `QVERIFY2(before > 0, "the caret never
+  left the start, so this tests nothing")`, and asserts the reload actually
+  happened by checking the encoding changed.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 638 passed, 0 failed (was 636) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### The method note
+
+Two batches running, a prediction written into this file from **reading one
+function** has been wrong - entry 71's undo-stack conclusion and entry 73's
+caret-on-reload one. Both were plausible, both were written as findings rather
+than as guesses, and both cost the next batch time to unpick.
+
+The rule that keeps working is the cheap one: **a two-line probe that prints
+what each view actually does, before anything is written down.** Entry 73's
+prediction would have cost nothing to check and was one `qDebug()` away from
+being right.
+
+### What is left
+
+The signal half of the document audit is finished: twelve signals, one defect
+(entry 73), one more found through what the widget does *around* them (this
+one).
+
+What has still never been compared is what a view **reads** from the document
+without being told: its marks, its `TextBlockUserData`, its indenter, its
+encoding. That is the rest of entry 64's proposal and the last unexamined
+surface.
+
+**Suggested next: `TextBlockUserData`.** It is where folding state, marks,
+parentheses and suggestions all live, both views read it constantly, and
+nothing has ever compared what they make of it.
+
+The printing decision (keep / drop / move) remains the owner's call.
