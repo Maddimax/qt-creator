@@ -5227,7 +5227,8 @@ private slots:
 
         // Moving a language is a deliberate act; moving one should change this
         // line in the same commit.
-        QStringList expected{QString(QUICK_TEXT_EDITOR_ID), QString("CppEditor.C++Editor")};
+        QStringList expected{QString(QUICK_TEXT_EDITOR_ID), QString("CppEditor.C++Editor"),
+                             QString("Editors.Json")};
         if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
             expected.removeOne(QString("CppEditor.C++Editor"));
         expected.sort();
@@ -5265,11 +5266,10 @@ private slots:
             {"README.md", false},
             {"Thing.qml", false},
             {"project.pro", false},
-            // Measured, not assumed: DevContainerPlugin decorates this file
-            // through a TextEditorWidget, and that is fine only for as long as
-            // this row says widget. Moving JSON is what makes that code
-            // unreachable, and this is where it says so.
-            {"devcontainer.json", false},
+            // Moved. DevContainerPlugin used to decorate this file through a
+            // TextEditorWidget; it puts its button in through the editor now,
+            // which is what had to be true before this row could change.
+            {"devcontainer.json", true},
         };
 
         QStringList wrong;

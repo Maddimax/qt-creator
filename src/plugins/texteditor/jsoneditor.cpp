@@ -166,6 +166,12 @@ public:
         setDisplayName(Tr::tr("JSON Editor"));
         addMimeType(Utils::Constants::JSON_MIMETYPE);
 
+        // JSON opens in the Qt Quick view. Its factory subclasses neither the
+        // editor nor the widget, so there was no widget behaviour to port -
+        // the indenter, the auto-completer, the optional actions and the
+        // generic highlighter are all read by either view.
+        setUsesQuickEditor(true);
+
         setEditorCreator([] { return new BaseTextEditor; });
         setEditorWidgetCreator([] { return new TextEditorWidget; });
         setDocumentCreator([] { return new TextDocument(JSON_EDITOR_ID); });

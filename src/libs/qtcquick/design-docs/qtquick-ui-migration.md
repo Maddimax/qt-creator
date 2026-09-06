@@ -43325,3 +43325,99 @@ What it would take, in full: add `setUsesQuickEditor(true)` to
 4. The whitespace drawing difference - declined.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — JSON moved (batch 80)
+
+Entry 79 closed the blocker it found and listed the flip as item 1: "one line
+and two test rows. Unblocked." Before taking it, the sweep entry 79's own
+method calls for turned up a second thing, so the line is worth writing down
+before the flip is described.
+
+### The second consequence, which is not a blocker
+
+`LanguageClient::createJsonEditor()` builds the JSON box the LSP inspector
+shows messages in. It walks `preferredEditorFactories("foo.json")`, creates an
+editor from each and keeps the first that casts to `BaseTextEditor`, deleting
+the others:
+
+```cpp
+Core::IEditor *editor = factory->createEditor();
+if (textEditor = qobject_cast<BaseTextEditor *>(editor); textEditor)
+    break;
+delete editor;
+```
+
+After the flip the JSON factory answers with a `QuickTextEditor`, which is not
+a `BaseTextEditor`, so it is built and thrown away; so is the Qt Quick plain
+text editor behind it; and `Core.PlainTextEditor` supplies the box. **It keeps
+working** - the function configures the JSON highlighting itself, and
+everything after the three widget calls is document work.
+
+So: not a gap, and not fixed. What it costs is two QML editors constructed and
+destroyed per LSP inspector window. Recorded rather than changed, because
+changing it means deciding whether that box should be a Qt Quick editor at
+all, and that is a different question from moving JSON.
+
+`-test LanguageClient` passes with the flip in, which is the check that the
+fallback really does fall back.
+
+### The flip
+
+`JsonEditorFactory` subclasses neither the editor nor the widget - its
+creators return a plain `BaseTextEditor` and a plain `TextEditorWidget` - and
+everything it configures (indenter, auto-completer, `OptionalActions::Format`,
+generic highlighter) is read by either view. One line:
+
+    setUsesQuickEditor(true);
+
+**JSON is the second language moved deliberately, after C++.** Everything else
+in the Qt Quick editor got there by the `text/plain` claim without anyone
+deciding it, which entry 60 found out the hard way.
+
+### The censuses did their job twice
+
+Both had to change in the same commit, which is what they exist for:
+
+- `testWhichFactoriesAreQuick` - now three factories, not two.
+- `testWhichLanguagesOpenInTheQuickEditor` - the `devcontainer.json` row goes
+  from `false` to `true`, and the comment entry 60 wrote next to it, warning
+  that DevContainer's button depended on that row staying `false`, is replaced
+  by what made the change safe.
+
+That comment was written five months of batches before it fired. Entry 79
+found the blocker because of it; this entry retires it because the blocker is
+closed. **A census row with a reason attached is worth more than the row.**
+
+### Controls
+
+- **AD**: the flip reverted - red in **both** censuses, one on the factory
+  count and one naming `devcontainer.json`. A control that reddens the two
+  tests written to guard exactly this change.
+- Entry 79's **AC** still guards the mechanism that made it safe.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 645 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test LanguageClient` | 0 | 43 passed, 0 failed |
+| `-test Lua` | 0 | 4 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+1. **Python, qmake, CMake.** Same shape, each with its own audit. Unlike JSON
+   these have their own editor widgets, so expect each to find something the
+   way JSON found DevContainer.
+2. **Markdown** - measured in entry 78; needs the toolbar-widget decision.
+3. `createJsonEditor()`'s two discarded editors, above. Cosmetic.
+4. The whitespace drawing difference - declined.
+
+**Suggested next: qmake, then CMake, then Python** - in rising order of how
+much their editors do. Python has a language server, a code model and its own
+widget; it is the one most likely to need real work, so it should not be
+first.
+
+The printing decision (keep / drop / move) remains the owner's call.
