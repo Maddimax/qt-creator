@@ -49399,3 +49399,111 @@ guards but a question of whether composing text, a preedit string and the
 surrounding-text queries behave the same. That is the last seam where the two
 implementations differ in kind rather than in detail, and it is the one a
 reader typing Japanese or Korean would notice first.
+
+## 2026-09-07 — What the editor tells an input method (batch 141)
+
+Entry 140 named `inputMethodEvent` as the last seam where the two
+implementations differ **in kind**: the widget inherits Qt's, and the Qt Quick
+view has one written by hand. That turned out to be the right thing to look at
+and the wrong thing to look for.
+
+### The thing I could not measure, and did not claim
+
+The obvious suspect was the `QInputMethodEvent::Cursor` attribute - where the
+input method wants the caret drawn *inside* the text being composed. The Qt
+Quick handler collects `TextFormat` attributes and ignores `Cursor`.
+
+Probed both editors with a preedit and a `Cursor` attribute at two different
+offsets. **Both answered the same caret x for both offsets**, because
+`QPlainTextEdit::cursorRect()` reports the document caret and the widget draws
+the preedit caret in its paint code, where a test cannot see it. The comparison
+measured nothing.
+
+So it is not reported as a gap. It may be one; what is certain is that this
+machine cannot tell, and entries 131 and 136 are what a claim from a
+hand-built fixture is worth.
+
+### What was measurable, and was wrong
+
+`inputMethodQuery()`. Nine queries, asked of both editors over the same
+document with the same selection:
+
+```
+IMQ widget ImTextBeforeCursor [ alpha beta\ngam ]
+IMQ widget ImTextAfterCursor  [ ma delta\n ]
+IMQ quick  ImTextBeforeCursor [  ]
+IMQ quick  ImTextAfterCursor  [  ]
+```
+
+Seven agreed exactly. **Two came back empty**: the text either side of the
+caret, which is what an input method reads for context - predicting the next
+word, capitalising a sentence, offering a reconversion of what was already
+committed. A hand-written `inputMethodQuery` that does not answer them leaves
+every such method with nothing to go on, silently: nothing warns, and a reader
+typing Latin script never notices.
+
+Answered now, matching `QWidgetTextControl`'s shape: walk out block by block,
+join with a newline, and stop after about a thousand characters rather than
+handing over the file.
+
+### The test is the comparison
+
+Not a table of expected strings - **both editors, same content, same caret, all
+nine queries, and the answers have to match**. That is the right shape for a
+seam where one side is Qt's own implementation: it needs no guess about the cap
+or the joining, and it keeps being right if Qt changes either.
+
+Five rows: a selection mid-document, the very start, the very end, no selection
+mid-word, and a document longer than the cap.
+
+Its fixture guard took two tries. The first was "the widget answered a
+surrounding line" - which is legitimately empty at the very end of a document,
+where the caret is in the trailing empty block. Now it asks that the widget
+answered *something anywhere*, which is true for every caret position and false
+only if the comparison has gone blind.
+
+### Controls
+
+- **FN**: the two queries answering nothing again - red on all five rows.
+- **FO**: only the caret's own line offered, no walking out - red on all five.
+- **FP**: blocks joined with nothing between them - red on all five.
+
+Three controls, and all three hit every row, which is what a comparison test
+does rather than a table: there is no row that happens not to exercise the
+answer.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 706 passed, 0 failed (was 701) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+1. **The `Cursor` attribute while composing** - suspected, unmeasurable here,
+   above.
+2. **`changeEvent`, `event()`** - the last two handlers unread.
+3. **The collapsed-fold popup** - a feature, entry 137.
+4. **Middle-click paste** - a feature, unmeasurable on macOS.
+5. **`canInsertFromMimeData`** - entry 140.
+6. **The link press/release handshake** - read, both answers defensible.
+7. **Home on a wrapped line** - entry 133.
+8. **QmlJS's context pane** - a UI decision, entry 114.
+9. **The whitespace drawing difference** - declined, entry 68.
+10. **Printing** - entry 31.
+11. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+Item 2 finishes the handler list, and then the reachable work really is done -
+this time with the list itself as the evidence rather than an impression.
+
+After that, the pattern this batch used is worth reusing where it applies:
+**where the widget's behaviour is Qt's rather than Creator's, compare the two
+editors directly instead of writing down expected values.** `event()`'s
+ShortcutOverride handling is exactly that shape - which key presses an editor
+claims before the shortcut system sees them is Qt's rule plus Creator's, and a
+list of expectations would be a guess where a comparison is a measurement.

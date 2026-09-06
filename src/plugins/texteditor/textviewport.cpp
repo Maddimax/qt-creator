@@ -2794,6 +2794,32 @@ QVariant TextViewport::inputMethodQuery(Qt::InputMethodQuery query) const
         return cursor.isNull() ? QString() : selectedPlainText(cursor);
     case Qt::ImAbsolutePosition:
         return cursor.isNull() ? 0 : cursor.position();
+    case Qt::ImTextBeforeCursor:
+    case Qt::ImTextAfterCursor: {
+        // The text either side of the caret, which is what an input method
+        // reads for context - to predict, to capitalise, to offer a
+        // reconversion. Not answering them at all left every such method with
+        // nothing to go on. Capped rather than the whole file, the way
+        // QWidgetTextControl caps it, and blocks joined with a newline.
+        if (cursor.isNull())
+            return QString();
+        constexpr int maxLength = 1024;
+        QTextBlock block = cursor.block();
+        if (query == Qt::ImTextBeforeCursor) {
+            QString before = block.text().left(cursor.positionInBlock());
+            while (before.size() < maxLength && block.previous().isValid()) {
+                block = block.previous();
+                before.prepend(block.text() + QLatin1Char('\n'));
+            }
+            return before;
+        }
+        QString after = block.text().mid(cursor.positionInBlock());
+        while (after.size() < maxLength && block.next().isValid()) {
+            block = block.next();
+            after += QLatin1Char('\n') + block.text();
+        }
+        return after;
+    }
     default:
         return QQuickItem::inputMethodQuery(query);
     }

@@ -13,6 +13,7 @@
 #include "snippets/snippetprovider.h"
 #include "icodestylepreferencesfactory.h"
 #include "autocompleter.h"
+#include "texteditor.h"
 #include "refactoroverlay.h"
 #include "behaviorsettings.h"
 #include "codeassist/documentcontentcompletion.h"
@@ -5753,6 +5754,103 @@ private slots:
         QTRY_COMPARE(text->toPlainText().contains("dropped"), true);
         QCOMPARE(drawnCarets(),
                  QList<QPointF>({viewport->rectangleAt(viewport->cursorPosition()).topLeft()}));
+    }
+
+    void testTheSameAnswersToAnInputMethod_data()
+    {
+        QTest::addColumn<QString>("content");
+        QTest::addColumn<int>("anchor");
+        QTest::addColumn<int>("position");
+
+        const QString two = "alpha beta\ngamma delta\n";
+        QTest::newRow("a selection mid-document") << two << 11 << 14;
+        QTest::newRow("the very start") << two << 0 << 0;
+        QTest::newRow("the very end") << two << 23 << 23;
+        QTest::newRow("no selection, mid-word") << two << 14 << 14;
+        // Longer than the thousand characters an input method is given, so
+        // that whatever caps the answer has to cap it the same way in both.
+        QString many;
+        for (int i = 0; i < 300; ++i)
+            many += QString("line %1\n").arg(i);
+        QTest::newRow("longer than the cap") << many << 1500 << 1500;
+    }
+
+    // An input method asks the editor where the caret is, what is around it
+    // and what is selected, and everything it offers - predicting, correcting,
+    // capitalising, reconverting - is built on those answers. The widget
+    // editor inherits them from QWidgetTextControl; this view answers them by
+    // hand, and nothing had ever compared the two. Two of the nine came back
+    // empty.
+    void testTheSameAnswersToAnInputMethod()
+    {
+        QFETCH(QString, content);
+        QFETCH(int, anchor);
+        QFETCH(int, position);
+
+        const QList<std::pair<Qt::InputMethodQuery, QString>> queries{
+            {Qt::ImCursorPosition, "ImCursorPosition"},
+            {Qt::ImAnchorPosition, "ImAnchorPosition"},
+            {Qt::ImSurroundingText, "ImSurroundingText"},
+            {Qt::ImCurrentSelection, "ImCurrentSelection"},
+            {Qt::ImAbsolutePosition, "ImAbsolutePosition"},
+            {Qt::ImTextBeforeCursor, "ImTextBeforeCursor"},
+            {Qt::ImTextAfterCursor, "ImTextAfterCursor"},
+            {Qt::ImHints, "ImHints"},
+            {Qt::ImEnabled, "ImEnabled"},
+        };
+
+        QMap<QString, QString> fromWidget;
+        {
+            TextEditorWidget widget;
+            QSharedPointer<TextDocument> doc(new TextDocument);
+            widget.setTextDocument(doc);
+            widget.resize(400, 200);
+            widget.show();
+            QVERIFY(QTest::qWaitForWindowExposed(widget.window()));
+            widget.setFocus();
+            doc->setPlainText(content);
+            QTextCursor c(doc->document());
+            c.setPosition(anchor);
+            c.setPosition(position, QTextCursor::KeepAnchor);
+            widget.setTextCursor(c);
+            for (const auto &[query, name] : queries)
+                fromWidget.insert(name, widget.inputMethodQuery(query).toString());
+        }
+
+        TemporaryDirectory dir("qtc-viewport-imquery");
+        const FilePath file = dir.filePath("asked.txt");
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        viewport->setReadOnly(false);
+        if (anchor == position) {
+            viewport->setCursorPosition(position);
+        } else {
+            viewport->setSelectionStart(anchor);
+            viewport->setSelectionEnd(position);
+            viewport->setCursorPosition(position);
+        }
+
+        QStringList differ;
+        for (const auto &[query, name] : queries) {
+            const QString mine
+                = static_cast<QQuickItem *>(viewport)->inputMethodQuery(query).toString();
+            if (mine != fromWidget.value(name)) {
+                differ << QString("%1: %2 rather than %3")
+                              .arg(name, mine, fromWidget.value(name));
+            }
+        }
+        QVERIFY2(differ.isEmpty(), qPrintable(differ.join("; ")));
+        // The comparison is only worth anything if the widget answered
+        // something. Not a particular query: at the very start there is no
+        // text before the caret and at the very end no surrounding line, and
+        // both are correct answers.
+        QVERIFY2(!fromWidget.value("ImTextBeforeCursor").isEmpty()
+                     || !fromWidget.value("ImTextAfterCursor").isEmpty(),
+                 "the widget answered nothing anywhere, so this compared blanks");
     }
 
     // Sort Lines with nothing selected takes the run of lines around the
