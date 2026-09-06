@@ -264,6 +264,11 @@ ProFileEditorFactory::ProFileEditorFactory()
     completionAssistProvider->setDynamicCompletionFunction(&TextEditor::pathComplete);
     setCompletionAssistProvider(completionAssistProvider);
 
+    // .pro files open in the Qt Quick view. The one thing this factory
+    // subclasses is a contextMenuEvent() override, and what it names is on
+    // the factory below, so there is no widget behaviour left to port.
+    setUsesQuickEditor(true);
+
     // Named here as well as in ProFileEditorWidget::contextMenuEvent(): the
     // widget editor passes its own id when it is right-clicked, and a view
     // that is not one is handed the factory's when it is built.

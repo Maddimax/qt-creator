@@ -2116,10 +2116,15 @@ void ClangdTestCompletion::testCompleteAfterProjectChange()
     QVERIFY(hasItem(proposal, " noProjectConfigurationDetected"));
 
     // Set define in project file, completion must come from #if branch.
-    const auto proFileEditor = qobject_cast<BaseTextEditor *>(
-                EditorManager::openEditor(project()->projectFilePath()));
+    // Through the editor rather than a BaseTextEditor cast: a .pro file opens
+    // in the Qt Quick view.
+    Core::IEditor * const proFileEditor
+        = EditorManager::openEditor(project()->projectFilePath());
     QVERIFY(proFileEditor);
-    proFileEditor->insert("DEFINES += PROJECT_CONFIGURATION_1\n");
+    QTextCursor proFileCursor = TextEditor::textCursorOf(proFileEditor);
+    QVERIFY(!proFileCursor.isNull());
+    proFileCursor.insertText("DEFINES += PROJECT_CONFIGURATION_1\n");
+    TextEditor::setTextCursorOf(proFileEditor, proFileCursor);
     const Result<> res = proFileEditor->document()->save();
     QVERIFY(res);
     if (!res)

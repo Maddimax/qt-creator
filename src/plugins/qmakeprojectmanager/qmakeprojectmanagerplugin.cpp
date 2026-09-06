@@ -81,7 +81,7 @@ public:
     void runQMake();
     void runQMakeContextMenu();
 
-    void addLibraryImpl(const FilePath &filePath, TextEditor::BaseTextEditor *editor);
+    void addLibraryImpl(const FilePath &filePath, Core::IEditor *editor);
     void runQMakeImpl(Project *p, ProjectExplorer::Node *node);
 };
 
@@ -216,7 +216,10 @@ void QmakeProjectManagerPlugin::initialize()
 
 void QmakeProjectManagerPluginPrivate::addLibrary()
 {
-    if (auto editor = qobject_cast<BaseTextEditor *>(Core::EditorManager::currentEditor()))
+    // Whichever view the .pro file is in. Casting to BaseTextEditor here made
+    // the whole entry do nothing for a view that is not a widget, so the
+    // wizard never even opened.
+    if (Core::IEditor * const editor = Core::EditorManager::currentEditor())
         addLibraryImpl(editor->document()->filePath(), editor);
 }
 
@@ -233,7 +236,8 @@ void QmakeProjectManagerPluginPrivate::addLibraryContextMenu()
     addLibraryImpl(projectPath, nullptr);
 }
 
-void QmakeProjectManagerPluginPrivate::addLibraryImpl(const FilePath &filePath, BaseTextEditor *editor)
+void QmakeProjectManagerPluginPrivate::addLibraryImpl(const FilePath &filePath,
+                                                     Core::IEditor *editor)
 {
     if (filePath.isEmpty())
         return;

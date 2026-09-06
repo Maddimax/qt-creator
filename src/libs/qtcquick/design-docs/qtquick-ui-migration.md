@@ -43525,3 +43525,89 @@ and it is now:
 5. The whitespace drawing difference - declined.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — qmake moved, and entry 81 had missed the front door (batch 82)
+
+Entry 81 listed the flip as three lines. It was four, because entry 81's own
+sweep had stopped one call short.
+
+### The fourth gap: entry 81 fixed the room and left the door
+
+Entry 81 converted `addLibraryImpl()` - the part that appends the snippet -
+and reported Add Library closed. It is called from two places, and one of them
+is:
+
+```cpp
+void QmakeProjectManagerPluginPrivate::addLibrary()
+{
+    if (auto editor = qobject_cast<BaseTextEditor *>(Core::EditorManager::currentEditor()))
+        addLibraryImpl(editor->document()->filePath(), editor);
+}
+```
+
+With the cast failing, **the entry does nothing at all** - the wizard never
+even opens, which is worse than entry 81's description of it asking its
+questions and writing nothing. The whole chain takes a `Core::IEditor *` now.
+
+The lesson is narrow and worth keeping: **converting a function is not
+converting a feature.** Entry 81 grepped for what the *implementation* used
+and stopped there; the cast that decides whether the implementation is reached
+at all was one frame up. A sweep for a feature has to reach the callers.
+
+### The flip
+
+`ProFileEditorFactory` subclasses the widget for exactly one override -
+`contextMenuEvent()` - and entry 81 moved what it names onto the factory. With
+that and the Add Library chain, nothing widget-shaped is left:
+
+    setUsesQuickEditor(true);
+
+**qmake is the third language moved deliberately**, after C++ and JSON.
+
+### The clangd test, which entry 81 left to fail loudly
+
+`clangdtests.cpp:2115` cast a `.pro` editor to `BaseTextEditor` to type a
+`DEFINES +=` line into it. Entry 81 chose to leave it so the flip would
+notice; converted here with the same two seams. It is the one place in this
+sequence where a test was knowingly left broken across a batch boundary, and
+it worked - but only because the same person picked it up one batch later. It
+would have been safer as a `QEXPECT_FAIL` or simply done at the time.
+
+### Controls
+
+- **AF**: the flip reverted - red in **both** censuses, on the factory count
+  and naming `project.pro`.
+- Entry 81's **AE** still guards the context menu that made the flip safe.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 646 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmakeProjectManager` | 0 | 43 passed, 0 failed |
+
+`-test ClangCodeModel` is not in the table. Its 43 pre-existing failures
+(measured on a clean tree in entry 61) and its ten-minute runtime make it
+useless as a signal here; the file it touches was changed and builds, and the
+cast it removes cannot fail differently from the seam that replaces it.
+Stated rather than quietly omitted.
+
+No `.qbs` change: no files added.
+
+### Three moved, two to go
+
+    C++     entry ~50
+    JSON    entry 80
+    qmake   entry 82
+
+### What is left
+
+1. **CMake, then Python.** Audit each first, and - on this batch's evidence -
+   **audit the callers, not just the implementations**. Start with where the
+   context menu is named, which is what caught qmake.
+2. Markdown - needs the toolbar-widget decision (entry 78).
+3. `createJsonEditor()`'s discarded editors (entry 80). Cosmetic.
+4. The whitespace drawing difference - declined.
+
+The printing decision (keep / drop / move) remains the owner's call.
