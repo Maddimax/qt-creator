@@ -59,6 +59,7 @@ void LanguageClientPlugin::initialize()
     addTestCreator(&createSnippetParsingTest);
     addTestCreator(&createClientEditorHandlerTest);
     addTestCreator(&createHierarchyInAnyViewTest);
+    addTestCreator(&createQuickFixMarkerTest);
     addTestCreator(&createLanguageClientSettingsPageTest);
     addTestCreator(&createMimeTypeDialogTest);
 #endif

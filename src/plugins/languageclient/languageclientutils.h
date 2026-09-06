@@ -50,4 +50,8 @@ symbolIcon(int type, const QList<LanguageServerProtocol::SymbolTag> &tags);
 
 void autoSetupLanguageServer(TextEditor::TextDocument *document);
 
+#ifdef WITH_TESTS
+QObject *createQuickFixMarkerTest();
+#endif
+
 } // namespace LanguageClient

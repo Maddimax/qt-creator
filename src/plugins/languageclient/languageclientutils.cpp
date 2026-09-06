@@ -137,8 +137,8 @@ void updateCodeActionRefactoringMarker(Client *client,
     TextDocument* doc = TextDocument::textDocumentForFilePath(client->serverUriToHostPath(uri));
     if (!doc)
         return;
-    const QList<TextEditorWidget *> editorWidgets = TextEditorWidget::textEditorWidgetsForDocument(doc);
-    if (editorWidgets.isEmpty())
+    const QList<Core::IEditor *> editors = Core::DocumentModel::editorsForDocument(doc);
+    if (editors.isEmpty())
         return;
 
     QHash<int, RefactorMarker> markersAtBlock;
@@ -197,8 +197,8 @@ void updateCodeActionRefactoringMarker(Client *client,
             addMarkerForCursor(action, diagnostic.range());
     }
     const RefactorMarkers markers = markersAtBlock.values();
-    for (TextEditorWidget *editorWidget : editorWidgets)
-        editorWidget->setRefactorMarkers(markers, client->id());
+    for (Core::IEditor * const editor : editors)
+        TextEditor::setRefactorMarkersIn(editor, client->id(), markers);
 }
 
 static const char clientExtrasName[] = "__qtcreator_client_extras__";
@@ -659,3 +659,84 @@ void autoSetupLanguageServer(TextDocument *document)
 }
 
 } // namespace LanguageClient
+
+#ifdef WITH_TESTS
+
+#include <utils/temporarydirectory.h>
+
+#include <QTest>
+
+namespace LanguageClient {
+
+class QuickFixMarkerTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testAQuickFixIsOfferedInAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("lsp-quickfix-marker");
+        QVERIFY(dir.isValid());
+        // .txt rather than .cpp: this is about every language a server serves,
+        // and text/plain is what a fake server can claim.
+        const Utils::FilePath file = dir.filePath("fixable.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        auto * const server = new Internal::RecordingServer({});
+        auto * const client = new Client(server);
+        client->setName("quick fix marker test");
+        LanguageFilter filter;
+        filter.mimeTypes = QStringList("text/plain");
+        client->setSupportedLanguage(filter);
+        const QScopeGuard dropClient([client] { LanguageClientManager::deleteClient(client); });
+        client->start();
+        QTRY_VERIFY2(client->reachable(),
+                     "the fake server never got the client as far as Initialized");
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+        LanguageClientManager::openDocumentWithClient(document, client);
+
+        QVERIFY2(document->refactorMarkers(client->id()).isEmpty(),
+                 "the document was offered a fix before the server named one");
+
+        // What a server sends when it has a fix for the second line.
+        CodeAction action;
+        action.setTitle("Fix the second line");
+        Diagnostic diagnostic;
+        Range range;
+        Position start;
+        start.setLine(1);
+        start.setCharacter(0);
+        range.setStart(start);
+        range.setEnd(start);
+        diagnostic.setRange(range);
+        diagnostic.setMessage("something to fix");
+        action.setDiagnostics({diagnostic});
+
+        updateCodeActionRefactoringMarker(client, {action},
+                                          client->hostPathToServerUri(file));
+
+        const TextEditor::RefactorMarkers markers = document->refactorMarkers(client->id());
+        QCOMPARE(markers.size(), 1);
+        QCOMPARE(markers.first().cursor.blockNumber(), 1);
+        QCOMPARE(markers.first().tooltip, QString("Fix the second line"));
+    }
+};
+
+QObject *createQuickFixMarkerTest()
+{
+    return new QuickFixMarkerTest;
+}
+
+} // namespace LanguageClient
+
+#include "languageclientutils.moc"
+
+#endif // WITH_TESTS

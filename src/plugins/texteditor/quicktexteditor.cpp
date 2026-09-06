@@ -5122,6 +5122,39 @@ private slots:
     // So: ask what a file of each language actually opens in. A language
     // moving is a deliberate act, and moving it should change this list in the
     // same commit.
+    // Which *factories* are Qt Quick, as opposed to which file names happen
+    // to open in one. Entry 59 of the migration plan got this wrong and wrote
+    // the wrong answer down: it counted setUsesQuickEditor() calls, found the
+    // single production one in CppEditorFactory, and concluded that C++ was
+    // the only thing in the Qt Quick editor. It is not.
+    //
+    // QuickTextEditorFactory is not a TextEditorFactory at all, so it has no
+    // setUsesQuickEditor() to count. It claims text/plain and is registered
+    // ahead of the widget plain text editor, and preferredFactoryFor() walks a
+    // mime type's parents - so every text file with no editor of its own is
+    // already in the Qt Quick editor. Rust, Go, YAML, shell.
+    void testWhichFactoriesAreQuick()
+    {
+        QStringList quick;
+        for (Core::IEditorFactory * const factory : Core::IEditorFactory::allEditorFactories()) {
+            const bool isQuick
+                = factory->id() == Utils::Id(QUICK_TEXT_EDITOR_ID)
+                  || (dynamic_cast<TextEditorFactory *>(factory)
+                      && static_cast<TextEditorFactory *>(factory)->usesQuickEditor());
+            if (isQuick)
+                quick << factory->id().toString();
+        }
+        quick.sort();
+
+        // Moving a language is a deliberate act; moving one should change this
+        // line in the same commit.
+        QStringList expected{QString(QUICK_TEXT_EDITOR_ID), QString("CppEditor.C++Editor")};
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
+            expected.removeOne(QString("CppEditor.C++Editor"));
+        expected.sort();
+        QCOMPARE(quick, expected);
+    }
+
     void testWhichLanguagesOpenInTheQuickEditor()
     {
         // This one *is* about the default, so the switch that turns the
@@ -5140,6 +5173,17 @@ private slots:
             {"main.cpp", true},
             {"header.h", true},
             {"notes.txt", true},
+            // A language with no editor of its own lands on the Qt Quick
+            // factory's text/plain claim. These are not an accident of the
+            // list: they are what a generic language server is configured for,
+            // and every one of them is in the Qt Quick editor today.
+            {"main.rs", true},
+            {"main.go", true},
+            {"deploy.yaml", true},
+            {"build.sh", true},
+            // And a language that has one does not, however plain its text.
+            {"script.py", false},
+            {"README.md", false},
             {"Thing.qml", false},
             {"project.pro", false},
             // Measured, not assumed: DevContainerPlugin decorates this file

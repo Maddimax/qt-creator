@@ -41146,3 +41146,142 @@ like that exists for QML or plain text. Whoever moves the next one should
 expect to build that evidence, not to inherit it.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Entry 59 was wrong about what is Quick, and a live quick-fix gap (batch 60)
+
+Entry 59 said the list was finished and asked what has to be true before
+another factory moves over. Answering that meant checking which factories are
+Quick today. **The answer contradicts entry 59, which stated it wrongly, and
+the error hid a live defect.**
+
+### The wrong claim, and why it was wrong
+
+Entry 59:
+
+> **Only the C++ factory is Quick in production.** `cppeditorplugin.cpp` has
+> the one `setUsesQuickEditor()` call outside tests.
+
+The second sentence is true. The first does not follow from it, and is false.
+
+`QuickTextEditorFactory` is **not a `TextEditorFactory`** - it is a plain
+`Core::IEditorFactory` that builds a `QuickTextEditor` directly. It has no
+`setUsesQuickEditor()` to count. It claims `text/plain` and `text/css`, and it
+is registered ahead of the widget plain text editor, so it wins the default
+for them; and `preferredFactoryFor()` walks a mime type's *parents*, so it
+takes every text file that has no editor of its own.
+
+Measured, by opening one of each:
+
+    QUICK   .cpp .h (CppEditor)  .rs .go .sh .yaml .rb .lua .ts .html .xml .css .txt
+    widget  .py (PythonEditor)  .md (MarkdownViewer)  .json  .qml  CMakeLists.txt  .pro
+
+**Rust, Go, TypeScript, shell and YAML have been in the Qt Quick editor all
+along.** Only two factories are Quick, so the *count* in entry 59 was right;
+the *conclusion* drawn from it was not, because it counted a mechanism rather
+than asking the question.
+
+This is entry 54's lesson for the third time, and it is worth being blunt
+about: **entry 54 said a census only finds what its question can see, entry 59
+quoted that, and then made the same mistake in the same entry.** Counting
+`setUsesQuickEditor()` cannot see a factory that does not use it.
+
+### What the error hid
+
+Entry 59 classified the `requestLinkAt` fallback it added as *latent* - "live
+the moment any LSP-only language moves over". It was **live**. Rust, Go and
+TypeScript are precisely the languages a generic language server is configured
+for in Qt Creator, none of them registers a link finder, and all of them are in
+the Quick editor. Follow Symbol Under Cursor was dead for all of them. The fix
+was right and the classification was wrong.
+
+The two other latent items **stay latent**, and now for measured reasons
+rather than the wrong one:
+
+- `disassembleragent.cpp` opens with `K_DEFAULT_TEXT_EDITOR_ID`, which names
+  `Core.PlainTextEditor` *by id* and so bypasses the mime lookup the Quick
+  factory wins. Confirmed widget by the probe.
+- `qmlengineutils.cpp` is about `.qml`, which `QmlJSEditor` claims. Confirmed
+  widget.
+
+### The live gap this batch closed
+
+Scanning LanguageClient - now the most important plugin in this migration,
+since every language it serves except Python is in the Quick editor - turned
+up a pattern **no previous census matched**:
+
+```cpp
+const QList<TextEditorWidget *> editorWidgets
+    = TextEditorWidget::textEditorWidgetsForDocument(doc);
+if (editorWidgets.isEmpty())
+    return;
+...
+for (TextEditorWidget *editorWidget : editorWidgets)
+    editorWidget->setRefactorMarkers(markers, client->id());
+```
+
+That is `updateCodeActionRefactoringMarker()` - **how a language server offers
+a quick fix**. For a document open only in Quick views the list is empty, so it
+returned before doing anything: no light bulb, nothing to click, no diagnostic.
+
+It is live for every LSP-served language in the Quick editor **and for C++**,
+because clangd is a language client. Quick fixes are one of the five things
+the standing instruction names.
+
+The seam it needed already existed - `setRefactorMarkersIn(IEditor *, Id,
+markers)` - and the marker *callbacks* in the same function already take a
+`Core::IEditor *` and use `setTextCursorOf()`/`invokeAssistIn()`. Someone
+converted the callbacks and left the delivery. The fix is
+`DocumentModel::editorsForDocument()` and the seam.
+
+**Every census so far grepped for `currentTextEditorWidget()` and
+`fromEditor()`. `textEditorWidgetsForDocument()` is a third spelling and was
+never in the pattern.** That is why it survived entries 54 through 59.
+
+### Two censuses, so this cannot be mis-stated again
+
+- `testWhichFactoriesAreQuick` enumerates `IEditorFactory::allEditorFactories()`
+  and asserts exactly which are Quick, by the same test both mechanisms answer
+  to. It is skipped-aware of `QTC_WIDGET_CPP_EDITOR`.
+- `testWhichLanguagesOpenInTheQuickEditor` grew the measured rows: `.rs`,
+  `.go`, `.yaml`, `.sh` Quick, `.py` and `.md` widget. The open-ended set is
+  the part that was invisible.
+
+### Controls — two, both biting
+
+- **G**: the widget guard restored in `updateCodeActionRefactoringMarker` -
+  red, `markers.size()` 0 against 1: the document is offered no fix at all.
+- **H**: `testWhichFactoriesAreQuick` made to count `setUsesQuickEditor()`
+  only, which is *exactly* entry 59's mistake - red, one factory found where
+  there are two. The census catches the error that produced it, which is the
+  only kind of control worth having for a claim in this file.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 594 passed, 0 failed (was 593) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test LanguageClient` | 0 | 43 passed, 0 failed (was 40) |
+
+No `.qbs` change: no files added.
+
+### What this changes about what is left
+
+Entry 59's closing - "the code is ready and the evidence is not uniform" - was
+built on the wrong picture and should not be relied on. The corrected one:
+
+**A dozen languages are already in the Qt Quick editor with no comparison
+evidence behind them at all.** C++ got eighteen plugins compared both ways;
+Rust, Go, YAML and the rest got nothing, because nobody knew they had moved.
+The quick-fix marker gap is what that costs: it went unnoticed through six
+triage entries.
+
+**Suggested next, and it is not another triage pass:** re-run the widget-only
+scan with `textEditorWidgetsForDocument` added to the pattern, across the whole
+tree rather than one plugin. This batch found one live defect in the first
+plugin it looked at with the wider pattern, which is evidence the pattern
+matters more than the remaining list did. After that, the plugins worth
+comparing both ways are the ones that serve the languages that turn out to
+have moved without anyone deciding it - LanguageClient first.
+
+The printing decision (keep / drop / move) remains the owner's call.
