@@ -8771,6 +8771,107 @@ private slots:
         QCOMPARE(quickText, widgetText);
     }
 
+    // Editing with more than one caret. Driven through setMultiTextCursorOf()
+    // rather than a modifier drag: the seam is what every caller uses, and a
+    // mouse would be testing the scene rather than the editing.
+    void testEditingWithTwoCaretsIsTheSameInEitherView_data()
+    {
+        QTest::addColumn<QString>("script");
+        QTest::addColumn<QString>("expected");
+        QTest::addColumn<QString>("carets");
+
+        QTest::newRow("type") << "xy" << "alxypha one\nbexyta two\ngamma\n" << "4,16";
+        QTest::newRow("backspace") << "\b" << "apha one\nbta two\ngamma\n" << "1,10";
+        QTest::newRow("break the line") << "\n" << "al\npha one\nbe\nta two\ngamma\n" << "3,14";
+        QTest::newRow("paste") << "P" << "alPpha one\nbePta two\ngamma\n" << "3,14";
+        QTest::newRow("delete a word") << "_" << "pha one\nta two\ngamma\n" << "0,8";
+        // Known divergence, measured in entry 70: the widget editor's undo
+        // leaves the main caret where the *last* undone change was and this
+        // one leaves it where the first was, so here it lands on top of the
+        // other caret and the two collapse into one. QEXPECT_FAIL rather than
+        // a weaker assertion, so that fixing it reports.
+        QTest::newRow("type then undo")
+            << "xyU" << "alxpha one\nbexta two\ngamma\n" << "3,14";
+    }
+
+    void testEditingWithTwoCaretsIsTheSameInEitherView()
+    {
+        QFETCH(QString, script);
+        QFETCH(QString, expected);
+        QFETCH(QString, carets);
+
+        Utils::TemporaryDirectory dir("multi-caret");
+        QVERIFY(dir.isValid());
+        QGuiApplication::clipboard()->setText("P");
+
+        const auto edited = [&dir, &script](bool quick, QString *text, QString *at) {
+            const Utils::FilePath file
+                = dir.filePath(quick ? QString("q.txt") : QString("w.txt"));
+            QVERIFY(file.writeFileContents("alpha one\nbeta two\ngamma\n"));
+            Core::IEditor * const editor = Core::EditorManager::openEditor(
+                file, quick ? Utils::Id(QUICK_TEXT_EDITOR_ID)
+                            : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID));
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+
+            // One caret on each of the first two lines, at column 2.
+            QTextCursor first(document->document());
+            first.setPosition(document->document()->findBlockByNumber(0).position() + 2);
+            QTextCursor second(document->document());
+            second.setPosition(document->document()->findBlockByNumber(1).position() + 2);
+            TextEditor::setMultiTextCursorOf(editor, Utils::MultiTextCursor({first, second}));
+            QCOMPARE(TextEditor::multiTextCursorOf(editor).cursorCount(), 2);
+
+            QObject * const target = TextEditor::keyTargetOf(editor);
+            QVERIFY(target);
+            const auto standard = [target](QKeySequence::StandardKey which) {
+                const QKeySequence seq(which);
+                QVERIFY2(seq.count() > 0, "this platform binds no key to that");
+                const QKeyCombination combination = seq[0];
+                QKeyEvent press(QEvent::KeyPress, combination.key(),
+                                combination.keyboardModifiers());
+                QCoreApplication::sendEvent(target, &press);
+            };
+            for (const QChar ch : script) {
+                if (ch == 'P') { standard(QKeySequence::Paste); continue; }
+                if (ch == '_') { standard(QKeySequence::DeleteStartOfWord); continue; }
+                if (ch == 'U') { standard(QKeySequence::Undo); continue; }
+                int key = Qt::Key_unknown;
+                QString typed(ch);
+                if (ch == '\n') { key = Qt::Key_Return; typed = "\r"; }
+                else if (ch == '\b') { key = Qt::Key_Backspace; typed.clear(); }
+                QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, typed);
+                QCoreApplication::sendEvent(target, &press);
+            }
+            *text = document->plainText();
+            QStringList positions;
+            for (const QTextCursor &c : TextEditor::multiTextCursorOf(editor))
+                positions << QString::number(c.position());
+            *at = positions.join(',');
+        };
+
+        QString widgetText;
+        QString widgetCarets;
+        QString quickText;
+        QString quickCarets;
+        edited(false, &widgetText, &widgetCarets);
+        edited(true, &quickText, &quickCarets);
+
+        // The widget editor is the reference, and it really did the operation.
+        QCOMPARE(widgetText, expected);
+        QCOMPARE(widgetCarets, carets);
+
+        QCOMPARE(quickText, widgetText);
+        QEXPECT_FAIL("type then undo",
+                     "undo leaves the main caret on top of the other one, which merges them",
+                     Continue);
+        QCOMPARE(quickCarets, widgetCarets);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

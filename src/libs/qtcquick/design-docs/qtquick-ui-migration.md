@@ -42317,3 +42317,98 @@ is that ordinary editing has been shown equivalent and the remaining risk is
 elsewhere - in what a *language* configures, which is (2) and (3).
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Multi-caret, and a live divergence left unfixed (batch 70)
+
+Entry 69 left one operation unwritten - multi-caret - and said to stop
+widening after it. This is that operation, and it found something.
+
+### Driving it
+
+Not with a modifier drag. `setMultiTextCursorOf()` is the seam every caller
+uses and both views answer it, so the test sets two carets through it and then
+sends ordinary keys. A drag would have been testing the scene rather than the
+editing.
+
+### Five of six agree
+
+Two carets, one on each of the first two lines, then: type, backspace, break
+the line, paste, delete a word. **The text and both caret positions match**
+in every one.
+
+The test asserts the caret *positions*, not the count. The first version
+counted, and a count cannot tell "the caret is gone" from "the caret is
+somewhere else" - which is exactly the distinction the sixth row turned on.
+
+### The sixth: undo loses a caret
+
+Type `xy` at both carets, then undo:
+
+    widget  "alxpha one\nbexta two\ngamma\n"   carets at 3 and 14
+    quick   "alxpha one\nbexta two\ngamma\n"   caret at 3
+
+Same text, one caret instead of two. This is **live** - it needs nothing but
+two carets and Ctrl+Z, in C++ or any other language in the Qt Quick editor.
+
+Located, by instrumenting rather than reasoning:
+
+- At the end of `TextViewport::undo()` there is still one extra caret. So it
+  is not being cleared.
+- The two carets end at the **same position**, and `MultiTextCursor` merges
+  them when it is built from the extras plus the main one.
+- They end at the same position because the two undos leave the main caret in
+  different places. `PlainTextEdit::undo()` leaves the widget's at 14 - where
+  the *last* undone change was. `QTextDocument::undo(QTextCursor *)` leaves
+  the Qt Quick view's at 3 - where the first was. 3 is where the other caret
+  already is.
+
+### A fix was written and reverted
+
+The first attempt kept the extra carets aside across `setTextCursor()`, on the
+theory that `setCursorPosition()` was clearing them. It built, it was tidy,
+and **the symptom did not move**. Instrumenting showed why: the carets were
+never cleared, they were merged, and the merge is downstream of where the
+undo put the caret.
+
+Reverted rather than kept. A change that does not move the symptom is not a
+partial fix, and entry 63 already recorded what it costs to keep one: the
+control cannot bite, so nothing afterwards can tell whether it mattered.
+
+**Not fixed here** because the real change is where undo leaves the caret, and
+that is the same delicate area as the undo grouping that cost a whole batch
+earlier. It deserves its own batch, starting from the measurement above rather
+than from the symptom.
+
+Recorded in the test as `QEXPECT_FAIL(..., Continue)` rather than left out:
+the row runs, the divergence is written down where it is checked, and Qt Test
+**fails the run if it ever passes**, so fixing it reports.
+
+### Controls
+
+- **V**: `applyToEveryCaret()` made to forget the extra carets - red in four
+  of the six rows. The two it leaves green are `paste` and `delete a word`,
+  which reach the carets by another path; that is worth knowing and is not
+  something the count-based version would have shown.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 634 passed, 0 failed, 1 expected failure (was 628) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No production code changed. No `.qbs` change.
+
+### What is left
+
+Entry 69 said to stop widening after multi-caret, and that still holds - but
+it was written expecting nothing more to be found, and something was. The
+list, in the order I would take it:
+
+1. **Undo's caret placement** - the divergence above. Live, located, and the
+   only known live one. It is the next batch.
+2. The three move costs from entry 69 (Python, JSON, `.pro`), latent.
+3. The whitespace drawing difference from entry 68, latent and declined.
+4. The document audit from entry 64, untouched.
+
+The printing decision (keep / drop / move) remains the owner's call.
