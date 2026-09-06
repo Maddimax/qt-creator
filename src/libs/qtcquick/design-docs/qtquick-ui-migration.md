@@ -41520,3 +41520,128 @@ cannot be done by grepping for widget types, and this batch is evidence it
 finds things. It is also finite, unlike reading call sites.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Three sweeps, two negatives, one gap: the fold column (batch 63)
+
+Entry 62 proposed the missing-override comparison as a deliberate, mechanical,
+finite check. This batch did it, and then two more like it. **Two of the three
+came back empty**, which is worth as much space here as the one that did not.
+
+### The mechanical comparison, done
+
+For every interface with more than one implementer in `texteditor/`, which
+virtuals does one implementer override that another does not:
+
+- **`HoverTarget`** - `TextEditorWidget` and `TextViewport` now answer all
+  seven identically. The eighth, `suggestionVisible()`, was entry 62's defect.
+- **`Core::IEditor`** - `BaseTextEditor` and `QuickTextEditor` answer all nine
+  identically: `document`, `duplicate`, `saveState`, `restoreState`,
+  `currentLine`, `currentColumn`, `selectedText`, `gotoLine`, `toolBar`.
+- Everything else the sweep turned up was a test helper or a genuinely
+  different pair (`CodeBuffer` vs `AdoptedSource`).
+
+**A note on the method itself:** the first run of the sweep reported nine
+`IEditor` gaps that do not exist. `QuickTextEditor` writes `final`, not
+`override`, and the pattern only looked for `override`. The nine were checked
+one by one against the source before anything was concluded - and that check is
+the only reason a false list did not end up in this file, the way entry 59's
+did. **A mechanical sweep is a way of generating candidates, not answers.**
+
+### The hover handlers, also empty
+
+Entry 62's defect was inside an `operateTooltip()` override that cast the
+target to a widget. Every other override was checked. The two that are
+registered for languages in the Qt Quick editor -
+`colorPreviewHoverHandler` and `resourcePreviewHoverHandler`, both on
+`CppEditorFactory` - use `target->tooltipParent()` and are correct. The rest
+belong to widget-editor languages.
+
+### The auto-completer: a fix written, then measured away
+
+`AdoptedSource` - the `CodeSource` a `QuickTextEditor` wraps its document in -
+does not override `CodeSource::createAutoCompleter()`, which returns nullptr.
+`TextEditorFactory::createEditorHelper()` hands the widget editor
+`CppAutoCompleter`. That reads exactly like a gap, and the base `AutoCompleter`
+answers **false** to `contextAllowsAutoBrackets` and `contextAllowsAutoQuotes`,
+so the symptom would have been a C++ file that never closes a bracket.
+
+A seam was written, the source was made to answer, it built, and the test
+passed. **Then the control did not bite.** Probing the view showed it already
+holds a `CppAutoCompleter`: `QuickTextEditor::configureLanguageServices()`
+installs `factory->autoCompleterCreator()` itself, with a comment saying why.
+The whole change was a duplicate and was reverted.
+
+The control is the only thing that caught it - the test passed either way. A
+second control against the *real* mechanism reddens **six** tests, so this was
+never untested; the sweep hit was a false positive because it can only see
+what a class declares, not what is done to its view from elsewhere.
+
+The test was kept: it is the only one asserting the half that says the rules
+are C++'s rather than "always close a quote" - a quote typed inside a `//`
+comment stays single.
+
+### The gap: a fold column plain text can never fill
+
+    widget   codeFoldingVisible = m_codeFoldingSupported && displayFoldingMarkers
+    quick    showFoldMarkers    =                           displayFoldingMarkers
+
+`setCodeFoldingSupported()` is a factory setting the Qt Quick editor never
+read. So **every file in that view reserved the fold column** - and since the
+Quick factory claims `text/plain`, that is `.txt`, `.yaml`, `.log`, `.rs`,
+`.go` and the rest, none of which the widget editor gives a column to.
+
+`QuickTextEditor` now asks the factory in `configureLanguageServices()`, where
+it already asks for the indenter, the completion provider, the auto-completer
+and the hover handlers, and gates the property on it. `TextEditorFactory`
+gained the getter that had only ever had a setter.
+
+### An existing test that had to change, and why that is not a licence
+
+`testTheEditorDrawsWhatTheDisplaySettingsAskFor` opens `display.txt` and
+asserted that turning the folding setting on turns the column on. Under the
+new rule it does not, because plain text has nothing to fold.
+
+The test was **not** weakened to accommodate the change: it now asserts the
+stronger thing - the column stays off for plain text *however* the setting is
+set - and it reads that absence **after** waiting for a setting that does
+arrive, so it is not a wait-for-nothing. The coverage it lost (the setting
+reaching an already-open editor) moved into the new test, on a C++ file, where
+the answer is yes.
+
+Changing an existing test to accommodate a change needs this much justification
+every time. Entry 62 changed none and reverted instead; here the old assertion
+was wrong about the contract, not about the code.
+
+### Controls
+
+- **M** (auto-completer): **did not bite** - and that is the finding. Change
+  reverted.
+- **N**: the real auto-completer installation removed - red in six tests,
+  which is why M could not bite.
+- **O**: the fold gate made to ignore the language - red in **two** tests, the
+  new one and the amended existing one, at both ends of the contract.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 597 passed, 0 failed (was 595) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+One more factory setting is unread by the Qt Quick view and was **not** fixed
+here: `setParenthesesMatchingEnabled()`. The view highlights matching
+parentheses unconditionally where the widget asks the language first. It is
+the same shape as the fold column and a smaller one - the cost is a highlight
+in a language that did not ask for it, not reserved width.
+
+**Suggested next: finish the factory audit.** `cppeditorplugin.cpp` calls
+eleven setters on its factory; this batch checked five of them and found one
+gap, one false alarm and three already done. Reading the remaining six against
+what the Qt Quick view actually consults is small, finite, and has a one-in-
+five hit rate so far. `setParenthesesMatchingEnabled` is the known one.
+
+The printing decision (keep / drop / move) remains the owner's call.

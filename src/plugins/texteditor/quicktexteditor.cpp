@@ -296,7 +296,9 @@ public:
              {"contextActions", QVariant::fromValue(&m_contextActions)},
              {"wrapLines", displaySettings().textWrapping()},
              {"showLineNumbers", displaySettings().displayLineNumbers()},
-             {"showFoldMarkers", displaySettings().displayFoldingMarkers()},
+             // Corrected by configureLanguageServices() once the file - and so
+             // the language - is known.
+             {"showFoldMarkers", false},
              {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
              {"showAnnotations", displaySettings().displayAnnotations()}});
         widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
@@ -344,13 +346,13 @@ public:
 
         // Changing any of these in Preferences has to reach an editor that is
         // already open, not only the next one to be built.
-        const auto pushDisplaySettings = [widget] {
+        const auto pushDisplaySettings = [widget, self = this] {
             QQuickItem * const form = widget->quickWidget()->rootObject();
             if (!form)
                 return;
             form->setProperty("wrapLines", displaySettings().textWrapping());
             form->setProperty("showLineNumbers", displaySettings().displayLineNumbers());
-            form->setProperty("showFoldMarkers", displaySettings().displayFoldingMarkers());
+            form->setProperty("showFoldMarkers", self->foldMarkersWanted());
             form->setProperty("highlightCurrentLine", displaySettings().highlightCurrentLine());
             form->setProperty("showAnnotations", displaySettings().displayAnnotations());
         };
@@ -1061,6 +1063,21 @@ private:
         return &globalCodeStyle();
     }
 
+    // The fold column costs width, so it is shown only where the language has
+    // something to fold - the rule the widget editor applies in
+    // updateCodeFoldingVisible(). A plain text file has no folding and the
+    // widget editor shows no column for it.
+    bool foldMarkersWanted() const
+    {
+        return m_codeFoldingSupported && displaySettings().displayFoldingMarkers();
+    }
+
+    QQuickItem *quickForm() const
+    {
+        auto * const quick = qobject_cast<QtcQuick::QuickWidget *>(widget());
+        return quick ? quick->quickWidget()->rootObject() : nullptr;
+    }
+
     void configureLanguageServices()
     {
         if (m_document->filePath().isEmpty())
@@ -1112,6 +1129,10 @@ private:
             CompletionAssistProvider * const provider = factory->completionAssistProvider();
             m_document->setCompletionAssistProvider(provider ? provider : &wordsInTheDocument);
         }
+
+        m_codeFoldingSupported = factory->codeFoldingSupported();
+        if (QQuickItem * const form = quickForm())
+            form->setProperty("showFoldMarkers", foldMarkersWanted());
 
         // The base AutoCompleter only knows how to take a bracket pair apart
         // again; closing one as it is typed is what a language's subclass adds.
@@ -1237,6 +1258,7 @@ public:
     QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
+    bool m_codeFoldingSupported = false;
     const Utils::Id m_editorContext = Utils::Id::generate();
     std::unique_ptr<AdoptedSource> m_source;
 };
@@ -5851,10 +5873,17 @@ private slots:
         displaySettings().displayLineNumbers.setValue(true);
         QTRY_COMPARE(form->property("showLineNumbers").toBool(), true);
         QTRY_VERIFY2(gutter->width() > 0, "turning the numbers on did not reach the editor");
+        // Folding is the one setting a language can veto, and plain text does:
+        // it has nothing to fold, so the column stays off however the setting
+        // is set. Checked after a setting that *does* arrive, so that the
+        // absence is read once the push has demonstrably happened rather than
+        // before it - see testTheFoldColumnIsShownOnlyWhereTheLanguageFolds
+        // for the language that says yes.
         displaySettings().displayFoldingMarkers.setValue(true);
-        QTRY_COMPARE(form->property("showFoldMarkers").toBool(), true);
         displaySettings().displayAnnotations.setValue(true);
         QTRY_COMPARE(form->property("showAnnotations").toBool(), true);
+        QVERIFY2(!form->property("showFoldMarkers").toBool(),
+                 "a plain text file was given a fold column it can never fill");
     }
 
     void testWhitespaceIsShownWhenTheSettingAsksForIt()
@@ -8094,6 +8123,119 @@ private slots:
         QVERIFY2(Utils::ToolTip::isVisible(),
                  "no suggestion tool bar was shown over the Qt Quick view");
         Utils::ToolTip::hideImmediately();
+    }
+
+    void testTheLanguagesOwnBracketRulesApplyInEitherView()
+    {
+        Utils::TemporaryDirectory dir("language-autocompleter");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("int a = ;\n// a note here\n"));
+
+        CompletionSettings &completion = globalCompletionSettings();
+        const bool wasQuotes = completion.autoInsertQuotes();
+        const QScopeGuard restoreSetting([&completion, wasQuotes] {
+            completion.autoInsertQuotes.setValue(wasQuotes);
+        });
+        completion.autoInsertQuotes.setValue(true);
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        const auto typeAQuote = [target] {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_QuoteDbl, Qt::NoModifier, "\"");
+            QCoreApplication::sendEvent(target, &press);
+            QKeyEvent release(QEvent::KeyRelease, Qt::Key_QuoteDbl, Qt::NoModifier, "\"");
+            QCoreApplication::sendEvent(target, &release);
+        };
+        const auto caretTo = [editor, document](int line, int column) {
+            QTextCursor c(document->document());
+            c.setPosition(document->document()->findBlockByNumber(line).position() + column);
+            TextEditor::setTextCursorOf(editor, c);
+        };
+
+        // In code the language closes the quote for the reader. The plain
+        // AutoCompleter never does - it answers no to every context - so this
+        // is the language's own rules arriving or not arriving.
+        caretTo(0, 8);
+        typeAQuote();
+        QCOMPARE(document->document()->findBlockByNumber(0).text(), QString("int a = \"\";"));
+
+        // And in a comment it does not, which is the half that says the rules
+        // are C++'s rather than just "always close a quote".
+        caretTo(1, 9);
+        typeAQuote();
+        QCOMPARE(document->document()->findBlockByNumber(1).text(), QString("// a note\" here"));
+    }
+
+    void testTheFoldColumnIsShownOnlyWhereTheLanguageFolds()
+    {
+        Utils::TemporaryDirectory dir("fold-column");
+        QVERIFY(dir.isValid());
+
+        DisplaySettings &display = displaySettings();
+        const bool wasShowing = display.displayFoldingMarkers();
+        const QScopeGuard restoreSetting([&display, wasShowing] {
+            display.displayFoldingMarkers.setValue(wasShowing);
+        });
+        display.displayFoldingMarkers.setValue(true);
+
+        const auto foldColumnOf = [&dir](const QString &name) {
+            const Utils::FilePath file = dir.filePath(name);
+            file.writeFileContents("one\ntwo\n");
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            if (!editor)
+                return QVariant();
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            if (TextEditorWidget::fromEditor(editor))
+                return QVariant(); // a widget editor, which is not what this asks
+            auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+            if (!quick || !quick->rootObject())
+                return QVariant();
+            return quick->rootObject()->property("showFoldMarkers");
+        };
+
+        // C++ folds, so the column is worth its width.
+        const QVariant cpp = foldColumnOf("t.cpp");
+        QVERIFY2(cpp.isValid(), "the C++ file did not open in the Qt Quick editor");
+        QVERIFY2(cpp.toBool(), "a C++ file was given no fold column");
+
+        // Plain text does not, and the widget editor shows no column for it -
+        // showing one here is width spent on markers that never appear.
+        const QVariant plain = foldColumnOf("notes.txt");
+        QVERIFY2(plain.isValid(), "the text file did not open in the Qt Quick editor");
+        QVERIFY2(!plain.toBool(), "a plain text file was given a fold column");
+
+        // And the setting still reaches an editor that is already open, for
+        // the language that folds.
+        const Utils::FilePath open = dir.filePath("open.cpp");
+        QVERIFY(open.writeFileContents("int f()\n{\n}\n"));
+        Core::IEditor * const editor = Core::EditorManager::openEditor(open);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor), "not the Qt Quick editor");
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QTRY_VERIFY(quick->rootObject());
+        QCOMPARE(quick->rootObject()->property("showFoldMarkers").toBool(), true);
+        display.displayFoldingMarkers.setValue(false);
+        QTRY_COMPARE(quick->rootObject()->property("showFoldMarkers").toBool(), false);
     }
 
     void testAWatcherHearsTheCaretMoveInEitherView()

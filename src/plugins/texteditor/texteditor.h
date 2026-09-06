@@ -843,6 +843,9 @@ public:
     void setMarksVisible(bool on);
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
+    // Whether the language has anything to fold. A view uses it to decide
+    // whether the fold column is worth its width.
+    bool codeFoldingSupported() const;
 
 private:
     friend class BaseTextEditor;

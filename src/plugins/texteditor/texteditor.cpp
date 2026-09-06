@@ -10961,6 +10961,11 @@ void TextEditorFactory::setCodeFoldingSupported(bool on)
     d->m_codeFoldingSupported = on;
 }
 
+bool TextEditorFactory::codeFoldingSupported() const
+{
+    return d->m_codeFoldingSupported;
+}
+
 void TextEditorFactory::setParenthesesMatchingEnabled(bool on)
 {
     d->m_paranthesesMatchinEnabled = on;
