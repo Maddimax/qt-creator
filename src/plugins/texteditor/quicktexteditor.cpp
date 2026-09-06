@@ -3,6 +3,8 @@
 
 #include "quicktexteditor.h"
 
+#include "codebuffer.h"
+
 #include "colorpreviewhoverhandler.h"
 
 #include "codesource.h"
@@ -289,20 +291,8 @@ public:
             return actions;
         });
 
-        auto widget = new QtcQuick::QuickWidget;
-        // Set before the source: the form's root property is required, and a
-        // required property has to be there when the component is created.
-        widget->quickWidget()->setInitialProperties(
-            {{"source", QVariant::fromValue(m_source.get())},
-             {"contextActions", QVariant::fromValue(&m_contextActions)},
-             {"wrapLines", displaySettings().textWrapping()},
-             {"showLineNumbers", displaySettings().displayLineNumbers()},
-             // Corrected by configureLanguageServices() once the file - and so
-             // the language - is known.
-             {"showFoldMarkers", false},
-             {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
-             {"showAnnotations", displaySettings().displayAnnotations()}});
-        widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
+        QtcQuick::QuickWidget * const widget
+            = Internal::createQuickTextView(m_source.get(), &m_contextActions);
         // Before anything that configures the view: viewport() looks through
         // widget(), so everything below this line would silently do nothing.
         setWidget(widget);
@@ -1282,12 +1272,7 @@ public:
     }
 
     // view and the widget one.
-    TextViewport *viewport() const
-    {
-        auto * const quick = static_cast<QtcQuick::QuickWidget *>(widget());
-        QQuickItem * const root = quick->quickWidget()->rootObject();
-        return root ? root->findChild<TextViewport *>() : nullptr;
-    }
+    TextViewport *viewport() const { return Internal::viewportIn(widget()); }
 
     // Shared because a duplicated editor would show the same document; the
     // editor manager is what decides that, not this. The same handle the
@@ -1349,6 +1334,33 @@ void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
 {
     if (auto * const quick = qobject_cast<QuickTextEditor *>(editor))
         quick->addOptionalActions(optionalActions);
+}
+
+QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
+                                           QtcQuick::ActionModel *contextActions)
+{
+    auto * const widget = new QtcQuick::QuickWidget;
+    // Set before the source: the form's root property is required, and a
+    // required property has to be there when the component is created.
+    widget->quickWidget()->setInitialProperties(
+        {{"source", QVariant::fromValue(source)},
+         {"contextActions", QVariant::fromValue(contextActions)},
+         {"wrapLines", displaySettings().textWrapping()},
+         {"showLineNumbers", displaySettings().displayLineNumbers()},
+         // Corrected once the file - and so the language - is known, by
+         // whoever knows it: the editor does it in configureLanguageServices().
+         {"showFoldMarkers", false},
+         {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
+         {"showAnnotations", displaySettings().displayAnnotations()}});
+    widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
+    return widget;
+}
+
+TextViewport *viewportIn(QWidget *host)
+{
+    auto * const quick = qobject_cast<QtcQuick::QuickWidget *>(host);
+    QQuickItem * const root = quick ? quick->quickWidget()->rootObject() : nullptr;
+    return root ? root->findChild<TextViewport *>() : nullptr;
 }
 
 Core::IEditor *editorForViewport(TextViewport *view)
@@ -9391,6 +9403,47 @@ private slots:
         // rather than in the constructor.
         QVERIFY2(Utils::anyOf(shown(), [repl](QAction *a) { return a != repl && a->menu(); }),
                  "the interpreter picker is missing");
+    }
+
+    // A Qt Quick text view with no editor behind it. Everything else in this
+    // file builds a QuickTextEditor and looks inside it; this asks whether the
+    // view stands on its own, which is what an editor made of more than one
+    // pane would need - Markdown's text beside its preview.
+    void testAViewCanBeBuiltWithoutAnEditor()
+    {
+        // Text that is in no file and no editor.
+        CodeBuffer source;
+        source.setText("alpha\nbeta\ngamma\n");
+        TextDocument * const document = source.textDocument();
+        QVERIFY(document);
+        QCOMPARE(document->plainText(), QString("alpha\nbeta\ngamma\n"));
+
+        // No context actions: a view that offers no right-click menu is a
+        // thing a caller may legitimately want.
+        const std::unique_ptr<QWidget> host(Internal::createQuickTextView(&source, nullptr));
+        QVERIFY2(host.get(), "no view was built at all");
+        host->resize(400, 300);
+        // Laying text out needs a window: the view measures against a real
+        // font and a real width. Shown and closed again by the guard below.
+        host->show();
+        const QScopeGuard hideIt([&host] { host->hide(); });
+
+        TextViewport *view = nullptr;
+        QTRY_VERIFY2(view = Internal::viewportIn(host.get()),
+                     "the widget holds no viewport, so the form never loaded");
+
+        // It is showing that document, and laying it out - not merely holding
+        // a pointer to it.
+        QCOMPARE(view->textDocument(), document);
+        QTRY_VERIFY2(view->lineHeight() > 0, "the view never laid the text out");
+        QCOMPARE(view->textDocument()->plainText(), QString("alpha\nbeta\ngamma\n"));
+
+        // And it edits, without an editor to route anything through.
+        view->setCursorPosition(0);
+        QTextCursor typed = view->textCursor();
+        typed.insertText("x");
+        view->setTextCursor(typed);
+        QCOMPARE(document->plainText(), QString("xalpha\nbeta\ngamma\n"));
     }
 
     void testAWatcherHearsTheCaretMoveInEitherView()

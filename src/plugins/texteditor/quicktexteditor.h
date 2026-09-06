@@ -11,9 +11,11 @@
 #include <QObject>
 
 namespace Core { class IEditor; }
+namespace QtcQuick { class ActionModel; class QuickWidget; }
 
 namespace TextEditor {
 
+class CodeSource;
 class TextViewport;
 
 namespace Internal {
@@ -50,6 +52,23 @@ Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
                                      const Core::Context &context,
                                      uint optionalActions = OptionalActions::None,
                                      Utils::Id contextMenuId = {});
+
+// A Qt Quick text view over \a source, laid out by the display settings and
+// nothing else. The caller owns the widget and decides where it goes: the Qt
+// Quick editor makes it its own, and an editor made of more than one pane -
+// Markdown's text beside its preview - would put it in a splitter.
+//
+// Everything that follows from being an *editor* is the caller's to wire: the
+// tooltip host, the view's back pointer to the editor, the caret signals. This
+// builds a view and stops.
+//
+// \a contextActions is what the right-click menu is built from, or null for a
+// view that offers none.
+QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
+                                           QtcQuick::ActionModel *contextActions);
+
+// The view inside a widget createQuickTextView() handed back.
+TextViewport *viewportIn(QWidget *host);
 
 // The Qt Quick code editor. What a plain text file opens in; a language whose
 // factory has not said setUsesQuickEditor() still opens in the widget one.

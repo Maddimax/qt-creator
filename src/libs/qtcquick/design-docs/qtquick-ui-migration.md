@@ -44178,3 +44178,113 @@ migration is finished for the purpose stated at the top of every batch - a C++
 file opens in `TextViewport`, and so now do JSON, qmake, CMake and Python -
 and what remains is somebody's decision about scope rather than more of the
 same work.
+
+## 2026-09-06 — The view separated from the editor (batch 89)
+
+Entry 88's proposal, taken up: a Qt Quick text view that can be built without
+an editor around it. Nothing else in this batch.
+
+### What was tangled
+
+`QuickTextEditor`'s constructor did two unrelated jobs in one run of
+statements: it *built a Qt Quick view* over a `CodeSource` — a `QuickWidget`,
+the seven initial properties the QML form requires, the form URL — and then it
+*made that view an editor*: tooltip host, back pointer, caret signals,
+document connections. Only the second half is about being an editor. The first
+half is what any host of a text view needs, and there was no way to ask for it
+without also getting an editor.
+
+Two free functions in `Internal` now:
+
+```cpp
+QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
+                                           QtcQuick::ActionModel *contextActions);
+TextViewport *viewportIn(QWidget *host);
+```
+
+The constructor calls the first and keeps everything that follows; `viewport()`
+calls the second, which is the `qobject_cast` → `rootObject()` →
+`findChild<TextViewport *>` walk it was doing inline. The editor's behaviour is
+unchanged by construction — it goes through the same code, which is the point
+of extracting it rather than copying it.
+
+`viewportIn()` takes a `QWidget *` rather than a `QuickWidget *` because that
+is what callers holding an editor's widget have, and it already had to cope
+with the cast failing.
+
+### What this unlocks
+
+The one that motivated it is Markdown: `MarkdownEditor` owns a `MiniSplitter`
+with a `MarkdownBrowser` in it, and the text side has to be something it can
+put next to the browser rather than something that *is* the editor. The same
+shape is the diff editor's two panes and the binding editor.
+
+It does not close Markdown — the tool bar question from entry 87 is still open
+and still a design decision.
+
+### The test, and the ordering problem it exposed
+
+`testAViewCanBeBuiltWithoutAnEditor` builds a `CodeBuffer`, hands it to
+`createQuickTextView()`, and checks the view shows that document and that
+editing through the view reaches the buffer. No editor is created anywhere in
+it.
+
+It failed first at `lineHeight() > 0`, because a `QuickWidget` that is never
+shown never lays anything out. `show()` plus a `QScopeGuard` that hides it
+again. Worth remembering: **an unshown Quick view has a document but no
+geometry**, so anything measured in pixels needs the window.
+
+### A harness fact that cost the first three control runs
+
+The controls below all break *shared* construction, so they take the whole
+`QuickTextEditorTest` object down — and the new test is declared late in a
+class of ~150 slots, so the run crashed or hung at slot ~7500 and never
+reached slot ~9400. Three control runs in a row reported nothing about the
+test they were aimed at, while looking like they had run.
+
+The way out is the per-function filter, whose form is not what it looks like:
+
+    -test <plugin>,<testfunction>        # TextEditor,testAViewCanBeBuiltWithoutAnEditor
+
+not `-test <TestObject>:<function>`, which Qt Creator rejects as an unknown
+option — printing its whole help text and exiting 255, which reads like a
+crash rather than a typo.
+
+**A control that breaks shared code cannot be read from a whole-object run.**
+Run the one test.
+
+### Controls
+
+- **AL**: the form URL never set in `createQuickTextView()` — 93 tests red and
+  then a crash at slot ~7500, before the new test. Informative about the
+  extraction (it *is* the editor's only construction path, not a copy) and
+  silent about the test. Not the control this batch needed.
+- **AM**: the caller's `source` dropped and replaced with a fresh empty
+  `CodeBuffer`. Whole-object run: timed out, again before reaching the test.
+  Single-function run: red at `Compared QObject pointers are not the same` —
+  the document assertion. This is the one that bites.
+
+Restored, and the single-function run is 3 passed, 0 failed.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 651 passed, 0 failed (was 650) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+Unchanged from entry 88 except that item 1's second half is done:
+
+1. **Markdown**: the checkable-tool-bar-button design question, then hosting
+   the view — which is now a thing that can be hosted — in
+   `MarkdownEditor`'s splitter.
+2. The whitespace drawing difference (entry 68). Declined, with the reason.
+3. **Printing** — keep, drop or move. The owner's since entry 31.
+
+All three are decisions rather than work. The migration's stated purpose is
+met: C++, JSON, qmake, CMake and Python open in `TextViewport`, and so does
+every text file without a dedicated factory.
