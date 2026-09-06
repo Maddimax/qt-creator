@@ -52,6 +52,7 @@
 #include <texteditor/refactoroverlay.h>
 #include <texteditor/snippets/snippetprovider.h>
 #include <texteditor/syntaxhighlighter.h>
+#include <texteditor/symbolrequests.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditorconstants.h>
 #include <texteditor/textmark.h>
@@ -855,30 +856,43 @@ void findQmlJSLinkAt(TextEditor::TextDocument *textDocument,
     processLinkCallback(Utils::Link());
 }
 
+// Find Usages and Rename Symbol, for a document and a place in it. The
+// language server answers where there is one; the built-in model otherwise.
+// Neither question is about the view asking it, which is why these take no
+// editor and no widget.
+void findQmlJSUsages(TextEditor::TextDocument *document, const QTextCursor &cursor,
+                     FindReferences *findReferences)
+{
+    QTC_ASSERT(document && findReferences, return);
+    const Utils::FilePath fileName = document->filePath();
+    if (auto client = LanguageClient::LanguageClientManager::clientForFilePath(fileName))
+        client->symbolSupport().findUsages(document, cursor);
+    else
+        findReferences->findUsages(fileName, cursor.position());
+}
+
+void renameQmlJSSymbol(TextEditor::TextDocument *document, const QTextCursor &cursor,
+                       FindReferences *findReferences)
+{
+    QTC_ASSERT(document && findReferences, return);
+    const Utils::FilePath fileName = document->filePath();
+    if (auto client = LanguageClient::LanguageClientManager::clientForFilePath(fileName)) {
+        QTextCursor word = cursor;
+        word.select(QTextCursor::WordUnderCursor);
+        client->symbolSupport().renameSymbol(document, cursor, word.selectedText());
+    } else {
+        findReferences->renameUsages(fileName, cursor.position());
+    }
+}
+
 void QmlJSEditorWidget::findUsages()
 {
-    const Utils::FilePath fileName = textDocument()->filePath();
-
-    if (auto client = LanguageClient::LanguageClientManager::clientForFilePath(fileName)) {
-        client->symbolSupport().findUsages(textDocument(), textCursor());
-    } else {
-        const int offset = textCursor().position();
-        m_findReferences->findUsages(fileName, offset);
-    }
+    findQmlJSUsages(textDocument(), textCursor(), m_findReferences);
 }
 
 void QmlJSEditorWidget::renameSymbolUnderCursor()
 {
-    const Utils::FilePath fileName = textDocument()->filePath();
-
-    if (auto client = LanguageClient::LanguageClientManager::clientForFilePath(fileName)) {
-        QTextCursor tc = textCursor();
-        tc.select(QTextCursor::WordUnderCursor);
-        client->symbolSupport().renameSymbol(textDocument(), textCursor(), tc.selectedText());
-    } else {
-        const int offset = textCursor().position();
-        m_findReferences->renameUsages(fileName, offset);
-    }
+    renameQmlJSSymbol(textDocument(), textCursor(), m_findReferences);
 }
 
 void QmlJSEditorWidget::showContextPane()
@@ -1146,6 +1160,26 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
     setDocumentCreator([this]() { return new QmlJSEditorDocument(id()); });
     setEditorWidgetCreator([]() { return new QmlJSEditorWidget; });
     setEditorCreator([]() { return new QmlJSEditor; });
+    // A view that is not a widget asks through a relay rather than by being
+    // asked itself. Same shape as C++: the editor gets its own FindReferences
+    // and the two questions are answered by the free functions above.
+    setEditorDecorator([](Core::IEditor *editor) {
+        TextEditor::SymbolRequests * const requests
+            = TextEditor::symbolRequestsForEditor(editor);
+        if (!requests)
+            return;
+        auto * const findReferences = new FindReferences(editor);
+        QObject::connect(requests, &TextEditor::SymbolRequests::requestUsages, editor,
+                [editor, findReferences](const QTextCursor &cursor) {
+                    findQmlJSUsages(qobject_cast<TextEditor::TextDocument *>(editor->document()),
+                                    cursor, findReferences);
+                });
+        QObject::connect(requests, &TextEditor::SymbolRequests::requestRename, editor,
+                [editor, findReferences](const QTextCursor &cursor) {
+                    renameQmlJSSymbol(qobject_cast<TextEditor::TextDocument *>(editor->document()),
+                                      cursor, findReferences);
+                });
+    });
     setAutoCompleterCreator([]() { return new AutoCompleter; });
     setCommentDefinition(Utils::CommentDefinition::CppStyle);
     setParenthesesMatchingEnabled(true);

@@ -4,6 +4,8 @@
 #include "qmljseditordocument.h"
 
 #include "qmljscompletionassist.h"
+#include "qmljsfindreferences.h"
+#include <texteditor/symbolrequests.h>
 
 #include <texteditor/texteditor.h>
 
@@ -878,6 +880,41 @@ class QmlJSEditorDocumentTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // Find Usages and Rename Symbol were QmlJSEditorWidget virtuals, so a QML
+    // file open in anything else could not be asked either. A view that is not
+    // a widget asks through a relay; this checks the factory wires it up.
+    void testFindUsagesAndRenameReachAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("qmljs-symbols");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("thing.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem { id: root }\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the QML file opened in a widget editor, so this tests nothing");
+
+        // The relay exists for this view...
+        TextEditor::SymbolRequests * const requests
+            = TextEditor::symbolRequestsForEditor(editor);
+        QVERIFY2(requests, "the view offers no relay to ask through");
+
+        // ...and the language answered it. Without the decorator this editor
+        // has no FindReferences of its own and nothing is listening.
+        QVERIFY2(editor->findChild<FindReferences *>(),
+                 "the factory wired nothing up for this editor");
+    }
+
     // The parse errors used to be put on the editor widget, so a QML file
     // open in anything else underlined nothing. They are the document's now.
     void testParseErrorsAreOnTheDocument()

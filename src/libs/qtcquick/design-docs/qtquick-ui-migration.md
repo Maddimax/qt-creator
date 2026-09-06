@@ -46396,3 +46396,62 @@ it - are one piece and the largest thing between QmlJS and the Qt Quick view.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — Find Usages and Rename reach a QML view that is not a widget (batch 112)
+
+### The gap this closed
+
+`findUsages()` and `renameSymbolUnderCursor()` were `TextEditorWidget`
+virtuals, so a QML file open in anything else could not be asked either
+question.
+
+Both bodies used only the document, the caret and a `FindReferences` - nothing
+about the view - so they are free functions taking exactly those. The widget's
+overrides are two-line delegations to them, and the factory's editor decorator
+connects the same two functions to `TextEditor::SymbolRequests`, which is how a
+view that is not a widget asks.
+
+**This is C++'s shape, copied deliberately**: `cppeditorplugin.cpp` connects
+`requestUsages` and `requestRename` on the same relay, and the relay is null
+for a widget editor, so each path is reached exactly once.
+
+### Controls, and one that did not bite
+
+- **CM**: the decorator returning before it wires anything - red at "the
+  factory wired nothing up for this editor". This is the wiring assertion
+  entry 107 argued for, and it is the whole point of the test.
+- **CN**: the widget's `findUsages()` doing nothing - **green**.
+
+**CN is not covered and this batch did not fix it.** The only observable
+effect of the widget path is an asynchronous search finishing, which is a
+heavier and flakier assertion than the line deserves: the override is now a
+two-line delegation to the function the relay also calls, and that function is
+reached by the covered path. Recorded rather than quietly left out - the rule
+in this document is that an uncontrolled line is either covered or **named**.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 672 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 20 passed, 0 failed (was 19) |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+| What | Shape |
+| --- | --- |
+| the quick fix assist interface | needs the widget it acts on; the largest piece |
+| `contextMenuEvent()` | builds its Refactoring submenu from that interface, so it follows |
+| the outline model index, `jumpToOutlineElement()` | the `ToolBarOutline` seam from entry 98 |
+| the context pane, `showTextMarker()` | QML-specific UI, still unexamined |
+| `restoreState()` folding auxiliary data | small |
+| `updateUses()` | stays with the view - it follows the caret (entry 111) |
+
+Three batches' worth, give or take, and the quick fix interface is the one
+that decides how long.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).
