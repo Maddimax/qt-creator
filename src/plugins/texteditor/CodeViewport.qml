@@ -724,6 +724,8 @@ Item {
                         // The box is the other way to open a fold: the gutter
                         // marker is far from what the reader is looking at,
                         // and the widget editor opens on this too.
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+
                         TapHandler {
                             onTapped: viewport.toggleFold(trailing.lineData.lineNumber)
                         }
@@ -759,7 +761,15 @@ Item {
                         font.pixelSize: viewport.lineHeight * 0.7
                     }
 
-                    HoverHandler { id: markerHover }
+                    // A hand, because there is something here to press. The
+                    // widget editor changes the pointer over this and over a
+                    // collapsed fold's box, and a lamp that looks like text
+                    // gives the reader no reason to try it.
+                    HoverHandler {
+                        id: markerHover
+
+                        cursorShape: Qt.PointingHandCursor
+                    }
 
                     ToolTip.text: refactorMarker.modelData.toolTip
                     ToolTip.visible: markerHover.hovered && ToolTip.text !== ""

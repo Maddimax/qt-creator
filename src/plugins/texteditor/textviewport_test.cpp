@@ -13,6 +13,7 @@
 #include "snippets/snippetprovider.h"
 #include "icodestylepreferencesfactory.h"
 #include "autocompleter.h"
+#include "refactoroverlay.h"
 #include "behaviorsettings.h"
 #include "codeassist/documentcontentcompletion.h"
 #include "completionsettings.h"
@@ -5379,6 +5380,112 @@ private slots:
         globalFontSettings().setFontZoom(100);
         viewport->zoomBy(delta);
         QCOMPARE(globalFontSettings().fontZoom(), 100);
+    }
+
+    // A lamp at the end of a line is something to click, and the widget editor
+    // says so by putting a pointing hand under the mouse - the same as over a
+    // collapsed fold's "{...}". The Qt Quick form sets a cursor shape in one
+    // place only, on the text area, so both of those stayed an I-beam and gave
+    // the reader no reason to believe there was anything there.
+    void testAClickableMarkerSaysSoWithThePointer()
+    {
+        TemporaryDirectory dir("qtc-viewport-handcursor");
+        const FilePath file = writeLines(dir, "marked.txt", 20);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 400);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 400\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/HandCursorTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        TextDocument * const doc = viewport->textDocument();
+        QVERIFY(doc);
+        QTextCursor at(doc->document());
+        at.setPosition(doc->document()->findBlockByNumber(1).position() + 3);
+        RefactorMarker marker;
+        marker.cursor = at;
+        marker.tooltip = "Something to click";
+        marker.type = Utils::Id("ViewportHandCursorTest");
+        doc->setRefactorMarkers(marker.type, {marker});
+
+        QQuickItem *lamp = nullptr;
+        QTRY_VERIFY([&] {
+            for (QQuickItem * const candidate : allItems(item)) {
+                if (candidate->objectName() == "refactorMarker" && candidate->isVisible()) {
+                    lamp = candidate;
+                    return true;
+                }
+            }
+            return false;
+        }());
+
+        // Over the lamp: a hand, because there is something there to press.
+        const QPoint onLamp = view.contentItem()
+                                  ->mapFromItem(lamp, QPointF(lamp->width() / 2,
+                                                              lamp->height() / 2))
+                                  .toPoint();
+        QTest::mouseMove(&view, onLamp);
+        QTRY_COMPARE(view.cursor().shape(), Qt::PointingHandCursor);
+
+        // And over plain text an I-beam again, or the assertion above would
+        // pass for a window that shows a hand everywhere.
+        const QRectF text = viewport->rectangleAt(0);
+        QVERIFY(!text.isNull());
+        QTest::mouseMove(&view, view.contentItem()
+                                    ->mapFromItem(viewport, text.center()).toPoint());
+        QTRY_COMPARE(view.cursor().shape(), Qt::IBeamCursor);
+
+        // The other thing the widget editor puts a hand under: the box drawn
+        // after a collapsed line, which opens the fold again.
+        QTextDocument * const plain = doc->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(plain->documentLayout());
+        QVERIFY(layout);
+        // A highlighter is what normally says a line is foldable; saying it
+        // here keeps the test about the pointer.
+        for (int i = 1; i <= 4; ++i)
+            TextBlockUserData::setFoldingIndent(plain->findBlockByNumber(i), 1);
+        const QTextBlock first = plain->findBlockByNumber(0);
+        QVERIFY(TextBlockUserData::canFold(first));
+        TextBlockUserData::doFoldOrUnfold(first, /*unfold=*/false);
+        layout->requestUpdate();
+
+        QQuickItem *box = nullptr;
+        QTRY_VERIFY([&] {
+            for (QQuickItem * const candidate : allItems(item)) {
+                if (candidate->inherits("QQuickText") && candidate->isVisible()
+                    && candidate->property("text").toString().contains("...")) {
+                    box = candidate->parentItem();
+                    return box != nullptr && box->isVisible();
+                }
+            }
+            return false;
+        }());
+
+        QTest::mouseMove(&view, view.contentItem()
+                                    ->mapFromItem(box, QPointF(box->width() / 2,
+                                                               box->height() / 2))
+                                    .toPoint());
+        QTRY_COMPARE(view.cursor().shape(), Qt::PointingHandCursor);
     }
 
     // Sort Lines with nothing selected takes the run of lines around the

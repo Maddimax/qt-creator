@@ -48953,3 +48953,108 @@ context pane**, item 5 - or say plainly that what is left is the owner's to
 decide. The geometry it needs exists; the question of whether it stays a
 `QWidget` popup or becomes QML has been open since entry 114 and no amount of
 probing will answer it.
+
+## 2026-09-06 — Nothing said there was anything to click (batch 137)
+
+Entry 136 left `mouseMoveEvent` as the last mouse item measurable on this
+machine. Walked it. Three of its four jobs are already done here; the fourth is
+this batch, and a fifth thing it does is missing entirely and is not a
+condition but a feature.
+
+### What `mouseMoveEvent` does, item by item
+
+| The widget | Here |
+| --- | --- |
+| `requestUpdateLink()` - the Ctrl link highlight | `hoverMoveEvent()` calls `updateLink()`. Done |
+| un-hides a pointer that typing hid | `onPositionChanged` calls `showMouse()`. Done |
+| Alt+drag takes a rectangle | `selectBlockTo()` from the same handler. Done |
+| **a pointing hand over a fold's box or a refactor marker** | **missing** |
+| **hovering a collapsed fold pops up what it hides** | **missing, and a feature** |
+
+### The gap this batch closed
+
+`CodeViewport.qml` set a cursor shape in exactly **one** place - the text area,
+`Qt.IBeamCursor`. The widget changes the pointer to a hand over two things
+that are there to be clicked:
+
+```cpp
+if ((collapsedBlock.isValid() || refactorMarker.isValid()) && !m_mouseOnFoldedMarker) {
+    viewport()->setCursor(Qt::PointingHandCursor);
+```
+
+Both exist in the Quick form - the `{...}` box after a collapsed line and the
+lamp at the end of a line - and both already have a `TapHandler`. **They were
+clickable and looked like text.** A `HoverHandler` with a cursor shape on each.
+
+Small, and worth the batch for a reason the size does not show: it is the last
+thing in the mouse handler that could be closed by reading, and it took a real
+mouse move through the QML to check - the third batch running where the QML
+half is where the behaviour lives.
+
+### Controls
+
+- **EY**: the lamp's cursor shape removed - red over the lamp.
+- **EZ**: the fold box's hover handler removed - red over the box. Two
+  handlers, two controls: adding one and forgetting the other would have gone
+  unnoticed.
+- **FA**: the text area made to show a hand everywhere - red on the I-beam
+  assertion between the two, which is what says the other two are not passing
+  for a window that shows a hand at every point.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 698 passed, 0 failed (was 697) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### The feature that is missing, and is not mine to design
+
+`drawCollapsedBlockPopup()`. Hover the `{...}` after a collapsed line in the
+widget editor and, after 40 ms, the hidden text appears in a floating box over
+the page - read a folded function without unfolding it. The Qt Quick view has
+no counterpart and no plumbing towards one: nothing exposes the hidden lines'
+text, and nothing draws over the page.
+
+Not attempted. It is a new QML component with a shape, a placement and a
+dismissal rule, which is a **design decision** of the same kind as QmlJS's
+context pane - and this document's own record is that the batches which went
+best were the ones that closed a measured difference, while the ones parked
+longest are exactly the two that need somebody to choose what a thing looks
+like.
+
+### Where this leaves it
+
+**The mouse seam is read out**, and with it the whole side-by-side walk that
+began at entry 130. What it produced, in order: Backspace's four conditions,
+Tab's two, every navigation key, carets that had met, Alt+click's toggle, a
+trackpad that could not zoom, and this. Seven fixes from two handlers - and two
+false positives that cost a batch each to disprove.
+
+What is left, in full, and none of it is a measurement:
+
+1. **The collapsed-fold popup** - a feature, above.
+2. **Middle-click paste and the PRIMARY selection** - a feature, and
+   unmeasurable on macOS. Needs a Linux run.
+3. **The link press/release handshake** - read, both answers defensible.
+4. **Home on a wrapped line** - needs word wrap on, entry 133.
+5. **QmlJS's context pane** - a UI decision, open since entry 114.
+6. **The whitespace drawing difference** - declined, entry 68.
+7. **Printing** - open since entry 31.
+8. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+**Nothing, without a decision.** The goal this document was opened for is met
+and has a test saying so (entry 124): a C++ file opens in
+`TextEditor::TextViewport`, and everything `CppEditorFactory` configures
+reaches it. Eight batches of walking the two implementations side by side have
+found and closed every difference that reading and probing can reach.
+
+Items 1, 2 and 5 are the only ones with user-visible weight left, and each
+needs something I cannot supply by measuring: a design for the fold popup, a
+Linux machine for the primary selection, and a choice between QWidget and QML
+for the context pane. **That is the honest state of it** - the remaining work
+is the owner's to scope, not another batch's to find.
