@@ -42509,3 +42509,109 @@ stack does not name the cause quickly, it is worth saying so and moving to
 all.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Undo keeps every caret, and entry 71 was wrong about why (batch 72)
+
+Entry 71 said to dump the undo stack before proposing anything else. Doing
+that took about ten minutes and **contradicted entry 71's own conclusion**.
+
+### The dump
+
+Two carets, type `x`, type `y`, then undo four times, recording the document's
+own step count, the caret positions and the text at every step:
+
+    widget  after x: steps=3 at=3,14  | after y: steps=6 at=4,16
+            undo 1: steps=3 at=3,14   [alxpha one\nbexta two\ngamma\n]
+            undo 2: steps=0 at=2,12   [alpha one\nbeta two\ngamma\n]
+    quick   after x: steps=3 at=3,14  | after y: steps=6 at=4,16
+            undo 1: steps=3 at=3      [alxpha one\nbexta two\ngamma\n]
+            undo 2: steps=0 at=2      [alpha one\nbeta two\ngamma\n]
+
+**The stacks are identical** - same depth, same steps consumed, same text at
+every point. Entry 71 concluded "the difference is in the undo stack the
+typing built, and QTextDocument::undo() is only reporting it". That was wrong,
+and it was wrong because it was inferred from two failed fixes rather than
+measured. Two batches were spent on mechanisms that the first dump would have
+ruled out in one run.
+
+### What the dump does show
+
+The widget's carets go `3,14` to `2,12`: **both of them move, and by exactly
+what the edit did to the text.** They are carried through the undo the way any
+cursor is carried through any edit. Nothing places them.
+
+The Qt Quick view called `document()->undo(&cursor)` - handing over a caret -
+and `QTextDocument` puts the caret it is given where the change was. That is a
+different rule from "carried through the edit", and here the two rules
+disagree: the main caret was put at 3, which is where the other caret already
+was, and two carets in one place are one caret.
+
+### The fix
+
+    -    cursor.document()->undo(&cursor);
+    -    setTextCursor(cursor);
+    +    cursor.document()->undo();
+
+and the same for `redo()`. This view already has a rule for where a caret goes
+after an edit - `carryPositionsThroughEdit()`, which every other edit uses -
+and undo is an edit like any other. Handing a cursor to the document was the
+one place that opted out of it.
+
+Three lines, after two batches of proposals. The dump is what made it three
+lines.
+
+### Controls
+
+- **W**: `undo(&cursor)` and the `setTextCursor()` put back - red with
+  `"3"` against `"3,14"`, which is the defect exactly.
+- Every single-caret undo test still passes:
+  `testTypingIsTakenBackInTheStepsThatMadeIt`, `testACommandIsOneThingToTakeBack`,
+  `testRedoPutsBackWhatUndoTookAway`, `testBreakingALineComesBackWithWhatWasTypedAfterIt`.
+  Not placing the caret does **not** mean the caret stops following an undo -
+  it follows by being carried, which is what the widget editor has always
+  done.
+
+The `QEXPECT_FAIL` entry 70 added is gone: the row passes, and a row that
+passes must not be marked as expected to fail.
+
+### The method note worth keeping
+
+Entry 70 measured the symptom and proposed a cause. Entry 71 implemented two
+causes and eliminated both, then wrote down a *third* cause as though it had
+been established. It had not - it was the last hypothesis standing, not a
+measurement, and it was wrong.
+
+**A cause that survives by elimination is still a hypothesis.** The rule this
+project already had - "a claim about why something fails must carry the
+measurement that produced it, or be marked as a guess" - applies to the
+conclusion of a batch as much as to the start of one.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 634 passed, 0 failed, **0 expected failures** |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test FakeVim` | 0 | 266 passed, 0 failed, 10 skipped |
+
+FakeVim because it drives undo over the same view with its own key handling;
+unaffected. No `.qbs` change: no files added.
+
+### What is left
+
+**No known live divergence remains.** The list is now entirely latent or
+unexamined:
+
+1. The three move costs from entry 69 - Python and JSON indent differently on
+   Return, `.pro` comments in a different place. Latent: those languages are
+   in the widget editor.
+2. The whitespace drawing difference from entry 68 - `↵` and the end-of-file
+   glyph. Latent and declined, with the reason recorded.
+3. The document audit from entry 64. **Never looked at**, and the largest
+   remaining surface.
+
+**Suggested next: (3).** It is the only item that could still contain
+something live, and it is the last question this file has that has not been
+asked once.
+
+The printing decision (keep / drop / move) remains the owner's call.

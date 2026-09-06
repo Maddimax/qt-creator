@@ -8785,11 +8785,6 @@ private slots:
         QTest::newRow("break the line") << "\n" << "al\npha one\nbe\nta two\ngamma\n" << "3,14";
         QTest::newRow("paste") << "P" << "alPpha one\nbePta two\ngamma\n" << "3,14";
         QTest::newRow("delete a word") << "_" << "pha one\nta two\ngamma\n" << "0,8";
-        // Known divergence, measured in entry 70: the widget editor's undo
-        // leaves the main caret where the *last* undone change was and this
-        // one leaves it where the first was, so here it lands on top of the
-        // other caret and the two collapse into one. QEXPECT_FAIL rather than
-        // a weaker assertion, so that fixing it reports.
         QTest::newRow("type then undo")
             << "xyU" << "alxpha one\nbexta two\ngamma\n" << "3,14";
     }
@@ -8866,9 +8861,6 @@ private slots:
         QCOMPARE(widgetCarets, carets);
 
         QCOMPARE(quickText, widgetText);
-        QEXPECT_FAIL("type then undo",
-                     "undo leaves the main caret on top of the other one, which merges them",
-                     Continue);
         QCOMPARE(quickCarets, widgetCarets);
     }
 

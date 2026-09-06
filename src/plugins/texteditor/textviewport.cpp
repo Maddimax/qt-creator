@@ -3243,10 +3243,13 @@ void TextViewport::undo()
     QTextCursor cursor = textCursor();
     if (cursor.isNull())
         return;
-    // The document's, so it takes back what any other view of it did as well,
-    // which is the point of editing through a cursor.
-    cursor.document()->undo(&cursor);
-    setTextCursor(cursor);
+    // Without handing over a caret. The document's undo would put the one it
+    // is given where the change was, and that is not this view's rule for
+    // where a caret goes: every caret here is carried through an edit by
+    // carryPositionsThroughEdit(), and undo is an edit like any other. Handing
+    // one over moved the main caret onto a caret already standing there, and
+    // two carets in one place are one caret.
+    cursor.document()->undo();
 }
 
 void TextViewport::redo()
@@ -3256,8 +3259,7 @@ void TextViewport::redo()
     QTextCursor cursor = textCursor();
     if (cursor.isNull())
         return;
-    cursor.document()->redo(&cursor);
-    setTextCursor(cursor);
+    cursor.document()->redo();
 }
 
 Utils::PlainTextDocumentLayout *TextViewport::movementLayout() const
