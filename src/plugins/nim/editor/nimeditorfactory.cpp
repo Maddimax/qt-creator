@@ -8,7 +8,7 @@
 #include "nimtr.h"
 
 #include "../nimconstants.h"
-#include "nimtexteditorwidget.h"
+#include "nimlinkfinder.h"
 
 #include <texteditor/textdocument.h>
 
@@ -28,9 +28,10 @@ NimEditorFactory::NimEditorFactory()
                             | OptionalActions::UnCommentSelection
                             | OptionalActions::UnCollapseAll
                             | OptionalActions::FollowSymbolUnderCursor);
-    setEditorWidgetCreator([]{
-        return new NimTextEditorWidget();
-    });
+    // Its widget subclass named the language whose code style to use, which
+    // either view now derives from the mime type - and the link finder it
+    // once carried was already a free function on this factory.
+    setUsesQuickEditor(true);
     setLinkFinder(nimLinkFinder());
 
     setDocumentCreator([]() {

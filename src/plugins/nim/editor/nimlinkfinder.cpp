@@ -1,8 +1,7 @@
 // Copyright (C) Filippo Cucchetto <filippocucchetto@gmail.com>
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include "nimtexteditorwidget.h"
-#include "nimconstants.h"
+#include "nimlinkfinder.h"
 #include "suggest/nimsuggestcache.h"
 #include "suggest/nimsuggest.h"
 
@@ -26,12 +25,6 @@ static std::shared_ptr<QTemporaryFile> writeDirtyFile(const TextEditor::TextDocu
     stream << doc->plainText();
     result->close();
     return result;
-}
-
-NimTextEditorWidget::NimTextEditorWidget(QWidget *parent)
-    : TextEditorWidget(parent)
-{
-    setLanguageSettingsId(Nim::Constants::C_NIMLANGUAGE_ID);
 }
 
 // nimsuggest is one process answering one question at a time, so a new

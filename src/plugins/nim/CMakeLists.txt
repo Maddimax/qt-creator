@@ -5,7 +5,7 @@ add_qtc_plugin(Nim
     editor/nimeditorfactory.cpp editor/nimeditorfactory.h
     editor/nimhighlighter.cpp editor/nimhighlighter.h
     editor/nimindenter.cpp editor/nimindenter.h
-    editor/nimtexteditorwidget.cpp editor/nimtexteditorwidget.h
+    editor/nimlinkfinder.cpp editor/nimlinkfinder.h
     nim.qrc
     nimconstants.h
     nimplugin.cpp

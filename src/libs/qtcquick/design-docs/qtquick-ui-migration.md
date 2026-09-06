@@ -44501,3 +44501,107 @@ Two of entry 90's five, and both have something to port:
 Otherwise unchanged: Markdown (a tool bar design question, then hosting the
 view entry 89 separated out), the whitespace difference (declined, entry 68),
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — Nim, and the last widget-only seam it was using (batch 92)
+
+Entry 91 left two of entry 90's five: Nim and GLSL. Nim looked like a batch
+because `NimTextEditorWidget` subclasses `TextEditorWidget` to answer follow
+symbol out of `nimsuggest`. **It does not.** `findNimLinkAt()` was already a
+free function and `nimLinkFinder()` already on the factory - somebody did that
+part earlier, and `module.nim` was already a row in
+`testEveryConvertedLanguageRegistersALinkFinder`.
+
+What the subclass actually still did, in full:
+
+    NimTextEditorWidget::NimTextEditorWidget(QWidget *parent)
+        : TextEditorWidget(parent)
+    {
+        setLanguageSettingsId(Nim::Constants::C_NIMLANGUAGE_ID);
+    }
+
+### The gap this closed
+
+`setLanguageSettingsId()` is a **`TextEditorWidget`** function. It names the
+language whose code style the document should use, and there is no way to tell
+a view that is not a widget. That is the whole seam, and it is the last one on
+Nim.
+
+The Qt Quick editor does not need telling: `languageCodeStyle()` asks
+`TextEditor::languageId(mimeType)` and then `codeStyleFactory()`. Nim
+registers both halves - `registerMimeTypeForLanguageId()` for its two mime
+types in `nimcodestylesettingspage.cpp`, and an
+`ICodeStylePreferencesFactory` for `C_NIMLANGUAGE_ID`. So the derivation
+already gives the same answer the subclass was giving, and the subclass goes.
+
+After it, `setLanguageSettingsId()` has exactly two callers left -
+`CppEditorWidget` and `QmlJSEditor` - and **both of those languages register
+the mime mapping too**. So the function is now redundant everywhere it is
+still used. Removing it is a separate change and a wider one; noted here so
+the next person does not have to find it again.
+
+`nimtexteditorwidget.{h,cpp}` is `nimlinkfinder.{h,cpp}` now. A file named
+after a widget it no longer contains is worse than the rename churn.
+
+### Two tests, because one claim needs two halves
+
+The claim that lets the subclass go is *deriving the style gives what being
+told it gives*. That cannot be asserted on Nim, because after this change
+nothing tells Nim's widget path anything.
+
+- `testDerivingACodeStyleAgreesWithBeingToldIt` asserts it on **C++**, where
+  both still happen: `CppEditorWidget` names the language, the Qt Quick editor
+  derives it, and the two answers are compared. Guarded by "the widget editor
+  used the generic style, so this compares nothing".
+- `testALanguageThatRegisteredItsMimeTypeGetsItsOwnStyle` asserts the other
+  half on Nim: the registered mapping resolves to a style that is *not* the
+  generic one, and the document in the Qt Quick view has it.
+
+### A measurement that changed the test
+
+The first version compared both views over `module.nim` and failed at its own
+guard: the widget side came back with the generic style. That is not a defect
+- it is this very commit, measured. Deleting the subclass takes the language
+setting off Nim's widget path, which is reachable only by flipping the switch
+in a test. The test was asking the one question that had just stopped having
+an answer, so it was split into the two above.
+
+Worth keeping as a shape: **a parity test cannot be written against a path
+the same commit is removing.** Assert the parity where both sides still
+exist, and assert the replacement where only one does.
+
+### Controls
+
+- **AV**: `languageCodeStyle()` returning the generic style - both new tests
+  red, "Compared QObject pointers are not the same".
+- **AW**: `setUsesQuickEditor(false)` on the Nim factory - both censuses red
+  ("module.nim opened in the widget editor") and the Nim style test red at
+  "it opened in a widget editor".
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 656 passed, 0 failed (was 654) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Nim` | 0 | 6 passed, 0 failed |
+
+### The qbs re-resolve, and why it is not a clean yes
+
+`nim.qbs` changed, so it was re-resolved - and could not be, cleanly. The
+configured profile in `builds/qbs/default` names a Qt 6.9.1 that is no longer
+installed, so every product resolves as disabled. Pointed at the Qt the CMake
+build uses, the resolve gets through Qt module setup and then fails inside
+`src/shared/qbs/**` products, none of which this change touches.
+
+So the edit was checked directly instead: every file `nim.qbs` lists exists
+(53 of them, plus one `*.qml` wildcard), and `CMakeLists.txt` and `nim.qbs`
+name the same pair. That is the property the sync rule is actually about.
+**Recorded rather than glossed:** nobody has resolved this tree with qbs for
+some time, and a `.qbs` edit here is checked by reading, not by building.
+
+### What is left
+
+**GLSL** is the last of entry 90's five, and the only language left that a
+sweep turns up. Everything else is unchanged: Markdown (a tool bar design
+question, then hosting the view entry 89 separated out), the whitespace
+difference (declined, entry 68), and printing (entry 31, the owner's).

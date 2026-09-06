@@ -6,13 +6,6 @@
 #include <texteditor/texteditor.h>
 
 namespace Nim {
-namespace Suggest { class NimSuggestClientRequest; }
-
-class NimTextEditorWidget : public TextEditor::TextEditorWidget
-{
-public:
-    NimTextEditorWidget(QWidget* parent = nullptr);
-};
 
 // Where the symbol under the cursor is defined, for the editor factory.
 TextEditor::TextEditorFactory::LinkFinder nimLinkFinder();

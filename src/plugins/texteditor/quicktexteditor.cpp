@@ -5245,7 +5245,8 @@ private slots:
                              QString("PythonEditor.PythonEditor"),
                              QString("Vcpkg.VcpkgManifestEditor"),
                              QString("QT4.FilesEditor"), QString("java.editor"),
-                             QString("CompilationDatabase.CompilationDatabaseEditor")};
+                             QString("CompilationDatabase.CompilationDatabaseEditor"),
+                             QString("Nim.NimEditor")};
         if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
             expected.removeOne(QString("CppEditor.C++Editor"));
         expected.sort();
@@ -5297,6 +5298,7 @@ private slots:
             {"project.files", true},
             {"Main.java", true},
             {"compile_commands.json", true},
+            {"module.nim", true},
         };
 
         QStringList wrong;
@@ -9421,6 +9423,79 @@ private slots:
     // file builds a QuickTextEditor and looks inside it; this asks whether the
     // view stands on its own, which is what an editor made of more than one
     // pane would need - Markdown's text beside its preview.
+    // setLanguageSettingsId() is a TextEditorWidget function: a widget is
+    // told which language's code style its document should use, and a view
+    // that is not one cannot be told. Either view derives it from the mime
+    // type instead. C++ is where both happen - CppEditorWidget still names
+    // it - so it is where the two answers can be compared.
+    void testDerivingACodeStyleAgreesWithBeingToldIt()
+    {
+        Utils::TemporaryDirectory dir("code-style-either-view");
+        QVERIFY(dir.isValid());
+
+        const auto styleIn = [&dir](bool quick, ICodeStylePreferences **style) {
+            const Utils::FilePath viewDir
+                = dir.filePath(quick ? QString("quick") : QString("widget"));
+            QVERIFY(viewDir.ensureWritableDir());
+            const Utils::FilePath file = viewDir / "main.cpp";
+            QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            QVERIFY(factory);
+            const bool wasQuick = factory->usesQuickEditor();
+            const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+            factory->setUsesQuickEditor(quick);
+
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+            *style = document->codeStyle();
+        };
+
+        ICodeStylePreferences *told = nullptr;
+        ICodeStylePreferences *derived = nullptr;
+        styleIn(false, &told);
+        styleIn(true, &derived);
+
+        QVERIFY2(told, "the widget editor left the document without a code style");
+        QVERIFY2(told != &globalCodeStyle(),
+                 "the widget editor used the generic style, so this compares nothing");
+        QCOMPARE(derived, told);
+    }
+
+    // And the derivation is only as good as the mapping behind it. A language
+    // that registered one gets its own style in the Qt Quick view without any
+    // widget having named it - which is what lets its widget subclass go.
+    void testALanguageThatRegisteredItsMimeTypeGetsItsOwnStyle()
+    {
+        Utils::TemporaryDirectory dir("registered-code-style");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("module.nim");
+        QVERIFY(file.writeFileContents("echo \"hello\"\n"));
+
+        const Utils::Id language
+            = TextEditor::languageId(Utils::mimeTypeForFile(file).name());
+        QVERIFY2(language.isValid(), "the language registered no mime type mapping");
+        ICodeStylePreferencesFactory * const styleFactory = codeStyleFactory(language);
+        QVERIFY2(styleFactory, "the language registered no code style factory");
+        ICodeStylePreferences * const expected = styleFactory->globalCodeStyle();
+        QVERIFY2(expected && expected != &globalCodeStyle(),
+                 "the language's style is the generic one, so this asserts nothing");
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor), "it opened in a widget editor");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(document->codeStyle(), expected);
+    }
+
     void testALanguageWithoutItsOwnHighlighterIsColouredInEitherView_data()
     {
         QTest::addColumn<QString>("fileName");
