@@ -44827,3 +44827,113 @@ In order:
 And unchanged elsewhere: GLSL (the table in entry 93, plus the question about
 its empty outline combo), the whitespace difference (declined, entry 68), and
 printing (entry 31, the owner's).
+
+## 2026-09-06 — Markdown's tool bar is seven actions (batch 95)
+
+Entry 94 stopped short of this and said why: two of the seven buttons are a
+*styled glyph* - an italic "i" and a bold "b" set with `setFont()` - and a
+`QAction` cannot carry a font, so converting them looked like a visible
+regression in the only editor Markdown has.
+
+That framing was half right. It is a regression only if the font has nowhere
+to live, and it has somewhere: the button the **tool bar itself** makes for
+the action.
+
+    void styleGlyph(QAction *action, const std::function<QFont(QFont)> &restyle)
+    {
+        QWidget * const button = m_textEditorWidget->toolBar()->widgetForAction(action);
+        QTC_ASSERT(button, return);
+        button->setFont(restyle(button->font()));
+    }
+
+`QToolBar` creates the button when the action is added, so it exists by the
+time the next line runs. The appearance is byte-for-byte what it was; what
+changed is that the *action* is now the thing the editor holds and hands over,
+and the styling is the widget tool bar's rendering of it.
+
+**A view drawing these itself will still need an answer** - that part of entry
+94 stands, and it is a smaller question than "the tool bar" was: two glyphs,
+not seven buttons.
+
+### The gap this closed
+
+Seven `insertExtraToolBarWidget(QWidget *)` calls, which is the form a view
+that is not a widget has nowhere to put. All seven are
+`insertExtraToolBarAction(QAction *)` now.
+
+`Command::createActionWithShortcutToolTip()` is the exact action
+`createToolButtonWithShortcutToolTip()` wraps - it *is* the same function, one
+level down - so the substitution carries the command's icon, icon text, text
+and shortcut tool tip unchanged. Every later use of the buttons had a `QAction`
+twin: `toggled`, `clicked`→`triggered`, `isChecked`, `toggle`, `setEnabled`,
+`setVisible`, `click`→`trigger`.
+
+Three members went with it. `insertExtraToolBarWidget()` returns the
+`QWidgetAction` it made, which `setWidgetOrder()` needed to reorder the row;
+with plain actions the action *is* that handle, so `m_swapViewsAction`,
+`m_toggleEditorVisibleAction` and `m_togglePreviewVisibleAction` are gone and
+`setWidgetOrder()` reorders the actions themselves.
+
+### Probed rather than assumed
+
+The test needed to know where the actions actually land. `IEditor::toolBar()`
+returns a bare `QWidget` with **no actions on it** - the `QToolBar` is a child
+of it. A throwaway test printed the row:
+
+    action "Emphasis"     iconText "i"  widgetAction false  checkable false
+    action "Strong"       iconText "b"  widgetAction false  checkable false
+    action "Inline Code"  iconText "`"  widgetAction false  checkable false
+    action "Hyperlink"                  widgetAction false  checkable false
+    action ""                           widgetAction true   checkable false
+    action "Show Editor"                widgetAction false  checkable true
+    action "Show Preview"               widgetAction false  checkable true
+    action "Swap Views"                 widgetAction false  checkable false
+
+Three `QWidgetAction`s remain and are `TextEditorWidget`'s own - the encoding
+and line-ending labels - not Markdown's.
+
+Worth keeping: **a `QWidgetAction` carries no text**, so a widget in a tool bar
+is not merely harder to draw elsewhere, it is anonymous. That is why the
+control below reads "not in the toolbar" rather than "still a widget".
+
+### The test
+
+`testTheToolBarIsDescribedByActions` asks for all seven by name, checks none
+is a `QWidgetAction`, checks the two view toggles are checkable - the state a
+view drawing them would read - and then triggers **Strong** over a word and
+compares the line to `**word**`, so the connections are asserted rather than
+just the shapes.
+
+### Controls
+
+- **BC**: the four editing actions inserted as `QToolButton`s again - red with
+  "not in the toolbar: Emphasis, Strong, Inline Code, Hyperlink".
+- **BD**: `setCheckable(true)` dropped from Show Preview - red at "Show
+  Preview cannot be checked".
+- **BE**: the `triggered` connection never made - red at the `**word**`
+  comparison, so that assertion is about behaviour and not about the action
+  existing.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 661 passed, 0 failed (was 660) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown
+
+Only the view swap now. `MarkdownEditor` still needs somewhere to put its
+navigation-history signals, `IContext::attach`, and the `Aggregate` carrying
+`BaseTextFind`, when `m_textEditorWidget` becomes the view entry 89 separated
+out. Nothing in the tool bar blocks it any more.
+
+The two glyphs are a question for whoever draws the Qt Quick tool bar, not a
+blocker: worst case they arrive as a plain "i" and "b" there while the widget
+tool bar keeps its font.
+
+Unchanged elsewhere: GLSL (the table in entry 93, plus the question about its
+empty outline combo), the whitespace difference (declined, entry 68), and
+printing (entry 31, the owner's).

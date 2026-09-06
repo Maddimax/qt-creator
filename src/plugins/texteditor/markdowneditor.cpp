@@ -27,6 +27,8 @@
 #include <utils/temporarydirectory.h>
 
 #include <QScopeGuard>
+#include <QToolBar>
+#include <QWidgetAction>
 #include <QTest>
 #endif
 #include <utils/utilsicons.h>
@@ -37,7 +39,6 @@
 #include <QTextBrowser>
 #include <QTimer>
 #include <QToolBar>
-#include <QToolButton>
 
 #include <optional>
 
@@ -190,53 +191,59 @@ public:
         }
         agg->add(m_widget.get());
 
-        m_togglePreviewVisible = Command::createToolButtonWithShortcutToolTip(TOGGLEPREVIEW_ACTION);
-        m_togglePreviewVisible->defaultAction()->setCheckable(true);
+        m_togglePreviewVisible = Command::createActionWithShortcutToolTip(TOGGLEPREVIEW_ACTION, this);
+        m_togglePreviewVisible->setCheckable(true);
         m_togglePreviewVisible->setChecked(showPreview);
         m_previewWidget->setVisible(showPreview);
 
-        m_toggleEditorVisible = Command::createToolButtonWithShortcutToolTip(TOGGLEEDITOR_ACTION);
-        m_toggleEditorVisible->defaultAction()->setCheckable(true);
+        m_toggleEditorVisible = Command::createActionWithShortcutToolTip(TOGGLEEDITOR_ACTION, this);
+        m_toggleEditorVisible->setCheckable(true);
         m_toggleEditorVisible->setChecked(showEditor);
         m_textEditorWidget->setVisible(showEditor);
 
-        auto button = Command::createToolButtonWithShortcutToolTip(EMPHASIS_ACTION);
-        button->defaultAction()->setIconText("i");
-        button->setFont([button]{ auto f = button->font(); f.setItalic(true); return f; }());
-        connect(button, &QToolButton::clicked, this, &MarkdownEditor::triggerEmphasis);
-        m_markDownButtons.append(button);
-        button = Command::createToolButtonWithShortcutToolTip(STRONG_ACTION);
-        button->defaultAction()->setIconText("b");
-        button->setFont([button]{ auto f = button->font(); f.setBold(true); return f; }());
-        connect(button, &QToolButton::clicked, this, &MarkdownEditor::triggerStrong);
-        m_markDownButtons.append(button);
-        button = Command::createToolButtonWithShortcutToolTip(INLINECODE_ACTION);
-        button->defaultAction()->setIconText("`");
-        connect(button, &QToolButton::clicked, this, &MarkdownEditor::triggerInlineCode);
-        m_markDownButtons.append(button);
-        button = Command::createToolButtonWithShortcutToolTip(LINK_ACTION);
-        button->setIcon(Utils::Icons::LINK_TOOLBAR.icon());
-        connect(button, &QToolButton::clicked, this, &MarkdownEditor::triggerLink);
-        m_markDownButtons.append(button);
-        for (auto button : std::as_const(m_markDownButtons)) {
+        const auto markdownAction = [this](Utils::Id command, const QString &glyph,
+                                           void (MarkdownEditor::*trigger)()) {
+            QAction * const action = Command::createActionWithShortcutToolTip(command, this);
+            if (!glyph.isEmpty())
+                action->setIconText(glyph);
+            connect(action, &QAction::triggered, this, trigger);
+            m_markDownActions.append(action);
+            return action;
+        };
+        QAction * const emphasis = markdownAction(EMPHASIS_ACTION, "i",
+                                                  &MarkdownEditor::triggerEmphasis);
+        QAction * const strong = markdownAction(STRONG_ACTION, "b",
+                                                &MarkdownEditor::triggerStrong);
+        markdownAction(INLINECODE_ACTION, "`", &MarkdownEditor::triggerInlineCode);
+        markdownAction(LINK_ACTION, {}, &MarkdownEditor::triggerLink)
+            ->setIcon(Utils::Icons::LINK_TOOLBAR.icon());
+
+        for (QAction * const action : std::as_const(m_markDownActions)) {
             // do not call setVisible(true) at this point, this destroys the hover effect on macOS
             if (!showEditor)
-                button->setVisible(false);
+                action->setVisible(false);
         }
 
-        for (auto it = m_markDownButtons.rbegin(); it != m_markDownButtons.rend(); ++it)
-            m_textEditorWidget->insertExtraToolBarWidget(TextEditorWidget::Left, *it);
+        for (auto it = m_markDownActions.rbegin(); it != m_markDownActions.rend(); ++it)
+            m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Left, *it);
 
-        m_swapViews = Command::createToolButtonWithShortcutToolTip(SWAPVIEWS_ACTION);
+        // These two are a styled glyph rather than an icon, and a QAction
+        // cannot carry a font - so the button the tool bar made for each is
+        // styled once it exists. A view that draws these itself will need its
+        // own answer; the action is what it will be given.
+        styleGlyph(emphasis, [](QFont f) { f.setItalic(true); return f; });
+        styleGlyph(strong, [](QFont f) { f.setBold(true); return f; });
+
+        m_swapViews = Command::createActionWithShortcutToolTip(SWAPVIEWS_ACTION, this);
         m_swapViews->setEnabled(showEditor && showPreview);
 
-        m_swapViewsAction = m_textEditorWidget->insertExtraToolBarWidget(TextEditorWidget::Right, m_swapViews);
-        m_toggleEditorVisibleAction = m_textEditorWidget->insertExtraToolBarWidget(TextEditorWidget::Right, m_toggleEditorVisible);
-        m_togglePreviewVisibleAction = m_textEditorWidget->insertExtraToolBarWidget(TextEditorWidget::Right, m_togglePreviewVisible);
+        m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Right, m_swapViews);
+        m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Right, m_toggleEditorVisible);
+        m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Right, m_togglePreviewVisible);
         setWidgetOrder(textEditorRight);
 
         const auto viewToggled =
-            [this](QWidget *view, bool visible, QWidget *otherView, QToolButton *otherButton) {
+            [this](QWidget *view, bool visible, QWidget *otherView, QAction *otherAction) {
                 if (view->isVisible() == visible)
                     return;
                 view->setVisible(visible);
@@ -246,7 +253,7 @@ public:
                     otherView->setFocus();
                 } else {
                     // make sure at least one view is visible
-                    otherButton->toggle();
+                    otherAction->toggle();
                 }
                 m_swapViews->setEnabled(view->isVisible() && otherView->isVisible());
             };
@@ -261,22 +268,22 @@ public:
         };
 
         connect(m_toggleEditorVisible,
-                &QToolButton::toggled,
+                &QAction::toggled,
                 this,
                 [this, viewToggled, saveViewSettings](bool visible) {
                     viewToggled(m_textEditorWidget,
                                 visible,
                                 m_previewWidget,
                                 m_togglePreviewVisible);
-                    for (auto button : std::as_const(m_markDownButtons))
-                        button->setVisible(visible);
+                    for (QAction * const action : std::as_const(m_markDownActions))
+                        action->setVisible(visible);
                     if (visible)
                         flushHighlights(m_editorHighlight);
                     saveViewSettings();
                 });
         connect(
             m_togglePreviewVisible,
-            &QToolButton::toggled,
+            &QAction::toggled,
             this,
             [this, viewToggled, saveViewSettings](bool visible) {
                 viewToggled(m_previewWidget, visible, m_textEditorWidget, m_toggleEditorVisible);
@@ -289,7 +296,7 @@ public:
                 saveViewSettings();
             });
 
-        connect(m_swapViews, &QToolButton::clicked, m_textEditorWidget, [this] {
+        connect(m_swapViews, &QAction::triggered, m_textEditorWidget, [this] {
             const bool textEditorRight = isTextEditorRight();
             setWidgetOrder(!textEditorRight);
             // save settings
@@ -389,9 +396,18 @@ public:
         });
     }
 
+    // Restyles the tool bar's own button for \a action, which is the only
+    // place a font can live once the tool bar is described by actions.
+    void styleGlyph(QAction *action, const std::function<QFont(QFont)> &restyle)
+    {
+        QWidget * const button = m_textEditorWidget->toolBar()->widgetForAction(action);
+        QTC_ASSERT(button, return);
+        button->setFont(restyle(button->font()));
+    }
+
     void toggleEditor() { m_toggleEditorVisible->toggle(); }
     void togglePreview() { m_togglePreviewVisible->toggle(); }
-    void swapViews() { m_swapViews->click(); }
+    void swapViews() { m_swapViews->trigger(); }
 
     void increasePreviewZoom() { m_previewWidget->increaseZoom(); }
     void decreasePreviewZoom() { m_previewWidget->decreaseZoom(); }
@@ -409,10 +425,10 @@ public:
         m_splitter->insertWidget(0, left);
         m_splitter->insertWidget(1, right);
         // buttons
-        const auto leftAction = textEditorRight ? m_togglePreviewVisibleAction : m_toggleEditorVisibleAction;
-        const auto rightAction = textEditorRight ? m_toggleEditorVisibleAction : m_togglePreviewVisibleAction;
-        m_textEditorWidget->toolBar()->insertAction(m_swapViewsAction, leftAction);
-        m_textEditorWidget->toolBar()->insertAction(m_swapViewsAction, rightAction);
+        const auto leftAction = textEditorRight ? m_togglePreviewVisible : m_toggleEditorVisible;
+        const auto rightAction = textEditorRight ? m_toggleEditorVisible : m_togglePreviewVisible;
+        m_textEditorWidget->toolBar()->insertAction(m_swapViews, leftAction);
+        m_textEditorWidget->toolBar()->insertAction(m_swapViews, rightAction);
     }
 
     void gotoLine(int line, int column, bool centerLine) override
@@ -568,13 +584,10 @@ private:
     Utils::MarkdownBrowser *m_previewWidget;
     TextEditorWidget *m_textEditorWidget;
     TextDocumentPtr m_document;
-    QList<QToolButton *> m_markDownButtons;
-    QToolButton *m_toggleEditorVisible;
-    QToolButton *m_togglePreviewVisible;
-    QToolButton *m_swapViews;
-    QAction *m_toggleEditorVisibleAction;
-    QAction *m_togglePreviewVisibleAction;
-    QAction *m_swapViewsAction;
+    QList<QAction *> m_markDownActions;
+    QAction *m_toggleEditorVisible;
+    QAction *m_togglePreviewVisible;
+    QAction *m_swapViews;
     std::optional<QPoint> m_previewRestoreScrollPosition;
     QByteArray m_savedNavigationState;
     MirroredHighlight m_editorHighlight;
@@ -719,6 +732,61 @@ class MarkdownEditorTest : public QObject
     Q_OBJECT
 
 private slots:
+    // The tool bar used to be seven QToolButtons handed to
+    // insertExtraToolBarWidget(), which a view that is not a widget has
+    // nowhere to put. It is seven QActions now.
+    void testTheToolBarIsDescribedByActions()
+    {
+        Utils::TemporaryDirectory dir("markdown-toolbar");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("doc.md");
+        QVERIFY(file.writeFileContents("word\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QWidget * const bar = editor->toolBar();
+        QVERIFY(bar);
+        QToolBar * const toolBar = bar->findChild<QToolBar *>();
+        QVERIFY2(toolBar, "the editor's toolbar row holds no toolbar");
+
+        QHash<QString, QAction *> byText;
+        for (QAction * const action : toolBar->actions())
+            byText.insert(action->text(), action);
+
+        const QStringList expected{"Emphasis", "Strong", "Inline Code", "Hyperlink",
+                                   "Show Editor", "Show Preview", "Swap Views"};
+        QStringList missing;
+        QStringList asWidgets;
+        for (const QString &name : expected) {
+            QAction * const action = byText.value(name);
+            if (!action)
+                missing << name;
+            else if (qobject_cast<QWidgetAction *>(action))
+                asWidgets << name;
+        }
+        QVERIFY2(missing.isEmpty(), qPrintable("not in the toolbar: " + missing.join(", ")));
+        QVERIFY2(asWidgets.isEmpty(),
+                 qPrintable("still a widget the toolbar cannot describe: " + asWidgets.join(", ")));
+
+        // The two that say which views are showing carry that state
+        // themselves, which is what a view drawing them would read.
+        QVERIFY2(byText.value("Show Editor")->isCheckable(), "Show Editor cannot be checked");
+        QVERIFY2(byText.value("Show Preview")->isCheckable(), "Show Preview cannot be checked");
+
+        // And the actions still do what the buttons did.
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QTextCursor cursor(document->document());
+        cursor.select(QTextCursor::WordUnderCursor);
+        cursor.setPosition(0);
+        cursor.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
+        TextEditor::setTextCursorOf(editor, cursor);
+        byText.value("Strong")->trigger();
+        QCOMPARE(document->document()->findBlockByNumber(0).text(), QString("**word**"));
+    }
+
     void testFollowingALinkNeedsNoEditorWidget()
     {
         Utils::TemporaryDirectory dir("markdown-links");
