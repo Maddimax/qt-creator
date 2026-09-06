@@ -333,8 +333,13 @@ void EmacsKeysPlugin::insertLineAndIndent()
     QTextCursor cursor = textCursorOf(m_currentEditor);
     cursor.beginEditBlock();
     cursor.insertBlock();
-    if (m_currentBaseTextEditorWidget)
-        m_currentBaseTextEditorWidget->textDocument()->autoIndent(cursor);
+    // The document rather than the widget: indenting is the language's and the
+    // document carries it, so this is the half of C-j that used to be skipped
+    // in a view that is not a QPlainTextEdit.
+    if (auto * const document
+        = qobject_cast<TextEditor::TextDocument *>(m_currentEditor->document())) {
+        document->autoIndent(cursor);
+    }
     cursor.endEditBlock();
     setTextCursorOf(m_currentEditor, cursor);
     m_currentState->endOwnAction(KeysActionOther);
@@ -444,6 +449,55 @@ private slots:
                      qPrintable("the line was not killed:\n" + document->plainText()));
         QVERIFY2(document->plainText().contains("int alpha = 1;"),
                  "the wrong line was killed");
+    }
+
+    void testInsertLineAndIndentIndents_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // C-j is "insert a new line *and indent it*". The indenting was the one
+    // thing here still asking the editor for a TextEditorWidget, and a Qt
+    // Quick editor has none - so on a C++ file C-j was a plain Return.
+    void testInsertLineAndIndentIndents()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("emacskeys-indent");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("indent.cpp");
+        QVERIFY(file.writeFileContents("void f()\n{\n    int a;\n}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        const QScopeGuard closeAll([] { EditorManager::closeAllEditors(false); });
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // At the end of "    int a;", inside the braces: the line C-j makes
+        // belongs at the same indent, and a plain Return would leave it at
+        // column zero.
+        editor->gotoLine(3, 10);
+        QCOMPARE(textCursorOf(editor).positionInBlock(), 10);
+
+        Command * const cmd = ActionManager::command(Constants::INSERT_LINE_AND_INDENT);
+        QVERIFY(cmd && cmd->action());
+        cmd->action()->trigger();
+
+        QTRY_COMPARE(document->document()->blockCount(), 6);
+        const QString made = document->document()->findBlockByNumber(3).text();
+        QVERIFY2(made.startsWith("    "),
+                 qPrintable(QString("the new line came out as [%1]").arg(made)));
+        QCOMPARE(textCursorOf(editor).blockNumber(), 3);
     }
 };
 

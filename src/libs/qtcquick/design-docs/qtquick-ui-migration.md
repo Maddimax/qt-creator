@@ -50005,3 +50005,113 @@ If work is still wanted, the honest options are **moving QmlJS** - which is a
 project of its own, with the context pane as its last item - or **a Linux run**
 to settle items 1 and 2. Neither is a batch of the kind this document has been
 doing.
+
+## 2026-09-07 — A census of who reaches for a widget (batch 146)
+
+Entry 145 said there was nothing left that measuring can reach, with the list
+as the argument. **The list was of the wrong thing.** It listed the *seams
+walked*; it did not list **who, outside this plugin, asks an editor for a
+`TextEditorWidget`** - and every such caller is a feature that quietly does
+nothing when the editor is a Qt Quick one, which for a C++ file it now is.
+
+Forty-one files ask. Almost all are already answered - which is itself the
+finding, and the reason to write the census down rather than the result.
+
+| Asked and already ported, with a test | |
+| --- | --- |
+| `editorconfiguration`, `instantblame`, `clangformat`, `documentclangtoolrunner`, `classviewmanager`, `callgrindtool`, `chatinputcompletion`, `mcpcommands`, `watchhandler` | each has a `QVERIFY2(!TextEditorWidget::fromEditor(...))` of its own |
+| `fakevimplugin` | ported through a `ViewportAdapter` and an `EditHandler` |
+| `emacskeysplugin` | ported to `textCursorOf()`/`setTextCursorOf()` - **except two lines** |
+
+| Asked and correctly so | |
+| --- | --- |
+| `sourceagent`, `disassembleragent` | the debugger's own editors, which it builds as widgets |
+| `lua/bindings/texteditor` | `addToolbarWidget()`, a widget API by definition |
+| the CppEditor files | the widget half of paths that have a Quick half beside them (entry 119) |
+
+### The gap
+
+EmacsKeys' `insertLineAndIndent()` - **C-j**, "insert a new line *and indent
+it*":
+
+```cpp
+if (m_currentBaseTextEditorWidget)
+    m_currentBaseTextEditorWidget->textDocument()->autoIndent(cursor);
+```
+
+Guarded, so in a Qt Quick editor it simply did not indent: **C-j on a C++ file
+was a plain Return.** Measured - the widget row of the new test puts the new
+line at four spaces, the quick row put it at column zero.
+
+The fix is the shape every seam in this document ended up taking: it is asking
+the *widget* for the **document**, and the document is on the editor.
+`qobject_cast<TextDocument *>(editor->document())->autoIndent(cursor)`.
+
+### The other line, left alone and why
+
+`genericGoto()` calls `abortAssist()` on the widget, so a completion popup is
+not dismissed on the spot when C-f or C-b moves the caret in a Quick editor.
+
+Left, because it is a difference rather than a defect: `CompletionPopup.qml`
+closes on Escape, on a press outside, and as soon as the prefix stops matching
+anything - so moving the caret away does close it, by its own rule rather than
+on demand. An `abortAssist` equivalent would be a new invokable plus QML wiring
+for that difference in timing. Recorded rather than done, and it is the only
+`TextEditorWidget` this plugin still holds.
+
+### Controls
+
+- **GA**: the indent asking the widget again - red on the **quick** row only,
+  which is the gap reproduced.
+- **GB**: nothing indenting at all - red on **both** rows, which is what says
+  the widget row was not passing for some other reason.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 711 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test EmacsKeys` | 0 | 5 passed, 0 failed (was 3) |
+
+No `.qbs` change: no files added.
+
+### What entry 145 got wrong, and the rule
+
+Entry 145's list was complete for what it covered and did not cover the right
+thing. Walking `TextEditorWidget`'s *own* seams says what the widget does;
+it says nothing about **what other people do to it**. Those are different
+questions and only the second one finds a plugin whose whole feature is dead.
+
+> **A census of the implementation is not a census of its callers.** When the
+> question is "what breaks if this is replaced", the callers are the census.
+
+Three of the last four entries have ended with "nothing left" or a proposal
+that needed checking. This is the second time the claim was wrong, and both
+times the thing that found the gap was a grep nobody had run rather than a
+seam nobody had read.
+
+### Where this leaves it
+
+1. **`abortAssist` on a caret move** - above, a difference in timing.
+2. **Middle-click paste** - needs a Linux run.
+3. **The `Cursor` attribute while composing** - unmeasurable here.
+4. **`canInsertFromMimeData`** - nothing overrides it yet.
+5. **The link press/release handshake** - a difference, not a defect.
+6. **QmlJS's context pane** - belongs to moving QmlJS, entry 145.
+7. **The whitespace drawing difference** - declined, entry 68.
+8. **Printing** - entry 31.
+9. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+**Finish the caller census properly, as a test.** This batch read forty-one
+files by hand and found one gap; what it did not do is leave anything behind
+that fails when the forty-second appears. The artefact that would is the same
+shape as entry 124's: a test that walks the plugins' registered commands over a
+C++ file in the Qt Quick editor and asserts that each one *changes something* -
+because "does nothing at all" is exactly what a null `TextEditorWidget`
+produces, and it is invisible to every test that only exercises the widget.
+
+That is a bigger and better artefact than another hand-read, and it is the one
+thing on this list that would have caught today's gap without anybody looking.
