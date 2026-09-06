@@ -5243,7 +5243,9 @@ private slots:
                              QString("Editors.Json"), QString("Qt4.proFileEditor"),
                              QString("CMakeProject.CMakeEditor"),
                              QString("PythonEditor.PythonEditor"),
-                             QString("Vcpkg.VcpkgManifestEditor")};
+                             QString("Vcpkg.VcpkgManifestEditor"),
+                             QString("QT4.FilesEditor"), QString("java.editor"),
+                             QString("CompilationDatabase.CompilationDatabaseEditor")};
         if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
             expected.removeOne(QString("CppEditor.C++Editor"));
         expected.sort();
@@ -5290,6 +5292,11 @@ private slots:
             // which are an editor decorator now, so the factory no longer
             // needs a widget to hang them on.
             {"vcpkg.json", true},
+            // Three factories that configured nothing only a widget could
+            // read, and so had nothing to port.
+            {"project.files", true},
+            {"Main.java", true},
+            {"compile_commands.json", true},
         };
 
         QStringList wrong;
@@ -10821,6 +10828,53 @@ private slots:
         QCOMPARE(text->lastBlock().text(), QString("alphabetical"));
         QVERIFY2(!text->lastBlock().text().contains("alphalph"),
                  "the completion was appended to the prefix instead of replacing it");
+    }
+
+    // The provider above is the one every text file gets, which proposes the
+    // words already in the file. A language that hands its factory a fixed
+    // keyword list is a different route to the same view: the factory's
+    // provider has to reach the document, and the words have to be the
+    // language's rather than the file's.
+    void testAFactorysKeywordsAreOfferedInTheQuickView()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-keywords");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Main.java");
+        // "impl" is in no word of this file, so anything proposed for it came
+        // from the keyword list rather than from the text.
+        QVERIFY(file.writeFileContents("class Main {\n}\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "nothing opened a .java file");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the .java file opened in a widget editor");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(document->completionAssistProvider(),
+                 "the factory's keywords never reached the document");
+
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY(view);
+
+        QTextDocument * const text = document->document();
+        QTextCursor cursor(text);
+        cursor.setPosition(text->characterCount() - 1);
+        cursor.insertText("impl");
+        view->setTextCursor(cursor);
+        QCOMPARE(view->completionPrefix(), QString("impl"));
+
+        QStringList candidates;
+        connect(view, &TextViewport::completionsAvailable, view,
+                [&candidates](const QStringList &proposed, const QString &) {
+                    candidates = proposed;
+                });
+        view->requestCompletions();
+        QTRY_VERIFY2(!candidates.isEmpty(), "the language proposed nothing at all");
+        QVERIFY2(candidates.contains("implements"),
+                 qPrintable("proposed: " + candidates.join(", ")));
     }
 
     // C++ keeps nothing on its editor factory - CppEditorDocument installs the

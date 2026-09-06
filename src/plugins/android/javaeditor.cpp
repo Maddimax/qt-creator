@@ -95,6 +95,9 @@ public:
         addMimeType(Utils::Constants::JAVA_MIMETYPE);
 
         setDocumentCreator(createJavaDocument);
+        // Highlighting, comment markers, the action mask and the keyword
+        // completions are all read by either view.
+        setUsesQuickEditor(true);
         setUseGenericHighlighter(true);
         setCommentDefinition(Utils::CommentDefinition::CppStyle);
         setOptionalActionMask(TextEditor::OptionalActions::UnCommentSelection);

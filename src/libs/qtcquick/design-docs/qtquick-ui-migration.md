@@ -44408,3 +44408,96 @@ to go" pass, and none has been given it.
 Otherwise unchanged: Markdown (a tool bar design question, then hosting the
 view entry 89 separated out), the whitespace difference (declined, entry 68),
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — The three factories that had nothing to port (batch 91)
+
+Entry 90 named `GenericProject` as the last of entry 53's list and turned up
+GLSL, Java, Nim and the compilation-database editor beside it. Three of those
+five turned out to configure nothing that only a widget can read, so they move
+together.
+
+### Which gap each closed
+
+None in `TextEditor`. **The gap in each case was that nobody had asked** —
+the factory never said `setUsesQuickEditor(true)`, and the reason no entry had
+looked was entry 53's "converting another language is a new project", which
+entry 90 already recorded as stale.
+
+| Factory | What it configures | Where it goes |
+| --- | --- | --- |
+| `QT4.FilesEditor` | a document creator, an empty action mask | both views |
+| `java.editor` | generic highlighter, `CppStyle` comments, action mask, a keyword completion provider | both views |
+| `CompilationDatabase.CompilationDatabaseEditor` | generic highlighter, `HashStyle` comments, code folding | both views |
+
+`.files`, `.includes`, `.config`, `.cxxflags`, `.cflags`, `.java` and
+`compile_commands.json` open in `TextViewport` now. Both censuses changed in
+the same commit, and `compile_commands.json` is worth a line of its own: the
+JSON factory claims `application/json` and moved in entry 80, but the
+compilation database's glob carries `weight='100'`, so it wins and had to be
+switched separately - the same trap `vcpkg.json` was in entry 90.
+
+The compilation-database factory also had
+
+    setEditorCreator([] { return new TextEditor::BaseTextEditor; });
+    setEditorWidgetCreator([] { return new TextEditor::TextEditorWidget; });
+
+which are the defaults, and which the Qt Quick path does not consult at all.
+Removed rather than left to read as though they meant something.
+
+### The one assertion that was missing
+
+`testTheEditorOffersWhatTheLanguageProposes` already drives a completion to
+proposals in the Qt Quick view, but through the provider *every* text file
+gets - the one that proposes words already in the file. No test asked whether
+a **provider the factory hands over** gets there, which is the only interesting
+thing on the Java factory and is also on CMake's, moved in entry 84 without
+anyone checking.
+
+`testAFactorysKeywordsAreOfferedInTheQuickView` types `impl` into a
+`Main.java` containing no word with those letters, and checks `implements`
+comes back.
+
+The prefix choice is the whole test. Control AT took the keyword list off the
+factory and the test went red with
+
+    proposed: global example, class, Main
+
+- the fallback provider offering the file's own words. A prefix that matched
+something in the file would have passed that control, and the test would have
+been asserting nothing.
+
+### Controls
+
+- **AT**: `setCompletionAssistProvider` removed from the Java factory - red at
+  `implements`, with the fallback's proposals named in the message.
+- **AU**: all three factories back to `setUsesQuickEditor(false)` - both
+  censuses red, naming all three, and the keyword test red at "the .java file
+  opened in a widget editor".
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 654 passed, 0 failed (was 653) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CompilationDatabaseProjectManager` | 0 | 13 passed, 0 failed |
+| `-test Android` | 0 | 57 passed, 0 failed |
+
+`GenericProjectManager` has no tests. No `.qbs` change: no files added.
+
+### What is left
+
+Two of entry 90's five, and both have something to port:
+
+1. **Nim** - `NimTextEditorWidget` subclasses `TextEditorWidget` to answer
+   follow-symbol out of `nimsuggest`. That is the `setLinkFinder()` seam CMake
+   used in entry 84, so the shape is known; it is a batch, not a line.
+2. **GLSL** - this document already names it three times as widget-only: once
+   among the editors whose tests pass if only the totals are looked at, and
+   twice in tables of languages kept on the widget path for their combo boxes
+   and their outline. Worth a measurement of its own before anyone promises
+   it; none of those three mentions is recent.
+
+Otherwise unchanged: Markdown (a tool bar design question, then hosting the
+view entry 89 separated out), the whitespace difference (declined, entry 68),
+and printing (entry 31, the owner's).

@@ -485,8 +485,9 @@ public:
         setDisplayName(Tr::tr("Compilation Database"));
         addMimeType(Constants::COMPILATIONDATABASEMIMETYPE);
 
-        setEditorCreator([] { return new TextEditor::BaseTextEditor; });
-        setEditorWidgetCreator([] { return new TextEditor::TextEditorWidget; });
+        // The two creators this had were the defaults, which the Qt Quick
+        // path does not consult at all.
+        setUsesQuickEditor(true);
         setDocumentCreator(createCompilationDatabaseDocument);
         setUseGenericHighlighter(true);
         setCommentDefinition(Utils::CommentDefinition::HashStyle);

@@ -27,6 +27,9 @@ public:
 
         setDocumentCreator([]() { return new TextDocument(Constants::FILES_EDITOR_ID); });
         setOptionalActionMask(OptionalActions::None);
+        // A list of file names, and nothing on this factory that only a
+        // widget could read.
+        setUsesQuickEditor(true);
     }
 };
 
