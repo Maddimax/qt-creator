@@ -9073,6 +9073,93 @@ private slots:
         QVERIFY2(drawn().isEmpty(), "the greying outlived the #if that caused it");
     }
 
+    // The languages still in the widget editor whose own factory can be
+    // flipped. Entry 69 measured three costs to moving them - Python and JSON
+    // indenting differently on Return, .pro commenting in a different place.
+    // Re-measured here, and asserted, because a cost recorded once and never
+    // rechecked is how this file has been wrong before.
+    void testMovingALanguageWouldChangeNothing_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<QString>("start");
+        QTest::newRow("python") << "m.py" << "def f():\n    x = 1\n";
+        QTest::newRow("json") << "m.json" << "{\n    \"a\": 1\n}\n";
+        QTest::newRow("qmake project") << "m.pro" << "TEMPLATE = app\n    SOURCES = a.cpp\n";
+    }
+
+    void testMovingALanguageWouldChangeNothing()
+    {
+        QFETCH(QString, name);
+        QFETCH(QString, start);
+
+        Utils::TemporaryDirectory dir("move-costs");
+        QVERIFY(dir.isValid());
+
+        const auto edited = [&dir, &name, &start](bool quick, QString *out) {
+            const Utils::FilePath file = dir.filePath((quick ? "q_" : "w_") + name);
+            QVERIFY(file.writeFileContents(start.toUtf8()));
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            QVERIFY(factory);
+            const bool was = factory->usesQuickEditor();
+            const QScopeGuard restore([factory, was] { factory->setUsesQuickEditor(was); });
+            factory->setUsesQuickEditor(quick);
+
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            // Flipping the factory has to be what decides the view, or the row
+            // is measuring two editors of the same kind.
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+
+            QTextCursor at(document->document());
+            at.setPosition(document->document()->findBlockByNumber(1).position() + 4);
+            TextEditor::setTextCursorOf(editor, at);
+            QObject * const target = TextEditor::keyTargetOf(editor);
+            QVERIFY(target);
+
+            for (const QChar ch : QString("\nvalue_here#\nzz_")) {
+                if (ch == '#') {
+                    if (TextEditorWidget * const w = TextEditorWidget::fromEditor(editor))
+                        w->unCommentSelection();
+                    else if (TextViewport * const v = Internal::viewportForEditor(editor))
+                        v->unCommentSelection();
+                    continue;
+                }
+                if (ch == '_') {
+                    const QKeySequence seq(QKeySequence::DeleteStartOfWord);
+                    QVERIFY(seq.count() > 0);
+                    const QKeyCombination combination = seq[0];
+                    QKeyEvent press(QEvent::KeyPress, combination.key(),
+                                    combination.keyboardModifiers());
+                    QCoreApplication::sendEvent(target, &press);
+                    continue;
+                }
+                int key = Qt::Key_unknown;
+                QString typed(ch);
+                if (ch == '\n') { key = Qt::Key_Return; typed = "\r"; }
+                QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, typed);
+                QCoreApplication::sendEvent(target, &press);
+            }
+            *out = document->plainText();
+        };
+
+        QString widgetText;
+        QString quickText;
+        edited(false, &widgetText);
+        edited(true, &quickText);
+
+        // A QVERIFY inside the lambda returns from the lambda alone, so an
+        // early bail leaves the string empty and two empties compare equal.
+        QVERIFY2(!widgetText.isEmpty(), "the widget editor produced nothing");
+        QVERIFY2(!quickText.isEmpty(), "the Qt Quick editor produced nothing");
+        QVERIFY2(widgetText != start, "nothing was edited, so this compares nothing");
+
+        QCOMPARE(quickText, widgetText);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

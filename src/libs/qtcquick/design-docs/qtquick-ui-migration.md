@@ -42922,3 +42922,115 @@ is the one thing never attempted: **moving a second language and seeing what
 happens**, with entry 69's three measured costs as the starting point.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — The audit ends, and three recorded costs turn out not to exist (batch 76)
+
+Entry 75 left four `TextBlockUserData` candidates and then, after them, the
+one thing never attempted: moving a second language. Both are here.
+
+### `TextBlockUserData` is finished, and all four were nothing
+
+- **`addEmbeddedWidget` / `removeEmbeddedWidget`** - both views support
+  embedded widgets; they reserve the space differently. The widget records
+  them on the block, `insertWidgetInViewport()` uses `setRowSpacers()`.
+  Different bookkeeping for the same feature.
+- **`additionalAnnotationHeight`** - set in exactly one place, by the widget,
+  and read by the widget. Its own layout arithmetic.
+- **`braceDepth`** - one use in the whole widget, and it is inside `#if 0`.
+  Dead in both views.
+
+With that, **entry 64's document audit is complete**: signals (entries 73,
+74), and now block data. Two defects came out of it, one of them the worst in
+the sequence.
+
+### The three move costs from entry 69 do not reproduce
+
+Entry 69 flipped each widget-editor language's factory to Qt Quick and
+recorded three costs: Python and JSON indenting differently on Return, `.pro`
+commenting in a different place. Re-measured today with the same script:
+
+    m.py    ok
+    m.json  ok
+    m.pro   ok
+
+**All three agree.** The diagnosis went the other way round from the usual: the
+indenters are the same object in both views (`PythonIndenter`,
+`CppQtStyleIndenter`), the auto-completers are the same, and splitting a line
+by hand - `insertBlock()` or `insertText("\n")`, both were tried - gives the
+same text in both. There was nothing left for the difference to be in, and
+sending a real Return confirmed there is none.
+
+**Why it changed is not established, and is not claimed.** Entries 71 and 73
+each wrote down a mechanism that had survived elimination rather than been
+measured, and both were wrong; the honest statement here is that the costs
+were real when recorded, are absent now, and no batch since claimed to touch
+this path.
+
+What that does say is worth stating: **a cost recorded once and not rechecked
+is a liability.** Entry 69's three were quoted as current in four later
+entries.
+
+### The other two languages could not be flipped this way
+
+`CMakeLists.txt` and `.md` came back empty on both sides. Not a divergence -
+`preferredFactoryFor()` answers `Core.PlainTextEditor` for both, so flipping
+that factory does not decide which editor opens them: `CMakeProject.CMakeEditor`
+and `Editors.MarkdownViewer` claim the mime type and win. The row bailed at
+its own guard.
+
+The guard is the point. Entry 69 recorded both as `same`, which they were - two
+editors that both did nothing agree. The test written this batch refuses that:
+
+```cpp
+QVERIFY2(!widgetText.isEmpty(), "the widget editor produced nothing");
+QVERIFY2(!quickText.isEmpty(), "the Qt Quick editor produced nothing");
+QVERIFY2(widgetText != start, "nothing was edited, so this compares nothing");
+```
+
+A `QVERIFY` inside a lambda returns from the lambda alone, so an early bail
+leaves the string empty, and two empties compare equal. That trap has now cost
+this project a compile error (entry 66), a false `same` (entry 69) and a
+vacuous comparison (entry 68).
+
+### The deliverable
+
+`testMovingALanguageWouldChangeNothing` asserts what entry 69 measured and
+never checked again: Python, JSON and qmake project files edit identically in
+either view. **That is the evidence needed to move any of the three**, and it
+now fails if it stops being true.
+
+### Controls
+
+- **AA**: the language's comment definition ignored in `TextViewport` - red in
+  **python** and **qmake project**, green in **json**. Exactly right: JSON's
+  factory sets no comment definition, so its marker comes from the highlighter
+  and is not affected. A control that reddens two of three rows and can say
+  why is worth more than one that reddens all three.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 642 passed, 0 failed (was 639) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change and no production code changed: the deliverable is the
+finished audit and three costs retired.
+
+### What is left
+
+**Every surface this file knows how to ask about has now been asked.** The
+factory, the settings, the commands, the document's signals, its block data,
+ordinary editing in twelve languages, and the cost of moving three more.
+
+What remains is not another audit:
+
+1. **Move Python, JSON or `.pro`** - the evidence is now written down and
+   enforced. This is a decision, not an investigation.
+2. `CMakeLists.txt` and Markdown need their own factories flipped, not the
+   plain text one; nobody has measured those.
+3. The whitespace drawing difference from entry 68 - `↵` and the end-of-file
+   glyph - still declined, still recorded.
+
+The printing decision (keep / drop / move) remains the owner's call, and is
+now one of two open decisions rather than the only one.
