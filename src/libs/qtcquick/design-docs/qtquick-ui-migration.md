@@ -42412,3 +42412,100 @@ list, in the order I would take it:
 4. The document audit from entry 64, untouched.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Undo's caret: two causes eliminated, none found (batch 71)
+
+Entry 70 named this the next batch and it was right to. **It is not fixed.**
+Two mechanisms were proposed, implemented and measured away. That is the
+result, and it is worth as much space as a fix would have been, because the
+next attempt starts with two things crossed off and a much sharper question.
+
+### The measurement that frames it
+
+Both views run **the same call** on the same document with the same incoming
+position, and land in different places:
+
+    widget   WidgetTextControl::undo()   doc->undo(&cursor)   in=16  out=14
+    quick    TextViewport::undo()        doc->undo(&cursor)   in=16  out=3
+
+Identical text before and after. So the difference is not in the undo code at
+all - it is in the **undo stack the typing built**, and `QTextDocument::undo()`
+is only reporting it.
+
+A caveat found on the way: `TextEditorWidget::undo()` is **not** what the undo
+key reaches. The key goes to `PlainTextEdit` and on to
+`WidgetTextControl::undo()`; `TextEditorWidget::undo()` is the *command*
+path. Instrumenting the obvious function printed nothing, twice, before that
+was noticed. Anything comparing undo in the two views has to say which of the
+widget's two paths it means.
+
+### Eliminated: the edit block's cursor
+
+`QTextCursor::beginEditBlock()` records the position of the cursor that opened
+it, and `applyToEveryCaret()` opened its block on `carets.first()` while
+`MultiTextCursor::insertText()` opens on `m_cursorList.back()` - the main one.
+That is a real difference and it looked like the answer.
+
+Changed to `carets.last()`. **The symptom did not move.** Reverted.
+
+### Eliminated: the order the carets are edited in
+
+`applyToEveryCaret()` sorted the carets by position, descending, so the lowest
+position was edited last; `MultiTextCursor::insertText()` walks its list in
+the order the carets were made, so the *main* one is edited last. If undo
+leaves the caret where the last edit of the block was, that would explain 3
+against 14 exactly.
+
+Changed to walk the list in order. The whole `-test TextEditor` suite stayed
+green, so the sort is not load-bearing for anything else - and **the landing
+position was still 3, byte for byte.** Reverted.
+
+That second one is the more useful elimination: it rules out *both* the order
+and the "undo lands on the last edit" model of what
+`QTextDocument::undo(QTextCursor *)` does.
+
+### What is left to look at
+
+The two documents hold different undo stacks for identical text, so the
+difference is in what each view puts *into* the block while typing.
+`TextViewport::insertTypedText()` does more than insert: it probes the
+auto-completer, calls `takeOverwrittenCharacter()`, and sets the
+auto-completed range. Each of those can add an operation to the open block,
+and the block's contents are what undo walks.
+
+**The next attempt should start by dumping the block's operations rather than
+by proposing a mechanism.** Two proposals have now cost a batch between them;
+neither survived contact, and both would have been settled in minutes by
+looking at what is actually on the stack.
+
+### Nothing was changed
+
+`git status` is clean apart from this file. Both attempted fixes were reverted
+- neither moved the symptom, and entry 63 already recorded what keeping such a
+change costs: the control cannot bite, so nothing afterwards can tell whether
+it mattered.
+
+The `QEXPECT_FAIL` from entry 70 still marks the row, still runs it, and still
+fails the run if it ever passes.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 634 passed, 0 failed, 1 expected failure |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+### What is left
+
+1. **Undo's caret placement**, still. Live, still the only known live one,
+   now with two causes eliminated and a named place to look.
+2. The three move costs from entry 69 (Python, JSON, `.pro`), latent.
+3. The whitespace drawing difference from entry 68, latent and declined.
+4. The document audit from entry 64, untouched.
+
+Item 1 is worth one more batch on the evidence above. If dumping the undo
+stack does not name the cause quickly, it is worth saying so and moving to
+(4), which is the largest untouched surface and has never been looked at at
+all.
+
+The printing decision (keep / drop / move) remains the owner's call.
