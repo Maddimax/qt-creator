@@ -4411,8 +4411,20 @@ private slots:
         // What is still missing, written down with why, so that the list
         // shrinking is a deliberate act and the list growing is a failure.
         //
-        // Print is not a gap: Core puts it in the File menu disabled and with
-        // no handler, and neither editor implements it.
+        // Print *is* a gap, and this comment used to say it was not. Core puts
+        // the entry in the File menu disabled and with no handler, which is
+        // true and is only half of it: TextEditorWidget registers Print in its
+        // own editor context with a working handler, so File > Print prints a
+        // file open in a widget editor and does nothing for one open in this
+        // view. Measured, not read - registered=1 enabled=1 against
+        // registered=0.
+        //
+        // Left open rather than closed, and the reason is this branch:
+        // printing needs QPrinter, QPrinter needs Qt::PrintSupport, and
+        // "utils-drop-printsupport" exists to remove that dependency.
+        // Implementing Print here would add back what the branch is for.
+        // Whether the text editor keeps printing at all is a decision for
+        // whoever owns it, not for a test comment.
         const QStringList knownMissing{"QtCreator.Print"};
         QStringList missing = QStringList((widget - quick).begin(), (widget - quick).end());
         missing.sort();

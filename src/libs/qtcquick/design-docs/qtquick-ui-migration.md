@@ -40121,3 +40121,89 @@ differential suites cover typing, undo, redo, the clipboard, find, focus, the
 mouse, dropping text, and twenty-three editing commands. **A batch asked for
 after this one should be told that, rather than given work invented to fill
 it.**
+
+## 2026-09-06 (51) -- Print is a gap, and entry 31 said it was not
+
+Entry 50 said the migration list was empty. Before writing that again, the
+branch's own name was worth a look: **utils-drop-printsupport**, and
+
+    src/plugins/texteditor/CMakeLists.txt:15
+      DEPENDS Qt::Concurrent Qt::Network Qt::PrintSupport Qt::Xml QtcQuick
+
+TextEditor still depends on PrintSupport, because `TextEditorWidget::print()`
+exists and is wired:
+
+    ActionBuilder(this, PRINT)
+        .setContext(m_editorContext)
+        .addOnTriggered([this] { q->print(ICore::printer()); })
+
+### Which claim this withdraws
+
+Entry 31's command census found exactly one command the Qt Quick editor does
+not answer, `QtCreator.Print`, and dismissed it:
+
+> Print is not a gap: Core registers it in the File menu disabled and with no
+> handler, and neither editor implements it.
+
+The first half is true. **The second is not.** Measured, opening the same
+`.cpp` in each view and asking the ActionManager:
+
+    widget   registered in the editor's context = yes   enabled = yes
+    quick    registered in the editor's context = no
+
+So `File > Print` prints a file open in a widget editor and does nothing for
+one open in this view. **Opening a C++ file in the Qt Quick editor loses
+printing** - a user-visible difference that has been in the tree since the
+switch was flipped, recorded as "not a gap" for twenty entries.
+
+That is the seventh claim this file has had to withdraw, and the pattern is
+the same every time: a census compared *registration*, found one difference,
+and explained it away without measuring it. Entry 40 made the same point about
+registration versus behaviour and did not think to apply it to the one
+exception the earlier census had already granted itself.
+
+### What this batch did and deliberately did not do
+
+The census test's comment now says what is true, and says why the gap is open
+rather than pretending it is not one. **The gap is not closed**, on purpose:
+printing needs `QPrinter`, `QPrinter` needs `Qt::PrintSupport`, and this
+branch exists to remove that dependency. Implementing Print for the Qt Quick
+editor would add back exactly what the branch is for.
+
+**So this is a decision, not a task**, and it is not a batch's to take:
+
+- **keep printing** - the Qt Quick editor needs a Print implementation, and
+  TextEditor keeps its `Qt::PrintSupport` dependency, and the branch does not
+  reach its namesake;
+- **drop printing from the text editor** - the dependency goes, the branch
+  reaches its endpoint, and a working feature is removed from the widget
+  editor as well;
+- **move it** - printing a document becomes somebody else's, and TextEditor
+  drops the dependency without the feature disappearing.
+
+Whoever owns this branch should pick. The evidence for the choice is above.
+
+### Negative controls
+
+- **A -- nothing is allowed to be missing** (`knownMissing` emptied): red, one
+  command missing against none. The census still notices Print, which is what
+  makes the corrected comment worth reading rather than decoration.
+
+### Verification
+
+    -test TextEditor    589 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+One file besides this one, and the change to it is a comment.
+
+### What this leaves
+
+**One migration item, and it is a question rather than work**: what happens to
+printing. Everything else stands as entry 50 left it - the editor migration is
+otherwise complete, and what remains in this file is CppEditor's locator index
+race and the QtSupport and ProjectExplorer failures that `-test all` exposed.
+
+The lesson, which is not new and is now seven entries old: **a difference
+explained away is a difference not measured.** Entry 31 had the census, the
+one exception, and a plausible sentence. Twenty entries later the sentence was
+still there and still wrong.
