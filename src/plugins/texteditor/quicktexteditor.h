@@ -80,6 +80,36 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
 QtcQuick::QuickWidget *createQuickTextViewOver(TextDocument *document,
                                                QtcQuick::ActionModel *contextActions);
 
+// Where a jump landed, kept until the reader moves off it. Go Back is meant to
+// return to the place a search result or a definition took them to, and the
+// manager only learns of it when they leave: recording on arrival would put
+// the entry in front of the caret that is still standing on it.
+//
+// Fifteen lines that are easy to get subtly wrong in a way nobody notices
+// until Go Back goes to the wrong place, which is why they are shared rather
+// than copied into each host.
+class JumpRecorder final : public QObject
+{
+    Q_OBJECT
+
+public:
+    // \a state is the editor's own save format, asked at the moment of the
+    // jump - only that editor is ever handed it back.
+    JumpRecorder(Core::IEditor *editor, const std::function<QByteArray()> &state);
+
+    // Said by whatever jumps: gotoLine(), and restoring a state.
+    void jumped();
+
+    // The caret moved. Connect the view's cursorPositionChanged to this.
+    void caretMoved();
+
+private:
+    Core::IEditor * const m_editor;
+    const std::function<QByteArray()> m_state;
+    QByteArray m_stateOfAJumpNotYetLeft;
+    bool m_jumpedHereAndStillOnIt = false;
+};
+
 // Which of an editor's commands the file's language can actually answer. A
 // command is registered either way, so that its menu entry keeps its place and
 // its shortcut, and disabled where the language has nothing to answer with -

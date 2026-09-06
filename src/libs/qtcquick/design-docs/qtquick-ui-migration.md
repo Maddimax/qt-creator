@@ -45532,3 +45532,85 @@ Two of the three above, and then the substitution:
 Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
 the question about its empty outline combo), the whitespace difference
 (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — Navigation history stops being the Qt Quick editor's (batch 102)
+
+Entry 101 left two of Markdown's three, and asked of the first whether it was
+"worth a seam or four lines per host". It is worth a seam, and the reason is
+not the line count.
+
+### The gap this closed
+
+Two editors record the same thing two different ways. The widget emits three
+signals at three moments and its editor turns them into `EditorManager` calls;
+`QuickTextEditor` does it itself, from `gotoLine()` and one viewport signal.
+A host of a bare view has neither.
+
+The Qt Quick half is now `JumpRecorder`: `jumped()` for whatever jumps, and
+`caretMoved()` to connect to `TextViewport::cursorPositionChanged`. Fifteen
+lines, and `QuickTextEditor` keeps them by owning one.
+
+### Why not four lines per host
+
+Because they are not four lines of boilerplate, they are four lines of rule:
+
+> the manager only learns of a jump when the reader **leaves** it - recording
+> on arrival would put the entry in front of the caret that is still standing
+> on it.
+
+A host that copies this and records on arrival gets a Go Back that lands one
+step short, in a way nobody notices until they are annoyed by it. That is the
+kind of thing worth having one copy of.
+
+The test asserts the rule rather than the mechanism: it jumps, moves away
+**without** saying the reader left, and checks Go Back does *not* return to
+the jump; then does it properly and checks it does. Written that way because a
+test that only did the second half would pass against an implementation that
+records on arrival.
+
+### Controls
+
+- **BR**: `caretMoved()` returning immediately - red at the new test **and** at
+  the Qt Quick editor's own `testGoBackReturnsToAJumpTheReaderLeft(quick)`.
+  The second half is the point, as in entries 96, 98 and 101: the editor's
+  behaviour now goes through the extracted class rather than a copy.
+- **BS**: `jumped()` recording an empty state - red, so the entry carries the
+  state captured at the jump rather than merely marking that one happened.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 668 passed, 0 failed (was 667) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown
+
+One decision and then the work:
+
+1. **The two styled glyphs.** Entry 94 raised it, entry 95 deferred it by
+   styling the widget tool bar's button, entries 100 and 101 listed it, and it
+   is now the only thing in Markdown's way that nobody has decided. Either the
+   emphasis and strong buttons get icons that work in both worlds, or the Qt
+   Quick tool bar delegate learns to draw a styled label. **This is the
+   owner's call and it is small either way**; it is called out here for the
+   fourth time because it is now genuinely the blocker rather than one item
+   among several.
+2. Then the substitution, which has an answer for every other piece:
+
+| Piece | Answer |
+| --- | --- |
+| the view over the editor's document | `createQuickTextViewOver()` - entry 100 |
+| the tool bar row | `createQuickTextToolBar()` - entry 98 |
+| find | comes with the view - entry 96 |
+| the text context | `IContext::attach()` - entry 97 |
+| Follow Symbol | register it, gate it with `OptionalActionGate` - entry 101 |
+| navigation history | `JumpRecorder` - this entry |
+| state, caret, goto line | `TextViewport` twins |
+| highlighting | `HighlighterHelper::setDefinitionOn()` |
+
+Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
+the question about its empty outline combo), the whitespace difference
+(declined, entry 68), and printing (entry 31, the owner's).

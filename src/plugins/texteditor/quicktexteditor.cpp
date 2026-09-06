@@ -264,6 +264,7 @@ public:
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
         , m_gate(new OptionalActionGate(this, [this] { return viewport(); }))
+        , m_jumps(new JumpRecorder(this, [this] { return saveState(); }))
         , m_contextMenuId(contextMenuId)
     {
         m_gate->setOptionalActions(optionalActions);
@@ -320,7 +321,7 @@ public:
             connect(view, &TextViewport::cursorPositionChanged,
                     this, &Core::IEditor::cursorPositionChanged);
             connect(view, &TextViewport::cursorPositionChanged,
-                    this, &QuickTextEditor::recordAJumpTheReaderHasLeft);
+                    m_jumps, &JumpRecorder::caretMoved);
         }
 
         // Preferences are pushed into a document, not read from one, so an
@@ -902,29 +903,7 @@ public:
         }
     }
 
-    // Where a jump landed, kept until the reader moves off it. Go Back is
-    // meant to return to the place a search result or a definition took them
-    // to, and the manager only learns of it when they leave - recording it on
-    // arrival would put the entry in front of the caret that is still on it.
-    void rememberThisAsSomewhereJumpedTo()
-    {
-        m_stateOfAJumpNotYetLeft = saveState();
-        m_jumpedHereAndStillOnIt = true;
-    }
-
-    void recordAJumpTheReaderHasLeft()
-    {
-        if (!m_jumpedHereAndStillOnIt)
-            return;
-        m_jumpedHereAndStillOnIt = false;
-        // The manager records "the current position", so a view the reader is
-        // not in would push somewhere they never were. Same guard as the one
-        // on a jump inside one file.
-        if (Core::EditorManager::currentEditor() == this) {
-            Core::EditorManager::addCurrentPositionToNavigationHistory(
-                m_stateOfAJumpNotYetLeft);
-        }
-    }
+    void rememberThisAsSomewhereJumpedTo() { m_jumps->jumped(); }
 
     // Where the reader was, so that closing and reopening - or stepping back
     // through the navigation history - returns them to it. A private format:
@@ -1252,10 +1231,6 @@ public:
     // widget editor uses, so that whoever wants the document need not know
     // which kind of view is showing it.
     TextDocumentPtr m_document;
-    // See rememberThisAsSomewhereJumpedTo(). BaseTextEditor keeps the same
-    // pair for the widget editor.
-    QByteArray m_stateOfAJumpNotYetLeft;
-    bool m_jumpedHereAndStillOnIt = false;
 
     QtcQuick::ActionModel m_contextActions;
     const Utils::Id m_contextMenuId;
@@ -1267,6 +1242,7 @@ public:
     // Enabled only while there is a suggestion to take.
     QList<QPointer<QAction>> m_suggestionActions;
     OptionalActionGate * const m_gate;
+    JumpRecorder * const m_jumps;
     QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
@@ -1300,6 +1276,30 @@ public:
         });
     }
 };
+
+JumpRecorder::JumpRecorder(Core::IEditor *editor, const std::function<QByteArray()> &state)
+    : QObject(editor)
+    , m_editor(editor)
+    , m_state(state)
+{}
+
+void JumpRecorder::jumped()
+{
+    m_stateOfAJumpNotYetLeft = m_state ? m_state() : QByteArray();
+    m_jumpedHereAndStillOnIt = true;
+}
+
+void JumpRecorder::caretMoved()
+{
+    if (!m_jumpedHereAndStillOnIt)
+        return;
+    m_jumpedHereAndStillOnIt = false;
+    // The manager records "the current position", so a view the reader is not
+    // in would push somewhere they never were. Same guard as the one on a jump
+    // inside one file.
+    if (Core::EditorManager::currentEditor() == m_editor)
+        Core::EditorManager::addCurrentPositionToNavigationHistory(m_stateOfAJumpNotYetLeft);
+}
 
 OptionalActionGate::OptionalActionGate(QObject *parent,
                                        const std::function<TextViewport *()> &viewport)
@@ -9751,6 +9751,52 @@ private slots:
     // exists, so a view for one cannot own its text the way CodeBuffer does
     // nor open the file the way CodeDocument does. This is the third case, and
     // it is what an editor made of two panes needs for its text pane.
+    // Go Back returning to where a jump landed, for an editor that is not the
+    // Qt Quick one. The rule is the awkward part: the entry is recorded when
+    // the reader *leaves* the destination, not when they arrive on it.
+    void testAnyEditorCanRecordWhereAJumpLanded()
+    {
+        Utils::TemporaryDirectory dir("jump-recorder");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("long.md");
+        QString text;
+        for (int i = 0; i < 40; ++i)
+            text += QString("line %1\n").arg(i);
+        QVERIFY(file.writeFileContents(text.toUtf8()));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!qobject_cast<QuickTextEditor *>(editor),
+                 "this opened in the Qt Quick editor, so it tests the old path");
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+
+        auto * const jumps = new JumpRecorder(
+            editor, [editor] { return editor->saveState(); });
+
+        // A jump lands, and the reader is still standing on it.
+        editor->gotoLine(20, 0);
+        QCOMPARE(editor->currentLine(), 20);
+        jumps->jumped();
+
+        // Nothing is recorded yet: an entry made on arrival would be in front
+        // of the caret that has not moved off it.
+        editor->gotoLine(5, 0);
+        QCOMPARE(editor->currentLine(), 5);
+        Core::EditorManager::goBackInNavigationHistory();
+        QVERIFY2(editor->currentLine() != 20,
+                 "the jump was recorded on arrival rather than on leaving");
+
+        // Now the same jump, left properly.
+        editor->gotoLine(30, 0);
+        jumps->jumped();
+        editor->gotoLine(8, 0);
+        jumps->caretMoved();
+        Core::EditorManager::goBackInNavigationHistory();
+        QCOMPARE(editor->currentLine(), 30);
+    }
+
     // addOptionalActionsIn() is how a language says what it turned out to be
     // able to do - a language server only knows once it has answered its
     // initialize. It used to reach the Qt Quick editor and nothing else, so an
