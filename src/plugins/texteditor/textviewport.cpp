@@ -5294,6 +5294,56 @@ void TextViewport::clickMarkColumn(qreal y, Qt::KeyboardModifiers modifiers)
     doc->requestMark(line, modifiers);
 }
 
+void TextViewport::beginLineSelection(qreal y)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+
+    QTextCursor selection(text);
+    // Through what is on screen, the way the widget editor's does: a fold
+    // hides blocks, and a selection that walked into them would take text the
+    // reader cannot see.
+    selection.setVisualNavigation(true);
+    selection.setPosition(positionAt(0, y));
+    m_lineSelectionAnchor = selection.blockNumber();
+    selection.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    // One more, to take the line break with it: selecting a line and pasting
+    // it somewhere else should put a line there, not join two.
+    selection.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor);
+    setTextCursor(selection);
+}
+
+void TextViewport::extendLineSelection(qreal y)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text || m_lineSelectionAnchor < 0)
+        return;
+
+    QTextCursor at(text);
+    at.setVisualNavigation(true);
+    at.setPosition(positionAt(0, y));
+
+    QTextCursor selection(text);
+    selection.setVisualNavigation(true);
+    const QTextBlock anchorBlock = text->findBlockByNumber(m_lineSelectionAnchor);
+    selection.setPosition(anchorBlock.position());
+    // Dragging upwards, the anchor line is the *last* one, so the anchor goes
+    // to its end rather than its start - which is what keeps it whole.
+    if (at.blockNumber() < m_lineSelectionAnchor) {
+        selection.movePosition(QTextCursor::EndOfBlock);
+        selection.movePosition(QTextCursor::Right);
+    }
+    selection.setPosition(at.block().position(), QTextCursor::KeepAnchor);
+    if (at.blockNumber() >= m_lineSelectionAnchor) {
+        selection.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        selection.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor);
+    }
+    setTextCursor(selection);
+}
+
 bool TextViewport::beginMarkDrag(qreal y)
 {
     cancelMarkDrag();

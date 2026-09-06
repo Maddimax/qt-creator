@@ -5488,6 +5488,90 @@ private slots:
         QTRY_COMPARE(view.cursor().shape(), Qt::PointingHandCursor);
     }
 
+    // Clicking a line number selects that whole line, and dragging down them
+    // takes the lines in between - the anchor line staying whole whichever way
+    // the drag goes. The Qt Quick gutter answered the mark column and nothing
+    // else, so the numbers were decoration.
+    void testClickingALineNumberSelectsTheLine()
+    {
+        TemporaryDirectory dir("qtc-gutter-lineselect");
+        const FilePath file = dir.filePath("lines.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\ndelta\n"));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(500, 300);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 500; height: 300\n"
+                                     "    showLineNumbers: true\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/GutterSelectTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        viewport->setReadOnly(false);
+        QQuickItem * const gutter = item->findChild<QQuickItem *>("codeGutter");
+        QVERIFY(gutter);
+        QTRY_VERIFY(gutter->width() > 0);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        // Two pixels in from the gutter's right edge: past the mark column,
+        // and there are no fold markers in this fixture.
+        const auto onNumberOf = [&](int line) {
+            const QRectF row = viewport->rectangleAt(text->findBlockByNumber(line).position());
+            const qreal y = gutter->mapFromItem(viewport, QPointF(0, row.center().y())).y();
+            return view.contentItem()
+                ->mapFromItem(gutter, QPointF(gutter->width() - 2, y))
+                .toPoint();
+        };
+        const auto selected = [viewport] {
+            return QString(viewport->selectedText())
+                .replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        };
+
+        // The answers below are a real TextEditorWidget's, event for event.
+        QTest::mousePress(&view, Qt::LeftButton, {}, onNumberOf(1));
+        QTRY_COMPARE(selected(), QString("beta\n"));
+
+        QTest::mouseMove(&view, onNumberOf(2));
+        QTRY_COMPARE(selected(), QString("beta\ngamma\n"));
+
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, onNumberOf(2));
+        QCOMPARE(selected(), QString("beta\ngamma\n"));
+
+        // Upwards, the line the drag started on stays whole.
+        QTest::mousePress(&view, Qt::LeftButton, {}, onNumberOf(2));
+        QTRY_COMPARE(selected(), QString("gamma\n"));
+        QTest::mouseMove(&view, onNumberOf(0));
+        QTRY_COMPARE(selected(), QString("alpha\nbeta\ngamma\n"));
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, onNumberOf(0));
+
+        // And the mark column beside the numbers is not part of this: a press
+        // there is a press on the marks, whether or not anything answers it.
+        // The two areas are placed by arithmetic, which is the thing to get
+        // wrong.
+        const QRectF row = viewport->rectangleAt(text->findBlockByNumber(3).position());
+        const qreal y = gutter->mapFromItem(viewport, QPointF(0, row.center().y())).y();
+        QTest::mouseClick(&view, Qt::LeftButton, {},
+                          view.contentItem()->mapFromItem(gutter, QPointF(1, y)).toPoint());
+        QCOMPARE(selected(), QString("alpha\nbeta\ngamma\n"));
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()

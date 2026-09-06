@@ -127,6 +127,29 @@ Item {
         }
     }
 
+    // The numbers, as something to select with. Beside the mark column rather
+    // than over it, so that a press in one is never a press in the other, and
+    // underneath what the gutter draws for the same reason that one is.
+    MouseArea {
+        id: numberColumn
+
+        objectName: "gutterNumberColumn"
+
+        x: Spacing.PaddingHS + root.markWidth
+        width: Math.max(0, root.foldX - x)
+        height: root.height
+        acceptedButtons: Qt.LeftButton
+
+        function viewportY(y: real): real {
+            return numberColumn.mapToItem(root.viewport, 0, y).y
+        }
+
+        onPressed: (mouse) => root.viewport.beginLineSelection(numberColumn.viewportY(mouse.y))
+        onPositionChanged: (mouse) => {
+            root.viewport.extendLineSelection(numberColumn.viewportY(mouse.y))
+        }
+    }
+
     // How the line differs from the file on disk, drawn hard against the text
     // at the gutter's right edge - which is where the widget editor puts it.
     Repeater {

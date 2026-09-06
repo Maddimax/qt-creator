@@ -49058,3 +49058,125 @@ needs something I cannot supply by measuring: a design for the fold popup, a
 Linux machine for the primary selection, and a choice between QWidget and QML
 for the context pane. **That is the honest state of it** - the remaining work
 is the owner's to scope, not another batch's to find.
+
+## 2026-09-07 — The line numbers were decoration (batch 138)
+
+Entry 137 said there was nothing left that measuring could reach, and proposed
+nothing. **That was one seam early.** The extra area - the gutter - had never
+been walked, and it holds a gesture that is missing outright.
+
+### The gap
+
+`EditorGutter.qml` has exactly one `MouseArea`, over the **mark column**:
+
+```qml
+x: Spacing.PaddingHS
+width: root.markWidth
+```
+
+The line numbers beside it accept nothing. In the widget editor
+`extraAreaMouseEvent()` answers a press there by selecting the whole line, and
+a drag by taking the lines between - with the line the drag began on staying
+whole whichever way it goes.
+
+Measured, event for event, by driving the widget's own handler:
+
+```
+GUTTER press on line 2                -> 6..11  [beta\n]
+GUTTER drag to line 3                 -> 6..17  [beta\ngamma\n]
+GUTTER after release                  -> 6..17  [beta\ngamma\n]
+GUTTER press line 3, drag up to line 1 -> 0..17 [alpha\nbeta\ngamma\n]
+```
+
+**Click a line number in the Qt Quick editor and nothing happened at all.**
+Selecting a line, or a run of lines, by its number is not a corner of the
+editor - it is how a line gets copied or moved.
+
+`beginLineSelection()` and `extendLineSelection()` on the viewport, and a
+second `MouseArea` over the number column. The selection takes the line break
+with it, which is what makes pasting it put a line somewhere rather than join
+two - the widget's extra `movePosition(Right, KeepAnchor)`.
+
+### A function written and deleted the same afternoon
+
+The first version had `endLineSelection()`, resetting the anchor on release
+and on cancel, and the QML called it from both. **Control FE did not bite** -
+taking the body out changed nothing.
+
+It cannot: `extendLineSelection()` only ever runs from `onPositionChanged`,
+which a `MouseArea` without `hoverEnabled` emits only while a button is down,
+and every press sets the anchor before anything reads it. There is no path a
+stale anchor can reach. Deleted, with the reasoning in the header rather than
+the function.
+
+Second batch running that has produced a dead guard - entry 135's
+"prevents removing the only cursor" was the other. Both were written by
+mirroring the widget line for line, which is usually right and twice now has
+carried over a check the Qt Quick shape does not need. **Mirroring an
+implementation copies its defences as well as its behaviour, and the defences
+are the part that may no longer have anything to defend against.**
+
+### And an assertion replaced rather than kept
+
+The test's last step had been "a move with no button down is not a drag" - and
+that could not fail either, for the same reason FE could not bite: no
+`positionChanged` arrives. Replaced with one that can: **a press in the mark
+column is not a line selection.** The two areas are placed by arithmetic
+(`PaddingHS + markWidth` to `foldX`), which is the thing to get wrong, and
+control FF - widening the number column to cover the marks - turns it red.
+
+### Controls
+
+- **FB**: the press handler emptied - red at "a press selects the line".
+- **FC**: the drag handler emptied - red at "a drag takes the lines between".
+- **FD**: the keep-the-anchor-line-whole branch removed - red on the upward
+  drag only, which is the one case it is there for.
+- **FF**: the number column widened over the mark column - red at the last
+  assertion, which is what says that one is about geometry.
+
+Four controls, four different lines of the test.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 699 passed, 0 failed (was 698) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### The rest of the gutter, walked
+
+| The widget's extra area | Here |
+| --- | --- |
+| click a number, drag to select lines | **this batch** |
+| click the mark column - toggle, menu, drag a mark to another line | `gutterMarkColumn` does all three |
+| click the fold box | a `TapHandler` per marker |
+| hand cursor over the mark column | `HoverHandler` in the gutter |
+| **auto-scroll when a gutter drag leaves the top or bottom** | **missing** |
+| **`updateFoldingHighlight()` - hovering a fold marker highlights the range it covers** | **missing** |
+
+Two left, both small and both real. Neither was taken here: this batch was
+already a new API, a new `MouseArea` and a deletion, and a batch that closes
+one thing with four biting controls is worth more than three closed loosely.
+
+### Where this leaves it
+
+1. **Auto-scroll on a gutter drag**, and **the fold-range highlight** - above.
+2. **The collapsed-fold popup** - a feature, entry 137.
+3. **Middle-click paste** - a feature, unmeasurable on macOS.
+4. **The link press/release handshake** - read, both answers defensible.
+5. **Home on a wrapped line** - entry 133.
+6. **QmlJS's context pane** - a UI decision, entry 114.
+7. **The whitespace drawing difference** - declined, entry 68.
+8. **Printing** - entry 31.
+9. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+Item 1 - and this time with the correction entry 137 earned. **Saying "nothing
+measurable is left" was wrong after eight seams and right after none: the
+gutter had simply not been looked at.** The list of handlers is finite and now
+genuinely short - `dragEnterEvent`/`dropEvent`, `inputMethodEvent`,
+`changeEvent` and `event()` are what remain unread - so the honest next step is
+to finish reading them before saying that again.

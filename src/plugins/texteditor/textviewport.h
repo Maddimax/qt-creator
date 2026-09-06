@@ -601,6 +601,17 @@ public:
     //
     // beginMarkDrag() answers whether the line at \a y has a mark that can be
     // dragged, and takes it up if so.
+    // The line number column, as something to select with. A press takes the
+    // whole line it landed on, and dragging up or down the numbers takes the
+    // lines between - the line the drag began on staying whole either way,
+    // which is what the widget editor's extra area does. \a y is in this
+    // item's coordinates.
+    // No matching end: every press sets the anchor before anything reads it,
+    // and a drag only extends while the button is down, so there is nothing a
+    // stale one could reach - checked, a reset made no difference.
+    Q_INVOKABLE void beginLineSelection(qreal y);
+    Q_INVOKABLE void extendLineSelection(qreal y);
+
     Q_INVOKABLE bool beginMarkDrag(qreal y);
     Q_INVOKABLE void endMarkDrag(qreal y);
     Q_INVOKABLE void cancelMarkDrag();
@@ -1311,6 +1322,9 @@ private:
     // promises, and the only way to see that the selection also appears below
     // the fold. Kept rather than answered afresh: a drag changes the selection
     // on every mouse move, and the file is searched once a frame at most.
+    // The line a gutter drag began on, or -1 when no such drag is going on.
+    int m_lineSelectionAnchor = -1;
+
     QList<int> m_selectionOnScrollBar;
     QString m_selectionOnScrollBarFor;
     QVariantList m_scrollBarHighlights;
