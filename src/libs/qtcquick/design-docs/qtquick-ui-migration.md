@@ -47514,3 +47514,141 @@ Not another language. The two things that would repay work are neither:
   `CppEditorFactory` configures. The same census for each moved language would
   turn "somebody noticed" into "the suite noticed", and eleven languages'
   worth of one-at-a-time findings suggests it is worth having.
+
+## 2026-09-06 — The census, and what it found in a split view (batch 126)
+
+Entry 125 said there was no ordinary work left and proposed two things. This
+took the second: **the same census entry 124 wrote for C++, for every language
+that has moved.** It found a live defect on the way in, which is the answer to
+whether the census was worth writing.
+
+### Measured first, asserted second
+
+The census could have been eleven hand-written tests. Instead it asks the
+*factory*: `TextEditorFactory` has getters for most of what it configures, so
+for every factory with `usesQuickEditor()` the test opens a file of that
+language and checks that what the factory declares has arrived.
+
+But before writing a single assertion it was a **probe** that printed what each
+of the eleven declares and what its editor actually has. That is the only
+reason the assertions are honest: two things that looked like gaps were not.
+
+- **The comment position.** `createEditorHelper()` sets
+  `commentDefinition().isAfterWhitespace` from the typing settings and
+  `configureLanguageServices()` does not - which reads like Toggle Comment
+  ignoring a preference in the Quick view. It does not:
+  `TextViewport::commentDefinition()` applies it on the way out.
+- **Language server hover and the minimizable info bars**, both of which
+  `createEditorHelper()` does for the widget. Both already have view-agnostic
+  seams - `addHoverHandlerIn()` and `showInfoBarActions()`.
+
+Three settings really are dropped, and the probe says which: `setMarksVisible`,
+`setDuplicatedSupported`, `setParenthesesMatchingEnabled`. **None of the first
+two is set by a language that has moved** - they are set by VcsBase, SCXML,
+Designer and the embedded boxes, which is entry 125's pinned four exactly.
+
+### The parenthesis flag is a difference, not a gap
+
+`setParenthesesMatchingEnabled(true)` is on the factory of C++, Nim, Python and
+GLSL, and the Quick view never reads it - `updateParenthesesMatch()` gates on
+the display setting alone. The four that ask for it get it anyway; what changes
+is that JSON, qmake, CMake and plain text get it too, where the widget editor
+withholds it.
+
+**Honouring the flag would make this worse, not better.** The factory default
+is `false`, so "not set" and "set false" are the same value: gating on it would
+take bracket pairing away from every language that never asked, and there is
+already a test asserting it works in a plain Quick editor over JSON. Recorded
+as a deliberate difference: *the Quick view pairs brackets wherever the
+highlighter recorded any, and the per-factory gate is a widget-era workaround
+that is not carried over.*
+
+### The gap this batch closed: a split view was not the language's
+
+```cpp
+Core::IEditor *duplicate() final { return new QuickTextEditor(m_document); }
+```
+
+A split view is a duplicate. That one built a **bare** Quick editor: no
+optional-action mask, no context menu id, and none of the factory's contexts -
+all three of which the factory supplies to the *first* half and nothing
+supplied to the second.
+
+So, today, on the goal language: **split a C++ file and the second half has
+Rename Symbol, Find Usages, Follow Symbol and Toggle Comment greyed out, no C++
+entries in its right-click menu, and is in no context the language's commands
+are registered against.** The widget editor does not have this, because
+`BaseTextEditor::duplicate()` goes back through the factory
+(`duplicateTextEditor()` → `createEditorHelper()`) and gets the lot.
+
+The fix keeps the three on the editor and hands them to the copy. Two details
+that are not obvious:
+
+- **The mask comes from the gate, not from the factory.** `addOptionalActionsIn()`
+  widens it when a language server answers its initialize; a split of a file
+  clangd has answered for should offer what the first half offers, not what the
+  factory could promise before anything ran.
+- **The contexts are merged in the constructor**, where they used to be merged
+  by `createQuickTextEditor()` afterwards. That is what makes the copy able to
+  build itself: the per-editor context is on a separate `IContext` attached to
+  the widget, so `context()` is safe to pass on, but doing it in one place
+  rather than two is what stops the next constructor caller from forgetting.
+
+### Controls
+
+Every one bit.
+
+- **DK**: `duplicate()` put back to the bare form - red at "the split half is
+  not in the language's context, so its commands miss it".
+- **DL**: the mask alone dropped from the copy - red at "the split half is not
+  offered a command the language asked for".
+- **DM**: the context menu id alone dropped - red at "the split half's
+  right-click menu offers nothing of the language's own".
+- **DN**: Nim taken out of the census's file table - red at "Nim.NimEditor:
+  moved to the Qt Quick editor with no file here to check it with", which is
+  the property the census exists for.
+- **DO**: the auto completer no longer taken from the factory - red for **four
+  languages at once**: JSON, C++, CMake, GLSL.
+- **DP**: the comment definition no longer taken from the factory - red for
+  **six**: C++, qmake, compilation database, GLSL, Nim, Python.
+
+DO and DP are the argument for a census over a per-language test: one broken
+line, six languages named, in one run.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 676 passed, 0 failed (was 674) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CppEditor,SymbolJumpTest` | 0 | 12 passed, 0 failed |
+| `-test CppEditor,testAQuickCppEditorHasEverythingTheFactoryConfigures` | 0 | 3 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What the census does not ask
+
+Said plainly, so nobody reads it as covering more than it does:
+
+- **Hover handlers.** `TextViewport` has `setHoverHandlers()` and no getter,
+  and entry 124 already declined to widen an API for an assertion.
+- **The editor decorator and the context help provider.** Applied by the
+  factory's own creator, so they reach both views by construction - and, note,
+  a *duplicate* gets neither, in the widget editor as well as here. That is
+  pre-existing and shared, not something this migration introduced.
+- **Anything a language configures somewhere other than its factory.** The
+  document-level virtuals - `contextMenuActions()`, `foldOnFirstOpen()`,
+  `createAssistInterface()` - are the document's either way, so the two views
+  cannot differ on them. That is the whole reason they were pushed down there.
+
+### Where this leaves it
+
+Unchanged from entry 125 except that the census now exists:
+
+1. **QmlJS's context pane** - a UI decision, measured twice.
+2. **The whitespace drawing difference** - declined, entry 68.
+3. **Printing** - open since entry 31.
+4. **The four pinned factories** - and now a fifth thing to fix when one of
+   them moves: `setDuplicatedSupported` and `setMarksVisible` have nowhere to
+   go on the Quick side. Both are one-liners *if* the caller's cast goes first,
+   which is the actual blocker.

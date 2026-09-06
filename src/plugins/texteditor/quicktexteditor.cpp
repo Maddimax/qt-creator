@@ -263,12 +263,14 @@ public:
     // rather than opening the file again.
     explicit QuickTextEditor(TextDocumentPtr document,
                              uint optionalActions = OptionalActions::None,
-                             Utils::Id contextMenuId = {})
+                             Utils::Id contextMenuId = {},
+                             const Core::Context &languageContext = {})
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document))
         , m_gate(new OptionalActionGate(this, [this] { return viewport(); }))
         , m_jumps(new JumpRecorder(this, [this] { return saveState(); }))
         , m_contextMenuId(contextMenuId)
+        , m_languageContext(languageContext)
     {
         m_gate->setOptionalActions(optionalActions);
         // duplicate() answers, so say so: the editor manager asks this rather
@@ -457,6 +459,14 @@ public:
         // the focus widget come before the editor's own. The widget editor has
         // had this shape all along - see TextEditorWidgetPrivate's ctor.
         setContext(Core::Context(QUICK_TEXT_EDITOR_ID, Constants::C_TEXTEDITOR));
+        // Added rather than set: the two above are what every Quick editor
+        // needs, and the language's are on top of them. Done here rather than
+        // by whoever built this, because duplicate() builds one too.
+        if (!m_languageContext.isEmpty()) {
+            Core::Context contexts = context();
+            contexts.add(m_languageContext);
+            setContext(contexts);
+        }
 
         auto * const perEditor = new Core::IContext(this);
         perEditor->setWidget(widget);
@@ -904,7 +914,16 @@ public:
         return m_toolBar;
     }
 
-    Core::IEditor *duplicate() final { return new QuickTextEditor(m_document); }
+    // A split view is a duplicate, so it has to be built the way this one
+    // was: with the language's mask, its right-click menu and its contexts.
+    // A bare one is a half whose language commands are greyed out and whose
+    // menu has nothing of the language in it - which the widget editor avoids
+    // by building its duplicate through the factory a second time.
+    Core::IEditor *duplicate() final
+    {
+        return new QuickTextEditor(m_document, m_gate->optionalActions(), m_contextMenuId,
+                                   m_languageContext);
+    }
 
     QString selectedText() const final
     {
@@ -1262,6 +1281,7 @@ public:
 
     QtcQuick::ActionModel m_contextActions;
     const Utils::Id m_contextMenuId;
+    const Core::Context m_languageContext;
     QtcQuick::ActionModel m_toolBarActions;
     bool m_outlineUpdateScheduled = false;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
@@ -1457,14 +1477,7 @@ Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
                                      uint optionalActions,
                                      Utils::Id contextMenuId)
 {
-    auto * const editor = new QuickTextEditor(document, optionalActions, contextMenuId);
-    // Added rather than set: the editor gave itself the two contexts every
-    // Quick editor needs - the shared one and its own - in the constructor,
-    // and replacing them would take the per-editor actions with them.
-    Core::Context contexts = editor->context();
-    contexts.add(context);
-    editor->setContext(contexts);
-    return editor;
+    return new QuickTextEditor(document, optionalActions, contextMenuId, context);
 }
 
 void setupQuickTextEditor()
@@ -5403,6 +5416,124 @@ private slots:
         QCOMPARE(checked, expected.size());
     }
 
+    // The eleven languages that moved were moved one at a time, and every gap
+    // since has been found by somebody noticing: C++ went three entries with
+    // no outline, QML files five without being parsed at all. This asks for
+    // all of them at once, and asks the *factory* rather than a list of
+    // features - whatever a factory configures has to arrive in the view it
+    // asked for.
+    //
+    // Driven by the factories, so a language that turns setUsesQuickEditor()
+    // on without adding a file here fails rather than being left out quietly.
+    void testEveryQuickLanguageGetsWhatItsFactoryConfigures()
+    {
+        // A file of each language. Only the name matters: what it opens in is
+        // decided by the mime type, which is half of what is checked below.
+        const QHash<QString, QString> sampleFor{
+            {"CppEditor.C++Editor", "main.cpp"},
+            {"Editors.Json", "settings.json"},
+            {"Qt4.proFileEditor", "project.pro"},
+            {"CMakeProject.CMakeEditor", "CMakeLists.txt"},
+            {"PythonEditor.PythonEditor", "script.py"},
+            {"Vcpkg.VcpkgManifestEditor", "vcpkg.json"},
+            {"QT4.FilesEditor", "project.files"},
+            {"java.editor", "Main.java"},
+            {"CompilationDatabase.CompilationDatabaseEditor", "compile_commands.json"},
+            {"Nim.NimEditor", "module.nim"},
+            {"GLSLEditor.GLSLEditor", "shader.frag"},
+        };
+
+        Utils::TemporaryDirectory dir("quick-language-census");
+        QVERIFY(dir.isValid());
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        QStringList wrong;
+        int checked = 0;
+        for (Core::IEditorFactory * const base : Core::IEditorFactory::allEditorFactories()) {
+            auto * const factory = dynamic_cast<TextEditorFactory *>(base);
+            if (!factory || !factory->usesQuickEditor())
+                continue;
+            const QString id = factory->id().toString();
+            const auto complain = [&wrong, &id](const QString &what) { wrong << id + ": " + what; };
+
+            const QString name = sampleFor.value(id);
+            if (name.isEmpty()) {
+                complain("moved to the Qt Quick editor with no file here to check it with");
+                continue;
+            }
+            const Utils::FilePath file = dir.filePath(name);
+            QVERIFY(file.writeFileContents(""));
+            if (TextEditorFactory::preferredFactoryFor(file) != factory) {
+                complain(name + " belongs to another factory, so this row measures that one");
+                continue;
+            }
+
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            if (!editor) {
+                complain("nothing opened " + name);
+                continue;
+            }
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            ++checked;
+
+            TextViewport * const view = viewportForEditor(editor);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            if (!view || !document) {
+                complain("did not open in the Qt Quick view at all");
+                continue;
+            }
+
+            // Completions. A document may have chosen its own since - that is
+            // what CppEditorDocument does once it knows its mime type - so
+            // what is wrong is falling back to the words already in the file.
+            if (factory->completionAssistProvider()
+                && dynamic_cast<DocumentContentCompletionProvider *>(
+                    document->completionAssistProvider())) {
+                complain("completes from the words in the file, not from the language");
+            }
+
+            // Indenting, which a language registers either on the factory or
+            // on its code style. Either way it is not the plain one.
+            if (factory->indenterCreator()
+                && (!document->indenter()
+                    || typeid(*document->indenter()) == typeid(PlainTextIndenter))) {
+                complain("indents as plain text");
+            }
+
+            // Closing a bracket as it is typed: the base class only knows how
+            // to take a pair apart again.
+            if (factory->autoCompleterCreator()
+                && (!view->autoCompleter()
+                    || typeid(*view->autoCompleter()) == typeid(AutoCompleter))) {
+                complain("has no auto completer of its own");
+            }
+
+            if (factory->commentDefinition().isValid() && !view->commentDefinition().isValid())
+                complain("does not know what a comment looks like in it");
+
+            if (factory->linkFinder() && !TextEditorFactory::linkFinderFor(document))
+                complain("answers no Follow Symbol");
+
+            if (factory->typeFinder() && !TextEditorFactory::typeFinderFor(document))
+                complain("answers no Follow Symbol to Type");
+
+            // And the fold column, which is the one of these the reader sees
+            // without doing anything.
+            if (factory->codeFoldingSupported() && displaySettings().displayFoldingMarkers()) {
+                auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+                QVERIFY(quick);
+                QTRY_VERIFY(quick->rootObject());
+                if (!quick->rootObject()->property("showFoldMarkers").toBool())
+                    complain("folds, but draws no fold markers");
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
+        // The list above is not empty on any build this runs on, and a census
+        // of nothing passes.
+        QCOMPARE(checked, sampleFor.size());
+    }
+
     // A census, the way the settings pages have one: every language that has
     // been moved off its findLinkAt() override has to register a finder in
     // its place, or Follow Symbol quietly stops working in that language -
@@ -5927,6 +6058,81 @@ private slots:
         std::unique_ptr<Core::IEditor> other(editor->duplicate());
         QVERIFY2(other, "the editor cannot be split");
         QCOMPARE(other->document(), editor->document());
+    }
+
+    // And a split of a *language's* editor is still that language. The factory
+    // configures the first half - the mask of commands the language answers,
+    // the container its right-click entries live in, the contexts those
+    // commands are registered against - and duplicate() did not go back to
+    // the factory for the second. Splitting a C++ file gave a half with
+    // Rename Symbol greyed out and nothing of C++ in its context menu.
+    void testASplitKeepsWhatTheFactoryConfigured()
+    {
+        // A container of this test's own, so what is asserted below is what it
+        // put there rather than whatever a plugin happens to register.
+        const Utils::Id menuId("QuickEditorSplitTest.Menu");
+        Core::ActionContainer * const container = Core::ActionManager::createMenu(menuId);
+        QVERIFY(container);
+        QAction ours(QString("Only In This Language"));
+        Core::Command * const command
+            = Core::ActionManager::registerAction(&ours, "QuickEditorSplitTest.Action",
+                                                  Core::Context(Core::Constants::C_GLOBAL));
+        QVERIFY(command);
+        container->addAction(command);
+        const QScopeGuard unregister([] {
+            Core::ActionManager::unregisterAction(nullptr, "QuickEditorSplitTest.Action");
+        });
+
+        const Utils::Id languageContext("QuickEditorSplitTest.Language");
+        MaskedFactory factory("QuickEditorSplitTest", OptionalActions::RenameSymbol);
+        factory.setContextMenuId(menuId);
+        factory.addEditorContext(languageContext);
+
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        // The three only mean anything on the second half if the first has
+        // them, which is the factory's doing and not this test's.
+        QVERIFY2(editor->context().contains(languageContext),
+                 "the factory gave the first half no language context, so this tests nothing");
+
+        const std::unique_ptr<Core::IEditor> split(editor->duplicate());
+        QVERIFY2(split.get(), "the editor cannot be split");
+        QCOMPARE(split->document(), editor->document());
+
+        QVERIFY2(split->context().contains(languageContext),
+                 "the split half is not in the language's context, so its commands miss it");
+        QVERIFY2(split->context().contains(factory.id()),
+                 "the split half is not in the factory's context");
+
+        Core::Command * const rename = Core::ActionManager::command(Constants::RENAME_SYMBOL);
+        QVERIFY(rename);
+        QAction *renameThere = nullptr;
+        for (const Utils::Id &each : commandContextsOf(split.get())) {
+            if (QAction * const action = rename->actionForContext(each)) {
+                renameThere = action;
+                break;
+            }
+        }
+        QVERIFY2(renameThere, "Rename Symbol is not registered for the split half at all");
+        QVERIFY2(renameThere->isEnabled(),
+                 "the split half is not offered a command the language asked for");
+
+        QWidget * const host = split->widget();
+        QVERIFY(host);
+        auto * const quick = host->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QTRY_VERIFY(quick->rootObject());
+        auto * const model
+            = quick->rootObject()->property("contextActions").value<QtcQuick::ActionModel *>();
+        QVERIFY2(model, "the split half was given no context actions at all");
+        model->refresh();
+        QStringList offered;
+        for (int row = 0; row < model->rowCount({}); ++row) {
+            offered << model->data(model->index(row, 0), QtcQuick::ActionModel::TextRole)
+                           .toString();
+        }
+        QVERIFY2(offered.contains("Only In This Language"),
+                 "the split half's right-click menu offers nothing of the language's own");
     }
 
 

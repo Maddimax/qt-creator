@@ -136,6 +136,12 @@ public:
     void addOptionalActions(uint optionalActions);
     void update();
 
+    // What the editor answers now: the factory's mask, widened by whatever a
+    // language server turned out to support. A duplicate is built with this
+    // rather than with the factory's, so that splitting a file a server has
+    // already answered for offers the same commands in both halves.
+    uint optionalActions() const { return m_optionalActions; }
+
 private:
     struct GatedAction { QPointer<QAction> action; uint needs; };
     QList<GatedAction> m_gated;
