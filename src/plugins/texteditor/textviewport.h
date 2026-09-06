@@ -905,6 +905,11 @@ public:
     // caret - it is the one just placed - and asking for one where there is
     // already one leaves the count alone.
     Q_INVOKABLE void addCaretAt(int position);
+    // A caret at \a position, or none there if there already was one - which
+    // is what Alt+click means: the gesture that puts an extra caret down is
+    // the one that picks it up again. Never the last one, because a view with
+    // no caret at all has nowhere to type.
+    Q_INVOKABLE void toggleCaretAt(int position);
     // A caret at the end of every line a selection covers, which is how a
     // column of them is made without clicking each one.
     Q_INVOKABLE void addCaretsToLineEnds();

@@ -48696,3 +48696,135 @@ nobody had noticed. The gestures have conditions in `TextEditorWidget::
 mousePressEvent` and friends that have never been listed beside
 `TextViewport`'s, and the method that read the key handler out transfers
 unchanged.
+
+## 2026-09-06 — Alt+click could put a caret down but not pick it up (batch 135)
+
+Entry 134 read the key handler out and pointed at the mouse. Started there, on
+the gesture that makes the feature the last two batches have been repairing.
+
+### The gap
+
+`TextEditorWidget::mousePressEvent()` on Alt+click:
+
+```cpp
+if (multiCursor.containsCursor(cursor))
+    multiCursor.removeCursor(cursor);
+else
+    multiCursor.addCursor(cursor);
+```
+
+**It is a toggle.** `CodeViewport.qml` called `viewport.addCaretAt(position)`,
+whose own header says "asking for one where there is already one leaves the
+count alone" - correct for what it is, and the wrong thing for the gesture. So
+an extra caret put down by accident could not be taken back; the only way out
+was Escape, which drops all of them.
+
+Measured, alt-click for alt-click, against a real widget:
+
+```
+WALT two carets: 2
+WALT after alt-click on one of them: 1
+WALT after alt-click on the only one: 1
+WALT after alt-click elsewhere: 2
+```
+
+`toggleCaretAt()` on the viewport, called from the QML. `addCaretAt()` keeps
+its meaning: the gesture is a toggle, adding is not.
+
+### Two controls that did not bite, and what each one taught
+
+**ET - the guard I wrote was dead.** `toggleCaretAt()` had
+`&& cursors.cursorCount() > 1`, mirroring the widget's "prevents removing the
+only cursor". Taking it out changed nothing, because `setMultiTextCursor()`
+already refuses an empty list and returns with the caret where it was. The
+guard was removed rather than kept with a comment: two layers protecting one
+thing, and only one of them reachable.
+
+**EU - and then the assertion could not fail either.** With the guard gone the
+protection is `setMultiTextCursor()`'s early return, so that is what a control
+has to break. Breaking it - making the empty case send the caret to position
+zero - *still* passed, twice over:
+
+1. The assertion counted carets. A caret that jumped to the top of the file is
+   still one caret. Sharpened to compare the position.
+2. It still passed, because the lonely caret **was already at zero**. The
+   fixture and the sabotage agreed by accident.
+
+Fixed by putting the caret at 3 first, with the reason in the test:
+
+```cpp
+// Not at the top of the file, or "it stayed where it was" and "it
+// jumped to position zero" are the same answer and the assertion
+// below cannot tell them apart.
+```
+
+Then EU bites: 0 where 3 is wanted.
+
+**Sixth entry running.** The family is now: an assertion that could not fail
+(129), a test asserting the old behaviour (130), a control with no separating
+input (131), a fixture that was overruled (132), a probe on the wrong key
+binding (133), a reader that normalises (134), and here **two of them stacked -
+a dead guard hiding behind a live one, and a fixture value that matched the
+sabotage.** The rule from entry 132 covers it if it is read strictly enough:
+assert the fixture *and* pick a value the wrong answer cannot also produce.
+
+### An existing test asserted the old gesture
+
+`testAltClickPutsAnotherCaretThere` had:
+
+```cpp
+// Clicking the same place again does not stack a third one on it.
+QTRY_COMPARE(viewport->caretRectangles().size(), 2);
+```
+
+True of `addCaretAt()`, and not what the gesture does. Rewritten rather than
+deleted - it drives a **real Alt+click through the QML**, which is the half
+that matters here and which a C++-only test of `toggleCaretAt()` would leave
+uncovered. Renamed to say what it now checks.
+
+### Controls
+
+- **ES**: the QML calling `addCaretAt()` again - red at "clicking it twice
+  leaves two". This is also what proves the QML branch is exercised at all.
+- **ET**, **EU**: above. ET led to deleting a line; EU led to sharpening an
+  assertion twice before it could fail.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 693 passed, 0 failed (one test rewritten, none added) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### The rest of the mouse diff, listed but not read
+
+Only Alt+click has been walked. Still side by side and unread:
+
+- **`mouseMoveEvent`** - link highlighting under Ctrl, the drag threshold, and
+  what happens over the extra area.
+- **`mouseReleaseEvent`** - the link *press* is remembered on press and
+  followed on release, and Linux middle-click paste lives here.
+- **`mouseDoubleClickEvent`** - what a double click selects, and the third
+  click of a triple.
+- **`wheelEvent`** - Ctrl+wheel zoom, and whether the setting gates it.
+- The widget's `handleForwardBackwardMouseButtons()`, Linux only.
+
+### Where this leaves it
+
+1. **The rest of the mouse handler**, above.
+2. **Home on a wrapped line** - entry 133.
+3. **QmlJS's context pane** - a UI decision.
+4. **The whitespace drawing difference** - declined, entry 68.
+5. **Printing** - open since entry 31.
+6. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+Item 1, and specifically `mouseReleaseEvent` first: it holds the link-follow
+handshake, which is split across press and release in the widget and looked
+like a single call in the QML - the shape that has produced a gap every time it
+has appeared. Middle-click paste is the other one worth measuring early,
+because it is a whole gesture rather than a condition, and a missing gesture is
+the one thing this walk has not yet turned up.

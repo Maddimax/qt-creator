@@ -9565,10 +9565,14 @@ private slots:
                                 .arg(at.x()).arg(lineWidth)));
     }
 
-    void testAltClickPutsAnotherCaretThere()
+    // Alt+click is how the extra carets are made, and in the widget editor it
+    // is a toggle: the gesture that puts one down is the one that picks it up
+    // again - except on the last caret, which would leave the view with none.
+    // This view only ever added.
+    void testAltClickPutsACaretDownAndTakesItBack()
     {
         // The branch that decides this lives in QML, so a real click is what
-        // covers it - calling addCaretAt() from here would test the viewport
+        // covers it - calling toggleCaretAt() from here would test the viewport
         // and leave the thing that calls it untested.
         TemporaryDirectory dir("textviewport-alt-click");
         QVERIFY(dir.isValid());
@@ -9591,7 +9595,30 @@ private slots:
         QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::AltModifier, at);
         QTRY_COMPARE(viewport->caretRectangles().size(), 2);
 
-        // Clicking the same place again does not stack a third one on it.
+        // Clicking the same place again takes it back rather than stacking a
+        // third one on it - which is what a real TextEditorWidget does,
+        // measured alt-click for alt-click.
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::AltModifier, at);
+        QTRY_COMPARE(viewport->caretRectangles().size(), 1);
+
+        // On the only caret there is, it stays *where it is*: a view with no
+        // caret has nowhere to type, and one that jumped to the top of the
+        // file would still count as one. The widget editor guards the same
+        // thing after removing.
+        // Not at the top of the file, or "it stayed where it was" and "it
+        // jumped to position zero" are the same answer and the assertion
+        // below cannot tell them apart.
+        viewport->setCursorPosition(3);
+        const int lonely = viewport->cursorPosition();
+        QCOMPARE(lonely, 3);
+        const QRectF only = viewport->rectangleAt(lonely);
+        QVERIFY(!only.isEmpty());
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::AltModifier,
+                          viewport->mapToScene(only.center()).toPoint());
+        QTRY_COMPARE(viewport->caretRectangles().size(), 1);
+        QCOMPARE(viewport->cursorPosition(), lonely);
+
+        // And anywhere else it is still another caret.
         QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::AltModifier, at);
         QTRY_COMPARE(viewport->caretRectangles().size(), 2);
 

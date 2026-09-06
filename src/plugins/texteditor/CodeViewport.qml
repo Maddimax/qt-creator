@@ -210,8 +210,10 @@ Item {
                         viewport.selectBlockTo(mouse.x, mouse.y)
                     } else {
                         // The caret stays where it was: this only records
-                        // where a drag would start from.
-                        viewport.addCaretAt(position)
+                        // where a drag would start from. A toggle rather than
+                        // an add, because Alt+click on a caret that is already
+                        // there is how it is taken back.
+                        viewport.toggleCaretAt(position)
                         viewport.anchorBlockSelection(position)
                         textArea.blockSelecting = true
                     }

@@ -2901,6 +2901,28 @@ void TextViewport::addCaretAt(int position)
     setMultiTextCursor(cursors);
 }
 
+void TextViewport::toggleCaretAt(int position)
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return;
+
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    QTextCursor there(text);
+    there.setPosition(qBound(0, position, text->characterCount() - 1));
+    if (cursors.containsCursor(there)) {
+        // No guard against taking the last one: setMultiTextCursor() refuses
+        // an empty list and leaves the caret where it was, so a view with no
+        // caret at all cannot come out of this. Checked - a guard here made no
+        // difference to what the reader sees.
+        cursors.removeCursor(there);
+        setMultiTextCursor(cursors);
+        return;
+    }
+    addCaretAt(position);
+}
+
 void TextViewport::addCaretsToLineEnds()
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
