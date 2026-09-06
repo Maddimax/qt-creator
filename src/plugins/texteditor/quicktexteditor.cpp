@@ -52,6 +52,7 @@
 #include <coreplugin/navigationwidget.h>
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
+#include <coreplugin/icontext.h>
 #include <coreplugin/icore.h>
 
 #include <QMainWindow>
@@ -94,6 +95,8 @@
 #include <QTextEdit>
 
 #ifdef WITH_TESTS
+#include <QApplication>
+#include <QHBoxLayout>
 #include <QTest>
 #include <QToolBar>
 #endif
@@ -9644,6 +9647,64 @@ private slots:
     // Ctrl+F reaches an editor by asking its *widget* for an IFindSupport, so
     // whoever builds the widget has to put one there. An editor made of two
     // panes should not have to know that.
+    // An editor made of two panes gives each its own context, so that a
+    // command registered for one is live only while that pane has focus -
+    // Markdown does exactly this with its text and its preview. Whether a Qt
+    // Quick view can be one of those panes is this.
+    void testTwoViewsEachKeepTheirOwnContext()
+    {
+        CodeBuffer leftSource;
+        leftSource.setText("left\n");
+        CodeBuffer rightSource;
+        rightSource.setText("right\n");
+
+        // One window holding both, so that focus moves between the panes
+        // rather than between windows.
+        const std::unique_ptr<QWidget> window(new QWidget);
+        auto * const layout = new QHBoxLayout(window.get());
+        auto * const leftView = Internal::createQuickTextView(&leftSource, nullptr);
+        auto * const rightView = Internal::createQuickTextView(&rightSource, nullptr);
+        layout->addWidget(leftView);
+        layout->addWidget(rightView);
+
+        const Utils::Id leftId("Test.QuickPane.Left");
+        const Utils::Id rightId("Test.QuickPane.Right");
+        Core::IContext::attach(leftView, Core::Context(leftId));
+        Core::IContext::attach(rightView, Core::Context(rightId));
+
+        window->resize(800, 300);
+        window->show();
+        const QScopeGuard hideIt([&window] { window->hide(); });
+        window->activateWindow();
+        QApplication::setActiveWindow(window.get());
+
+        const auto activeContexts = [] {
+            QStringList out;
+            for (Core::IContext * const context : Core::ICore::currentContextObjects()) {
+                for (const Utils::Id id : context->context())
+                    out << id.toString();
+            }
+            return out;
+        };
+
+        // The inner QQuickWidget is what a click focuses - the wrapper around
+        // it takes no focus of its own - and the context is attached to the
+        // wrapper, so this also says the walk up from the focus widget finds
+        // it.
+        rightView->quickWidget()->setFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY2(activeContexts().contains(rightId.toString()),
+                     qPrintable("focusing the right pane gave: " + activeContexts().join(", ")));
+        QVERIFY2(!activeContexts().contains(leftId.toString()),
+                 "the left pane's context was live while the right pane had focus");
+
+        // And they swap, which is what makes them two panes rather than one.
+        leftView->quickWidget()->setFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY2(activeContexts().contains(leftId.toString()),
+                     qPrintable("focusing the left pane gave: " + activeContexts().join(", ")));
+        QVERIFY2(!activeContexts().contains(rightId.toString()),
+                 "the right pane's context stayed live after focus left it");
+    }
+
     void testAViewBuiltWithoutAnEditorCanBeSearched()
     {
         CodeBuffer source;

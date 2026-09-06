@@ -45028,3 +45028,100 @@ No `.qbs` change: no files added.
 Unchanged elsewhere: GLSL (the table in entry 93, plus the question about its
 empty outline combo), the whitespace difference (declined, entry 68), and
 printing (entry 31, the owner's).
+
+## 2026-09-06 — Two panes, two contexts, and two costs that were not (batch 97)
+
+Entry 96 left Markdown with three things, the first of them "not yet
+measured". This batch measured it, and it is not a gap either. **This is the
+second entry running to shrink the remaining list by measuring rather than by
+building**, which is worth saying out loud: the list had been growing on
+unmeasured entries.
+
+**No production code changed in this batch.** What it leaves behind is one
+test and two corrections.
+
+### Item 1: `IContext::attach()` on a Qt Quick pane
+
+It works. `testTwoViewsEachKeepTheirOwnContext` builds two views in one
+window, attaches a context to each, and moves focus between them: each
+context is live only while its own pane has focus.
+
+Two things it pinned down that were not obvious:
+
+- The `QtcQuick::QuickWidget` wrapper is **`Qt::NoFocus`**; the `QQuickWidget`
+  inside it is `Qt::StrongFocus`. So a click focuses the *inner* widget, and
+  the context attached to the *wrapper* is found by walking up from the focus
+  widget. The test focuses the inner one for exactly that reason.
+- `QWidget::setFocus()` ignores the focus policy, so focusing the wrapper
+  directly would have passed while telling you nothing about clicking.
+
+### The fixture lied first
+
+The first probe reported no active context at all - and printed
+`focus widget: QWidget(0x0)`. Nothing had focus, because a bare top-level in
+this test run is never activated. `activateWindow()` plus
+`QApplication::setActiveWindow()` fixed it.
+
+**A context test that never gave anything focus would have measured the
+fixture and reported it as a defect in the code.** The version that shipped
+puts both panes in one window so focus moves *within* an active window and
+never depends on window activation twice.
+
+### GLSL's table has an error in it
+
+Entry 93 listed `setExtraSelections()` for diagnostics and semantic ranges as
+"nowhere yet". That is wrong. `TextDocument::setExtraSelections(Id kind, ...)`
+is document-level and view-agnostic, `TextViewport` reads
+`doc->extraSelections(kind)` and follows `extraSelectionsChanged`, and
+`TextViewport::Highlight` is the type that exists instead of the QtWidgets
+`QTextEdit::ExtraSelection`.
+
+So GLSL's diagnostics are not a missing seam; they are calls to move from the
+widget to the document. Corrected here rather than in place, so the table
+still reads as what was believed at the time.
+
+### Controls
+
+Both perturb the test's own setup, because there is no production change to
+perturb - said plainly rather than dressed up:
+
+- **BG**: the right pane given no context - red at "focusing the right pane
+  gave: ".
+- **BH**: both panes given both contexts - red at "the left pane's context was
+  live while the right pane had focus". This is the one that matters: it is
+  the negative assertion, and a negative assertion that cannot fail is the
+  usual way a test like this is worthless.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 663 passed, 0 failed (was 662) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown - now one item, and it is large
+
+Only the swap. It is bigger than entry 95 implied, and here is why:
+
+`MarkdownEditor::toolBar()` is `BaseTextEditor::toolBar()`, which is
+`editorWidget()->toolBarWidget()`, and `editorWidget()` is
+`TextEditorWidget::fromEditor(this)` - which finds `m_textEditorWidget`
+**through the Aggregate** that `MarkdownEditor` builds in its constructor.
+The tool bar host is the text widget, reached by aggregation, and the same is
+true of everything else `BaseTextEditor` answers with `editorWidget()`.
+
+So swapping the text pane for a Qt Quick view means `MarkdownEditor` stops
+being able to be a `BaseTextEditor` in the way it currently is: it needs its
+own tool bar, and its own answers for what `BaseTextEditor` currently gets
+from the widget. That is a batch of its own, and it should be planned rather
+than started at the end of one.
+
+Everything the *view* side needs is now in place: it can be built without an
+editor (entry 89), searched (entry 96), and given a context that follows focus
+(this entry).
+
+Unchanged elsewhere: GLSL (entry 93's table, minus the correction above, plus
+the question about its empty outline combo), the whitespace difference
+(declined, entry 68), and printing (entry 31, the owner's).
