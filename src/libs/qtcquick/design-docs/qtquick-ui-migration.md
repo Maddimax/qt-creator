@@ -48454,3 +48454,121 @@ other half: the fixture can also be *set* and not take.
    nothing reads.
 
 Item 1 is the one with a track record: three gaps from two keys.
+
+## 2026-09-06 — Several carets you could not move (batch 133)
+
+Entry 132 left the key handler diff as the item with a track record - three
+gaps from two keys. Walked the navigation keys. **The gap is not in one key;
+it is in every one of them.**
+
+### What was wrong
+
+```cpp
+cursor.setVerticalMovementX(m_verticalMovementX);
+Utils::MultiTextCursor cursors({cursor});          // one caret
+...
+    setTextCursor(cursors.mainCursor());           // and one written back
+```
+
+`setCursorPosition()` clears the extra carets on purpose - "putting the caret
+somewhere is putting *the* caret somewhere" - and `setTextCursor()` goes
+through it. So every arrow key rebuilt the caret list from one cursor and threw
+the rest away.
+
+**Several carets could be made and typed into, and the first arrow key
+collapsed them to one.** Measured:
+
+```
+MCARET Right before QList(1, 12) after QList(13)
+MCARET Down  before QList(1, 12) after QList(23)
+```
+
+The widget hands `m_cursors` - all of them - to `handleMoveKeyEvent()` and
+writes them all back, and its `handleHomeKey()` loops over them:
+
+```
+WMCARET Right       before QList(1, 12)  after QList(2, 13)
+WMCARET Down        before QList(1, 12)  after QList(12, 24)
+WMCARET StartOfLine before QList(3, 14)  after QList(0, 11)
+```
+
+Three sites, one shape: the shared move table, the start-of-line block beside
+it, and `gotoLineStart()`, which is what the form and the command call rather
+than sending a key.
+
+### The probe that would have lied
+
+The first probe pressed **Home** and **End**, and both editors collapsed to one
+caret - which reads exactly like "the widget does this too, so there is no
+gap".
+
+They do, and it is correct: on a Mac `Home` is `MoveToStartOfDocument`. Going
+to the top of the file *should* leave one caret. The line-home path is
+`MoveToStartOfLine`, which is Cmd+Left here and never fires from `Key_Home`.
+
+So the test sends `QKeySequence::MoveToStartOfLine` through the file's existing
+`keyMove()` helper rather than a raw key, and says why in a comment. **A probe
+on the wrong binding is a fixture that answers a different question** - the
+same family as entry 132, one level down: not a setter that was overruled, but
+a key that means something else on this platform.
+
+### Controls
+
+- **EN**: the move table writing back one caret - red at Right, one where two.
+- **EO**: the start-of-line block moving one - red at the `MoveToStartOfLine`
+  row.
+- **EP**: `gotoLineStart()` moving one - red at the direct-call row.
+
+Three sites, three controls, three different lines of the test. The last one
+matters on its own: the two key paths could have been fixed and the command
+left behind, and nothing else would have said so.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 692 passed, 0 failed (was 691) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Found and not closed
+
+`handleHomeKey()` takes a `block` flag the Quick view computes and ignores:
+
+```cpp
+const bool toStartOfBlock = event->matches(QKeySequence::MoveToStartOfBlock)
+                            || event->matches(QKeySequence::SelectStartOfBlock);
+```
+
+It is used to decide *whether* to take the branch and not *what the branch
+does*. In the widget it suppresses one rule: on the second or later row of a
+**wrapped** line, Home goes to the start of that row rather than to the first
+non-space of the whole line. The Quick view always goes to the first non-space.
+
+Left alone deliberately: word wrap is off by default, so this needs a
+non-default preference *and* a line long enough to wrap before anybody sees it,
+and it wants its own measurement of what the widget does at each row of a
+wrapped line. Written down rather than guessed at.
+
+### Where this leaves it
+
+1. **Home on a wrapped line**, above.
+2. **The rest of the key handler diff.** Backspace, Tab and the navigation keys
+   have been walked. `Key_Delete`, `Key_Insert` and the text-insertion path
+   have not.
+3. **QmlJS's context pane** - a UI decision.
+4. **The whitespace drawing difference** - declined, entry 68.
+5. **Printing** - open since entry 31.
+6. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+Item 2, and then stop walking keys: four of the last five gaps came out of that
+file pair and the seam is nearly read out. What is worth doing after it is the
+same diff applied to the **mouse** handler, which nothing has looked at - a
+double-click, a middle-click paste, Alt+drag for a block selection and
+Ctrl+click for a link all have conditions in `TextEditorWidget` that nobody has
+compared against `TextViewport`. Multi-caret editing is made with the mouse,
+and this batch found that half of it did not work; the other half is a mouse
+gesture nobody has measured.

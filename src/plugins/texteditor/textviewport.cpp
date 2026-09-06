@@ -2216,8 +2216,14 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
                                 || event->matches(QKeySequence::SelectStartOfBlock);
     if (toStartOfBlock || event->matches(QKeySequence::MoveToStartOfLine)
         || event->matches(QKeySequence::SelectStartOfLine)) {
-        moveToFirstCharacter(cursor, mode);
-        setTextCursor(cursor);
+        // Every caret, not only the main one. The widget editor's
+        // handleHomeKey() loops over its cursors, and a view that moves one
+        // and drops the others makes several carets useless: they are there to
+        // be typed into together, and moving is half of that.
+        Utils::MultiTextCursor carets = multiTextCursor();
+        for (QTextCursor &caret : carets)
+            moveToFirstCharacter(caret, mode);
+        setMultiTextCursor(carets);
         return event->accept();
     }
 
@@ -2262,7 +2268,12 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
     // taken after. Without it the second Down measures from the end of the row
     // it is on and steps over one.
     cursor.setVerticalMovementX(m_verticalMovementX);
-    Utils::MultiTextCursor cursors({cursor});
+    // The main caret last, which is where MultiTextCursor keeps it, and the
+    // extra ones with it: an arrow key moves all of them or there is no point
+    // having made them.
+    QList<QTextCursor> moving = m_extraCursors;
+    moving.append(cursor);
+    Utils::MultiTextCursor cursors(moving);
     // The layout that knows where the rows are. While the viewport is wrapping
     // that is its own - the document's layout never sees that wrapping, so
     // handing it over makes Down step over a whole wrapped line instead of on
@@ -2270,7 +2281,7 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
     if (cursors.handleMoveKeyEvent(event, behaviorSettings().m_camelCaseNavigation,
                                    movementLayout())) {
         m_verticalMovementX = cursors.mainCursor().verticalMovementX();
-        setTextCursor(cursors.mainCursor());
+        setMultiTextCursor(cursors);
         return event->accept();
     }
 
@@ -3371,11 +3382,12 @@ void TextViewport::moveCamelCase(bool forward, QTextCursor::MoveMode mode)
 
 void TextViewport::gotoLineStart(QTextCursor::MoveMode mode)
 {
-    QTextCursor cursor = textCursor();
-    if (cursor.isNull())
+    Utils::MultiTextCursor carets = multiTextCursor();
+    if (carets.isNull())
         return;
-    moveToFirstCharacter(cursor, mode);
-    setTextCursor(cursor);
+    for (QTextCursor &caret : carets)
+        moveToFirstCharacter(caret, mode);
+    setMultiTextCursor(carets);
 }
 
 void TextViewport::selectWordUnderCursor()

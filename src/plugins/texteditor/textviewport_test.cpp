@@ -5221,6 +5221,64 @@ private slots:
         QCOMPARE(text->findBlockByNumber(1).text(), QString("gamma delta"));
     }
 
+    // Several carets are made to be typed into together, and moving them is
+    // half of that. The Qt Quick view moved only the main one and dropped the
+    // rest: a caret on each of two lines, one press of Right, and there was
+    // one caret left. The widget editor hands every cursor to the move and
+    // writes them all back.
+    void testEveryCaretMovesWithTheKeys()
+    {
+        TemporaryDirectory dir("qtc-viewport-multimove");
+        const FilePath file = dir.filePath("three.txt");
+        QVERIFY(file.writeFileContents("alpha beta\ngamma delta\nepsilon zeta\n"));
+
+        ViewportFixture fixture(file, 400, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        viewport->setReadOnly(false);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        QVERIFY(fixture.hasFocus());
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        const auto positions = [viewport] {
+            QList<int> at;
+            for (const QTextCursor &c : viewport->multiTextCursor().cursors())
+                at << c.position();
+            std::sort(at.begin(), at.end());
+            return at;
+        };
+        const auto twoCaretsAt = [&](int first, int second) {
+            viewport->setCursorPosition(first);
+            viewport->addCaretAt(second);
+            QCOMPARE(viewport->multiTextCursor().cursorCount(), 2);
+        };
+
+        // The answers below are a real TextEditorWidget's, key for key.
+        twoCaretsAt(1, 12);
+        QTest::keyClick(&fixture.view, Qt::Key_Right);
+        QCOMPARE(positions(), QList<int>({2, 13}));
+
+        twoCaretsAt(1, 12);
+        QTest::keyClick(&fixture.view, Qt::Key_Down);
+        QCOMPARE(positions(), QList<int>({12, 24}));
+
+        // Start of line rather than Home: on a Mac Home is the top of the
+        // file, which collapses to one caret in both editors and would have
+        // said this works when it did not.
+        twoCaretsAt(3, 14);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        QCOMPARE(positions(), QList<int>({0, 11}));
+
+        // And the same move asked for directly, which is what the form and
+        // the command do rather than sending a key.
+        twoCaretsAt(3, 14);
+        viewport->gotoLineStart();
+        QCOMPARE(positions(), QList<int>({0, 11}));
+
+        Q_UNUSED(text)
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()
