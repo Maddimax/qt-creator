@@ -43900,3 +43900,85 @@ sweep of CMake found four call sites where the editor audit had found two.
 4. The whitespace drawing difference - declined.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Python moved, and its callers were clean (batch 86)
+
+Entry 85 said to sweep Python's callers and then flip, and entry 84 warned to
+"budget for the caller sweep to be the larger half". It was the smaller half:
+**there are no callers to convert.**
+
+### The sweep
+
+    C_PYTHONEDITOR_ID outside pythoneditor.cpp    none
+    editor casts in the Python plugin             none
+    PythonDocument users elsewhere                one, and it casts the document
+    .py opened by mime type elsewhere             pydapengine, mime match only
+
+Every integration Python has - the build configuration reading the chosen
+interpreter, PySide's tooling, the debugger's DAP engine - goes through the
+**document** or the mime type, never through an editor. So nothing had to
+change.
+
+That is the opposite of the prediction, and worth stating as the finding:
+**the plugin that looked hardest had the cleanest callers.** A language server,
+a code model and an editor widget subclass turned out to say nothing about how
+its integrations reach the text. CMake, which has none of those, needed four
+call sites converted; Python needed none.
+
+The reason is visible in the sweep itself: CMake's project operations *edit*
+CMakeLists.txt and reached for an editor to do it, while Python's integrations
+only *read* the document.
+
+### The flip
+
+    setUsesQuickEditor(true);      in PythonEditorFactory
+
+**Python is the fifth language moved deliberately**, and the last of the four
+entry 76 measured.
+
+    C++     entry ~50
+    JSON    entry 80
+    qmake   entry 82
+    CMake   entry 84
+    Python  entry 86
+
+### Controls
+
+- **AJ**: the flip reverted - red in **both** censuses, on the factory count
+  and naming `script.py`.
+- Entry 85's **AI** still guards the tool bar buttons that made it safe.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 650 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Python` | 0 | 30 passed, 0 failed |
+| `-test LanguageClient` | 0 | 43 passed, 0 failed |
+
+LanguageClient is in the table because Python's editor is served by a language
+server, and entries 59, 60 and 73 all found LSP integration to be where the
+Qt Quick view had gaps. It is unaffected.
+
+No `.qbs` change: no files added.
+
+### What is left
+
+The four languages entry 76 measured are all moved. What remains is not a
+language:
+
+1. **Markdown** - entry 78 costed it before `setEditorDecorator()` existed and
+   before entry 85 showed that a `QToolButton` with a menu is an action with a
+   menu. **Its cost should be re-measured, not re-read**: three of the five
+   toolbar widgets it needs may be the same kind of thing, and the preview
+   pane is the only part that is genuinely a widget.
+2. `createJsonEditor()`'s discarded editors (entry 80). Cosmetic.
+3. The whitespace drawing difference (entry 68). Declined.
+
+**Suggested next: re-measure Markdown.** It is the last language in the widget
+editor that anyone has asked about, the tools to move it now exist that did
+not when it was costed, and a cost recorded once and not rechecked has already
+misled this file twice - entries 69 and 76.
+
+The printing decision (keep / drop / move) remains the owner's call.

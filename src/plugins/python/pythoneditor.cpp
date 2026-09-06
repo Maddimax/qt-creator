@@ -321,6 +321,12 @@ public:
                                 | OptionalActions::UnCollapseAll
                                 | OptionalActions::FollowSymbolUnderCursor);
 
+        // Python files open in the Qt Quick view. What its widget subclass
+        // did - the REPL menu and the interpreter picker - is an editor
+        // decorator now, and nothing outside this file reaches a Python
+        // editor: every integration goes through the document.
+        setUsesQuickEditor(true);
+
         setDocumentCreator([]() { return new PythonDocument; });
         setEditorDecorator([](Core::IEditor *editor) {
             new PythonEditorDecorations(editor);

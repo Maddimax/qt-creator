@@ -5229,7 +5229,8 @@ private slots:
         // line in the same commit.
         QStringList expected{QString(QUICK_TEXT_EDITOR_ID), QString("CppEditor.C++Editor"),
                              QString("Editors.Json"), QString("Qt4.proFileEditor"),
-                             QString("CMakeProject.CMakeEditor")};
+                             QString("CMakeProject.CMakeEditor"),
+                             QString("PythonEditor.PythonEditor")};
         if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
             expected.removeOne(QString("CppEditor.C++Editor"));
         expected.sort();
@@ -5263,7 +5264,7 @@ private slots:
             {"deploy.yaml", true},
             {"build.sh", true},
             // And a language that has one does not, however plain its text.
-            {"script.py", false},
+            {"script.py", true},
             {"README.md", false},
             {"Thing.qml", false},
             {"project.pro", true},
