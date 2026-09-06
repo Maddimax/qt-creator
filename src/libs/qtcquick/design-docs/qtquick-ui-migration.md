@@ -49507,3 +49507,139 @@ editors directly instead of writing down expected values.** `event()`'s
 ShortcutOverride handling is exactly that shape - which key presses an editor
 claims before the shortcut system sees them is Qt's rule plus Creator's, and a
 list of expectations would be a guess where a comparison is a measurement.
+
+## 2026-09-07 — What an editor remembers (batch 142)
+
+Entry 141 named `changeEvent` and `event()` as the last two handlers. Read
+both. **Neither holds a gap**, and the reason the palette case does not is
+worth writing down. Then the pattern entry 141 recommended - compare the two
+editors where the format is Creator's own - found one somewhere else.
+
+### The last two handlers, and why they are clean
+
+`event()` has four cases:
+
+| Case | Here |
+| --- | --- |
+| `ShortcutOverride` | `wantsKeyBeforeShortcuts()`, with its own test since entry 7852 |
+| `ReadOnlyChange` | the two tool bar items empty themselves on `m_readOnly`, and `readOnlyChanged` drives `OptionalActionGate::update()` |
+| `ParentChange` | a widget being reparented into a combined editor. No counterpart to want |
+| `ApplicationPaletteChange` | **nothing - and correctly nothing** |
+
+That last one looked like the gap of the batch until the comment above it was
+read properly:
+
+```cpp
+    case QEvent::ApplicationPaletteChange: {
+        // slight hack: ignore palette changes
+        // at this point the palette has changed already,
+        // so undo it by re-setting the palette:
+        applyFontSettings();
+```
+
+It is not *reacting* to the palette, it is **undoing** it: a `QPlainTextEdit`
+draws from its palette, Qt has just overwritten it, and the editor wants its
+colour scheme back. A `QQuickItem` has no palette for Qt to overwrite, so there
+is nothing to undo. `changeEvent`'s `PaletteChange` is the same hack and its
+`FontChange` branch resizes the extra area's font, which the Quick gutter gets
+by binding `font: root.viewport.font`.
+
+**The handler list is finished.** Nine seams, and this is the first to end with
+nothing.
+
+### The gap, found by comparing states instead
+
+`TextEditorWidget::saveState()` writes seven fields; `QuickTextEditor` wrote
+three. The one that matters:
+
+```cpp
+    stream << d->m_foldedBlockCache;      // which blocks are folded
+```
+
+**Every fold was lost.** What an editor remembers is what comes back after the
+file is reloaded, after a session is restored, and - since entry 126 - in the
+second half of a split. Folds are the part of that the reader arranged by hand,
+and a C++ file with its includes and its licence header folded came back fully
+open every time.
+
+Saved now, and put back on restore *before* the caret - putting a fold back
+moves every line below it, so a caret restored first would be left pointing at
+the wrong one. Deferred through `singleShotAfterHighlightingDone()`, because
+which lines fold at all is the highlighter's answer and it has not run yet.
+
+The state version goes to 2, so a session written by an older build is refused
+rather than read with the fields in the wrong places.
+
+### The test compares the two editors
+
+Both rows, same file, same fold: fold, save, unfold, restore, and the fold has
+to be back. The widget row is what says the fixture works - and it caught the
+fixture being wrong twice:
+
+- **A `.txt` file cannot tell the two apart.** `QuickTextEditorFactory` claims
+  `text/plain` ahead of the plain text editor, so a `.txt` opens in the Qt
+  Quick view whatever a `TextEditorFactory` says. The widget row was measuring
+  the Quick editor. Changed to `.cpp`.
+- **Hand-set fold indents are not what a real editor folds.** With a language
+  highlighter running, the indents it computes are the ones that count, so the
+  test asks which block *is* foldable rather than declaring one.
+
+### Controls
+
+- **FQ**: the folds not written into the state - red, "the fold did not come
+  back".
+- **FR**: the folds read back and never applied - red the same way. Two halves,
+  two controls: writing them and using them are separate.
+- **FS**: the version bumped without the guard changing - **did not bite**, and
+  could not: the test round-trips one version and cannot produce a state from
+  an older build. So the test now writes one by hand - `1`, a position, a
+  scroll - and requires the caret not to move. **FS2**, the version check
+  removed, is red at "position 12 rather than 1".
+
+Third batch in a row where the first version of a control could not bite, and
+the third where the answer was to give the test an input that separates the two
+behaviours rather than to delete the line.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 708 passed, 0 failed (was 706) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Still not saved, and deliberately
+
+The widget also stores the **horizontal** scroll and the first/last visible
+block numbers. The Qt Quick editor stores neither, and this batch did not add
+them: `scrollY` plus the caret already put the reader back on the right line,
+the horizontal offset only matters with wrapping off *and* a long line, and the
+visible-block numbers are a widget-era way of doing what `scrollY` does here.
+Named rather than done, so the next person does not have to work out whether it
+was missed.
+
+### Where this leaves it
+
+1. **Horizontal scroll in the saved state** - above.
+2. **The `Cursor` attribute while composing** - unmeasurable here, entry 141.
+3. **The collapsed-fold popup** - a feature, entry 137.
+4. **Middle-click paste** - a feature, unmeasurable on macOS.
+5. **`canInsertFromMimeData`** - entry 140.
+6. **The link press/release handshake** - read, both answers defensible.
+7. **Home on a wrapped line** - entry 133.
+8. **QmlJS's context pane** - a UI decision, entry 114.
+9. **The whitespace drawing difference** - declined, entry 68.
+10. **Printing** - entry 31.
+11. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+The event handlers are done; **what is left of the widget that has not been
+compared is its state and its commands** - `saveState`/`restoreState` produced
+this batch, and the other half of that shape is the list of things
+`TextEditorWidget` exposes as public slots and `Q_INVOKABLE`s. That is a
+finite, enumerable list, the same kind of artefact as entry 124's census, and
+it is the last place a whole behaviour could still be hiding rather than a
+condition. After that, items 3, 4 and 8 are the only ones with weight and none
+of them is a measurement.

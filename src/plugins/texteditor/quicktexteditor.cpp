@@ -973,9 +973,22 @@ public:
         if (!view)
             return {};
 
+        // Which blocks are folded, as well as where the caret and the view
+        // were. What an editor remembers is what comes back after a reload,
+        // after a session is restored, and in the second half of a split -
+        // and folds are the part of that a reader has arranged by hand.
+        QSet<int> folded;
+        if (QTextDocument * const text = m_document->document()) {
+            for (QTextBlock block = text->firstBlock(); block.isValid();
+                 block = block.next()) {
+                if (TextBlockUserData::isFolded(block))
+                    folded.insert(block.blockNumber());
+            }
+        }
+
         QByteArray state;
         QDataStream stream(&state, QIODevice::WriteOnly);
-        stream << kStateVersion << view->cursorPosition() << view->scrollY();
+        stream << kStateVersion << view->cursorPosition() << view->scrollY() << folded;
         return state;
     }
 
@@ -1009,7 +1022,35 @@ public:
 
         int position = 0;
         qreal scrollY = 0;
-        stream >> position >> scrollY;
+        QSet<int> folded;
+        stream >> position >> scrollY >> folded;
+
+        // The folds first: putting them back changes where every line below
+        // them is, so a caret restored before them would be left pointing at
+        // the wrong one. They can only be put back once the highlighter has
+        // said which lines fold at all, which for a language that has one is
+        // after this returns.
+        if (!folded.isEmpty()) {
+            TextDocument * const doc = m_document.get();
+            const auto unfoldWhatWasFolded = [doc, folded] {
+                QTextDocument * const text = doc->document();
+                auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+                bool changed = false;
+                for (const int number : folded) {
+                    const QTextBlock block = text->findBlockByNumber(number);
+                    if (block.isValid() && TextBlockUserData::canFold(block)
+                        && !TextBlockUserData::isFolded(block)) {
+                        TextBlockUserData::doFoldOrUnfold(block, /*unfold=*/false);
+                        changed = true;
+                    }
+                }
+                if (changed && layout)
+                    layout->requestUpdate();
+            };
+            if (!doc->singleShotAfterHighlightingDone(unfoldWhatWasFolded))
+                unfoldWhatWasFolded();
+        }
+
         view->setCursorPosition(position);
         // After the cursor: setting it scrolls to it, and where the reader
         // left the view is the more specific answer.
@@ -1024,7 +1065,7 @@ public:
     }
 
 private:
-    static constexpr int kStateVersion = 1;
+    static constexpr int kStateVersion = 2;
 
     void applyGlobalSettings()
     {
@@ -10738,6 +10779,93 @@ private slots:
         // The same thing again is not a second entry - it moves to the front.
         copyRange(0, 3);
         QCOMPARE(history->size(), 2);
+    }
+
+    void testFoldsSurviveASaveAndRestore_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // What an editor remembers is what comes back after the file is reloaded,
+    // after a session is restored, and in the second half of a split. The
+    // widget editor writes the folded blocks into its state; the Qt Quick one
+    // wrote a caret and a scroll offset, so every fold was lost.
+    void testFoldsSurviveASaveAndRestore()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("fold-state");
+        QVERIFY(dir.isValid());
+        // A C++ file rather than plain text: the Qt Quick factory claims
+        // text/plain ahead of the plain text editor, so a .txt opens in this
+        // view whatever a TextEditorFactory says, and the widget row would
+        // measure the wrong editor.
+        const Utils::FilePath file = dir.filePath("folded.cpp");
+        QVERIFY(file.writeFileContents("void f()\n{\n    int a;\n    int b;\n    int c;\n}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(bool(Internal::viewportForEditor(editor)), quick);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QTextDocument * const text = document->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+
+        // Whichever line the highlighter says is foldable - which one that is
+        // depends on the language, and this test is about what is remembered
+        // rather than about where a fold starts.
+        int foldable = -1;
+        QTRY_VERIFY([&] {
+            for (QTextBlock b = text->firstBlock(); b.isValid(); b = b.next()) {
+                if (TextBlockUserData::canFold(b)) {
+                    foldable = b.blockNumber();
+                    return true;
+                }
+            }
+            return false;
+        }());
+
+        TextBlockUserData::doFoldOrUnfold(text->findBlockByNumber(foldable), /*unfold=*/false);
+        layout->requestUpdate();
+        QVERIFY2(TextBlockUserData::isFolded(text->findBlockByNumber(foldable)),
+                 "the fixture did not fold anything");
+
+        const QByteArray state = editor->saveState();
+        QVERIFY2(!state.isEmpty(), "the editor remembered nothing at all");
+
+        TextBlockUserData::doFoldOrUnfold(text->findBlockByNumber(foldable), /*unfold=*/true);
+        layout->requestUpdate();
+        QVERIFY2(!TextBlockUserData::isFolded(text->findBlockByNumber(foldable)),
+                 "the fold was not undone, so this proves nothing");
+
+        editor->restoreState(state);
+        QTRY_VERIFY2(TextBlockUserData::isFolded(text->findBlockByNumber(foldable)),
+                     "the fold did not come back");
+
+        // And a state written before the folds were in it is refused rather
+        // than read as though it had them: the fields after the version differ
+        // now, so misreading one would put the caret somewhere arbitrary.
+        if (quick) {
+            editor->gotoLine(1, 1);
+            const int before = TextEditor::textCursorOf(editor).position();
+            QByteArray older;
+            QDataStream out(&older, QIODevice::WriteOnly);
+            out << 1 << 12 << qreal(34);
+            editor->restoreState(older);
+            QCOMPARE(TextEditor::textCursorOf(editor).position(), before);
+        }
     }
 
     void testDoubleClickTakesTheWordUnderIt_data()
