@@ -43126,3 +43126,107 @@ No `.qbs` change: no files added.
    recorded.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — What moving Markdown would cost, and the end of the audits (batch 78)
+
+Entry 77 left one unmeasured item: Markdown. This measures it, and with that
+**there is no investigation left in this file.**
+
+### Markdown is not a TextEditorFactory, and that is only the start
+
+`MarkdownEditorFactory` is a plain `IEditorFactory` whose editor creator
+returns a `MarkdownEditor : BaseTextEditor`. Inside, a `MiniSplitter` holds a
+`MarkdownEditorWidget : TextEditorWidget` beside a `MarkdownBrowser` preview.
+There is no `setUsesQuickEditor()` to call because there is no
+`TextEditorFactory`.
+
+Everything that editor asks of its widget, listed and checked against what the
+Qt Quick side answers:
+
+| asked of the widget | Qt Quick |
+| --- | --- |
+| `gotoLine`, `saveState`, `restoreState`, `selectedText` | answered - entries 63, 74 |
+| `textCursor`, `setTextCursor`, `setTextDocument` | answered - seams |
+| `setOptionalActions`, `setupGenericHighlighter` | answered - entries 63, 64 |
+| `setMarksVisible(false)` | **not honoured** - below |
+| `insertExtraToolBarWidget()` x5 | **refused** - below |
+| `toolBar()->insertAction()` x2 | plausible, unverified |
+| `setVisible`, `isVisible`, `setSizePolicy`, `setFocus` | QWidget calls on a QQuickItem |
+
+### The blocker
+
+`insertExtraToolBarWidget()` is called five times - the swap-views button, the
+two visibility toggles, and one insertion per side. The Qt Quick editor's
+toolbar is **built from actions**, and this project already decided that:
+Lua's binding for the same call throws rather than ignores, with the reason
+written next to it.
+
+So moving Markdown is not "flip a factory". It needs the preview pane
+rehoused, four QWidget geometry calls redirected at the hosting widget, and
+either five toolbar widgets turned into actions or a way for the Qt Quick
+toolbar to hold a QWidget - which is the decision the Lua binding declined to
+pre-empt.
+
+### An over-claim caught before it was written down
+
+`setMarksVisible(false)`: the widget's mark column is
+`m_marksVisible ? lineSpacing : 0`, and the Qt Quick gutter's `markWidth` is
+`root.viewport.lineHeight` unconditionally. That reads like "every file in the
+Qt Quick editor reserves a column the widget would not", which would have made
+it the fold column of entry 63 all over again and a live defect.
+
+It is not. `TextEditorFactoryPrivate::m_marksVisible` **defaults to true**, so
+the widget reserves the column too; only the nine call sites that pass `false`
+differ, and none of them opens in the Qt Quick view. Latent.
+
+It is also weaker than it looks even there: `texteditor.cpp:6108` latches the
+flag to true the moment the document has a mark, so `setMarksVisible(false)`
+means "do not reserve the column until there is something in it", not "never
+show marks".
+
+Two lines of checking - the default and the latch - turned a live defect into
+a latent width difference. Entries 69, 71, 73 and 76 each wrote something down
+that those two lines' worth of checking would have caught.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 643 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No code changed, so no control: there is nothing this batch could break. The
+deliverable is the measurement.
+
+### There is no next step in this file
+
+Stated plainly, because the standing instruction asks for it. Every surface
+this file knows how to ask about has been asked, and the remaining items are
+not investigations:
+
+1. **Move Python, JSON, qmake or CMake.** Four languages, each with a test
+   asserting that moving it changes nothing. Somebody's decision.
+2. **Markdown**, whose cost is now measured above. A larger piece of work and
+   also a decision - about whether the Qt Quick toolbar should hold widgets.
+3. **The whitespace drawing difference** from entry 68 - `↵` and the
+   end-of-file glyph. Declined with a reason, still declined.
+4. **Printing** - keep, drop or move. The owner's, since entry 31.
+
+### What I would do instead of another batch
+
+If more work is wanted here rather than a decision, the honest options are, in
+order:
+
+- **Take one of the four decisions in (1)** and do it properly: flip the
+  factory, run the suites, fix what the tests find. That is the only remaining
+  work that advances the migration rather than describing it.
+- **Re-measure, don't re-audit.** Entry 69's three costs evaporated between
+  being recorded and being rechecked seven batches later, and nobody noticed
+  because nothing re-ran them. The tests written in entries 68, 69, 76 and 77
+  are now the guard against that; more audits would not add one.
+- Accept that the C++ goal - a C++ file opens in `TextViewport` - has been met
+  since before this file's entry 50, and that everything since has been
+  finding and closing the ways in which it was met incompletely. Nineteen
+  defects, all closed, is a reasonable place to stop looking.
+
+The printing decision (keep / drop / move) remains the owner's call.
