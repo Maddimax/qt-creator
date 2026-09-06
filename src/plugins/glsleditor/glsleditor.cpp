@@ -454,7 +454,6 @@ public:
 
 private:
     void setSelectedElements();
-    void onTooltipRequested(const QPoint &point, int pos);
     QString wordUnderCursor() const;
 
     QComboBox *m_outlineCombo = nullptr;
@@ -503,7 +502,6 @@ GlslEditorWidget::GlslEditorWidget()
             semantics->updateNow();
         }
     });
-    connect(this, &TextEditorWidget::tooltipRequested, this, &GlslEditorWidget::onTooltipRequested);
 }
 
 int GlslEditorWidget::editorRevision() const
@@ -659,20 +657,6 @@ static QStringList diagnosticMessagesToStringList(const QList<DiagnosticMessage>
     return specific + fullLine;
 }
 
-void GlslEditorWidget::onTooltipRequested(const QPoint &point, int pos)
-{
-    GlslSemantics * const semantics = GlslSemantics::of(textDocument());
-    const Document::Ptr glslDocument = semantics ? semantics->glslDocument() : Document::Ptr();
-    QTC_ASSERT(glslDocument && glslDocument->engine(), return);
-    const int lineno = document()->findBlock(pos).blockNumber() + 1;
-    const QStringList messages = diagnosticMessagesToStringList(
-                glslDocument->engine()->diagnosticMessages(), lineno, pos);
-    if (!messages.isEmpty())
-        Utils::ToolTip::show(point, messages.join("<hr/>"), this);
-    else
-        Utils::ToolTip::hide();
-}
-
 int languageVariant(const QString &type)
 {
     int variant = 0;
@@ -714,6 +698,41 @@ int languageVariant(const QString &type)
     if (isFragment)
         variant |= Lexer::Variant_FragmentShader;
     return variant;
+}
+
+// The diagnostics under the cursor, as a tooltip. A hover handler rather than
+// a slot on the editor widget: the factory hands its handlers to whichever
+// view is showing the file, so a shader says what is wrong with it in either.
+class GlslHoverHandler final : public TextEditor::BaseHoverHandler
+{
+    void identifyMatch(HoverTarget *target, int pos, ReportPriority report) final
+    {
+        const QScopeGuard reportPriority([this, report] { report(priority()); });
+
+        GlslSemantics * const semantics = GlslSemantics::of(target->textDocument());
+        const Document::Ptr glslDocument = semantics ? semantics->glslDocument()
+                                                     : Document::Ptr();
+        if (!glslDocument || !glslDocument->engine())
+            return;
+
+        const int lineno
+            = target->textDocument()->document()->findBlock(pos).blockNumber() + 1;
+        const QStringList messages = diagnosticMessagesToStringList(
+            glslDocument->engine()->diagnosticMessages(), lineno, pos);
+        if (messages.isEmpty())
+            return;
+
+        // Above a plain tooltip and below a suggestion, which is where the
+        // widget editor's diagnostics sat too.
+        setPriority(Priority_Diagnostic);
+        setToolTip(messages.join("<hr/>"), Qt::RichText);
+    }
+};
+
+static TextEditor::BaseHoverHandler &glslHoverHandler()
+{
+    static GlslHoverHandler theGlslHoverHandler;
+    return theGlslHoverHandler;
 }
 
 #ifdef WITH_TESTS
@@ -809,6 +828,71 @@ private slots:
                  "the shader was given the plain text auto-completer");
     }
 
+    // The diagnostics used to be shown by a slot on the editor widget, so a
+    // shader open in anything else said nothing about its errors. A hover
+    // handler on the factory is what either kind of view asks.
+    void testDiagnosticsAreOfferedAsATooltip()
+    {
+        // A place to hover, standing in for whichever view is showing the
+        // file - the handler is given one of these and nothing else.
+        class Target final : public TextEditor::HoverTarget
+        {
+        public:
+            explicit Target(TextDocument *document) : m_document(document) {}
+            TextDocument *textDocument() const final { return m_document; }
+            QTextCursor textCursor() const final { return QTextCursor(m_document->document()); }
+            void setContextHelpItem(const Core::HelpItem &) final {}
+            QWidget *tooltipParent() final { return nullptr; }
+            QPoint globalCursorTopLeft() const final { return {}; }
+
+        private:
+            TextDocument * const m_document;
+        };
+
+        // The factory hands it over; without that the handler is dead code
+        // however well it answers.
+        Utils::TemporaryDirectory dir("glsl-hover");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath shader = dir.filePath("shader.frag");
+        QVERIFY(shader.writeFileContents("void main() {}\n"));
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(shader);
+        QVERIFY(factory);
+        QVERIFY2(Utils::anyOf(factory->hoverHandlers(),
+                              [](TextEditor::BaseHoverHandler *h) {
+                                  return dynamic_cast<GlslHoverHandler *>(h) != nullptr;
+                              }),
+                 "the shader's factory offers no GLSL hover handler");
+
+        GlslDocument document;
+        document.setMimeType(Utils::Constants::GLSL_FRAG_MIMETYPE);
+        Target target(&document);
+
+        // A shader that parses says nothing.
+        document.document()->setPlainText("void main() { gl_FragColor = vec4(1.0); }\n");
+        GlslSemantics::of(&document)->updateNow();
+        GlslHoverHandler handler;
+        int reported = -1;
+        handler.checkPriority(&target, 5, [&reported](int priority) { reported = priority; });
+        QCOMPARE(reported, int(TextEditor::BaseHoverHandler::Priority_None));
+        QVERIFY2(handler.toolTip().isEmpty(), "a shader that parses was complained about");
+
+        // And one that does not says what is wrong, where it is wrong.
+        document.document()->setPlainText("void main() { this is not glsl }\n");
+        GlslSemantics::of(&document)->updateNow();
+        // Where the diagnostic actually is, which is where a reader would
+        // point. Asking the parse rather than guessing a column: a message
+        // with a location is only offered for a position inside it.
+        const QList<DiagnosticMessage> messages
+            = GlslSemantics::of(&document)->glslDocument()->engine()->diagnosticMessages();
+        QVERIFY2(!messages.isEmpty(), "the shader parsed after all");
+        const int pos = messages.first().location().position;
+        reported = -1;
+        handler.checkPriority(&target, pos, [&reported](int priority) { reported = priority; });
+        QCOMPARE(reported, int(TextEditor::BaseHoverHandler::Priority_Diagnostic));
+        QVERIFY2(!handler.toolTip().isEmpty(),
+                 "a shader that does not parse offered no tooltip");
+    }
+
     // What the tool bar's Vulkan switch changes: the keywords the parse
     // accepts, which is a property of the file rather than of the editor.
     void testTheVulkanSwitchChangesWhatParses()
@@ -870,6 +954,7 @@ public:
         setSyntaxHighlighterCreator(&createGlslHighlighter);
         setCommentDefinition(Utils::CommentDefinition::CppStyle);
         setCompletionAssistProvider(createGlslCompletionAssistProvider());
+        addHoverHandler(&glslHoverHandler());
         setParenthesesMatchingEnabled(true);
         setCodeFoldingSupported(true);
 

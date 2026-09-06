@@ -45969,3 +45969,74 @@ say `setUsesQuickEditor(true)` and GLSL joins the census.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — GLSL says what is wrong through a hover handler (batch 107)
+
+Another row of entry 93's table, and again the seam already existed.
+
+### The gap this closed
+
+`onTooltipRequested` was a slot on `GlslEditorWidget`, wired to
+`TextEditorWidget::tooltipRequested` - a signal only a widget emits. A shader
+open in anything else said nothing about its errors.
+
+It is `GlslHoverHandler` now, a `BaseHoverHandler` on the factory, which is
+what CMake has used since entry 84 and what `TextViewport` asks as well. It
+takes a `HoverTarget`, whose `textDocument()` is where entry 105 put the
+parse, so the handler needs nothing an editor could give it.
+
+`Priority_Diagnostic` is the priority the enum already had for this, sitting
+above a plain tooltip and below a suggestion - which is where the widget
+editor's diagnostics sat too.
+
+### The test asks the parse where to hover
+
+The first version pointed at a word in the broken line and got nothing. A
+message with a real location is only offered for a position **inside** it, and
+the parse faults `is`, not `not`.
+
+So the test asks the parse for its first message's position and hovers there.
+Better than the guess in two ways: it cannot drift when the parser's error
+recovery changes, and it is what a reader actually does - point at the thing
+that is underlined.
+
+### Two controls, and the second one had to be earned again
+
+- **CD**: the handler setting no priority and no tooltip - red at the priority
+  comparison.
+- **CE**: `addHoverHandler()` removed from the factory - **green at first**.
+  The test built a `GlslHoverHandler` directly, so it proved the handler
+  answers and said nothing about anyone asking it. With an assertion that the
+  shader's factory offers one, CE bites.
+
+That is the third batch running where a control found a line nothing reached
+(entries 104, 106, this one). The pattern is always the same: a test that
+exercises a *class* does not exercise the *registration* that makes it live.
+**Test the wiring separately from the thing wired.**
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 670 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test GLSLEditor` | 0 | 7 passed, 0 failed (was 6) |
+
+No `.qbs` change: no files added.
+
+### What is left, for GLSL
+
+| What | State |
+| --- | --- |
+| the parse, diagnostics, semantic ranges | done, entry 105 |
+| completion, the auto-completer | done, entry 106 |
+| the tooltip | **done** |
+| the checkable Vulkan button | a checkable `QAction` - entries 93 and 103 made both halves |
+| the outline `QComboBox` | **ask first**: its model is commented out, so it draws an empty box |
+
+`GlslEditorWidget` is down to **two tool bar widgets and nothing else**. One is
+ordinary work; the other is the question that has been open since entry 93 and
+is the last thing between GLSL and `setUsesQuickEditor(true)`.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).
