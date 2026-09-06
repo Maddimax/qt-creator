@@ -841,6 +841,13 @@ public:
     // What F1 answers in this language, for a language that knows better than
     // the hover handlers do. Given the editor rather than a widget, so that
     // whichever view is built gets it.
+    // Run over whichever editor this factory builds. For what a language adds
+    // to an editor rather than to its text - a button in the tool bar, say -
+    // which used to live in a TextEditorWidget subclass and so reached only
+    // one of the two views.
+    using EditorDecorator = std::function<void(Core::IEditor *)>;
+    void setEditorDecorator(const EditorDecorator &decorator);
+
     using ContextHelpProvider
         = std::function<void(Core::IEditor *, const Core::IContext::HelpCallback &)>;
     void setContextHelpProvider(const ContextHelpProvider &provider);

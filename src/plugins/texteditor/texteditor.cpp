@@ -10075,6 +10075,7 @@ public:
     TextEditorFactory::SyntaxHighLighterCreator m_syntaxHighlighterCreator;
     CommentDefinition m_commentDefinition;
     TextEditorFactory::ContextHelpProvider m_contextHelpProvider;
+    TextEditorFactory::EditorDecorator m_editorDecorator;
     QList<BaseHoverHandler *> m_hoverHandlers; // not owned
     Context m_editorContexts;
     TextEditorFactory::LinkFinder m_linkFinder;
@@ -10134,6 +10135,8 @@ void TextEditorFactory::setEditorCreator(const EditorCreator &creator)
         // Everything above configures the *document*, which is the same one
         // either view shows. Only what draws it differs.
         const auto withLanguagesHelp = [this](Core::IEditor *editor) {
+            if (d->m_editorDecorator)
+                d->m_editorDecorator(editor);
             if (const ContextHelpProvider provider = d->m_contextHelpProvider) {
                 editor->setContextHelpProvider(
                     [provider, editor](const Core::IContext::HelpCallback &callback) {
@@ -10999,6 +11002,11 @@ void TextEditorFactory::setUsesQuickEditor(bool on)
 bool TextEditorFactory::usesQuickEditor() const
 {
     return d->m_usesQuickEditor;
+}
+
+void TextEditorFactory::setEditorDecorator(const EditorDecorator &decorator)
+{
+    d->m_editorDecorator = decorator;
 }
 
 void TextEditorFactory::setContextHelpProvider(const ContextHelpProvider &provider)

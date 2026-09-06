@@ -75,76 +75,81 @@ static void registerReplAction(QObject *parent)
                                         Constants::PYTHON_OPEN_REPL_IMPORT_TOPLEVEL);
 }
 
-class PythonEditorWidget : public TextEditorWidget
+// What Python adds to an editor's tool bar: an interactive-interpreter menu
+// and a picker for the interpreter in use. Both were QToolButtons put in with
+// insertExtraToolBarWidget(), which only the widget editor has - so they are
+// actions carrying menus now, which either tool bar can draw. The Qt Quick
+// one opens an action's menu rather than triggering it, exactly as a
+// QToolButton set to InstantPopup does.
+class PythonEditorDecorations : public QObject
 {
 public:
-    PythonEditorWidget(QWidget *parent = nullptr);
-
-protected:
-    void finalizeInitialization() override;
-    void updateInterpretersSelector();
+    explicit PythonEditorDecorations(Core::IEditor *editor);
 
 private:
-    QToolButton *m_interpreters = nullptr;
+    void updateInterpretersSelector();
+
+    Core::IEditor * const m_editor;
+    QAction *m_interpreters = nullptr;
 };
 
-PythonEditorWidget::PythonEditorWidget(QWidget *parent) : TextEditorWidget(parent)
+PythonEditorDecorations::PythonEditorDecorations(Core::IEditor *editor)
+    : QObject(editor)
+    , m_editor(editor)
 {
-    auto replButton = new QToolButton(this);
-    replButton->setProperty(StyleHelper::C_NO_ARROW, true);
-    replButton->setText(Tr::tr("REPL"));
-    replButton->setPopupMode(QToolButton::InstantPopup);
-    replButton->setToolTip(Tr::tr("Open interactive Python. Either importing nothing, "
+    auto *replAction = new QAction(Tr::tr("REPL"), this);
+    replAction->setToolTip(Tr::tr("Open interactive Python. Either importing nothing, "
                                   "importing the current file, "
                                   "or importing everything (*) from the current file."));
-    auto menu = new QMenu(replButton);
-    replButton->setMenu(menu);
+    auto menu = new QMenu;
     menu->addAction(Core::ActionManager::command(Constants::PYTHON_OPEN_REPL)->action());
     menu->addSeparator();
     menu->addAction(Core::ActionManager::command(Constants::PYTHON_OPEN_REPL_IMPORT)->action());
     menu->addAction(
         Core::ActionManager::command(Constants::PYTHON_OPEN_REPL_IMPORT_TOPLEVEL)->action());
-    insertExtraToolBarWidget(TextEditorWidget::Left, replButton);
-}
+    replAction->setMenu(menu);
+    // A QAction does not own the menu it carries, so tie its life to this.
+    connect(this, &QObject::destroyed, menu, [menu] { delete menu; });
+    TextEditor::insertExtraToolBarActionIn(editor, TextEditorWidget::Left, replAction);
 
-void PythonEditorWidget::finalizeInitialization()
-{
-    connect(textDocument(), &TextDocument::filePathChanged,
-            this, &PythonEditorWidget::updateInterpretersSelector);
+    auto * const document = qobject_cast<TextDocument *>(editor->document());
+    QTC_ASSERT(document, return);
+    connect(document, &TextDocument::filePathChanged,
+            this, &PythonEditorDecorations::updateInterpretersSelector);
     connect(ProjectExplorerPlugin::instance(), &ProjectExplorerPlugin::fileListChanged,
-            this, &PythonEditorWidget::updateInterpretersSelector);
+            this, &PythonEditorDecorations::updateInterpretersSelector);
     connect(KitManager::instance(), &KitManager::kitsChanged,
-            this, &PythonEditorWidget::updateInterpretersSelector);
-    auto pythonDocument = qobject_cast<PythonDocument *>(textDocument());
-    if (QTC_GUARD(pythonDocument)) {
+            this, &PythonEditorDecorations::updateInterpretersSelector);
+    if (auto pythonDocument = qobject_cast<PythonDocument *>(document)) {
         connect(pythonDocument, &PythonDocument::pythonUpdated,
-                this, &PythonEditorWidget::updateInterpretersSelector);
+                this, &PythonEditorDecorations::updateInterpretersSelector);
     }
+    updateInterpretersSelector();
 }
 
-void PythonEditorWidget::updateInterpretersSelector()
+void PythonEditorDecorations::updateInterpretersSelector()
 {
     if (!m_interpreters) {
-        m_interpreters = new QToolButton(this);
-        insertExtraToolBarWidget(TextEditorWidget::Left, m_interpreters);
-        m_interpreters->setMenu(new QMenu(m_interpreters));
-        m_interpreters->setPopupMode(QToolButton::InstantPopup);
-        m_interpreters->setToolButtonStyle(Qt::ToolButtonTextOnly);
-        m_interpreters->setProperty(StyleHelper::C_NO_ARROW, true);
+        m_interpreters = new QAction(this);
+        auto *interpreterMenu = new QMenu;
+        m_interpreters->setMenu(interpreterMenu);
+        connect(this, &QObject::destroyed, interpreterMenu,
+                [interpreterMenu] { delete interpreterMenu; });
+        TextEditor::insertExtraToolBarActionIn(m_editor, TextEditorWidget::Left, m_interpreters);
     }
 
     QMenu *menu = m_interpreters->menu();
     QTC_ASSERT(menu, return);
     menu->clear();
 
-    auto setButtonText = [this](QString text) {
+    const auto setButtonText = [this](QString text) {
         constexpr int maxTextLength = 25;
         if (text.size() > maxTextLength)
             text = text.left(maxTextLength - 3) + "...";
         m_interpreters->setText(text);
     };
 
-    const FilePath documentPath = textDocument()->filePath();
+    const FilePath documentPath = m_editor->document()->filePath();
     const auto isPythonProject = [documentPath](Project *project) {
         return project->isKnownFile(documentPath) && (
             project->mimeType() == Constants::C_PY_PROJECT_MIME_TYPE ||
@@ -204,7 +209,7 @@ void PythonEditorWidget::updateInterpretersSelector()
         menu->addSeparator();
     } else {
         auto setUserDefinedPython = [this](const FilePath &interpreter){
-            const auto pythonDocument = qobject_cast<PythonDocument *>(textDocument());
+            const auto pythonDocument = qobject_cast<PythonDocument *>(m_editor->document());
             QTC_ASSERT(pythonDocument, return);
             const FilePath documentPath = pythonDocument->filePath();
             QTC_ASSERT(!documentPath.isEmpty(), return);
@@ -243,7 +248,7 @@ void PythonEditorWidget::updateInterpretersSelector()
             connect(venvAction,
                     &QAction::triggered,
                     this,
-                    [self = QPointer<PythonEditorWidget>(this),
+                    [self = QPointer<PythonEditorDecorations>(this),
                      currentInterpreter,
                      setUserDefinedPython]() {
                         if (!currentInterpreter)
@@ -253,7 +258,7 @@ void PythonEditorWidget::updateInterpretersSelector()
                             if (self && venvInterpreter)
                                 setUserDefinedPython(*venvInterpreter);
                         };
-                        PythonSettings::createVirtualEnvironmentInteractive(self->textDocument()
+                        PythonSettings::createVirtualEnvironmentInteractive(self->m_editor->document()
                                                                                 ->filePath()
                                                                                 .parentDir(),
                                                                             *currentInterpreter,
@@ -317,7 +322,9 @@ public:
                                 | OptionalActions::FollowSymbolUnderCursor);
 
         setDocumentCreator([]() { return new PythonDocument; });
-        setEditorWidgetCreator([]() { return new PythonEditorWidget; });
+        setEditorDecorator([](Core::IEditor *editor) {
+            new PythonEditorDecorations(editor);
+        });
         setIndenterCreator(&createPythonIndenter);
         setSyntaxHighlighterCreator(&createPythonHighlighter);
         setCommentDefinition(CommentDefinition::HashStyle);

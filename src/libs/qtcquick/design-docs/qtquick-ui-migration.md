@@ -43806,3 +43806,97 @@ No `.qbs` change: no files added.
 4. The whitespace drawing difference - declined.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Unblocking Python: two tool bar widgets that were menus (batch 85)
+
+Entry 84 said Python was the last of the four and the one with a language
+server, a code model and its own widget. The code model and the language
+server turned out not to be the problem. **The tool bar was.**
+
+### The blocker looked like Markdown's, and was not
+
+`PythonEditorWidget` exists for two `insertExtraToolBarWidget()` calls:
+
+- a **REPL** button - a `QToolButton` with a menu of three commands
+- an **interpreter picker** - a `QToolButton` whose text is the current Python
+  and whose menu switches it
+
+Entry 78 recorded the toolbar-widget question as a decision the project had
+declined to pre-empt, and entry 79 confirmed the Qt Quick tool bar refuses a
+QWidget. So this looked like Python being blocked on that decision.
+
+It is not, because **neither of these is really a widget**. Both are
+`QToolButton`s in `InstantPopup` mode, which is a menu with a label. And the
+Qt Quick tool bar already draws exactly that - `ActionModel` has a `MenuRole`
+and a `submenuFor()`, and `EditorToolBar.qml` says so in a comment written
+before this was needed:
+
+> Null unless the action carries a menu, in which case this button opens it
+> rather than triggering - the widget editor's tool bar does the same with a
+> QToolButton set to InstantPopup.
+
+So the decision was **sidestepped rather than made**: a `QAction` carrying a
+`QMenu` says the same thing and both tool bars draw it.
+
+### `TextEditorFactory::setEditorDecorator()`
+
+`PythonEditorWidget` had to stop being a widget subclass, because everything
+in it ran on whichever editor the factory built - and the Quick path never
+calls `setEditorWidgetCreator`. The general hook, next to entry 83's
+`setContextHelpProvider`:
+
+    using EditorDecorator = std::function<void(Core::IEditor *)>;
+
+`PythonEditorDecorations` is a `QObject` parented to the editor holding the
+two actions, with `updateInterpretersSelector()` moved over almost unchanged -
+`textDocument()` becomes `m_editor->document()`, `m_interpreters->setText()`
+works the same on a QAction as on a QToolButton, and
+`insertExtraToolBarWidget()` becomes entry 79's `insertExtraToolBarActionIn()`.
+`PythonEditorWidget` is gone.
+
+**This is the hook Markdown needs too**, and it is why entry 78's cost
+estimate for Markdown should be re-read before anyone acts on it: two of the
+five toolbar widgets there are the swap/toggle buttons, which may be the same
+kind of thing.
+
+### One thing the conversion had to get right
+
+A `QAction` does **not** own the `QMenu` it carries, and `QMenu::setParent()`
+takes a `QWidget *`, which a `QAction` is not. Both menus are deleted with the
+decorator by hand. That is not a Qt Quick issue - it is what changes when a
+button that owned its menu becomes an action that only points at one.
+
+### Controls
+
+- **AI**: the decorator never run - red in **both** rows, "the REPL button is
+  not in this view's tool bar".
+- The test asserts the REPL action **carries a menu with at least three
+  entries**, not merely that an action called REPL exists: an action that
+  triggered instead of opening would have passed the weaker check and been
+  useless.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 650 passed, 0 failed (was 648) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Python` | 0 | 30 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### The move is not taken
+
+The rhythm again - close in one batch, flip in the next. **The Python flip is
+next**, and before it the caller sweep entry 82 and entry 84 both insisted on:
+`C_PYTHONEDITOR_ID` and `PythonDocument` have not been swept, and entry 84's
+sweep of CMake found four call sites where the editor audit had found two.
+
+### What is left
+
+1. **Sweep Python's callers, then flip.**
+2. Markdown - re-read entry 78's cost with `setEditorDecorator()` in hand.
+3. `createJsonEditor()`'s discarded editors (entry 80). Cosmetic.
+4. The whitespace drawing difference - declined.
+
+The printing decision (keep / drop / move) remains the owner's call.

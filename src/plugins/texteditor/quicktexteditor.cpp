@@ -9329,6 +9329,69 @@ private slots:
                  qPrintable("the language's own help is missing: " + answered.join(", ")));
     }
 
+    // What a language adds to the tool bar. Python's REPL button and its
+    // interpreter picker were QToolButtons put in with
+    // insertExtraToolBarWidget(), which only the widget editor has, so they
+    // would have vanished when Python moved. As actions carrying menus,
+    // either tool bar can draw them.
+    void testALanguagesToolBarButtonsArriveInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testALanguagesToolBarButtonsArriveInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("python-toolbar");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.py");
+        QVERIFY(file.writeFileContents("x = 1\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        QCOMPARE(factory->id(), Utils::Id("PythonEditor.PythonEditor"));
+
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Each view is asked where it keeps them, as in the toolbar action
+        // test: the widget editor puts them straight into its own bar.
+        const auto shown = [editor, document]() -> QList<QAction *> {
+            if (TextEditorWidget * const w = TextEditorWidget::fromEditor(editor)) {
+                QToolBar * const bar = w->toolBar();
+                return bar ? bar->actions() : QList<QAction *>();
+            }
+            return document->toolBarActions();
+        };
+
+        QAction *repl = nullptr;
+        for (QAction * const action : shown()) {
+            if (action->text() == "REPL")
+                repl = action;
+        }
+        QVERIFY2(repl, "the REPL button is not in this view's tool bar");
+        // It is a menu, not a command: REPL, REPL Import File, REPL Import *.
+        QVERIFY2(repl->menu(), "the REPL button carries no menu, so it can only trigger");
+        QVERIFY(repl->menu()->actions().size() >= 3);
+
+        // And the interpreter picker, which is built on the first update
+        // rather than in the constructor.
+        QVERIFY2(Utils::anyOf(shown(), [repl](QAction *a) { return a != repl && a->menu(); }),
+                 "the interpreter picker is missing");
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");
