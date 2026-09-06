@@ -47432,3 +47432,85 @@ What is left in this document, in full:
 And the languages nobody has asked to move: Designer's form source, SCXML, the
 binding editor, EffectComposer, the plain text fallback, VcsBase. Each is the
 shape of the eleven already done; none is blocked.
+
+## 2026-09-06 — What is left is blocked, and by one thing (batch 125)
+
+Entry 124 finished with a line about the languages nobody has moved: *"Each is
+the shape of the eleven already done; none is blocked."* **That was written
+without checking, and it is wrong.** This batch checked, and lands no code -
+the finding is the product.
+
+### The shape that blocks them
+
+Every remaining factory has a caller that casts what it creates back to a
+`BaseTextEditor` subclass. The Qt Quick path does not use `setEditorCreator()`,
+so the cast yields null and the caller breaks.
+
+| Factory | The cast |
+| --- | --- |
+| plain text (`K_DEFAULT_TEXT_EDITOR_ID`) | `createPlainTextEditor()` returns `BaseTextEditor *` - the language client inspector's JSON box wants exactly that, deliberately (entry 88) |
+| Designer's form source | `FormWindowEditorFactory::create()` does `qobject_cast<FormWindowEditor *>(createEditor())` |
+| SCXML's source pane | `setEditorCreator([] { return new ScxmlTextEditor; })`, and the SCXML editor holds that pane |
+| VcsBase | `qobject_cast<VcsBaseEditor *>(factory.createEditor())`, then `qobject_cast<VcsBaseEditorWidget *>(editor->editorWidget())`, twice |
+| EffectComposer, the binding editor | text boxes inside another UI, like the JSON box |
+
+**None of the eleven that moved had one.** They configured a factory and let
+the editor be whatever the factory made; these four hold a reference to a
+particular kind of editor and use it. That is the difference, and it is worth
+having a name for: *a factory whose product is cast is pinned to the widget
+path until the cast goes.*
+
+Two of them are also not obviously *worth* moving: the JSON box and the
+binding editor want a text box in a dialog, and entry 88 asserted the JSON one
+is a widget editor on purpose.
+
+### A census that was written and thrown away
+
+A `testWhichFactoriesStillBuildWidgetEditors()` looked like the right artefact
+- the third of a set with `testWhichFactoriesAreQuick()` and the language one.
+It is not: VcsBase registers a factory per view per version control system,
+so the list is *Bazaar Annotation Editor, Bazaar Diff Editor, Bazaar File
+Log...* and on through Git, Mercurial and the rest. A census of two dozen ids
+that churn with the plugin set is noise, not a guard.
+
+Recorded because the reasoning is worth more than the attempt: **a census is
+only useful where the list is short and deliberate.** The other two are lists
+somebody chose; this one is a list somebody generated.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No code changed, so nothing to control.
+
+### Where this leaves it
+
+**There is no ordinary work left in this document.** In full:
+
+1. **QmlJS's context pane** - a UI decision. Measured twice: it places a
+   floating `QWidget` with `QPlainTextEdit` geometry (entry 114), and
+   `TextViewport` already has `cursorRectangle()` and `rectangleAt(int)`
+   (entry 124), so the geometry is not the obstacle. The question is whether
+   the pane stays a `QWidget` popup behind a view-agnostic interface or is
+   rebuilt in QML.
+2. **The whitespace drawing difference** - declined with a reason, entry 68.
+3. **Printing** - keep, drop or move. Open since entry 31.
+4. **The four pinned factories above** - each needs its caller changed before
+   its factory can move, and two of them should probably stay.
+
+### What I would do next, if anything
+
+Not another language. The two things that would repay work are neither:
+
+- **Delete `setEditorCreator()`'s remaining reason to exist.** Four callers
+  cast; if each asked the *document* or the *editor interface* for what it
+  wants - the way every seam in this document ended up working - the widget
+  path would stop being load-bearing for them. That is a refactor with a clear
+  shape and no new seams needed.
+- **Make the goal's census the whole of it.** Entry 124's census covers what
+  `CppEditorFactory` configures. The same census for each moved language would
+  turn "somebody noticed" into "the suite noticed", and eleven languages'
+  worth of one-at-a-time findings suggests it is worth having.
