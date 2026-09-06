@@ -43421,3 +43421,107 @@ widget; it is the one most likely to need real work, so it should not be
 first.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Unblocking the qmake move: three gaps, two closed (batch 81)
+
+Entry 80 said qmake next, and predicted each remaining language would "find
+something the way JSON found DevContainer". qmake found three.
+
+### Where the context menu lives, which turns out to be two places
+
+`ProFileEditorFactory` names no context menu. `ProFileEditorWidget` - the one
+thing the factory subclasses - exists for a single override:
+
+```cpp
+void ProFileEditorWidget::contextMenuEvent(QContextMenuEvent *e)
+{
+    showDefaultContextMenu(e, Constants::M_CONTEXT);
+}
+```
+
+That is the whole subclass. And it matters because the two views learn about a
+context menu by **different routes**:
+
+    widget   TextEditorWidget::contextMenuEvent() passes Id() - an empty id.
+             A language that wants its own overrides this and passes its own.
+    quick    createQuickTextEditor() is handed the factory's m_contextMenuId.
+
+`m_contextMenuId` is never given to the widget. So a language can name its
+menu in one place and work today, and lose it entirely on moving. qmake is
+exactly that language.
+
+Closed by naming it on the factory as well. The widget override stays and is
+now redundant, which is the right way round: the same id from both routes.
+
+**This is worth remembering for the other two moves.** CMake and Python both
+subclass the widget; whether they name their menus on the factory or only in
+an override is the first thing to check.
+
+### Add Library, which would have gone quiet
+
+`QmakeProjectManagerPlugin`'s "Add Library" wizard appends its snippet to the
+`.pro` file:
+
+```cpp
+editor = qobject_cast<BaseTextEditor *>(Core::EditorManager::openEditor(...));
+if (!editor)
+    return;
+QTextCursor tc = editor->textCursor();
+```
+
+After a move the cast fails and the function returns, so **the wizard would
+run, ask its questions, and write nothing** - the silent-failure shape this
+file has now seen a dozen times. Converted to `textCursorOf()` and
+`setTextCursorOf()`.
+
+**Not tested, and that is stated rather than glossed:** it is behind a modal
+wizard. The conversion is the same two seams as a dozen earlier ones and the
+plugin's own suite passes, but nothing asserts the snippet arrives.
+
+### The third: a clangd test
+
+`clangdtests.cpp:2115` casts a `.pro` editor to `BaseTextEditor` and calls
+`insert()`. It is a test, it breaks only once qmake moves, and it is left for
+the batch that moves qmake - which is where it will be noticed, because it
+will fail.
+
+### Controls
+
+- **AE**: `setContextMenuId()` removed from the factory - red at
+  `factory->contextMenuId().isValid()`, with the message saying a Qt Quick
+  view would have no menu.
+- The test asserts the language's *own* entry - "Add Library" - is in the
+  menu, not merely that a menu exists. Every editor has a context menu; the
+  question is whether qmake's is in it.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 646 passed, 0 failed (was 645) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmakeProjectManager` | 0 | 43 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### The move is not taken
+
+Two of the three gaps are closed; the third is a test that will fail loudly at
+the right moment. Following the rhythm entries 79 and 80 settled into - close
+the gaps in one batch, flip in the next - **the flip is the next batch's**,
+and it is now:
+
+    setUsesQuickEditor(true);        in ProFileEditorFactory
+    testWhichFactoriesAreQuick       one more id
+    clangdtests.cpp:2115             textCursorOf() instead of the cast
+
+### What is left
+
+1. **Flip qmake** - the three lines above.
+2. **CMake, then Python** - audit each first, starting with where its context
+   menu is named.
+3. Markdown - needs the toolbar-widget decision (entry 78).
+4. `createJsonEditor()`'s discarded editors (entry 80). Cosmetic.
+5. The whitespace drawing difference - declined.
+
+The printing decision (keep / drop / move) remains the owner's call.

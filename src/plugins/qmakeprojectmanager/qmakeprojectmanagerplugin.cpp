@@ -242,20 +242,26 @@ void QmakeProjectManagerPluginPrivate::addLibraryImpl(const FilePath &filePath, 
     if (wizard.exec() != QDialog::Accepted)
         return;
 
-    if (!editor)
-        editor = qobject_cast<BaseTextEditor *>(Core::EditorManager::openEditor(filePath,
-            Constants::PROFILE_EDITOR_ID, Core::EditorManager::DoNotMakeVisible));
-    if (!editor)
+    Core::IEditor *target = editor;
+    if (!target) {
+        target = Core::EditorManager::openEditor(filePath, Constants::PROFILE_EDITOR_ID,
+                                                 Core::EditorManager::DoNotMakeVisible);
+    }
+    if (!target)
         return;
 
     QString snippet = wizard.snippet();
 
-    QTextCursor tc = editor->textCursor();
+    // Through the editor rather than a widget: a .pro file opens in whichever
+    // view claims it, and only one of them is a BaseTextEditor.
+    QTextCursor tc = TextEditor::textCursorOf(target);
+    if (tc.isNull())
+        return;
     tc.movePosition(QTextCursor::End);
     if (!tc.atBlockStart()) // add extra \n in case the last line is not empty
         snippet = QLatin1Char('\n') + snippet;
     tc.insertText(snippet);
-    editor->setTextCursor(tc);
+    TextEditor::setTextCursorOf(target, tc);
 }
 
 void QmakeProjectManagerPluginPrivate::runQMake()

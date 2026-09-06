@@ -9222,6 +9222,53 @@ private slots:
                  "the action was not put anywhere this view's toolbar reads");
     }
 
+    // A language whose right-click menu was named only by its widget
+    // subclass overriding contextMenuEvent(). The Qt Quick view is handed the
+    // factory's menu id instead, so a language that names it in only one of
+    // the two places loses the menu when it moves.
+    void testALanguagesContextMenuSurvivesMovingToTheQuickView()
+    {
+        Utils::TemporaryDirectory dir("promenu");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.pro");
+        QVERIFY(file.writeFileContents("TEMPLATE = app\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        QCOMPARE(factory->id(), Utils::Id("Qt4.proFileEditor"));
+        QVERIFY2(factory->contextMenuId().isValid(),
+                 "the .pro factory names no context menu, so a Qt Quick view has none");
+
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QTRY_VERIFY(quick->rootObject());
+        auto * const model
+            = quick->rootObject()->property("contextActions").value<QtcQuick::ActionModel *>();
+        QVERIFY2(model, "the form was given no context actions at all");
+        model->refresh();
+
+        QStringList texts;
+        for (int row = 0; row < model->rowCount({}); ++row) {
+            texts << model->data(model->index(row, 0), QtcQuick::ActionModel::TextRole)
+                         .toString();
+        }
+        // The entry qmake puts in its own menu, rather than one every editor
+        // has: this is about the language's menu arriving, not about a menu.
+        QVERIFY2(Utils::anyOf(texts, [](const QString &t) { return t.contains("Add Library"); }),
+                 qPrintable("the language's own entries are missing: " + texts.join(", ")));
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

@@ -264,6 +264,11 @@ ProFileEditorFactory::ProFileEditorFactory()
     completionAssistProvider->setDynamicCompletionFunction(&TextEditor::pathComplete);
     setCompletionAssistProvider(completionAssistProvider);
 
+    // Named here as well as in ProFileEditorWidget::contextMenuEvent(): the
+    // widget editor passes its own id when it is right-clicked, and a view
+    // that is not one is handed the factory's when it is built.
+    setContextMenuId(Constants::M_CONTEXT);
+
     setCommentDefinition(CommentDefinition::HashStyle);
     setOptionalActionMask(OptionalActions::UnCommentSelection
                 | OptionalActions::JumpToFileUnderCursor);
