@@ -9,6 +9,7 @@
 
 #ifdef WITH_TESTS
 #include "acpclienttest.h"
+#include "chatinputcompletion.h"
 #endif
 
 #include <coreplugin/actionmanager/actioncontainer.h>
@@ -52,6 +53,7 @@ public:
 
 #ifdef WITH_TESTS
         addTestCreator(createAcpClientTest);
+        addTestCreator(createChatInputCompletionTest);
         addTestCreator(createAcpServerAspectTest);
 #endif
 

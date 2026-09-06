@@ -1399,9 +1399,6 @@ void TextViewport::updateLink(const QPointF &pos, Qt::KeyboardModifiers modifier
     TextDocument * const doc = textDocument();
     if (!doc)
         return;
-    const TextEditorFactory::LinkFinder finder = TextEditorFactory::linkFinderFor(doc);
-    if (!finder)
-        return;
     const int position = positionAt(pos.x(), pos.y());
     if (position < 0) {
         clearLink();
@@ -1416,16 +1413,33 @@ void TextViewport::updateLink(const QPointF &pos, Qt::KeyboardModifiers modifier
 
     QTextCursor cursor(doc->document());
     cursor.setPosition(position);
-    finder(doc, cursor,
-           [self = QPointer<TextViewport>(this)](const Utils::Link &link) {
-               if (!self)
-                   return;
-               if (link.hasValidLinkText())
-                   self->showLink(link);
-               else
-                   self->clearLink();
-           },
-           /*resolveTarget=*/false, /*inNextSplit=*/false);
+    findLinkAt(cursor,
+               [self = QPointer<TextViewport>(this)](const Utils::Link &link) {
+                   if (!self)
+                       return;
+                   if (link.hasValidLinkText())
+                       self->showLink(link);
+                   else
+                       self->clearLink();
+               },
+               /*resolveTarget=*/false, /*inNextSplit=*/false);
+}
+
+// The language's own answer if it registered one, and otherwise the question
+// goes out for whatever understands the file to answer - which is what the
+// widget editor's findLinkAt() does, and the only reason "Follow Symbol Under
+// Cursor" works there for a language served only by a language server.
+void TextViewport::findLinkAt(const QTextCursor &cursor, const Utils::LinkHandler &callback,
+                              bool resolveTarget, bool inNextSplit)
+{
+    TextDocument * const doc = textDocument();
+    if (!doc)
+        return;
+    if (const TextEditorFactory::LinkFinder finder = TextEditorFactory::linkFinderFor(doc)) {
+        finder(doc, cursor, callback, resolveTarget, inNextSplit);
+        return;
+    }
+    symbolRequests()->askForLinkAt(cursor, callback, resolveTarget, inNextSplit);
 }
 
 bool TextViewport::followSymbolAt(int position, bool inNextSplit)
@@ -1434,18 +1448,26 @@ bool TextViewport::followSymbolAt(int position, bool inNextSplit)
     if (!doc || position < 0)
         return false;
 
-    const TextEditorFactory::LinkFinder finder = TextEditorFactory::linkFinderFor(doc);
-    if (!finder)
+    // Whether the click is taken rather than putting the caret here. The
+    // language's own finder answers for anything it is registered for; where
+    // there is none the only evidence that something can answer is a link
+    // already underlined under the pointer, which is the rule the widget
+    // editor follows too. Ctrl+click in a plain text file has to go on
+    // placing the caret.
+    if (!TextEditorFactory::linkFinderFor(doc)
+        && !(m_currentLink.hasValidLinkText() && position >= m_currentLink.linkTextStart
+             && position < m_currentLink.linkTextEnd)) {
         return false;
+    }
 
     QTextCursor cursor(doc->document());
     cursor.setPosition(position);
-    finder(doc, cursor,
-           [self = QPointer<TextViewport>(this), inNextSplit](const Utils::Link &link) {
-               if (self)
-                   self->openLink(link, inNextSplit);
-           },
-           true, inNextSplit);
+    findLinkAt(cursor,
+               [self = QPointer<TextViewport>(this), inNextSplit](const Utils::Link &link) {
+                   if (self)
+                       self->openLink(link, inNextSplit);
+               },
+               true, inNextSplit);
     return true;
 }
 

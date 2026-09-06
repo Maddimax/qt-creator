@@ -40982,3 +40982,167 @@ defect unless something a user can reach depends on it being non-null.
 
 The printing decision (keep / drop / move) is still the owner's call, and is
 now the only open question this file has that is not triage.
+
+## 2026-09-06 — Reading the remaining 42, and what reading found (batch 59)
+
+Entry 58 proposed triaging what was left "by reading, not counting", on the
+grounds that entry 54's lesson was that a census only finds what its question
+can see. This is that batch. Every remaining site was read.
+
+### The count first, and why it is not the answer
+
+    42  entry 54
+    20  today, in 13 files
+
+But the count is *still* the wrong question, and reading shows why: **of the 20,
+eleven are not defects at all and never were.** The pattern
+`TextEditorWidget::fromEditor(...)` matches three different things:
+
+- **The seams themselves.** `textCursorOf`, `assistTargetFor`,
+  `updateEditorText`, `currentTextEditorWidget()`'s own definition - all in
+  `texteditor.cpp` and `formattexteditor.cpp`, all dispatching correctly. Six
+  of the twenty.
+- **Deliberate refusals**, already written down where they are. Lua's
+  `insertExtraToolBarWidget` throws rather than ignores, because a QWidget in
+  the toolbar has nowhere to go; `sourceagent.cpp` says "Widget only: the Qt
+  Quick gutter's mark column is always live".
+- **Code that is asking about a widget on purpose.** QmlDesigner's event
+  filter uses it as a liveness check on a widget it made itself. Instant
+  Blame's version-control check, from entry 57, is the same shape: a
+  `VcsBaseEditorWidget` is a `TextEditorWidget` subclass, so `fromEditor()`
+  returning null *is* the answer "no".
+
+A grep cannot tell these apart from a defect. **Only reading can, and it took
+about an hour for twenty sites.** That is the whole finding: this list should
+never have been maintained as a number.
+
+### What decides whether a widget-only path is a live defect
+
+One fact settles most of the list, and it is worth stating on its own because
+every previous entry has implied it without writing it down:
+
+**Only the C++ factory is Quick in production.** `cppeditorplugin.cpp` has the
+one `setUsesQuickEditor()` call outside tests. So a widget-only path is a
+*live* defect only if it can be reached with a C++ file current; anything
+whose editor is opened with `K_DEFAULT_TEXT_EDITOR_ID`, or which is about
+`.qml`, is latent.
+
+### Live, and now fixed
+
+**Valgrind, "Profile Costs of This Function and Its Callees".**
+`findSymbolUnderCursor()` in `callgrindtool.cpp` opened with
+`currentTextEditorWidget()`. It is a C++ context-menu entry - it is *only*
+ever reached with a C++ file current - so it did nothing, always. Converted to
+`TextDocument::currentTextDocument()` + `textCursorOf()` +
+`Utils::Text::convertPosition()`.
+
+**The ACP chat's view of the file.** `chatinputcompletion.cpp` filled
+`editorText` from `currentTextEditorWidget()->toPlainText()` and otherwise left
+it empty, so completing a word in the chat input offered filenames but nothing
+from the file being discussed. One line, `TextDocument::currentTextDocument()`.
+
+### Latent, and one of them fixed anyway
+
+`LanguageClientManager::editorOpened` has a viewport branch already - but it
+connects **four** of the widget's **five** questions. The missing one is
+`requestLinkAt`: where the symbol under the cursor is *defined*.
+
+`TextViewport::updateLink()` and `followSymbolAt()` both did
+
+```cpp
+const TextEditorFactory::LinkFinder finder = TextEditorFactory::linkFinderFor(doc);
+if (!finder)
+    return;                       // ... or return false
+```
+
+where the widget's `findLinkAt()` falls back to `emit requestLinkAt(...)`. So
+for a language with no link finder of its own, served only by a language
+server, "Follow Symbol Under Cursor" and Ctrl+click would be dead in the Quick
+view. Latent today - C++ registers `findCppLinkAt` - and live the moment any
+LSP-only language moves over, which is the direction of the whole project.
+
+Closed: `SymbolRequests` grew `askForLinkAt`, `TextViewport::findLinkAt()`
+mirrors the widget's order (the language's own finder first, the question out
+second), and `LanguageClientManager` connects the fifth.
+
+### The existing test that caught a wrong contract
+
+The first version made `followSymbolAt()` return true whenever it asked. An
+existing test went red:
+
+    QVERIFY2(!plainViewport->followSymbolAt(3),
+             "a plain text file claimed to know where a symbol is defined");
+
+The return value is not "did I ask" - `CodeViewport.qml` uses it to decide
+whether Ctrl+click is **swallowed**, so returning true for a plain text file
+stops Ctrl+click putting the caret anywhere. The test was right and the change
+was wrong.
+
+The contract now: the click is taken if the language has a finder, **or** if a
+link is already underlined under the pointer - which is the rule the widget
+editor uses, since it follows `m_currentLink` rather than asking afresh. For an
+LSP-only language, Ctrl+hover asks, the answer underlines, and the click that
+follows is taken.
+
+**This is the second time in three batches that the thing which found the
+defect was an existing test rather than a review.** Worth more than the fix:
+the guard existed because someone wrote down *why* the boolean mattered.
+
+### Latent and left alone, with the reason
+
+- `disassembleragent.cpp` - `setReadOnly` and `setRequestMarkEnabled` on the
+  disassembly view, and `configureGenericHighlighter()` on its editors. Opened
+  with `K_DEFAULT_TEXT_EDITOR_ID`, which is not Quick. Note `setReadOnlyIn()`
+  already exists as a seam and `sourceagent.cpp` uses it, so this one is a
+  two-line change whenever it becomes live.
+- `qmlengineutils.cpp` - the QML debugger's exception highlighting, through
+  `setExtraSelections(DebuggerExceptionSelection, ...)`. `.qml` is not Quick.
+  `setViewSelections()`/`viewSelections()` are the seams it would use.
+
+Both are written here so the next person does not have to re-derive them.
+
+### Controls — five, all biting
+
+- **D**: `askForLinkAt` removed from `TextViewport::findLinkAt` - red, `asked`
+  0 against 1.
+- **E**: the ACP widget gate restored - red, the chat has none of the file's
+  text.
+- **F**: the Valgrind widget gate restored - red, "no symbol was found under
+  the caret".
+- Both new editor tests carry the vacuity guard
+  (`QVERIFY2(!TextEditorWidget::fromEditor(editor), ...)`), and the link test
+  asserts the negative half too: with a finder registered the question must
+  **not** go out, which is what "same order as the widget" means.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 593 passed, 0 failed (was 592) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Valgrind` | 0 | 32 passed, 0 failed, 13 skipped |
+| `-test AcpClient` | 0 | 49 passed, 0 failed |
+| `-test LanguageClient` | 0 | 40 passed, 0 failed |
+
+The Valgrind test needed the C++ code model, which Valgrind reaches without
+declaring a dependency on CppEditor: `CppModelManager::updateSourceFiles()` and
+a `QTRY_VERIFY` on the snapshot containing the file is enough, no project
+required.
+
+No `.qbs` change: no files added.
+
+### Where this leaves the project
+
+**The list is finished.** Every one of entry 54's 42 has been read. What
+remains is two latent paths, both recorded above with the seam they would use,
+and both unreachable until a second factory turns Quick on.
+
+That makes the next question the one the standing instruction has always
+pointed at, and it is no longer blocked by a gap: **what else has to be true
+before another factory - or the default - moves over?** The honest answer from
+this batch is that the *code* is ready and the *evidence* is not uniform: C++
+was moved on the strength of eighteen plugins compared both ways, and nothing
+like that exists for QML or plain text. Whoever moves the next one should
+expect to build that evidence, not to inherit it.
+
+The printing decision (keep / drop / move) remains the owner's call.

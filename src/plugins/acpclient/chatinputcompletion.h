@@ -38,4 +38,8 @@ private:
     QList<CommandInfo> m_commands;
 };
 
+#ifdef WITH_TESTS
+QObject *createChatInputCompletionTest();
+#endif
+
 } // namespace AcpClient::Internal

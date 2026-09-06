@@ -630,6 +630,14 @@ void LanguageClientManager::editorOpened(Core::IEditor *editor)
                                            LinkTarget::SymbolTypeDef);
                     }
                 });
+        connect(requests, &TextEditor::SymbolRequests::requestLinkAt, this,
+                [document](const QTextCursor &cursor, const Utils::LinkHandler &callback,
+                           bool resolveTarget, bool /*inNextSplit*/) {
+                    if (auto client = clientForDocument(document)) {
+                        client->findLinkAt(document, cursor, callback, resolveTarget,
+                                           LinkTarget::SymbolDef);
+                    }
+                });
         connect(requests, &TextEditor::SymbolRequests::requestCallHierarchy, this,
                 [this, document] {
                     if (clientForDocument(document)) {

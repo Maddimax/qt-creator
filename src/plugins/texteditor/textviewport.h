@@ -336,6 +336,8 @@ public:
     // Ctrl+click. Answers whether it took the click, so that a file whose
     // language has no finder still gets an ordinary click.
     Q_INVOKABLE bool followSymbolAt(int position, bool inNextSplit = false);
+    void findLinkAt(const QTextCursor &cursor, const Utils::LinkHandler &callback,
+                    bool resolveTarget, bool inNextSplit);
 
     // Whether a click with these modifiers is a request to follow a link.
     // The widget editor keeps this rule in one place and so does this: the

@@ -7922,6 +7922,78 @@ private slots:
     // And the reader has to be able to see which part is being searched. A
     // widget editor paints the scope; this view was told about it and drew
     // nothing, so "Selection only" looked exactly like searching the file.
+    void testTheLanguageServerIsAskedWhereASymbolIsWhenNothingElseKnows()
+    {
+        class LinkFactory final : public TextEditorFactory
+        {
+        public:
+            LinkFactory()
+            {
+                setId("QuickEditorLinkFallbackTest");
+                setDisplayName("Quick Editor Link Fallback Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorLinkFallbackTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        LinkFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        document->setPlainText("one two three\n");
+        TextViewport * const view = Internal::viewportForEditor(editor.get());
+        QVERIFY(view);
+
+        int asked = 0;
+        int askedAt = -1;
+        bool askedToResolve = false;
+        connect(view->symbolRequests(), &SymbolRequests::requestLinkAt, this,
+                [&](const QTextCursor &cursor, const Utils::LinkHandler &, bool resolveTarget,
+                    bool) {
+                    ++asked;
+                    askedAt = cursor.position();
+                    askedToResolve = resolveTarget;
+                });
+
+        // Nothing registered a link finder for this language, so the view
+        // cannot answer where a symbol is defined and has to ask.
+        QVERIFY2(!TextEditorFactory::linkFinderFor(document),
+                 "a link finder was registered, so this tests nothing");
+
+        // The view cannot say where the symbol is, so it asks - which is the
+        // only way "Follow Symbol Under Cursor" can work for a language whose
+        // only answer comes from a language server.
+        QTextCursor at(document->document());
+        at.setPosition(4);
+        view->findLinkAt(at, [](const Utils::Link &) {}, /*resolveTarget=*/false,
+                         /*inNextSplit=*/false);
+        QCOMPARE(asked, 1);
+        QCOMPARE(askedAt, 4);
+        QVERIFY2(!askedToResolve,
+                 "the question was passed on with the wrong resolveTarget");
+
+        // But the click is not taken: nothing is underlined here yet, and
+        // Ctrl+click has to go on placing the caret in a file whose language
+        // nobody can answer for.
+        QVERIFY2(!view->followSymbolAt(4),
+                 "the click was swallowed although nothing could follow it");
+
+        // And a language that does know answers for itself, without the
+        // question going out - the order the widget editor uses.
+        int found = 0;
+        document->setLinkFinder([&found](const TextDocument *, const QTextCursor &,
+                                         const Utils::LinkHandler &callback, bool, bool) {
+            ++found;
+            callback({});
+        });
+        QVERIFY(TextEditorFactory::linkFinderFor(document));
+        QVERIFY(view->followSymbolAt(4));
+        QCOMPARE(found, 1);
+        QCOMPARE(asked, 1);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

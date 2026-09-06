@@ -54,6 +54,8 @@
 #include <texteditor/texteditor.h>
 #include <texteditor/textdocument.h>
 
+#include <utils/textutils.h>
+
 #include <utils/filedialogs.h>
 #include <utils/async.h>
 #include <utils/filestreamer.h>
@@ -1093,18 +1095,17 @@ static void moveCursorToEndOfName(QTextCursor *tc)
 // and requires building the implementation files ourselves
 static CPlusPlus::Symbol *findSymbolUnderCursor()
 {
-    TextEditor::TextEditorWidget *widget = TextEditor::TextEditorWidget::currentTextEditorWidget();
-    if (!widget)
+    TextEditor::TextDocument * const document = TextEditor::TextDocument::currentTextDocument();
+    QTextCursor tc = TextEditor::textCursorOf(Core::EditorManager::currentEditor());
+    if (!document || tc.isNull())
         return nullptr;
 
-    QTextCursor tc = widget->textCursor();
     int line = 0;
     int column = 0;
-    const int pos = tc.position();
-    widget->convertPosition(pos, &line, &column);
+    Utils::Text::convertPosition(document->document(), tc.position(), &line, &column);
 
     const CPlusPlus::Snapshot &snapshot = CppEditor::CppModelManager::snapshot();
-    CPlusPlus::Document::Ptr doc = snapshot.document(widget->textDocument()->filePath());
+    CPlusPlus::Document::Ptr doc = snapshot.document(document->filePath());
     QTC_ASSERT(doc, return nullptr);
 
     // fetch the expression's code
@@ -1268,6 +1269,10 @@ void setupCallgrindTool(QObject *guard)
 
 #ifdef WITH_TESTS
 
+#include <cplusplus/Overview.h>
+
+#include <utils/temporarydirectory.h>
+
 #include <QSignalSpy>
 #include <QTest>
 
@@ -1277,6 +1282,51 @@ class CallgrindToolTest : public QObject
 {
     Q_OBJECT
 private slots:
+    // "Profile Costs of This Function and Its Callees" starts from whatever
+    // the caret is on, and a C++ file is in the Qt Quick view.
+    void testTheFunctionUnderTheCaretIsFoundInAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("callgrind-symbol");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents(
+            "void interestingFunction() {}\nvoid caller() { interestingFunction(); }\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        CppEditor::CppModelManager::updateSourceFiles({file});
+        QTRY_VERIFY_WITH_TIMEOUT(CppEditor::CppModelManager::snapshot().document(file), 30000);
+
+        // On the call, not on the definition, so the answer has to come from
+        // looking the name up rather than from the text under the caret.
+        const int callAt = document->plainText().lastIndexOf("interestingFunction");
+        QVERIFY(callAt > 0);
+        QTextCursor onTheCall(document->document());
+        onTheCall.setPosition(callAt + 3);
+        TextEditor::setTextCursorOf(editor, onTheCall);
+
+        CPlusPlus::Symbol * const symbol = findSymbolUnderCursor();
+        QVERIFY2(symbol, "no symbol was found under the caret");
+        QVERIFY(symbol->asFunction() || symbol->type()->asFunctionType());
+        CPlusPlus::Overview overview;
+        QCOMPARE(overview.prettyName(CPlusPlus::LookupContext::fullyQualifiedName(symbol)),
+                 QString("interestingFunction"));
+    }
+
     void testProfilingMessagePosted()
     {
         RunControl rc{Id(CALLGRIND_RUN_MODE)};

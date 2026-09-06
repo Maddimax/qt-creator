@@ -9,6 +9,7 @@
 #include <texteditor/codeassist/functionhintproposal.h>
 #include <texteditor/codeassist/genericproposal.h>
 #include <texteditor/codeassist/ifunctionhintproposalmodel.h>
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
 #include <projectexplorer/project.h>
@@ -159,6 +160,9 @@ public:
     }
 
 private:
+#ifdef WITH_TESTS
+    friend class ChatInputCompletionTest;
+#endif
     QString m_editorText;
     QStringList m_fileNames;
 };
@@ -208,8 +212,8 @@ IAssistProcessor *ChatInputCompletionProvider::createProcessor(const AssistInter
         return commandProcessor;
 
     QString editorText;
-    if (auto *widget = TextEditorWidget::currentTextEditorWidget())
-        editorText = widget->toPlainText();
+    if (const TextDocument * const document = TextDocument::currentTextDocument())
+        editorText = document->plainText();
 
     QStringList fileNames;
     if (const auto *project = ProjectExplorer::ProjectManager::startupProject()) {
@@ -228,3 +232,69 @@ int ChatInputCompletionProvider::activationCharSequenceLength() const
 }
 
 } // namespace AcpClient::Internal
+
+#ifdef WITH_TESTS
+
+#include <coreplugin/editormanager/editormanager.h>
+#include <texteditor/textdocument.h>
+
+#include <utils/temporarydirectory.h>
+
+#include <QTest>
+
+namespace AcpClient::Internal {
+
+class ChatInputCompletionTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheChatIsGivenTheFileTheReaderIsLookingAt()
+    {
+        Utils::TemporaryDirectory dir("acp-chat-completion");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("int distinctiveIdentifier = 1;\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        // What is being typed into the chat, which is not a text editor at
+        // all - the file it completes from is whichever one is current.
+        QTextDocument chatInput("dis");
+        QTextCursor typed(&chatInput);
+        typed.movePosition(QTextCursor::End);
+        const TextEditor::AssistInterface interface(typed, {}, TextEditor::IdleEditor);
+
+        ChatInputCompletionProvider provider;
+        const std::unique_ptr<TextEditor::IAssistProcessor> processor(
+            provider.createProcessor(&interface));
+        QVERIFY(processor);
+        auto * const chat = dynamic_cast<ChatInputCompletionProcessor *>(processor.get());
+        QVERIFY2(chat, "the chat input was given a processor for something else");
+        QVERIFY2(chat->m_editorText.contains("distinctiveIdentifier"),
+                 "the chat was given none of the open file's text");
+    }
+};
+
+QObject *createChatInputCompletionTest()
+{
+    return new ChatInputCompletionTest;
+}
+
+} // namespace AcpClient::Internal
+
+#include "chatinputcompletion.moc"
+
+#endif // WITH_TESTS
