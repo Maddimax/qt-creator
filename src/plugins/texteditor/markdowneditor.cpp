@@ -21,6 +21,14 @@
 #include <utils/markdownbrowser.h>
 #include <utils/qtcsettings.h>
 #include <utils/stringutils.h>
+#include <utils/textutils.h>
+
+#ifdef WITH_TESTS
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
+#endif
 #include <utils/utilsicons.h>
 
 #include <QHBoxLayout>
@@ -56,17 +64,13 @@ const char TOGGLEEDITOR_ACTION[] = "Markdown.ToggleEditor";
 const char TOGGLEPREVIEW_ACTION[] = "Markdown.TogglePreview";
 const char SWAPVIEWS_ACTION[] = "Markdown.SwapViews";
 
-class MarkdownEditorWidget : public TextEditorWidget
-{
-    Q_OBJECT
-public:
-    using TextEditorWidget::TextEditorWidget;
-
-    void findLinkAt(const QTextCursor &cursor,
-                    const Utils::LinkHandler &processLinkCallback,
-                    bool resolveTarget = true,
-                    bool inNextSplit = false) override;
-};
+// Where a Markdown link points. Carried by the document rather than by an
+// editor widget, so that a view which is not one can follow a link too.
+void findMarkdownLinkAt(TextDocument *document,
+                        const QTextCursor &cursor,
+                        const Utils::LinkHandler &processLinkCallback,
+                        bool resolveTarget,
+                        bool inNextSplit);
 
 class MarkdownEditor : public BaseTextEditor
 {
@@ -116,8 +120,9 @@ public:
                 });
 
         // editor
-        m_textEditorWidget = new MarkdownEditorWidget;
+        m_textEditorWidget = new TextEditorWidget;
         m_textEditorWidget->setOptionalActions(OptionalActions::FollowSymbolUnderCursor);
+        m_document->setLinkFinder(&findMarkdownLinkAt);
         m_textEditorWidget->setTextDocument(m_document);
         m_textEditorWidget->setupGenericHighlighter();
         m_textEditorWidget->setMarksVisible(false);
@@ -704,11 +709,72 @@ MarkdownEditorFactory::MarkdownEditorFactory()
         });
 }
 
-void MarkdownEditorWidget::findLinkAt(const QTextCursor &cursor,
-                                      const LinkHandler &processLinkCallback,
-                                      bool /*resolveTarget*/,
-                                      bool /*inNextSplit*/)
+#ifdef WITH_TESTS
+
+// Declared above the regular expression below: moc's namespace tracking does
+// not survive the raw string literals in it, and a Q_OBJECT class after them
+// comes out unqualified.
+class MarkdownEditorTest : public QObject
 {
+    Q_OBJECT
+
+private slots:
+    void testFollowingALinkNeedsNoEditorWidget()
+    {
+        Utils::TemporaryDirectory dir("markdown-links");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath target = dir.filePath("target.md");
+        QVERIFY(target.writeFileContents("# There\n"));
+        const Utils::FilePath source = dir.filePath("source.md");
+        QVERIFY(source.writeFileContents("See [there](target.md) for more.\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(source);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // The document carries it, so anything holding the document can ask -
+        // which is what a view that is not a widget has to be able to do.
+        const TextEditorFactory::LinkFinder finder
+            = TextEditorFactory::linkFinderFor(document);
+        QVERIFY2(finder, "a Markdown document offers no link finder");
+
+        // Inside the link text, which is where a reader would be pointing.
+        QTextCursor cursor(document->document());
+        cursor.setPosition(document->plainText().indexOf("there"));
+
+        Utils::Link found;
+        int answers = 0;
+        finder(document, cursor, [&found, &answers](const Utils::Link &link) {
+            found = link;
+            ++answers;
+        }, true, false);
+
+        QCOMPARE(answers, 1);
+        QCOMPARE(found.targetFilePath, target);
+        // The span it would underline, not just the file it points at.
+        QVERIFY2(found.linkTextStart >= 0 && found.linkTextEnd > found.linkTextStart,
+                 "the link has no extent, so nothing would be drawn as a link");
+    }
+};
+
+QObject *createMarkdownEditorTest()
+{
+    return new MarkdownEditorTest;
+}
+
+#endif // WITH_TESTS
+
+void findMarkdownLinkAt(TextDocument *document,
+                        const QTextCursor &cursor,
+                        const LinkHandler &processLinkCallback,
+                        bool /*resolveTarget*/,
+                        bool /*inNextSplit*/)
+{
+    QTC_ASSERT(document, return);
+
     static const QStringView CAPTURE_GROUP_LINK   = u"link";
     static const QStringView CAPTURE_GROUP_ANCHOR = u"anchor";
     static const QStringView CAPTURE_GROUP_RAWURL = u"rawurl";
@@ -737,7 +803,7 @@ void MarkdownEditorWidget::findLinkAt(const QTextCursor &cursor,
             const QUrl url(link.toString());
             Link result = MarkdownBrowser::fileLink(url);
             if (result.hasValidTarget()) {
-                result.targetFilePath = textDocument()->filePath().parentDir().resolvePath(
+                result.targetFilePath = document->filePath().parentDir().resolvePath(
                     result.targetFilePath);
                 if (!result.targetFilePath.isFile())
                     continue;
@@ -763,8 +829,9 @@ void MarkdownEditorWidget::findLinkAt(const QTextCursor &cursor,
             int line = 0;
             int column = 0;
 
-            convertPosition(target.position(), &line, &column);
-            Link result{textDocument()->filePath(), line, column};
+            Utils::Text::convertPosition(document->document(), target.position(),
+                                         &line, &column);
+            Link result{document->filePath(), line, column};
             result.linkTextStart = match.capturedStart(CAPTURE_GROUP_ANCHOR) + blockOffset;
             result.linkTextEnd = match.capturedEnd(CAPTURE_GROUP_ANCHOR) + blockOffset;
             processLinkCallback(result);

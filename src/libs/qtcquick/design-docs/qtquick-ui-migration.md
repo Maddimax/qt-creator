@@ -44723,3 +44723,107 @@ Its two waiting users are GLSL's Vulkan switch and Markdown's preview toggle.
    about the empty outline combo.
 3. The whitespace difference (declined, entry 68) and printing (entry 31, the
    owner's).
+
+## 2026-09-06 — Markdown's widget subclass goes (batch 94)
+
+Entry 93 said Markdown was ordinary work now that the checkable tool bar
+button exists. It is, but not in one batch, and not starting where that entry
+implied.
+
+### What was measured first, and not done
+
+The obvious next step looked like converting the tool bar: seven
+`insertExtraToolBarWidget(QWidget *)` calls, which a view that is not a widget
+has nowhere to put. Six of the seven convert cleanly -
+`Command::createActionWithShortcutToolTip()` is the action-level twin of the
+`createToolButtonWithShortcutToolTip()` they use, and every use of the buttons
+afterwards (`toggled`, `clicked`, `isChecked`, `toggle`, `setEnabled`,
+`setVisible`) exists on `QAction`.
+
+**Two of them do not**, and it is worth writing down why rather than
+discovering it again:
+
+    button->defaultAction()->setIconText("i");
+    button->setFont([button]{ auto f = button->font(); f.setItalic(true); return f; }());
+
+The emphasis and strong buttons are a *styled glyph* - an italic "i" and a
+bold "b". A `QAction` cannot carry a font, and the tool bar delegate draws
+`text` and `iconSource`. Converting them today would turn them into a plain
+"i" and "b" in the widget editor, which is the only editor Markdown has - a
+visible regression now, for a gain that arrives later.
+
+So: **not done, deliberately.** Either those two get icons that work in both
+worlds, or the delegate learns to draw a styled label. That is a decision, and
+it is the last one Markdown's tool bar needs.
+
+### What this batch did close
+
+`MarkdownEditorWidget` - a `TextEditorWidget` subclass whose whole body was a
+`findLinkAt()` override - is gone. `MarkdownEditor` uses a plain
+`TextEditorWidget` now.
+
+`findLinkAt()` used nothing of the widget but `textDocument()`, so it is
+`findMarkdownLinkAt()`, a free function of exactly the `LinkFinder` shape, and
+the editor puts it on the document:
+
+    m_document->setLinkFinder(&findMarkdownLinkAt);
+
+`TextEditorFactory::linkFinderFor()` prefers the document's own over the
+factory's, and `TextEditorWidget::findLinkAt()` goes through it - so the
+widget path is unchanged - while anything else holding the document can ask
+too. That is the property the Qt Quick view needs, and it is what the test
+asserts.
+
+The document rather than the factory, because `MarkdownEditorFactory` is a
+plain `Core::IEditorFactory` and has no `setLinkFinder()` to hang it on. That
+is also why this could not simply follow Nim's shape from entry 92.
+
+### Markdown's first test
+
+`testFollowingALinkNeedsNoEditorWidget` opens a `.md` file with a relative
+link, takes the **document**, asks `linkFinderFor()` for the finder, and calls
+it with nothing but the document and a cursor. No widget is touched.
+
+It checks the answer, not just that one came: the resolved path, that the
+callback fired exactly once, and that the link has an extent - a finder that
+reported a target with no span would draw nothing underlined.
+
+### The moc trap, avoided rather than hit
+
+Entry 91 cost ten minutes to `R"(...)"` blocks breaking moc's namespace
+tracking. `findMarkdownLinkAt()` is built on three of them, so the test class
+was declared **above** the function from the start. The comment in the source
+says so, because the next person to add a class at the bottom of this file
+will not otherwise know.
+
+### Controls
+
+- **BA**: `setLinkFinder()` never called - red at "a Markdown document offers
+  no link finder", which also says the factory has none to fall back on.
+- **BB**: relative links resolved against nothing instead of the document's
+  directory - red at the resolved path, so the test checks where the link
+  goes rather than that something answered.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 660 passed, 0 failed (was 657) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown specifically
+
+In order:
+
+1. The two styled glyph buttons - a decision, above.
+2. The rest of the tool bar to actions, which is then mechanical.
+3. The view swap: `MarkdownEditor` still needs the navigation-history
+   signals, `IContext::attach`, and the `Aggregate` carrying `BaseTextFind`
+   to have somewhere to go when `m_textEditorWidget` becomes the view entry 89
+   separated out.
+
+And unchanged elsewhere: GLSL (the table in entry 93, plus the question about
+its empty outline combo), the whitespace difference (declined, entry 68), and
+printing (entry 31, the owner's).

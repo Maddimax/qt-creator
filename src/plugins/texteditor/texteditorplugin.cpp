@@ -106,6 +106,7 @@ void TextEditorPlugin::initialize()
     addTestCreator(createCodeHighlightingTest);
     addTestCreator(createTextViewportTest);
     addTestCreator(createQuickTextEditorTest);
+    addTestCreator(createMarkdownEditorTest);
     addTestCreator(createFontSettingsTest);
     addTestCreator(createSnippetsSettingsTest);
     addTestCreator(createFormatTextTest);
