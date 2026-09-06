@@ -47103,3 +47103,94 @@ No `.qbs` change: no files added.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — Why a QML file did not parse in the Qt Quick view (batch 121)
+
+Entry 120 left a question and said to answer it first. Answered, by probe
+rather than by reading, and it was a real gap.
+
+### The measurement
+
+The same file opened both ways, with `onDocumentUpdated()` printing what it
+was given:
+
+    widget  onDocumentUpdated "Probe.qml" docRev 1 textRev 1 ast true
+            result: outdated false, semanticDoc present, after 1407 ms
+
+    quick   onDocumentUpdated "Probe.qml" docRev 0 textRev 1 ast true
+            result: outdated true, semanticDoc null, after 6000 ms (gave up)
+
+The revision the parse carries is 0 in the Qt Quick case and 1 in the widget
+one, so this guard returns forever:
+
+    if (doc->editorRevision() != q->document()->revision())
+        return;
+
+Revision 0 means the file was parsed **from disk** rather than from the open
+document.
+
+### The cause
+
+`qmljsmodelmanager.cpp` builds the working copy from the open documents - and
+only from those whose **editor's context** says QML:
+
+    if (DocumentModel::editorsForDocument(document).constFirst()
+            ->context().contains(ProjectExplorer::Constants::QMLJS_LANGUAGE_ID))
+        workingCopy.insert(key, textDocument->plainText(), ...revision());
+
+That context came from `QmlJSEditor::QmlJSEditor()` - the `BaseTextEditor`
+subclass handed to `setEditorCreator()`, **which the Qt Quick path does not
+use**. So a Qt Quick QML editor said nothing about its language, its document
+was left out of the working copy, and the model manager parsed the file on
+disk at revision 0.
+
+`addEditorContext()` on the factory instead. Either view gets it, and the
+`addContext()` in the editor subclass is redundant and gone.
+
+### What this was hiding
+
+A QML file in the Qt Quick view was **never parsed**. Everything that reads
+the parse was therefore dead there: the outline entry 120 added, the semantic
+warnings from entry 111, the quick fixes from entries 113 and 117, and
+completion from entry 110. Each of those was wired correctly - none of them
+had anything to work with.
+
+Entry 120 guessed at `activateScan()` and reverted it when it did not help.
+The probe took one run and named the mechanism.
+
+**A test that asserts wiring passes whether or not the wiring ever fires.**
+Five entries' worth of correctly-wired features sat behind this, and every one
+of their tests was green.
+
+### Controls
+
+- **DD**: `addEditorContext()` removed - red at the **existing**
+  `QmlJSQuickFixTest`, "Timed out waiting for semantic info", for the *widget*
+  editor. Removing the subclass's `addContext()` made the factory line the only
+  source for both views, so the control reddens the widget path too, which is
+  what says the mechanism is the same one.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 24 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+1. **The outline model is still empty** in a Qt Quick view, and this batch
+   located why without fixing it: `QmlJSEditorDocument::triggerPendingUpdates()`
+   is what starts `m_updateOutlineModelTimer`, and it is the *view* that calls
+   `triggerPendingUpdates()`. A Qt Quick view does not. The outline object,
+   its model and its wiring are all in place and the model is never filled.
+2. The context pane - measured in entry 114: a decision, and the last one.
+
+The first is the next batch and is narrow: find who should call
+`triggerPendingUpdates()` for a view that is not a widget.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

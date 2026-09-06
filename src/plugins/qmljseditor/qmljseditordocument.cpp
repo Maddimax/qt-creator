@@ -999,7 +999,7 @@ private slots:
         QVERIFY(dir.isValid());
         const Utils::FilePath file = dir.filePath("Outline.qml");
         QVERIFY(file.writeFileContents(
-            "import QtQuick\nItem {\n    Rectangle { id: box }\n}\n"));
+            "import QtQuick\nItem {\n    Rectangle { id: box }\n    Text { id: label }\n}\n"));
 
         TextEditor::TextEditorFactory * const factory
             = TextEditor::TextEditorFactory::preferredFactoryFor(file);
@@ -1022,6 +1022,15 @@ private slots:
         auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
         QVERIFY(document);
         QCOMPARE(outline->model(), document->outlineModel());
+
+        // And the file is parsed, which it is not unless this editor's
+        // context says which language it is: the QML model manager builds its
+        // working copy from the open documents whose editor says QML, and
+        // parses the file on disk for any it leaves out.
+        QTRY_VERIFY2(!document->isSemanticInfoOutdated()
+                         && !document->semanticInfo().document.isNull(),
+                     "a QML file in the Qt Quick view was never parsed");
+
     }
 
     // The block the QML designer writes at the end of a file is folded when
