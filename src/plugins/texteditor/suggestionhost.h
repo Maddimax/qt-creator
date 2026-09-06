@@ -16,7 +16,9 @@ namespace Core { class IEditor; }
 namespace TextEditor {
 
 class TextDocument;
+class TextEditorWidget;
 class TextSuggestion;
+class TextViewport;
 
 // A view something can offer an inline suggestion to: enough of it to decide
 // whether asking is worthwhile, and somewhere to put the answer.
@@ -44,6 +46,9 @@ public:
     // Whether one is already being shown, which is a reason not to ask for
     // another.
     virtual bool suggestionVisible() const = 0;
+    // The one being shown, for whoever drives it rather than offers it: the
+    // tooltip cycles between its alternatives and puts the chosen one back.
+    virtual TextSuggestion *currentSuggestion() const = 0;
     virtual void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion) = 0;
 
 signals:
@@ -54,6 +59,10 @@ signals:
 // can be shown in. Owned by the view, so it dies with it - which is the
 // notification that the view is gone.
 TEXTEDITOR_EXPORT SuggestionHost *suggestionHostForEditor(Core::IEditor *editor);
+// The same for a view that already has itself in hand, which is how each
+// answers HoverTarget::suggestionHost().
+TEXTEDITOR_EXPORT SuggestionHost *suggestionHostForView(TextEditorWidget *widget);
+TEXTEDITOR_EXPORT SuggestionHost *suggestionHostForView(TextViewport *view);
 // For the editor the reader is in, if that is one at all.
 TEXTEDITOR_EXPORT SuggestionHost *currentSuggestionHost();
 

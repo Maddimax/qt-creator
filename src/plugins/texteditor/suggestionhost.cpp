@@ -38,6 +38,7 @@ public:
     QTextCursor textCursor() const override { return m_view->textCursor(); }
     MultiTextCursor multiTextCursor() const override { return m_view->multiTextCursor(); }
     bool isReadOnly() const override { return m_view->isReadOnly(); }
+    TextSuggestion *currentSuggestion() const override { return m_view->currentSuggestion(); }
     void insertSuggestion(std::unique_ptr<TextSuggestion> &&suggestion) override
     {
         m_view->insertSuggestion(std::move(suggestion));
@@ -58,9 +59,7 @@ class ViewportHost final : public HostFor<TextViewport>
 {
 public:
     using HostFor::HostFor;
-    // The viewport draws a suggestion whenever the line the caret is on has
-    // one, so having one is being shown one.
-    bool suggestionVisible() const override { return m_view->currentSuggestion() != nullptr; }
+    bool suggestionVisible() const override { return m_view->suggestionVisible(); }
 };
 
 template<class Host, class View>
@@ -86,6 +85,28 @@ SuggestionHost *suggestionHostForEditor(Core::IEditor *editor)
     if (auto * const base = qobject_cast<BaseTextEditor *>(editor))
         return hostFor<WidgetHost>(base->editorWidget());
     return nullptr;
+}
+
+SuggestionHost *suggestionHostForView(TextEditorWidget *widget)
+{
+    return hostFor<WidgetHost>(widget);
+}
+
+SuggestionHost *suggestionHostForView(TextViewport *view)
+{
+    return hostFor<ViewportHost>(view);
+}
+
+// Answered here rather than in each view's own file, because hostFor() and
+// the handle classes live here.
+SuggestionHost *TextEditorWidget::suggestionHost()
+{
+    return suggestionHostForView(this);
+}
+
+SuggestionHost *TextViewport::suggestionHost()
+{
+    return suggestionHostForView(this);
 }
 
 SuggestionHost *currentSuggestionHost()

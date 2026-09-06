@@ -301,6 +301,11 @@ public:
     std::unique_ptr<AssistTarget> createAssistTarget();
     void setContextHelpItem(const Core::HelpItem &item) override;
     QWidget *tooltipParent() override;
+    SuggestionHost *suggestionHost() override;
+    // The view draws a suggestion whenever the line the caret is on has one,
+    // so having one is showing one. Without this a hover handler is told the
+    // view shows none and never asks about it.
+    bool suggestionVisible() const override;
     QPoint globalCursorTopLeft() const override;
 
     void setTooltipHost(QWidget *host);

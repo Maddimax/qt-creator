@@ -8038,6 +8038,64 @@ private slots:
         QCOMPARE(asked, 1);
     }
 
+    void testTheSuggestionToolBarIsShownOverAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("suggestion-toolbar");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("int one = 1;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY(view);
+
+        // The view has to be able to hand over what it is showing, which is
+        // what the tooltip drives.
+        SuggestionHost * const host = view->suggestionHost();
+        QVERIFY2(host, "the Qt Quick view offered no suggestion host at all");
+
+        const auto alternative = [](const QString &text) {
+            TextSuggestion::Data data;
+            data.range = {Utils::Text::Position{1, 0}, Utils::Text::Position{1, 12}};
+            data.position = {1, 12};
+            data.text = text;
+            return data;
+        };
+        const QList<TextSuggestion::Data> both{alternative("int one = 1; // first\n"),
+                                               alternative("int one = 1; // second\n")};
+        view->setCursorPosition(0);
+        host->insertSuggestion(
+            std::make_unique<CyclicSuggestion>(both, document->document(), 0));
+        QVERIFY2(host->suggestionVisible(), "the view was given a suggestion and shows none");
+
+        Utils::ToolTip::hideImmediately();
+        QVERIFY(!Utils::ToolTip::isVisible());
+
+        // Driven the way the editor drives it: ask what is here, then show it.
+        BaseHoverHandler &handler = suggestionHoverHandler();
+        int reported = BaseHoverHandler::Priority_None;
+        handler.checkPriority(view, 0, [&reported](int priority) { reported = priority; });
+        QCOMPARE(reported, int(BaseHoverHandler::Priority_Suggestion));
+
+        handler.showToolTip(view, view->mapToGlobal(QPointF(0, 0)).toPoint());
+        QVERIFY2(Utils::ToolTip::isVisible(),
+                 "no suggestion tool bar was shown over the Qt Quick view");
+        Utils::ToolTip::hideImmediately();
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

@@ -1270,6 +1270,11 @@ Core::HelpItem TextViewport::contextHelpItem() const
     return m_contextHelpItem;
 }
 
+bool TextViewport::suggestionVisible() const
+{
+    return currentSuggestion() != nullptr;
+}
+
 QWidget *TextViewport::tooltipParent()
 {
     return m_tooltipHost;

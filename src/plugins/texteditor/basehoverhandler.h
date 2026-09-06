@@ -18,6 +18,7 @@ QT_END_NAMESPACE
 
 namespace TextEditor {
 
+class SuggestionHost;
 class TextDocument;
 
 // What a hover handler may ask of the editor under the mouse. The widget
@@ -44,6 +45,11 @@ public:
     // Whether this view is showing an inline suggestion. Only a view that can
     // show one says yes.
     virtual bool suggestionVisible() const { return false; }
+
+    // The suggestion being shown, for a handler that drives one - cycles
+    // between the alternatives, applies one - rather than describing it.
+    // Null where the view cannot show suggestions at all.
+    virtual SuggestionHost *suggestionHost() { return nullptr; }
 
     QString extraSelectionTooltip(int pos) const;
 };

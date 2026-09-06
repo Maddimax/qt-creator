@@ -211,6 +211,7 @@ public:
     // the two bases do not both offer it.
     QTextCursor textCursor() const override;
     QWidget *tooltipParent() override { return this; }
+    SuggestionHost *suggestionHost() override;
     QPoint globalCursorTopLeft() const override;
 
     virtual void aboutToOpen(const Utils::FilePath &filePath, const Utils::FilePath &realFilePath);

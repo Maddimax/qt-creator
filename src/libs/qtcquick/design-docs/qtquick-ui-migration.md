@@ -41411,3 +41411,112 @@ clangd failures are dealt with, which is a separate problem and not this
 migration's.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Reading on through the 88: the suggestion tool bar (batch 62)
+
+Entry 61 said to finish reading the 88 and predicted roughly one defect per
+ten sites read. This batch read the rest of the ones reachable with a file in
+the Qt Quick view. Four more sites read, one defect - and the defect had two
+layers, only one of which the reading found.
+
+### Read and cleared
+
+- `plaintexteditorfactory.cpp` casts the editor **its own factory** just made,
+  and that factory is a widget one. Correct.
+- `debuggerplugin.cpp` and `cmakeprojectnodes.cpp` both open with an explicit
+  editor id - `K_DEFAULT_TEXT_EDITOR_ID` and `CMAKE_EDITOR_ID` - which names a
+  widget factory *by id* and bypasses the mime lookup the Quick factory wins.
+  Same shape as `disassembleragent.cpp` in entry 59. Correct, and this is now
+  the third time this shape has been triaged: **opening by id is not a gap**,
+  and it is worth remembering as a category rather than re-deriving.
+
+### The defect: no suggestion tool bar in the Qt Quick view
+
+`textsuggestion.cpp`, `SuggestionHoverHandler::operateTooltip()`:
+
+```cpp
+// suggestionVisible() said yes, and only a TextEditorWidget can.
+auto *editorWidget = qobject_cast<TextEditorWidget *>(target->tooltipParent());
+QTC_ASSERT(editorWidget, return);
+```
+
+The comment was written when it was true and is not any more. `TextViewport`
+answers `tooltipParent()` with the widget hosting it, which is not a
+`TextEditorWidget`, so the cast fails and the soft assert returns. The tool bar
+that cycles between alternative suggestions and applies one **never appeared
+over the Qt Quick editor** - for C++ and for every other language now in it.
+
+`SuggestionToolTip` wanted four things of the widget: its `QTextDocument`, the
+current suggestion, somewhere to put a new one, and a parent widget. The first
+three are exactly `SuggestionHost`, which already existed for this purpose and
+which nothing had connected to the tooltip; the fourth is `tooltipParent()`,
+which both views already answer. So `SuggestionHost` gained
+`currentSuggestion()`, `HoverTarget` gained `suggestionHost()`, and the tooltip
+takes a host and a parent instead of a widget.
+
+### The second layer, which reading did not find
+
+The test written for that fix failed - at `checkPriority()`, before the
+tooltip was reached at all, with priority `None` where `Suggestion` was
+expected.
+
+**`TextViewport` never overrode `HoverTarget::suggestionVisible()`**, which
+defaults to `false`. So `identifyMatch()` returned at its first line and no
+suggestion hover handler ever ran over the Qt Quick view. The tooltip cast was
+the *second* gate; this was the first, and nothing would ever have reached the
+one that was visible in the diff.
+
+Two things worth keeping from that:
+
+- **The rule existed twice.** `ViewportHost::suggestionVisible()` in
+  `suggestionhost.cpp` already said `currentSuggestion() != nullptr`, with a
+  comment explaining it. `TextViewport` itself said nothing, so the same
+  question got two different answers depending on who asked. The rule now
+  lives in the view and `ViewportHost` delegates to it.
+- **Reading found one gate and the test found the other.** Entry 61 proposed
+  reading as the method and it is still right, but a gate that is a *missing*
+  override cannot be read - there is nothing on the page. Only exercising the
+  path shows it. That is the limit of the reading method, stated plainly so it
+  is not learned again.
+
+### Controls — two, one per layer
+
+- **K**: `TextViewport::suggestionVisible()` forced to `false`. Red, and red in
+  **two** tests - the new one and the existing
+  `testASuggestionCanBeOfferedToThisEditor` - which is the evidence that the
+  single rule is now shared rather than duplicated.
+- **L**: `operateTooltip()` made to require a `TextEditorWidget` again. Red at
+  `Utils::ToolTip::isVisible()`, exactly the user-visible symptom: nothing
+  appears.
+
+The test drives the handler the way the editor does - `checkPriority()` then
+`showToolTip()`, both public - rather than calling the protected hooks, so it
+covers the priority gate and the tooltip gate together.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 595 passed, 0 failed (was 594) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Copilot` | 0 | no tests registered |
+
+Copilot is the only thing that offers suggestions and has no tests at all,
+which is why nothing noticed. No `.qbs` change: no files added.
+
+### What is left
+
+The sites reachable with a Qt Quick file current have now all been read. What
+remains of the 88 is `qmldesigner` (19, calling `editorWidget()` on a widget
+editor it built itself), `lspinspector` (6, likewise on its own JSON editor),
+test code, and the languages still in the widget editor.
+
+**Suggested next: the missing-override class of defect, deliberately.**
+This batch found one by accident. The same question can be asked on purpose:
+for each interface a view implements - `HoverTarget`, `SuggestionHost`,
+`SuggestionTarget`, `IFindSupport` - which virtuals does `TextEditorWidget`
+override that `TextViewport` does not? That is a mechanical comparison, it
+cannot be done by grepping for widget types, and this batch is evidence it
+finds things. It is also finite, unlike reading call sites.
+
+The printing decision (keep / drop / move) remains the owner's call.

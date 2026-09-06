@@ -3,6 +3,8 @@
 
 #include "textsuggestion.h"
 
+#include "suggestionhost.h"
+
 #include "basehoverhandler.h"
 #include "textdocumentlayout.h"
 #include "texteditor.h"
@@ -144,10 +146,10 @@ class SuggestionToolTip : public QToolBar
 {
 public:
     SuggestionToolTip(
-        QList<TextSuggestion::Data> suggestions, int currentSuggestion, TextEditorWidget *editor)
+        QList<TextSuggestion::Data> suggestions, int currentSuggestion, SuggestionHost *host)
         : m_suggestions(suggestions)
         , m_currentSuggestion(std::max(0, std::min<int>(currentSuggestion, suggestions.size() - 1)))
-        , m_editor(editor)
+        , m_host(host)
     {
         if (m_suggestions.size() > 1) {
             m_numberLabel = new QLabel;
@@ -163,7 +165,8 @@ public:
         addAction(Core::ActionManager::command(Constants::SUGGESTION_APPLY_WORD)->action());
         addAction(Core::ActionManager::command(Constants::SUGGESTION_APPLY_LINE)->action());
 
-        connect(editor->document(), &QTextDocument::contentsChange, this, &SuggestionToolTip::contentsChanged);
+        connect(host->document(), &QTextDocument::contentsChange,
+                this, &SuggestionToolTip::contentsChanged);
 
         updateSuggestionSelector();
     }
@@ -171,7 +174,7 @@ public:
 private:
     void contentsChanged()
     {
-        if (auto *suggestion = dynamic_cast<CyclicSuggestion *>(m_editor->currentSuggestion())) {
+        if (auto *suggestion = dynamic_cast<CyclicSuggestion *>(m_host->currentSuggestion())) {
             m_suggestions = suggestion->suggestions();
             m_currentSuggestion = suggestion->currentSuggestion();
             updateSuggestionSelector();
@@ -208,8 +211,8 @@ private:
     void setCurrentSuggestion()
     {
         updateSuggestionSelector();
-        m_editor->insertSuggestion(std::make_unique<CyclicSuggestion>(
-            m_suggestions, m_editor->document(), m_currentSuggestion));
+        m_host->insertSuggestion(std::make_unique<CyclicSuggestion>(
+            m_suggestions, m_host->document(), m_currentSuggestion));
     }
 
     QLabel *m_numberLabel = nullptr;
@@ -217,7 +220,7 @@ private:
     QAction *m_next = nullptr;
     QList<TextSuggestion::Data> m_suggestions;
     int m_currentSuggestion = 0;
-    TextEditorWidget *m_editor;
+    SuggestionHost *m_host;
 };
 
 // SuggestionHoverHandler
@@ -266,17 +269,18 @@ void SuggestionHoverHandler::operateTooltip(HoverTarget *target, const QPoint &p
         return;
 
     // The tooltip drives the suggestion - cycles it, applies it - so it needs
-    // the view that is showing one. suggestionVisible() said yes, and only a
-    // TextEditorWidget can.
-    auto *editorWidget = qobject_cast<TextEditorWidget *>(target->tooltipParent());
-    QTC_ASSERT(editorWidget, return);
+    // the view that is showing one, which is what the host is. The tooltip is
+    // still a widget and is parented to whatever hosts the view.
+    SuggestionHost * const host = target->suggestionHost();
+    QWidget * const parent = target->tooltipParent();
+    QTC_ASSERT(host && parent, return);
 
     auto tooltipWidget = new SuggestionToolTip(
-        suggestion->suggestions(), suggestion->currentSuggestion(), editorWidget);
+        suggestion->suggestions(), suggestion->currentSuggestion(), host);
 
     QPoint pos = target->globalCursorTopLeft() - Utils::ToolTip::offsetFromPosition();
     pos.ry() -= tooltipWidget->sizeHint().height();
-    ToolTip::show(pos, tooltipWidget, editorWidget);
+    ToolTip::show(pos, tooltipWidget, parent);
 }
 
 BaseHoverHandler &suggestionHoverHandler()
