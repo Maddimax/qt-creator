@@ -2391,14 +2391,30 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
                                   ? m_autoCompleter->paragraphSeparatorAboutToBeInserted(caret)
                                   : 0;
             caret.insertText("\n");
-            doc->autoIndent(caret);
+            // With automatic indentation turned off the language does not get
+            // to say where the line starts - but the reader still keeps the
+            // indentation they were already on, which is what the widget
+            // editor does with the same setting off.
+            const bool layOut = doc->typingSettings().m_autoIndent;
+            QString carriedIndent;
+            if (layOut) {
+                doc->autoIndent(caret);
+            } else {
+                carriedIndent = TabSettingsData::indentationString(
+                    caret.block().previous().text());
+                if (!carriedIndent.isEmpty())
+                    caret.insertText(carriedIndent);
+            }
 
             if (extraBlocks > 0) {
                 const int typingHere = caret.position();
                 QTextCursor below = caret;
                 while (extraBlocks-- > 0) {
                     below.movePosition(QTextCursor::NextBlock);
-                    doc->autoIndent(below, QChar::Null, typingHere);
+                    if (layOut)
+                        doc->autoIndent(below, QChar::Null, typingHere);
+                    else if (!carriedIndent.isEmpty())
+                        below.insertText(carriedIndent);
                 }
                 caret.setPosition(typingHere);
             }

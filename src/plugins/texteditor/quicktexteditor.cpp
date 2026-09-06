@@ -8478,6 +8478,73 @@ private slots:
         QCOMPARE(quickText, widgetText);
     }
 
+    void testBreakingALineStartsWhereEitherViewWouldStartIt_data()
+    {
+        QTest::addColumn<bool>("autoIndent");
+        QTest::newRow("the language lays the line out") << true;
+        QTest::newRow("the reader keeps their own indent") << false;
+    }
+
+    void testBreakingALineStartsWhereEitherViewWouldStartIt()
+    {
+        QFETCH(bool, autoIndent);
+
+        TypingSettings &typing = globalTypingSettings();
+        const bool wasAuto = typing.autoIndent();
+        const QScopeGuard restoreSetting([&typing, wasAuto] {
+            typing.autoIndent.setValue(wasAuto);
+        });
+        typing.autoIndent.setValue(autoIndent);
+
+        Utils::TemporaryDirectory dir("return-indent");
+        QVERIFY(dir.isValid());
+
+        // The caret sits at the end of an indented line that opens a brace,
+        // which is where the language's indenter and the line's own
+        // indentation give different answers: one level in, or the same
+        // level again.
+        const auto lineAfterReturn = [&dir](bool quick, QString *result) {
+            const Utils::FilePath file = dir.filePath(quick ? QString("q.cpp")
+                                                            : QString("w.cpp"));
+            QVERIFY(file.writeFileContents("void f()\n{\n    if (x) {\n"));
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            QVERIFY(factory);
+            const bool was = factory->usesQuickEditor();
+            const QScopeGuard restore([factory, was] { factory->setUsesQuickEditor(was); });
+            factory->setUsesQuickEditor(quick);
+
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+
+            const QTextBlock openingBrace = document->document()->findBlockByNumber(2);
+            QTextCursor at(document->document());
+            at.setPosition(openingBrace.position() + openingBrace.text().length());
+            TextEditor::setTextCursorOf(editor, at);
+
+            QObject * const target = TextEditor::keyTargetOf(editor);
+            QVERIFY(target);
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, "\r");
+            QCoreApplication::sendEvent(target, &press);
+            *result = document->document()->findBlockByNumber(3).text();
+        };
+
+        QString widgetLine;
+        QString quickLine;
+        lineAfterReturn(false, &widgetLine);
+        lineAfterReturn(true, &quickLine);
+
+        // The two answers really are different, or this row is comparing the
+        // setting against itself.
+        const int indent = widgetLine.length();
+        QCOMPARE(indent, autoIndent ? 8 : 4);
+        QCOMPARE(quickLine, widgetLine);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

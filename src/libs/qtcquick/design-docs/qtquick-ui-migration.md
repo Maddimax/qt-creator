@@ -41984,3 +41984,109 @@ here has had. Read what each extra widget read *does*, and measure both views
 doing it before believing either.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Automatic indentation could not be turned off (batch 67)
+
+Entry 66 left a list of settings the widget editor reads more often than the
+Qt Quick view does, and said to work down it. Three rows in, one defect.
+
+### Two rows that were nothing
+
+`m_mouseNavigation` and `m_scrollWheelZooming` show widget=2, quick=1 because
+the widget's two are its **setter and getter** - `setMouseNavigationEnabled()`
+and `mouseNavigationEnabled()` - and neither is a use. The Qt Quick view's one
+read is the only read either view has. Counting a setter as a read is the
+fourth distinct way a sweep in this project has produced a false positive.
+
+### The row that was something: `m_autoIndent`
+
+Widget five, Qt Quick four. The extra one is in the widget's Return handling:
+
+```cpp
+if (tps.m_autoIndent) {
+    cursor.insertBlock();
+    d->m_document->autoIndent(cursor);
+} else {
+    cursor.insertBlock();
+    previousIndentationString = ts.indentationString(previousBlockText);
+    if (!previousIndentationString.isEmpty())
+        cursor.insertText(previousIndentationString);
+}
+```
+
+`TextViewport`'s Return called `doc->autoIndent(caret)` **unconditionally**,
+and `TextDocument::autoIndent()` does not check the setting either - it goes
+straight to the indenter. So the branch had nowhere to be.
+
+Measured, caret at the end of `    if (x) {`:
+
+    autoIndent=on   widget  8 spaces      quick  8 spaces
+    autoIndent=off  widget  4 spaces      quick  8 spaces
+
+**"Enable automatic indentation" did nothing in the Qt Quick editor.** Turning
+it off left the language laying out every new line exactly as before. That is
+a preference the reader set and the editor ignored - the same class as entry
+65's tooltip modifier, and the second one found by this method.
+
+The view now carries the previous line's own indentation forward when the
+setting is off, including to the extra blocks the auto-completer opened below
+- the closing brace's line gets the same treatment, which is what the widget
+does with `previousIndentationString`.
+
+### Why the counts keep being hints rather than answers
+
+Four of the six rows entry 66 listed have now been looked at and two were
+real. The counts cannot distinguish:
+
+- a setter/getter pair from a use (`m_mouseNavigation`)
+- a read through a differently-named helper (entry 65, `hideMouseWhileTyping`)
+- a read through an aspect accessor rather than the data member (entry 65)
+- a read in a file the sweep did not include (entry 65, `MinimapView`)
+
+What the counts are good for is **ordering the reading**. Every defect this
+method has found came from opening the extra read and asking what it does.
+
+### Controls
+
+- **S**: the setting forced back to always-on in the Return handler - red on
+  the `autoIndent=off` row only, `"        "` against `"    "`, and green on
+  the other row. A control that reddens exactly one of two data rows is
+  saying the two rows test different things.
+- The test refuses to pass on two views that agree by accident:
+  `QCOMPARE(indent, autoIndent ? 8 : 4)` asserts the widget's own answer
+  differs between the rows before the two views are compared to each other.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 605 passed, 0 failed (was 603) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+Two rows of entry 66's list are unread:
+
+    m_highlightMatchingParentheses   widget=4  quick=1
+    m_animateMatchingParentheses     widget=3  quick=1
+    m_visualizeWhitespace            widget=4  quick=3
+
+Note that entry 64 already established that the Qt Quick view matches brackets
+for *any* highlighted language where the widget asks the factory first, so the
+parentheses rows are likely to be that same difference counted twice rather
+than a new gap. `m_visualizeWhitespace` has not been looked at at all.
+
+**Suggested next: finish those three rows, then stop using this method.** It
+has produced two defects in two batches, but the list is nearly exhausted and
+the false-positive rate is climbing as the obvious rows are used up. After
+that, the honest next question is the one entry 60 raised and nothing has
+answered: **a dozen languages are in the Qt Quick editor with no comparison
+evidence behind them.** Every defect since entry 60 was found by reading one
+view against the other in a particular place; none was found by exercising
+those languages. A test that opens a Rust or YAML file and does ordinary
+editing in both views would be a different question, and different questions
+are what has been finding things.
+
+The printing decision (keep / drop / move) remains the owner's call.
