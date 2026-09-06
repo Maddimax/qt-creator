@@ -5295,7 +5295,8 @@ private slots:
                              QString("Vcpkg.VcpkgManifestEditor"),
                              QString("QT4.FilesEditor"), QString("java.editor"),
                              QString("CompilationDatabase.CompilationDatabaseEditor"),
-                             QString("Nim.NimEditor")};
+                             QString("Nim.NimEditor"),
+                             QString("GLSLEditor.GLSLEditor")};
         if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
             expected.removeOne(QString("CppEditor.C++Editor"));
         expected.sort();
@@ -5349,6 +5350,7 @@ private slots:
             {"Main.java", true},
             {"compile_commands.json", true},
             {"module.nim", true},
+            {"shader.frag", true},
         };
 
         QStringList wrong;

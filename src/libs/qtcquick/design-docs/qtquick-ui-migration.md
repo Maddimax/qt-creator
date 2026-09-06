@@ -46133,3 +46133,94 @@ is the outline seam the Qt Quick row already has (`ToolBarOutline`, entry 98).
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — GLSL opens in the Qt Quick view (batch 109)
+
+`GlslEditorWidget` is gone and the factory says `setUsesQuickEditor(true)`.
+`.frag`, `.vert`, `.comp` and the rest are in the census.
+
+### The question that was not one
+
+Entries 93, 105, 106, 107 and 108 all ended by saying the outline combo box
+was the owner's call. **It was not, and it should have been measured the first
+time.** What the whole of `GlslEditorWidget` did, in full:
+
+| Member | What it does |
+| --- | --- |
+| `m_outlineCombo` | created, given a `QTreeView`, never given a model, never connected, never read |
+| `setSelectedElements()` | declared; **no definition anywhere**, never called |
+| `identifiers()` | declared; **no definition anywhere**, never called |
+| `editorRevision()` | `return 0;`, the real line commented out; never called |
+| `isOutdated()` | `return false;`, body commented out; never called |
+| `wordUnderCursor()` | defined; never called |
+
+Seventy lines drawing an empty box.
+
+The question being asked was "should GLSL have an outline?" - a future feature
+question, which deleting an empty combo does not foreclose: the Qt Quick row
+has had a `ToolBarOutline` since entry 98 for whoever builds one. The question
+that actually blocked was "should this empty box keep being drawn?", and that
+answers itself.
+
+**A decision deferred to somebody else should be checked first for whether it
+is a decision.** Five entries carried this one, each repeating the previous
+entry's framing rather than reading the code. Entry 103 was the same failure
+about `QAction::font`; this is the second.
+
+### The gap this closed
+
+The last one for GLSL. What the widget used to do is where it now lives:
+
+| What | Where | Since |
+| --- | --- | --- |
+| the parse, diagnostics, semantic ranges | `GlslSemantics` on the document | entry 105 |
+| completion, the auto-completer | `GlslDocument`, the factory | entry 106 |
+| the tooltip | a `BaseHoverHandler` on the factory | entry 107 |
+| the Vulkan switch | a checkable action on the document | entry 108 |
+| the outline combo | deleted | this entry |
+
+### The test that had to stop asking for a widget
+
+`testTheAutoCompleterComesFromTheFactory` asserted `TextEditorWidget::
+fromEditor(editor)` and then read the completer off it. With GLSL on the Qt
+Quick side there is no widget, and the obvious repair - ask the viewport
+instead - does not compile: `quicktexteditor.h` includes `actionmodel.h`,
+which needs `QQmlEngine`, and the GLSL plugin does not link Qml.
+
+So it asks the **factory** for its `autoCompleterCreator()` and checks what it
+makes. Better than either version: it tests the registration rather than one
+view's copy of it, which is entry 107's lesson, and it needs no view at all.
+
+### Controls
+
+- **CH**: `setUsesQuickEditor(false)` - three reds: "a shader opened in a
+  widget editor", and both censuses, the language one naming `shader.frag`.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 672 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test GLSLEditor` | 0 | 8 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+Two things, both stated as the owner's and both genuinely so:
+
+1. **The whitespace drawing difference** - declined with a reason in entry 68.
+2. **Printing** - keep, drop or move. Open since entry 31.
+
+Neither is work this migration can do for itself, and there is no language
+left with a widget editor that anybody has asked to move. The goal at the top
+of every batch is met and has been for a long time: **a C++ file opens in
+`TextEditor::TextViewport`**, and so do JSON, qmake, CMake, Python, vcpkg,
+Java, Nim, the compilation database, the generic project's file lists, GLSL,
+Markdown's text pane, and every text file without a factory of its own.
+
+What still opens in `TextEditorWidget` is what nobody has moved: QML/JS,
+VcsBase's editors, the diff editor, the binary editor and the rest. Each is
+the same shape as the eleven above, and none of them is blocked - the seams
+they would need all exist and are tested standing alone.

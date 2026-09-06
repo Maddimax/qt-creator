@@ -470,76 +470,6 @@ public:
     }
 };
 
-class GlslEditorWidget : public TextEditorWidget
-{
-public:
-    GlslEditorWidget();
-
-    int editorRevision() const;
-    bool isOutdated() const;
-
-    QSet<QString> identifiers() const;
-
-private:
-    void setSelectedElements();
-    QString wordUnderCursor() const;
-
-    QComboBox *m_outlineCombo = nullptr;
-};
-
-GlslEditorWidget::GlslEditorWidget()
-{
-    m_outlineCombo = new QComboBox;
-    m_outlineCombo->setMinimumContentsLength(22);
-
-    // ### m_outlineCombo->setModel(m_outlineModel);
-
-    auto treeView = new QTreeView;
-    treeView->header()->hide();
-    treeView->setItemsExpandable(false);
-    treeView->setRootIsDecorated(false);
-    m_outlineCombo->setView(treeView);
-    treeView->expandAll();
-
-    //m_outlineCombo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-
-    // Make the combo box prefer to expand
-    QSizePolicy policy = m_outlineCombo->sizePolicy();
-    policy.setHorizontalPolicy(QSizePolicy::Expanding);
-    m_outlineCombo->setSizePolicy(policy);
-
-    // The Vulkan switch is on the document, which is where either kind of
-    // view reads its tool bar from.
-    insertExtraToolBarWidget(TextEditorWidget::Left, m_outlineCombo);
-}
-
-int GlslEditorWidget::editorRevision() const
-{
-    //return document()->revision();
-    return 0;
-}
-
-bool GlslEditorWidget::isOutdated() const
-{
-//    if (m_semanticInfo.revision() != editorRevision())
-//        return true;
-
-    return false;
-}
-
-QString GlslEditorWidget::wordUnderCursor() const
-{
-    QTextCursor tc = textCursor();
-    const QChar ch = document()->characterAt(tc.position() - 1);
-    // make sure that we're not at the start of the next word.
-    if (ch.isLetterOrNumber() || ch == QLatin1Char('_'))
-        tc.movePosition(QTextCursor::Left);
-    tc.movePosition(QTextCursor::StartOfWord);
-    tc.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-    const QString word = tc.selectedText();
-    return word;
-}
-
 static QTextCursor cursorForDiagnosticMessage(QTextDocument *document,
                                              const DiagnosticMessage &message)
 {
@@ -826,15 +756,24 @@ private slots:
         const Utils::FilePath file = dir.filePath("shader.frag");
         QVERIFY(file.writeFileContents("void main() {}\n"));
 
+        // The registration rather than one view's copy of it: whichever view
+        // is showing the shader asks the factory for this, so the factory
+        // having it is the claim.
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const TextEditorFactory::AutoCompleterCreator creator = factory->autoCompleterCreator();
+        QVERIFY2(creator, "the shader's factory offers no auto-completer");
+        const std::unique_ptr<AutoCompleter> completer(creator());
+        QVERIFY2(dynamic_cast<GlslCompleter *>(completer.get()),
+                 "the shader's factory offers the plain text auto-completer");
+
+        // And the shader opens in the Qt Quick view now.
         Core::IEditor * const editor = Core::EditorManager::openEditor(file);
         QVERIFY2(editor, "nothing opened a .frag file");
         const QScopeGuard closeIt(
             [editor] { Core::EditorManager::closeEditors({editor}, false); });
-
-        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
-        QVERIFY2(widget, "a shader no longer opens in a widget editor");
-        QVERIFY2(dynamic_cast<GlslCompleter *>(widget->autoCompleter()),
-                 "the shader was given the plain text auto-completer");
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "a shader opened in a widget editor");
     }
 
     // The diagnostics used to be shown by a slot on the editor widget, so a
@@ -991,7 +930,10 @@ public:
 
         setDocumentCreator([] { return new GlslDocument; });
         setAutoCompleterCreator([] { return new GlslCompleter; });
-        setEditorWidgetCreator([]() { return new GlslEditorWidget; });
+        // A shader opens in the Qt Quick view. Its widget subclass drew one
+        // thing - an outline combo box with no model, so an empty box - and
+        // everything else it once did is on the document or the factory now.
+        setUsesQuickEditor(true);
         setIndenterCreator(&createGlslIndenter);
         setSyntaxHighlighterCreator(&createGlslHighlighter);
         setCommentDefinition(Utils::CommentDefinition::CppStyle);
