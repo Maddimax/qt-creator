@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qmljscomponentfromobjectdef.h"
+
+#include "qmljseditor.h"
+#include "qmljseditordocument.h"
 #include "qmljscomponentnamedialog.h"
 #include "qmljseditortr.h"
 #include "qmljsquickfixassist.h"
@@ -256,7 +259,9 @@ QString performComponentFromObjectDef(QmlJSEditorWidget *editor,
                                         QmlJS::ModelManagerInterface::instance()->snapshot());
     QmlJSRefactoringFilePtr current = refactoring.qmlJSFile(Utils::FilePath::fromString(fileName));
 
-    QmlJSQuickFixAssistInterface interface(editor, TextEditor::AssistReason::ExplicitlyInvoked);
+    QmlJSQuickFixAssistInterface interface(editor->textDocument(), editor->textCursor(),
+                                           editor->qmlJsEditorDocument()->semanticInfo(),
+                                           TextEditor::AssistReason::ExplicitlyInvoked);
     Operation operation(&interface, objDef);
 
     return operation.performChanges(current, refactoring, importData);

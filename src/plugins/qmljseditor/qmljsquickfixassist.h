@@ -18,7 +18,10 @@ namespace Internal {
 class QmlJSQuickFixAssistInterface : public TextEditor::AssistInterface
 {
 public:
-    QmlJSQuickFixAssistInterface(QmlJSEditorWidget *editor, TextEditor::AssistReason reason);
+    QmlJSQuickFixAssistInterface(TextEditor::TextDocument *document,
+                                 const QTextCursor &cursor,
+                                 const QmlJSTools::SemanticInfo &semanticInfo,
+                                 TextEditor::AssistReason reason);
     ~QmlJSQuickFixAssistInterface() override;
 
     const QmlJSTools::SemanticInfo &semanticInfo() const;

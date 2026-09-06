@@ -98,7 +98,9 @@ QString QmlJSQuickFixTest::applyQuickFix(const QString &source, int cursorPos,
     cursor.setPosition(cursorPos);
     widget->setTextCursor(cursor);
 
-    QmlJSQuickFixAssistInterface interface(widget, TextEditor::ExplicitlyInvoked);
+    QmlJSQuickFixAssistInterface interface(widget->textDocument(), widget->textCursor(),
+                                           widget->qmlJsEditorDocument()->semanticInfo(),
+                                           TextEditor::ExplicitlyInvoked);
     const TextEditor::QuickFixOperations operations = findQmlJSQuickFixes(&interface);
     for (const TextEditor::QuickFixOperation::Ptr &operation : operations) {
         if (operation->description() == opDescription) {

@@ -21,11 +21,13 @@ using namespace Internal;
 // -----------------------
 // QmlJSQuickFixAssistInterface
 // -----------------------
-QmlJSQuickFixAssistInterface::QmlJSQuickFixAssistInterface(QmlJSEditorWidget *editor,
+QmlJSQuickFixAssistInterface::QmlJSQuickFixAssistInterface(TextEditor::TextDocument *document,
+                                                           const QTextCursor &cursor,
+                                                           const SemanticInfo &semanticInfo,
                                                            AssistReason reason)
-    : AssistInterface(editor->textCursor(), editor->textDocument()->filePath(), reason)
-    , m_semanticInfo(editor->qmlJsEditorDocument()->semanticInfo())
-    , m_currentFile(QmlJSRefactoringChanges::file(editor, m_semanticInfo.document))
+    : AssistInterface(cursor, document->filePath(), reason)
+    , m_semanticInfo(semanticInfo)
+    , m_currentFile(QmlJSRefactoringChanges::file(document, m_semanticInfo.document))
 {}
 
 QmlJSQuickFixAssistInterface::~QmlJSQuickFixAssistInterface() = default;

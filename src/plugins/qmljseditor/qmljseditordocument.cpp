@@ -864,10 +864,15 @@ std::unique_ptr<TextEditor::AssistInterface> QmlJSEditorDocument::createAssistIn
     const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
     Core::IEditor *editor) const
 {
-    if (kind != TextEditor::Completion)
-        return TextDocument::createAssistInterface(cursor, kind, reason, editor);
-    return std::make_unique<QmlJSCompletionAssistInterface>(cursor, filePath(), reason,
-                                                            semanticInfo());
+    if (kind == TextEditor::Completion) {
+        return std::make_unique<QmlJSCompletionAssistInterface>(cursor, filePath(), reason,
+                                                                semanticInfo());
+    }
+    if (kind == TextEditor::QuickFix) {
+        return std::make_unique<Internal::QmlJSQuickFixAssistInterface>(
+            const_cast<QmlJSEditorDocument *>(this), cursor, semanticInfo(), reason);
+    }
+    return TextDocument::createAssistInterface(cursor, kind, reason, editor);
 }
 
 #ifdef WITH_TESTS
@@ -975,14 +980,28 @@ private slots:
         QVERIFY2(qml, "the document answered with the plain text interface");
         QCOMPARE(qml->cursor().position(), cursor.position());
 
-        // A different kind is still the base's answer, so this did not take
-        // over everything - a quick fix needs the widget it will act on.
+        // Quick fixes too, and with the language's own interface rather than
+        // the base's - the refactoring file it carries is what an operation
+        // edits through.
         const std::unique_ptr<TextEditor::AssistInterface> quickFix
             = document.createAssistInterface(cursor, TextEditor::QuickFix,
                                              TextEditor::ExplicitlyInvoked, nullptr);
         QVERIFY(quickFix);
         QVERIFY2(!dynamic_cast<QmlJSCompletionAssistInterface *>(quickFix.get()),
                  "a quick fix was answered with the completion interface");
+        auto * const fix
+            = dynamic_cast<Internal::QmlJSQuickFixAssistInterface *>(quickFix.get());
+        QVERIFY2(fix, "the document answered a quick fix with the plain text interface");
+        QVERIFY2(fix->currentFile(), "the quick fix interface carries no file to edit");
+        QCOMPARE(fix->currentFile()->filePath(), document.filePath());
+
+        // And a kind neither of them handles is still the base's.
+        const std::unique_ptr<TextEditor::AssistInterface> hint
+            = document.createAssistInterface(cursor, TextEditor::FunctionHint,
+                                             TextEditor::ExplicitlyInvoked, nullptr);
+        QVERIFY(hint);
+        QVERIFY2(!dynamic_cast<Internal::QmlJSQuickFixAssistInterface *>(hint.get()),
+                 "a function hint was answered with the quick fix interface");
     }
 };
 

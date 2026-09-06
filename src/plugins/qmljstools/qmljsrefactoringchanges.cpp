@@ -44,9 +44,9 @@ QmlJSRefactoringFilePtr QmlJSRefactoringChanges::qmlJSFile(const Utils::FilePath
 }
 
 QmlJSRefactoringFilePtr QmlJSRefactoringChanges::file(
-        TextEditor::TextEditorWidget *editor, const Document::Ptr &document)
+        TextEditor::TextDocument *document, const Document::Ptr &qmlJSDocument)
 {
-    return QmlJSRefactoringFilePtr(new QmlJSRefactoringFile(editor, document));
+    return QmlJSRefactoringFilePtr(new QmlJSRefactoringFile(document, qmlJSDocument));
 }
 
 const Snapshot &QmlJSRefactoringChanges::snapshot() const
@@ -63,9 +63,10 @@ QmlJSRefactoringFile::QmlJSRefactoringFile(
         invalidate();
 }
 
-QmlJSRefactoringFile::QmlJSRefactoringFile(TextEditor::TextEditorWidget *editor, Document::Ptr document)
-    : RefactoringFile(editor)
-    , m_qmljsDocument(document)
+QmlJSRefactoringFile::QmlJSRefactoringFile(TextEditor::TextDocument *document,
+                                           Document::Ptr qmlJSDocument)
+    : RefactoringFile(document)
+    , m_qmljsDocument(qmlJSDocument)
 {
 }
 

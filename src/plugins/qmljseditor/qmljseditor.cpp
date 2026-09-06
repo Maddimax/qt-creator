@@ -916,7 +916,8 @@ void QmlJSEditorWidget::contextMenuEvent(QContextMenuEvent *e)
     QMenu *refactoringMenu = new QMenu(Tr::tr("Refactoring"), menu);
 
     if (!qmlJsEditorDocument()->isSemanticInfoOutdated()) {
-        std::unique_ptr<AssistInterface> interface = createAssistInterface(QuickFix, ExplicitlyInvoked);
+        std::unique_ptr<AssistInterface> interface = textDocument()->createAssistInterface(
+            textCursor(), QuickFix, ExplicitlyInvoked, nullptr);
         if (interface) {
             IAssistProcessor *processor = textDocument()->quickFixAssistProvider()->createProcessor(
                 interface.get());
@@ -1082,21 +1083,6 @@ bool QmlJSEditorWidget::hideContextPane()
         m_contextPane->apply(this, qmlJsEditorDocument()->semanticInfo().document,
                              nullptr, nullptr, false);
     return b;
-}
-
-std::unique_ptr<AssistInterface> QmlJSEditorWidget::createAssistInterface(
-    AssistKind assistKind,
-    AssistReason reason) const
-{
-    // The document's answer, so that there is one of it: a view that is not a
-    // widget asks the document, and this used to build its own copy.
-    if (assistKind == Completion)
-        return textDocument()->createAssistInterface(textCursor(), assistKind, reason, nullptr);
-    if (assistKind == QuickFix) {
-        return std::make_unique<Internal::QmlJSQuickFixAssistInterface>(
-            const_cast<QmlJSEditorWidget *>(this), reason);
-    }
-    return TextEditorWidget::createAssistInterface(assistKind, reason);
 }
 
 QString QmlJSEditorWidget::foldReplacementText(const QTextBlock &block) const

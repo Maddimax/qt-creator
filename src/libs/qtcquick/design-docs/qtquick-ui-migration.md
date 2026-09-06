@@ -46455,3 +46455,77 @@ that decides how long.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — QmlJS quick fixes move to the document (batch 113)
+
+Entries 110, 111 and 112 each closed by calling the quick fix assist interface
+"the largest piece" and saying it "needs the widget it acts on". **That was
+asserted three times and never checked.** It took one look:
+
+    QmlJSQuickFixAssistInterface::QmlJSQuickFixAssistInterface(QmlJSEditorWidget *editor, ...)
+        : AssistInterface(editor->textCursor(), editor->textDocument()->filePath(), reason)
+        , m_semanticInfo(editor->qmlJsEditorDocument()->semanticInfo())
+        , m_currentFile(QmlJSRefactoringChanges::file(editor, m_semanticInfo.document))
+
+Three of the four uses are the cursor and the document. The fourth,
+`QmlJSRefactoringChanges::file(editor, ...)`, was the only real one - and
+`TextEditor::RefactoringFile` **already has a `TextDocument *` constructor**,
+put there by an earlier batch, whose comment says so:
+
+    // The open document being changed, or nullptr where the file is not open.
+    TextDocument *textDocument() const;
+    // The widget showing it, where the view is one - so callers that only
+    // want the document should ask for the document.
+
+**Third time in this document that a deferred "largest piece" dissolved on
+being read** - entries 103 and 109 were the others. The rule is not new; the
+failure is always the same one: an entry repeats the previous entry's framing
+instead of opening the file.
+
+### The gap this closed
+
+`QmlJSQuickFixAssistInterface` takes a document, a cursor and the semantic
+info. `QmlJSRefactoringChanges::file()` and `QmlJSRefactoringFile`'s
+constructor take a `TextDocument *` rather than a `TextEditorWidget *`.
+`QmlJSEditorDocument::createAssistInterface()` answers quick fixes as well as
+completion.
+
+`QmlJSEditorWidget::createAssistInterface()` is **gone entirely**: with both
+kinds answered by the document it had nothing left to add, and the context
+menu asks the document directly.
+
+### Controls
+
+- **CO**: quick fixes falling through to the base - red at "the document
+  answered a quick fix with the plain text interface".
+- **CP**: the refactoring file built from an empty path instead of the open
+  document - red across the existing `QmlJSQuickFixTest`: "Quick-fix not
+  offered: Split Initializer" and four more. That is the control that matters,
+  because it says the file this now builds is the one operations actually edit
+  through, not a lookalike.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 672 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 20 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+| What | Shape |
+| --- | --- |
+| `contextMenuEvent()` | builds a Refactoring submenu; asks the document now, so what remains is the menu itself - `setContextMenuId()` is the seam (entry 84) |
+| the outline model index, `jumpToOutlineElement()` | the `ToolBarOutline` seam from entry 98 |
+| the context pane, `showTextMarker()` | QML-specific UI, still unexamined - **and the one thing here nobody has read yet** |
+| `restoreState()` folding auxiliary data | small |
+| `updateUses()` | stays with the view (entry 111) |
+
+Two batches, probably, and the honest note is that the context pane is the
+only item on that list whose size is still a guess.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).
