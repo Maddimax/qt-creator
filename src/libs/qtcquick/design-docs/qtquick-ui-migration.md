@@ -39839,3 +39839,83 @@ have been doing is **fixing CppEditor's test suite so that the eighteenth
 comparison can be trusted** - worth doing, but it is test-infrastructure work
 on somebody else's suite, and it should be called that rather than counted as
 migration progress.
+
+## 2026-09-06 (48) -- The stale timer is real and is not what the locator fails on
+
+Entry 47 named the next attempt: flush a pending collection at the start of a
+test rather than suppressing it. Done, measured, and it changes nothing.
+
+### The change
+
+`TestCase`'s constructor now stopped an armed timer and handed the collector
+straight back, rather than holding it off for the test's lifetime:
+
+    CppModelManager::enableGarbageCollector(false);  // stops the armed timer
+    CppModelManager::enableGarbageCollector(true);   // and hands it back
+
+That is precisely what entry 47 proposed, and it avoids the failure entry 47
+measured: the collector stays on, so the cleaning the suite depends on between
+tests still happens.
+
+### The measurement
+
+    baseline (entries 46, 47)   6, 6, 7, 6 failures, and a clean run of 7
+                                locator failures in 5 of 5 runs: 1, 1, 2, 1, 2
+    with the flush              7, 8 failures
+                                locator failures: 2, 3
+
+**No improvement.** Two complete runs at or slightly above the baseline, and
+the locator failures unchanged in number and kind. Reverted.
+
+### What that rules out, which is the point
+
+The stale-timer race is **real** - the mechanism in entry 47 is not withdrawn,
+and entry 46's `parseFiles()` fix, which is what actually stopped the
+"snapshot is empty" family, stays. What this batch establishes is that the
+stale timer is **not what `LocatorFilterTest` fails on**. Two hypotheses have
+now been eliminated by measurement rather than by argument:
+
+    suppressing the delayed GC       entry 47   far worse, reverted
+    flushing a stale delayed GC      here       no effect, reverted
+
+Which leaves the reading entry 46 gave and this batch did not shake: that test
+collects the global snapshot *itself* before it parses, so it does not start
+dirty, and its extra results - and its missing ones - come from the locator's
+own symbol index, which a snapshot GC does not touch and which is built in the
+background. **Whoever takes it next should start there and not at the timer.**
+
+### Negative controls
+
+None, again, and for the same reason: nothing was kept. The change was
+measured against the baseline, was not distinguishable from it, and came out.
+A control for a reverted change would be theatre.
+
+### Verification
+
+    -test TextEditor    586 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0
+
+**This batch changed no code.** One file, and it is this one. `QuickUi`
+printed the `QUnifiedTimer::stopAnimationDriver` warning twice, from
+`testARowOfButtonsIsDrawnAsARowOfButtons` - the intermittent from entry 30,
+measured then at 2 runs in 8, touching no editor.
+
+### Where this work sits, restated
+
+Three batches have now gone into CppEditor's test suite: one fix that holds
+(entry 46), two hypotheses eliminated (47, 48). The editor migration itself
+has been finished for some time - C++ files open in the Qt Quick view, every
+gap the standing warning names has a home and a test, and seventeen plugins
+compared both ways showed no behavioural difference.
+
+**What is left is somebody else's suite.** The locator index race is a real
+bug in CppEditor's tests, worth fixing, and not migration work. If this thread
+continues, the honest framing is "hardening CppEditor's tests" rather than
+"replacing the widget editor", and the three items below are what remain of
+the latter:
+
+- **drag and drop of text**, needing `QDragEnterEvent`/`QDropEvent` by hand;
+- **`-test all`**, blocked by QmlDesigner's link error, which is a build
+  problem in this checkout and not a text-editor one;
+- the **shared "this test is about the Qt Quick view"** helper, three call
+  sites and still short of the fourth that would justify it.
