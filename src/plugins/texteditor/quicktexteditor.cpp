@@ -8545,6 +8545,111 @@ private slots:
         QCOMPARE(quickLine, widgetLine);
     }
 
+    // The languages that are in the Qt Quick editor because it claims
+    // text/plain and the mime lookup walks parents - Rust, Go, YAML, shell -
+    // and were moved there without anyone deciding it. C++ was moved on the
+    // strength of eighteen plugins compared both ways; these had nothing.
+    void testOrdinaryEditingIsTheSameInEitherView_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<QString>("start");
+        QTest::addColumn<QString>("comment");
+
+        QTest::newRow("rust") << "a.rs" << "fn main() {\n    let x = 1;\n}\n" << "//";
+        QTest::newRow("go") << "a.go" << "func main() {\n    x := 1\n}\n" << "//";
+        QTest::newRow("yaml") << "a.yaml" << "root:\n    key: 1\n" << "#";
+        QTest::newRow("shell") << "a.sh" << "if true; then\n    echo hi\nfi\n" << "#";
+        // Nothing knows how to comment plain text, and nothing should invent
+        // a marker for it.
+        QTest::newRow("plain text") << "a.txt" << "alpha\n    beta\ngamma\n" << "";
+    }
+
+    void testOrdinaryEditingIsTheSameInEitherView()
+    {
+        QFETCH(QString, name);
+        QFETCH(QString, start);
+        QFETCH(QString, comment);
+
+        Utils::TemporaryDirectory dir("languages-both-ways");
+        QVERIFY(dir.isValid());
+
+        // Break a line, type, take a word back, comment it, break again and
+        // take another word back: the operations the last four batches
+        // changed, in the order a reader would do them.
+        const auto edited = [&dir, &name, &start](bool quick, QString *out) {
+            const Utils::FilePath file = dir.filePath((quick ? "q_" : "w_") + name);
+            QVERIFY(file.writeFileContents(start.toUtf8()));
+            Core::IEditor * const editor = Core::EditorManager::openEditor(
+                file, quick ? Utils::Id(QUICK_TEXT_EDITOR_ID)
+                            : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID));
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+
+            QTextCursor at(document->document());
+            at.setPosition(document->document()->findBlockByNumber(1).position() + 4);
+            TextEditor::setTextCursorOf(editor, at);
+            QObject * const target = TextEditor::keyTargetOf(editor);
+            QVERIFY(target);
+
+            for (const QChar ch : QString("\nvalue_here#\nzz_")) {
+                if (ch == '#') {
+                    // Asked of the view rather than through the command: a
+                    // command goes to the editor with focus and neither of
+                    // these has any, so triggering it did nothing in both
+                    // views and compared nothing.
+                    if (TextEditorWidget * const w = TextEditorWidget::fromEditor(editor))
+                        w->unCommentSelection();
+                    else if (TextViewport * const v = Internal::viewportForEditor(editor))
+                        v->unCommentSelection();
+                    continue;
+                }
+                if (ch == '_') {
+                    const QKeySequence seq(QKeySequence::DeleteStartOfWord);
+                    QVERIFY(seq.count() > 0);
+                    const QKeyCombination combination = seq[0];
+                    QKeyEvent press(QEvent::KeyPress, combination.key(),
+                                    combination.keyboardModifiers());
+                    QCoreApplication::sendEvent(target, &press);
+                    continue;
+                }
+                int key = Qt::Key_unknown;
+                QString text(ch);
+                if (ch == '\n') { key = Qt::Key_Return; text = "\r"; }
+                else if (ch == '\b') { key = Qt::Key_Backspace; text.clear(); }
+                else if (ch == '\t') { key = Qt::Key_Tab; text.clear(); }
+                QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+                QCoreApplication::sendEvent(target, &press);
+            }
+            *out = document->plainText();
+        };
+
+        QString widgetText;
+        QString quickText;
+        edited(false, &widgetText);
+        edited(true, &quickText);
+
+        // The script did something, and did the language-specific part of it:
+        // without this the comparison below passes on two editors that both
+        // ignored every key.
+        QVERIFY2(widgetText != start, "the widget editor was left unchanged");
+        QVERIFY2(widgetText.contains("here"), "nothing was typed");
+        QVERIFY2(!widgetText.contains("value"),
+                 "deleting a word before the caret took nothing");
+        if (comment.isEmpty()) {
+            QVERIFY2(!widgetText.contains("//") && !widgetText.contains('#'),
+                     qPrintable("a marker was invented for plain text: " + widgetText));
+        } else {
+            QVERIFY2(widgetText.contains(comment + " here") || widgetText.contains(comment + "here"),
+                     qPrintable("the language's comment marker is missing: " + widgetText));
+        }
+
+        QCOMPARE(quickText, widgetText);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

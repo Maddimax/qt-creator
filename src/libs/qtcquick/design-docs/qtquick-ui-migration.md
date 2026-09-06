@@ -42090,3 +42090,117 @@ editing in both views would be a different question, and different questions
 are what has been finding things.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — The list finished, and the first evidence for the other languages (batch 68)
+
+Entry 67 said to finish the last three rows of the read-count list and then
+stop using that method, and named what to do instead. Both halves are here.
+
+### The last three rows: nothing new
+
+- **`m_highlightMatchingParentheses`** (widget 4, Qt Quick 1) and
+  **`m_animateMatchingParentheses`** (3 vs 1) are the same difference counted
+  twice, as entry 67 guessed. The widget's extra reads are bookkeeping around
+  one condition - `highlight || animate` at `_q_matchParentheses()` - which is
+  exactly the condition `TextViewport::updateParenthesesMatch()` has.
+
+  One thing worth recording from reading them: `setDisplaySettings()` does
+  `setParenthesesMatchingEnabled(ds.m_highlightMatchingParentheses)`. **The
+  display setting overwrites the factory flag** on every settings application,
+  so `TextEditorFactory::setParenthesesMatchingEnabled()` is effectively dead
+  in the widget too. Entry 64 declined to copy that flag into the Qt Quick
+  view and was right; the reason is stronger than the one recorded there.
+
+  The widget also refuses to match parentheses in a read-only editor
+  (`q->isReadOnly()` at `_q_matchParentheses`) and the Qt Quick view does not
+  check. It does more, which is the category entry 64 settled as fine.
+
+- **`m_visualizeWhitespace`** (4 vs 3) is a **real, unfixed difference, and it
+  is drawing**. With the setting on the widget's
+  `paintAdditionalVisualWhitespaces()` draws two things the Qt Quick view does
+  not: a `↵` (U+21B5) at the end of every wrapped line, and an arrow glyph
+  marking the end of the document.
+
+  The Qt Quick view knows about the first one and **reserves width for it**
+  without drawing it - `textviewport.cpp` measures
+  `QFontMetricsF(font).horizontalAdvance(QChar(0x21B5))` when the text option
+  asks for line separator space, purely so wrapping happens in the same place.
+  Space reserved, nothing drawn.
+
+  Left unfixed deliberately: it is scene-graph drawing, the one area where
+  this project has no cheap test, and the cost of getting it wrong is higher
+  than the cost of the missing glyph. Recorded with the measurement so it is a
+  decision rather than an oversight.
+
+**The read-count method is now finished.** Six rows over three batches: two
+defects (entry 66's delete-word, entry 67's automatic indentation), three
+nothings, one recorded-and-declined.
+
+### The other question: the languages nobody checked
+
+Entry 60 found that the Qt Quick editor claims `text/plain` and the mime
+lookup walks parents, so **Rust, Go, YAML, shell and every other text file
+without an editor of its own has been in it all along** - and entry 60 said
+plainly that C++ was moved on the strength of eighteen plugins compared both
+ways while these had nothing behind them at all.
+
+`testOrdinaryEditingIsTheSameInEitherView` is that evidence, for five
+languages. It breaks a line, types, takes a word back, comments it, breaks
+again and takes another word back - the operations the last four batches
+changed, in the order a reader would do them - in **both** views of the same
+text, and compares the results.
+
+**All five agree.** The languages are: Rust and Go (`//`), YAML and shell
+(`#`), and plain text (no marker, and none invented for it).
+
+### Two things the probe caught before the test existed
+
+The probe is where the value was, and twice it reported agreement that was not
+there:
+
+1. **The comment step did nothing in either view.** Triggering
+   `UN_COMMENT_SELECTION` through `ActionManager` reaches the editor that has
+   focus, and a test editor has none - so both views were compared having
+   ignored the command. Printing the widget's own result is what showed it.
+   The test asks the view directly instead.
+2. A comparison of two editors that both did nothing passes. The test now
+   asserts, before comparing, that the widget's text **changed**, that
+   something was **typed**, that the word before the caret was **taken**, and
+   that the language's marker is there - or, for plain text, that no marker
+   was invented.
+
+### Controls
+
+- **T**: entry 66's delete-word handling removed from `keyPressEvent()` - red
+  in **all five language rows**, `"// valuhere\nz..."` against `"// here\n..."`.
+  A test written this batch catching a regression in a fix from two batches
+  ago, in five languages at once, is what comparison evidence is for.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 610 passed, 0 failed (was 605) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added, and no production code changed this batch -
+the deliverable is the evidence and the finished list.
+
+### What is left
+
+Five languages, one script. The obvious continuations, in the order I would
+take them:
+
+1. **Widen the script.** Undo and redo, paste, indent and unindent, Home and
+   End, multi-caret. Each is a row the five languages already have a harness
+   for; the cost per operation is a few lines now.
+2. **Widen the languages.** JSON, Markdown, CMake and `.pro` are in the
+   *widget* editor; the same test with the views swapped would say what moving
+   one of them would cost, which is the question entry 60 asked and nothing
+   has answered.
+3. Only then the document audit entry 64 proposed, which is the largest
+   surface and the one where most of it is shared by construction.
+
+The printing decision (keep / drop / move) remains the owner's call, and is
+now the only open item in this file that is not someone choosing how much more
+evidence to gather.
