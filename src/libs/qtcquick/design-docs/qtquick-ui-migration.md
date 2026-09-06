@@ -42204,3 +42204,116 @@ take them:
 The printing decision (keep / drop / move) remains the owner's call, and is
 now the only open item in this file that is not someone choosing how much more
 evidence to gather.
+
+## 2026-09-06 — What moving the next language would cost (batch 69)
+
+Entry 68 left two continuations. Both are here: the script is widened, and the
+question entry 60 asked and nothing had answered - *what would moving another
+language cost* - now has a measured answer.
+
+### Widening the script: six more operations, no divergence
+
+`testEveryEditingKeyDoesTheSameInEitherView` is one row per language per
+operation - undo, redo, paste, Home-then-type, unindent, tab - over Rust,
+YAML and plain text. **All eighteen agree.**
+
+One row per operation rather than one script, deliberately: a failure names
+the operation. Control U proved it - breaking `Qt::Key_Backtab` in the Qt
+Quick view reddened exactly the three `unindent` rows and left the other
+fifteen green.
+
+The expected text is written out rather than taken from the widget at run
+time. Comparing the two views alone passes when both do nothing, and entry 68
+already caught one step that did nothing in both.
+
+### Moving a language: three costs, measured
+
+The languages still in the widget editor have their own `TextEditorFactory`,
+so `setUsesQuickEditor(true)` on one **is** what moving it would be. Doing
+that and running the same editing both ways:
+
+    CMakeLists.txt   same
+    m.md             same
+    m.py             DIFF
+    m.json           DIFF
+    m.pro            DIFF
+
+Isolated to one operation each:
+
+**Return, in Python and JSON.** Splitting `    x = 1` at column 4:
+
+    widget  "    \n"    + "x = 1"        the moved text loses its indent
+    quick   "    \n"    + "    x = 1"    it keeps it
+
+**Toggle comment, in a `.pro` file:**
+
+    widget  "#    SOURCES = a.cpp"    marker at column 0
+    quick   "    # SOURCES = a.cpp"   marker after the indentation
+
+That last one was worth chasing to the bottom, because the two views run the
+*same expression*:
+
+    isAfterWhitespace = typingSettings().m_commentPosition != StartOfLine
+
+Measured, for the same `.pro` file: the factory's definition arrives with
+`isAfterWhitespace = false` and the view computes `true`. The difference is
+**when**. `createEditorHelper()` computes it once, at editor construction, at
+`texteditor.cpp:10795`, and nothing ever recomputes it -
+`m_commentDefinition.isAfterWhitespace` is assigned in exactly one place in
+the whole file. `TextViewport::commentDefinition()` computes it on every call.
+
+So the widget freezes a preference at the moment the editor is built and the
+Qt Quick view reads it live. **Changing "comment position" in Preferences
+takes effect immediately in one view and only on reopening the file in the
+other.** Which of those is wanted is a question for whoever moves `.pro`, not
+one to settle here.
+
+### Nothing was fixed, and that is the finding
+
+All three costs are in languages that are **not** in the Qt Quick editor, so
+none of them is live. Entry 59 set the precedent for latent findings -
+measure them, write down the mechanism, leave the code alone - and these are
+recorded precisely enough that whoever moves Python, JSON or `.pro` starts
+from the answer rather than the question.
+
+Worth being explicit about what this says for the project's goal: **C++ is in
+the Qt Quick editor and agrees; the twelve languages that arrived there by the
+text/plain claim agree; the four still in the widget editor would each need a
+decision first.** That is a different and much smaller statement than "the
+migration is done", and it is the first time this file has been able to make
+it with measurements behind every part.
+
+### Controls
+
+- **U**: `Qt::Key_Backtab` made a no-op in the Qt Quick view - red in the
+  three `unindent` rows and no others, which is what per-operation rows are
+  for.
+- Entry 68's control T (delete-word removed) still reddens the script test.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 628 passed, 0 failed (was 610) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change and no production code changed: the deliverable is eighteen
+more rows of evidence and three measured answers.
+
+### What is left
+
+1. **Multi-caret**, the one operation from entry 68's list still unwritten. It
+   needs a mouse or a modifier drag rather than a key, which is why it was
+   left; the harness would need a different driver.
+2. The three move costs above, if and when anyone moves those languages.
+3. The whitespace drawing difference from entry 68 - `↵` and the end-of-file
+   glyph, still not drawn in the Qt Quick view, still deliberately unfixed.
+4. The document audit entry 64 proposed, still the largest untouched surface.
+
+**Suggested next: (1), then stop widening.** After multi-caret the script
+covers everything a reader does with a keyboard, and further rows would be
+adding cases to a test that has found nothing in two batches. The honest read
+is that ordinary editing has been shown equivalent and the remaining risk is
+elsewhere - in what a *language* configures, which is (2) and (3).
+
+The printing decision (keep / drop / move) remains the owner's call.

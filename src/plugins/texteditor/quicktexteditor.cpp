@@ -8650,6 +8650,127 @@ private slots:
         QCOMPARE(quickText, widgetText);
     }
 
+    // The rest of ordinary editing, one operation per row so that a failure
+    // names the operation rather than handing back one blob of text.
+    void testEveryEditingKeyDoesTheSameInEitherView_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::addColumn<QString>("start");
+        QTest::addColumn<QString>("script");
+        QTest::addColumn<QString>("expected");
+
+        struct Op { const char *what; const char *script; };
+        const QList<Op> ops{
+            {"undo", "abcU"},
+            {"redo", "abcUR"},
+            {"paste", "P"},
+            {"home then type", "EHx"},
+            {"unindent", "|"},
+            {"tab", "\t"},
+        };
+        struct Lang { const char *name; const char *start; };
+        const QList<Lang> langs{
+            {"a.rs", "fn main() {\n    let x = 1;\n}\n"},
+            {"a.yaml", "root:\n    key: 1\n"},
+            {"a.txt", "alpha\n    beta\ngamma\n"},
+        };
+        // What the widget editor does, written out rather than taken from the
+        // widget at run time: two views that both did nothing would otherwise
+        // agree, and the point of the row is the operation happening.
+        const QHash<QString, QString> expected{
+            {"a.rs|undo", "fn main() {\n    let x = 1;\n}\n"},
+            {"a.rs|redo", "fn main() {\n    abclet x = 1;\n}\n"},
+            {"a.rs|paste", "fn main() {\n    PASTEDlet x = 1;\n}\n"},
+            {"a.rs|home then type", "fn main() {\n    xlet x = 1;\n}\n"},
+            {"a.rs|unindent", "fn main() {\nlet x = 1;\n}\n"},
+            {"a.rs|tab", "fn main() {\n        let x = 1;\n}\n"},
+            {"a.yaml|undo", "root:\n    key: 1\n"},
+            {"a.yaml|redo", "root:\n    abckey: 1\n"},
+            {"a.yaml|paste", "root:\n    PASTEDkey: 1\n"},
+            {"a.yaml|home then type", "root:\n    xkey: 1\n"},
+            {"a.yaml|unindent", "root:\nkey: 1\n"},
+            {"a.yaml|tab", "root:\n        key: 1\n"},
+            {"a.txt|undo", "alpha\n    beta\ngamma\n"},
+            {"a.txt|redo", "alpha\n    abcbeta\ngamma\n"},
+            {"a.txt|paste", "alpha\n    PASTEDbeta\ngamma\n"},
+            {"a.txt|home then type", "alpha\n    xbeta\ngamma\n"},
+            {"a.txt|unindent", "alpha\nbeta\ngamma\n"},
+            {"a.txt|tab", "alpha\n        beta\ngamma\n"},
+        };
+        for (const Lang &l : langs) {
+            for (const Op &o : ops) {
+                const QString key = QString("%1|%2").arg(l.name, o.what);
+                QTest::newRow(qPrintable(key))
+                    << QString::fromLatin1(l.name) << QString::fromLatin1(l.start)
+                    << QString::fromLatin1(o.script) << expected.value(key);
+            }
+        }
+    }
+
+    void testEveryEditingKeyDoesTheSameInEitherView()
+    {
+        QFETCH(QString, name);
+        QFETCH(QString, start);
+        QFETCH(QString, script);
+        QFETCH(QString, expected);
+        QVERIFY2(!expected.isEmpty(), "this row has no expected text");
+
+        Utils::TemporaryDirectory dir("editing-keys");
+        QVERIFY(dir.isValid());
+        QGuiApplication::clipboard()->setText("PASTED");
+
+        const auto edited = [&dir, &name, &start, &script](bool quick, QString *out) {
+            const Utils::FilePath file = dir.filePath((quick ? "q_" : "w_") + name);
+            QVERIFY(file.writeFileContents(start.toUtf8()));
+            Core::IEditor * const editor = Core::EditorManager::openEditor(
+                file, quick ? Utils::Id(QUICK_TEXT_EDITOR_ID)
+                            : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID));
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+            QTextCursor at(document->document());
+            at.setPosition(document->document()->findBlockByNumber(1).position() + 4);
+            TextEditor::setTextCursorOf(editor, at);
+            QObject * const target = TextEditor::keyTargetOf(editor);
+            QVERIFY(target);
+            const auto standard = [target](QKeySequence::StandardKey which) {
+                const QKeySequence seq(which);
+                QVERIFY2(seq.count() > 0, "this platform binds no key to that");
+                const QKeyCombination combination = seq[0];
+                QKeyEvent press(QEvent::KeyPress, combination.key(),
+                                combination.keyboardModifiers());
+                QCoreApplication::sendEvent(target, &press);
+            };
+            for (const QChar ch : script) {
+                if (ch == 'U') { standard(QKeySequence::Undo); continue; }
+                if (ch == 'R') { standard(QKeySequence::Redo); continue; }
+                if (ch == 'P') { standard(QKeySequence::Paste); continue; }
+                if (ch == 'H') { standard(QKeySequence::MoveToStartOfLine); continue; }
+                if (ch == 'E') { standard(QKeySequence::MoveToEndOfLine); continue; }
+                int key = Qt::Key_unknown;
+                QString text(ch);
+                Qt::KeyboardModifiers modifiers = Qt::NoModifier;
+                if (ch == '\t') { key = Qt::Key_Tab; text.clear(); }
+                else if (ch == '|') { key = Qt::Key_Backtab; text.clear();
+                                      modifiers = Qt::ShiftModifier; }
+                QKeyEvent press(QEvent::KeyPress, key, modifiers, text);
+                QCoreApplication::sendEvent(target, &press);
+            }
+            *out = document->plainText();
+        };
+
+        QString widgetText;
+        QString quickText;
+        edited(false, &widgetText);
+        edited(true, &quickText);
+
+        QCOMPARE(widgetText, expected);
+        QCOMPARE(quickText, widgetText);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");
