@@ -39919,3 +39919,94 @@ the latter:
   problem in this checkout and not a text-editor one;
 - the **shared "this test is about the Qt Quick view"** helper, three call
   sites and still short of the fourth that would justify it.
+
+## 2026-09-06 (49) -- Dropping text, which was implemented and uncompared
+
+The last three entries were CppEditor's test suite. This one is back on the
+list of migration items, and takes the last one that is genuinely about the
+editor: **drag and drop of text**.
+
+It was never missing. `CodeViewport.qml` has a `DropArea` that refuses URLs
+and read-only files and otherwise calls `viewport.dropText(text, x, y,
+fromHere)`; `TextViewport::dropText()` has been there all along. What it did
+not have is anyone checking it against the widget editor.
+
+### Text arriving from elsewhere: the same in both
+
+    "alpha beta gamma", "XY" dropped just before "beta"
+
+    widget   alpha XYbeta gamma   selected: XY
+    quick    alpha XYbeta gamma   selected: XY
+
+Both put it where the pointer was and leave what arrived selected.
+
+### The fixture that measured nothing first
+
+The widget's first answer was **the file unchanged**. A drop is not one
+event: without a `QDragEnterEvent` first the widget has no drop state, and
+`dropEvent()` leaves the document alone - which reads exactly like drag and
+drop being broken in the widget editor. `setAcceptDrops(true)` and the enter
+event before the drop, and the two views agree.
+
+The test keeps the enter event **and asserts it was accepted**, so a future
+change that makes the widget refuse a drag fails there rather than silently
+comparing two editors that both did nothing.
+
+### Moving a selection, which only one view can be asked about
+
+Dragging a selection within the file moves rather than copies. Measured in the
+Qt Quick view:
+
+    "beta" (6..10) dropped on 16    alpha  gammabeta
+    "beta" dropped on 0             betaalpha  gamma
+    "beta" dropped on 8, inside it  alpha beta gamma   - nothing happens
+
+All three are right, including the last: taking the text out and putting it
+back where it came from would be a deletion followed by an insertion, and a
+reader who changes their mind mid-drag would lose it.
+
+**There is no widget row for this one, and the test says why.** That path asks
+whether the drag came from its own viewport - `e->source() == viewport()` -
+and a `QDropEvent`'s source cannot be set by hand. Only a real `QDrag` sets
+it, and its `exec()` blocks. Asserted for the view that can be driven, and not
+guessed for the one that cannot.
+
+### Negative controls
+
+- **A -- a selection dropped onto itself moves anyway**: red,
+  `"alpha  gbetaamma"` against `"alpha beta gamma"` - the deletion-then-
+  insertion the guard exists to prevent, visible in the output.
+- **B -- the drop point is not shifted by what was taken out above it**: red on
+  the move-to-the-end row, the text back where it started.
+- **C -- what was dropped is not left selected**: red on the *quick* row of the
+  differential test only, the widget row passing.
+
+### Verification
+
+    -test TextEditor    589 passed, 0 failed, exit 0, 0 warnings   (586 before)
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+One file, no new file and no `.qbs` edit.
+
+### What this leaves
+
+Of the migration itself, **nothing that can be measured here.** The list is:
+
+- **`-test all`**, blocked by QmlDesigner failing to link against a
+  `libUtils` that no longer exports `AspectContainer::setLayouter`. That is a
+  build problem in this checkout, not a text-editor one, and it is the only
+  thing standing between this branch and a whole-suite comparison.
+- The **shared "this test is about the Qt Quick view"** helper: four call
+  sites now, counting this batch's - which is the number entry 44 said would
+  justify it. Worth doing, and small: `texteditor.h` is the home, because
+  `FakeVim` and `Debugger` already depend on TextEditor and TextEditor must
+  not depend on CppEditor.
+- **CppEditor's locator index race**, which is that plugin's test
+  infrastructure rather than this migration's, with two hypotheses already
+  eliminated in entries 47 and 48.
+
+The editor work is done: C++ files open in the Qt Quick view, every gap the
+standing warning names has a home and a test, seventeen plugins compared both
+ways showed no behavioural difference, and the differential suites now cover
+typing, undo, redo, the clipboard, find, focus, the mouse, the editing
+commands, and - as of this entry - dropping text.

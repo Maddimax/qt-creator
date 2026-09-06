@@ -7618,6 +7618,144 @@ private slots:
         QVERIFY2(differ.isEmpty(), qPrintable("\n" + differ.join("\n")));
     }
 
+    void testTextDroppedOnTheEditorLandsWhereItWasDropped_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Text dragged in from somewhere else - another editor, another
+    // application - goes in at the point it was dropped on, and what arrived
+    // is what is left selected. Neither view had been asked.
+    void testTextDroppedOnTheEditorLandsWhereItWasDropped()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("drop-text");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("alpha beta gamma\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Just before "beta".
+        const int at = 6;
+        QCOMPARE(document->plainText().mid(at, 4), QString("beta"));
+
+        if (quick) {
+            auto * const host = editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(host);
+            TextViewport * const view = Internal::viewportForEditor(editor);
+            QVERIFY(view);
+            host->resize(600, 300);
+            host->show();
+            QVERIFY(QTest::qWaitForWindowExposed(host));
+            QTRY_VERIFY(view->visibleLineCount() > 0);
+            // What CodeViewport.qml's DropArea calls when something is
+            // dropped on it. Qt Quick's drag machinery is not what is being
+            // compared here.
+            const QRectF where = view->rectangleAt(at);
+            view->dropText("XY", where.center().x(), where.center().y(), false);
+        } else {
+            TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+            QVERIFY(widget);
+            widget->resize(600, 300);
+            widget->show();
+            QVERIFY(QTest::qWaitForWindowExposed(widget));
+            QTextCursor c(document->document());
+            c.setPosition(at);
+            const QPoint p = widget->Utils::PlainTextEdit::cursorRect(c).center();
+
+            // A drop is not one event: without the drag entering first the
+            // widget has no drop state and dropEvent() leaves the file alone,
+            // which reads exactly like the drop being broken.
+            widget->viewport()->setAcceptDrops(true);
+            QMimeData mime;
+            mime.setText("XY");
+            QDragEnterEvent enter(p, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(widget->viewport(), &enter);
+            QVERIFY2(enter.isAccepted(), "the widget refused the drag, so nothing is being tested");
+            QDropEvent drop(QPointF(p), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(widget->viewport(), &drop);
+        }
+
+        QCOMPARE(document->plainText(), QString("alpha XYbeta gamma\n"));
+        QCOMPARE(TextEditor::textCursorOf(editor).selectedText(), QString("XY"));
+    }
+
+    // And a selection dragged within the file moves rather than copies: taken
+    // out of where it was and put in where it was dropped. There is no widget
+    // row - that path asks whether the drag came from its own viewport, and a
+    // QDropEvent's source cannot be set by hand, only by a real QDrag whose
+    // exec() blocks.
+    void testASelectionDraggedWithinTheFileMoves()
+    {
+        Utils::TemporaryDirectory dir("drop-move");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("alpha beta gamma\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        auto * const host = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(host);
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY(view);
+        host->resize(600, 300);
+        host->show();
+        QVERIFY(QTest::qWaitForWindowExposed(host));
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        // What 6..10 is, checked once here rather than inside the lambda
+        // below: QCOMPARE expands to a bare return, which a lambda that
+        // answers a QString cannot use.
+        QCOMPARE(document->plainText().mid(6, 4), QString("beta"));
+
+        const auto dropSelectionOn = [&](int onto) -> QString {
+            QTextCursor all(document->document());
+            all.select(QTextCursor::Document);
+            all.insertText("alpha beta gamma\n");
+            QTextCursor pick(document->document());
+            pick.setPosition(6);
+            pick.setPosition(10, QTextCursor::KeepAnchor);
+            view->setTextCursor(pick);
+            const QRectF where = view->rectangleAt(onto);
+            view->dropText(pick.selectedText(), where.center().x(), where.center().y(), true);
+            return document->plainText();
+        };
+
+        // To the end, and to the start: taken out of the middle either way.
+        QCOMPARE(dropSelectionOn(16), QString("alpha  gammabeta\n"));
+        QCOMPARE(dropSelectionOn(0), QString("betaalpha  gamma\n"));
+
+        // And onto itself, which moves it nowhere: taking the text out first
+        // and putting it back would be a deletion followed by an insertion,
+        // and a reader who changes their mind mid-drag would lose the text.
+        QCOMPARE(dropSelectionOn(8), QString("alpha beta gamma\n"));
+    }
+
     void testDraggingSelectsWhatItPassesOver_data()
     {
         QTest::addColumn<bool>("quick");
