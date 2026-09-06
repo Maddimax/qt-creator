@@ -8399,6 +8399,85 @@ private slots:
         QCOMPARE(refused.handler.asked, 0);
     }
 
+    void testDeletingAWordDeletesTheSameWordInEitherView_data()
+    {
+        QTest::addColumn<bool>("camelCase");
+        QTest::addColumn<bool>("forward");
+        QTest::newRow("backwards") << false << false;
+        QTest::newRow("forwards") << false << true;
+        QTest::newRow("backwards by humps") << true << false;
+        QTest::newRow("forwards by humps") << true << true;
+    }
+
+    void testDeletingAWordDeletesTheSameWordInEitherView()
+    {
+        QFETCH(bool, camelCase);
+        QFETCH(bool, forward);
+
+        BehaviorSettings &behavior = globalBehaviorSettings();
+        const bool wasCamel = behavior.camelCaseNavigation();
+        const QScopeGuard restoreSetting([&behavior, wasCamel] {
+            behavior.camelCaseNavigation.setValue(wasCamel);
+        });
+        behavior.camelCaseNavigation.setValue(camelCase);
+
+        Utils::TemporaryDirectory dir("delete-word");
+        QVERIFY(dir.isValid());
+
+        // The key sequence rather than the command: these are what Ctrl (or
+        // Alt) with Backspace and Delete send, and the widget editor picks
+        // them out of its key handler rather than binding a shortcut.
+        const QKeySequence sequence(forward ? QKeySequence::DeleteEndOfWord
+                                            : QKeySequence::DeleteStartOfWord);
+        QVERIFY2(sequence.count() > 0, "this platform binds no key to deleting a word");
+        const QKeyCombination combination = sequence[0];
+
+        const auto afterDeleting = [&dir, &combination](bool quick, QString *result) {
+            const Utils::FilePath file = dir.filePath(quick ? QString("q.cpp")
+                                                            : QString("w.cpp"));
+            QVERIFY(file.writeFileContents("oneTwoThree fourFive\n"));
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            QVERIFY(factory);
+            const bool was = factory->usesQuickEditor();
+            const QScopeGuard restore([factory, was] { factory->setUsesQuickEditor(was); });
+            factory->setUsesQuickEditor(quick);
+
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+
+            // Inside the first word, so that both directions have something
+            // to take and neither is standing on a space.
+            QTextCursor at(document->document());
+            at.setPosition(3);
+            TextEditor::setTextCursorOf(editor, at);
+
+            QObject * const target = TextEditor::keyTargetOf(editor);
+            QVERIFY(target);
+            QKeyEvent press(QEvent::KeyPress, combination.key(),
+                            combination.keyboardModifiers());
+            QCoreApplication::sendEvent(target, &press);
+            *result = document->plainText();
+        };
+
+        // Out-parameters rather than a return: QVERIFY inside a lambda
+        // expands to a bare return, which a value-returning one cannot have.
+        QString widgetText;
+        QString quickText;
+        afterDeleting(false, &widgetText);
+        afterDeleting(true, &quickText);
+
+        // Something was taken, or the comparison below would pass on two
+        // editors that both did nothing.
+        QVERIFY2(widgetText != "oneTwoThree fourFive\n",
+                 "the widget editor deleted nothing, so this compares nothing");
+        QCOMPARE(quickText, widgetText);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

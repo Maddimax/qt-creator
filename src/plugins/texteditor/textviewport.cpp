@@ -2342,6 +2342,15 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
         return;
     }
 
+    // Before the plain Backspace and Delete below, which would otherwise take
+    // one character where a word was asked for.
+    if (event->matches(QKeySequence::DeleteStartOfWord)
+        || event->matches(QKeySequence::DeleteEndOfWord)) {
+        deleteWord(event->matches(QKeySequence::DeleteEndOfWord));
+        event->accept();
+        return;
+    }
+
     switch (event->key()) {
     case Qt::Key_Backspace:
         applyToEveryCaret([this](QTextCursor &caret) {
@@ -3589,6 +3598,30 @@ void TextViewport::deleteEndOfWord()
 void TextViewport::deleteStartOfWord()
 {
     deleteTo(QTextCursor::PreviousWord);
+}
+
+void TextViewport::deleteWord(bool forward)
+{
+    if (!canEdit())
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    // A selection is what gets deleted; only an empty one reaches out for a
+    // word. The rule TextEditorWidget::keyPressEvent() applies.
+    if (!cursors.hasSelection()) {
+        if (behaviorSettings().m_camelCaseNavigation) {
+            if (forward)
+                Utils::CamelCaseCursor::right(&cursors, QTextCursor::KeepAnchor);
+            else
+                Utils::CamelCaseCursor::left(&cursors, QTextCursor::KeepAnchor);
+        } else {
+            cursors.movePosition(forward ? QTextCursor::NextWord : QTextCursor::PreviousWord,
+                                 QTextCursor::KeepAnchor);
+        }
+    }
+    cursors.removeSelectedText();
+    setMultiTextCursor(cursors);
 }
 
 void TextViewport::deleteEndOfWordCamelCase()

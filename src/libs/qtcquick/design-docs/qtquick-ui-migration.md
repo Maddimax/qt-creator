@@ -41873,3 +41873,114 @@ command does when the *setting it depends on* is turned off. That is where a
 fourth one of these would live.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Delete-word did nothing but delete a character (batch 66)
+
+Entry 65 proposed looking at commands against the settings they depend on,
+and named the lead: a setting the widget reads more often than the Qt Quick
+view does. `m_camelCaseNavigation` was read **twice** by the widget and once
+by the view.
+
+### What the extra read was
+
+`TextEditorWidget::keyPressEvent()` handles two standard key sequences that
+have no shortcut of their own:
+
+```cpp
+} else if (!ro && e == QKeySequence::DeleteStartOfWord) {
+    if (!cursor.hasSelection()) {
+        if (camelCaseNavigationEnabled()) CamelCaseCursor::left(&cursor, KeepAnchor);
+        else cursor.movePosition(QTextCursor::PreviousWord, KeepAnchor);
+    }
+    cursor.removeSelectedText();
+```
+
+`TextViewport::keyPressEvent()` picks out ten standard sequences - SelectAll,
+Copy, Cut, Paste, Undo, Redo, the line and block starts - and **not these
+two**. So the key fell through to the plain `Qt::Key_Backspace` and
+`Qt::Key_Delete` cases below.
+
+### Measured before it was believed
+
+Caret inside the first word of `oneTwoThree fourFive`, at position 3:
+
+    camel  view    key                 result
+    off    widget  DeleteStartOfWord   TwoThree fourFive     the word
+    off    quick   DeleteStartOfWord   onTwoThree fourFive   one character
+    off    widget  DeleteEndOfWord     onefourFive           the word
+    off    quick   DeleteEndOfWord     onewoThree fourFive   one character
+    on     widget  DeleteEndOfWord     oneThree fourFive     the hump
+    on     quick   DeleteEndOfWord     onewoThree fourFive   one character
+
+**Ctrl+Backspace and Ctrl+Delete deleted a single character in the Qt Quick
+editor** - every language in it, every day, and quiet enough that six batches
+of auditing walked past it. The camel-case setting made no difference because
+nothing was reading it here at all.
+
+The first probe put the caret at the end of a word, where `DeleteEndOfWord`
+happens to take the following space in both views and looks identical. Moving
+it inside the word is what separated them. **Where the caret starts is part of
+the measurement**, and a probe that starts it somewhere convenient can report
+agreement that is not there.
+
+### The fix
+
+`TextViewport::deleteWord(bool forward)` applies the widget's rule, including
+the half that is easy to miss: **a selection is what gets deleted**, and only
+an empty one reaches out for a word. `deleteTo()`, the existing helper behind
+the four explicit delete-word commands, extends whatever selection there is
+instead - correct for those commands, wrong for this key.
+
+The four commands (`DELETE_START_OF_WORD` and the camel-case pair) already
+existed in both views and were not the problem: they say which rule to use.
+This key asks the *settings* which rule to use, which is why it needed its own
+handler rather than a call to one of them.
+
+### Controls
+
+- **R**: the two key sequences removed from `keyPressEvent()` again - red in
+  **all four** rows, with the actual text showing a single character gone
+  where a word was expected.
+- The test compares the two views rather than asserting text written out here,
+  and guards against comparing two editors that both did nothing:
+  `QVERIFY2(widgetText != "oneTwoThree fourFive\\n", "the widget editor
+  deleted nothing, so this compares nothing")`.
+- It uses `QKeySequence(QKeySequence::DeleteStartOfWord)[0]` rather than a
+  hard-coded Ctrl+Backspace, because the binding differs per platform and this
+  is macOS.
+
+The lambda that opens an editor and returns its text had to take an
+out-parameter: **`QVERIFY` inside a lambda expands to a bare `return`**, which
+a value-returning lambda cannot have. Third time this has cost a compile in
+this file; it is written here so it is looked up rather than rediscovered.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 603 passed, 0 failed (was 599) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test FakeVim` | 0 | 266 passed, 0 failed, 10 skipped |
+
+FakeVim is in the list because it binds its own keys over the same view; it is
+unaffected. No `.qbs` change: no files added.
+
+### What is left
+
+The lead this batch followed - a setting read more often by one view than the
+other - came from entry 65's table and **has more rows in it**:
+
+    m_highlightMatchingParentheses   widget=4  quick=1
+    m_animateMatchingParentheses     widget=3  quick=1
+    m_visualizeWhitespace            widget=4  quick=3
+    m_mouseNavigation                widget=2  quick=1
+    m_scrollWheelZooming             widget=2  quick=1
+    m_autoIndent                     widget=5  quick=4
+
+**Suggested next: work down that list.** A count is only a hint - entry 65
+found two of four such hints were false - but this batch turned one hint into
+a defect that six audits had missed, which is the best hit rate any method
+here has had. Read what each extra widget read *does*, and measure both views
+doing it before believing either.
+
+The printing decision (keep / drop / move) remains the owner's call.

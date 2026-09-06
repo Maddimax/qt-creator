@@ -953,6 +953,11 @@ public:
     Q_INVOKABLE void deleteStartOfWord();
     Q_INVOKABLE void deleteEndOfWordCamelCase();
     Q_INVOKABLE void deleteStartOfWordCamelCase();
+    // What Ctrl+Backspace and Ctrl+Delete do: the word beside the caret, by
+    // humps where camel case navigation is on. Separate from the four
+    // commands above because those say which rule to use and this asks the
+    // settings, the way the widget editor's key handling does.
+    void deleteWord(bool forward);
 
     // Indentation, which the document's indenter decides: this only says
     // which text to ask about.
