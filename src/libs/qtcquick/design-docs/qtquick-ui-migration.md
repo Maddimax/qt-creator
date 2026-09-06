@@ -49759,3 +49759,121 @@ popup - taken as a design task rather than a port: it is the only remaining
 item that a reader of C++ would notice, its behaviour is fully specified by the
 widget, and the reason entry 137 called it a decision was its *appearance*, not
 its behaviour. That is a smaller question than it looked.
+
+## 2026-09-07 — Reading a fold without opening it (batch 144)
+
+Entry 143 proposed the collapsed-fold popup as a design task, on the grounds
+that its *behaviour* is fully specified by the widget and only its appearance
+was open. Checked first, per the lesson entry 143 itself wrote down: nothing in
+`textviewport.cpp`, nothing in any of the `.qml` files, and nothing exposing
+the hidden lines. Genuinely missing.
+
+### The gap
+
+`TextEditorWidget::drawCollapsedBlockPopup()` - rest the pointer on a collapsed
+line's `{...}` and the lines it swallowed appear in a box over the page, after
+40 ms. **A fold in the Qt Quick editor was a wall**: the only way to see what
+was behind it was to open it and fold it again.
+
+`foldedLinesAt(lineNumber)` on the viewport, a `Timer` on the box's hover, and
+a `Rectangle` of `Text` over the page.
+
+### Rich text, and why it is not a shortcut
+
+The obvious first version shows the hidden lines as plain text. That is
+visibly *less* than the widget, which draws the real layouts - a box of
+uncoloured code beside coloured code reads as a different file.
+
+It turns out not to cost anything: **a fold does not un-highlight anything**,
+so the hidden blocks' layouts still carry the highlighter's formats.
+`foldedLinesAt()` walks them and builds one HTML span per format range, which
+the QML draws with `textFormat: Text.RichText`. Leading spaces are turned into
+`&nbsp;` because rich text swallows runs of them, and indentation is most of
+what tells a reader where they are inside a block.
+
+### The crash the sanitiser caught, which is worth knowing
+
+The first version aborted under ASan with `memcpy-param-overlap` inside
+`QStringBuilder`:
+
+```cpp
+const auto opened = [](const QTextCharFormat &format) {
+    QString tag = "<span style=\"";
+    ...
+    return tag + "\">";     // deduced: QStringBuilder<QString &, char const (&)[3]>
+};
+```
+
+A lambda with a deduced return type and `QStringBuilder` in scope returns
+**the builder**, not a `QString` - and the builder holds a reference to `tag`,
+which is gone by the time anyone reads it. Writing `-> QString` fixes it.
+
+Worth recording because nothing warns: it compiles, it usually appears to work,
+and it is only a debug build with the sanitiser on that says otherwise. Any
+lambda in this tree that returns a `+` of strings wants an explicit return
+type.
+
+### A QML colour that does not exist fails a different test
+
+`Tokens.backgroundSecondary` is not a token. The failure did not show up in the
+new test at all - it showed up as *"Unable to assign [undefined] to QColor"* in
+`testTheComponentTurnsAClickIntoACaretAndADragIntoASelection` and in two
+`QuickUi` tests, because those listen for QML warnings while a component is
+alive and this one does not.
+
+That is the net working as intended, and a reminder of what it is for: the QML
+warning tests catch the mistakes that do not change behaviour visibly. The
+right token is `backgroundDefault`.
+
+### Controls
+
+- **FV**: `foldedLinesAt()` returning nothing - red at "what the fold hides
+  came back as three lines".
+- **FW**: the hover timer firing and setting nothing - red at "resting on the
+  fold showed nothing". The C++ half and the QML half, separately.
+- **FX**: the box never taken down when the pointer leaves - red at "the
+  contents stayed up after the pointer left".
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 710 passed, 0 failed (was 709) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What this is not
+
+The widget positions its box at the collapsed line's own offset and sizes it to
+the widest hidden line; this one hangs it under the `{...}` box and sizes it to
+its contents. Neither is specified anywhere - the widget's placement is what
+its painting code happened to do - and this is the part entry 137 called a
+design decision. It still is; what has changed is that the *behaviour* no
+longer waits on it.
+
+### Where this leaves it
+
+1. **Middle-click paste** - a feature, unmeasurable on macOS. Needs a Linux run.
+2. **The `Cursor` attribute while composing** - unmeasurable here, entry 141.
+3. **`canInsertFromMimeData`** - entry 140.
+4. **The link press/release handshake** - read, both answers defensible.
+5. **Home on a wrapped line** - entry 133.
+6. **QmlJS's context pane** - a UI decision, entry 114.
+7. **The whitespace drawing difference** - declined, entry 68.
+8. **Printing** - entry 31.
+9. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+**Item 6, or nothing.** Of the nine, items 1 and 2 need a different machine,
+3 has nothing to lose to yet, 4 is a difference rather than a defect, 5 needs a
+non-default preference, and 7, 8 and 9 are declined, deferred or blocked.
+
+That leaves QmlJS's context pane, which has been open since entry 114 and is
+the last item a user would notice. It is the same shape this batch turned out
+to be: entry 137 called the fold popup a design decision, and once the
+behaviour was separated from the appearance it was an afternoon. The context
+pane may be the same - the geometry it needs exists (entry 124), and the
+question "QWidget popup or QML" may matter less than it looks if the pane is
+asked for its *contents* rather than moved wholesale.

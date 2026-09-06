@@ -5206,6 +5206,74 @@ void TextViewport::gotoLine(int line, int column, bool centerLine)
     group->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
+// One line of code as rich text, in whatever colours its layout carries.
+static QString asRichText(const QTextBlock &block)
+{
+    const QString text = block.text();
+    if (text.isEmpty())
+        return QString();
+
+    QList<QTextLayout::FormatRange> formats;
+    if (block.layout())
+        formats = block.layout()->formats();
+    std::sort(formats.begin(), formats.end(),
+              [](const QTextLayout::FormatRange &a, const QTextLayout::FormatRange &b) {
+                  return a.start < b.start;
+              });
+
+    // -> QString, not a deduced return type: with QStringBuilder in play the
+    // deduction is QStringBuilder<QString &, ...>, which holds a reference to
+    // the local below and dangles the moment this returns.
+    const auto opened = [](const QTextCharFormat &format) -> QString {
+        QString tag = "<span style=\"";
+        if (format.foreground().style() != Qt::NoBrush
+            && format.foreground().color().isValid()) {
+            tag += "color:" + format.foreground().color().name() + ";";
+        }
+        if (format.fontWeight() > QFont::Normal)
+            tag += "font-weight:bold;";
+        if (format.fontItalic())
+            tag += "font-style:italic;";
+        return tag + "\">";
+    };
+
+    QString rich;
+    int at = 0;
+    for (const QTextLayout::FormatRange &range : std::as_const(formats)) {
+        const int from = qBound(0, range.start, text.size());
+        const int to = qBound(from, range.start + range.length, text.size());
+        if (from > at)
+            rich += text.mid(at, from - at).toHtmlEscaped();
+        if (to > from)
+            rich += opened(range.format) + text.mid(from, to - from).toHtmlEscaped() + "</span>";
+        at = qMax(at, to);
+    }
+    if (at < text.size())
+        rich += text.mid(at).toHtmlEscaped();
+    // Leading indentation is what tells a reader where they are in a block,
+    // and rich text swallows runs of spaces.
+    return rich.replace(' ', "&nbsp;");
+}
+
+QStringList TextViewport::foldedLinesAt(int lineNumber) const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    QTextDocument * const text = doc ? doc->document() : nullptr;
+    if (!text)
+        return {};
+
+    const QTextBlock folded = text->findBlockByNumber(lineNumber - 1);
+    if (!folded.isValid())
+        return {};
+
+    QStringList lines;
+    for (QTextBlock hidden = folded.next(); hidden.isValid() && !hidden.isVisible();
+         hidden = hidden.next()) {
+        lines.append(asRichText(hidden));
+    }
+    return lines;
+}
+
 void TextViewport::toggleFold(int lineNumber)
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;

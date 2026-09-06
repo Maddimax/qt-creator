@@ -5853,6 +5853,96 @@ private slots:
                  "the widget answered nothing anywhere, so this compared blanks");
     }
 
+    // Resting on a collapsed line's "{...}" shows what it swallowed, so a
+    // folded function can be read without opening it. The widget editor draws
+    // those lines in a box - drawCollapsedBlockPopup() - and the Qt Quick view
+    // drew nothing, so a fold was a wall.
+    void testRestingOnAFoldShowsWhatItHides()
+    {
+        TemporaryDirectory dir("qtc-viewport-foldpeek");
+        const FilePath file = dir.filePath("peek.txt");
+        QVERIFY(file.writeFileContents("head\n  alpha\n  beta\n  gamma\ntail\n"));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(500, 300);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 500; height: 300\n"
+                                     "    showFoldMarkers: true\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/FoldPeekTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        auto * const layout = qobject_cast<TextDocumentLayout *>(text->documentLayout());
+        QVERIFY(layout);
+        // Lines 1 to 3 belong to line 0. A highlighter is what normally says
+        // so; saying it here keeps the test about what is shown.
+        for (int i = 1; i <= 3; ++i)
+            TextBlockUserData::setFoldingIndent(text->findBlockByNumber(i), 1);
+        const QTextBlock first = text->findBlockByNumber(0);
+        QVERIFY(TextBlockUserData::canFold(first));
+
+        // What it hides, asked of the viewport: three lines, in order, and
+        // nothing when the line is not folded.
+        QVERIFY2(viewport->foldedLinesAt(1).isEmpty(),
+                 "an open line was said to be hiding something");
+        TextBlockUserData::doFoldOrUnfold(first, /*unfold=*/false);
+        layout->requestUpdate();
+        const QStringList hidden = viewport->foldedLinesAt(1);
+        QCOMPARE(hidden.size(), 3);
+        QVERIFY2(hidden.at(0).contains("alpha") && hidden.at(2).contains("gamma"),
+                 qPrintable("what the fold hides came back as: " + hidden.join(" / ")));
+
+        // And the form shows them when the pointer rests on the box. The box
+        // only exists once the row is drawn folded.
+        QQuickItem *box = nullptr;
+        QTRY_VERIFY([&] {
+            for (QQuickItem * const candidate : allItems(item)) {
+                if (candidate->inherits("QQuickText") && candidate->isVisible()
+                    && candidate->property("text").toString().contains("...")) {
+                    box = candidate->parentItem();
+                    return box != nullptr && box->isVisible();
+                }
+            }
+            return false;
+        }());
+
+        QQuickItem * const peek = item->findChild<QQuickItem *>("foldPeek");
+        QVERIFY2(peek, "the form has nothing to show a fold's contents in");
+        QVERIFY2(!peek->isVisible(), "the contents were showing before anything was hovered");
+
+        QTest::mouseMove(&view, view.contentItem()
+                                    ->mapFromItem(box, QPointF(box->width() / 2,
+                                                               box->height() / 2))
+                                    .toPoint());
+        QTRY_VERIFY2(peek->isVisible(), "resting on the fold showed nothing");
+        QCOMPARE(peek->property("lines").toStringList().size(), 3);
+
+        // And it goes when the pointer does.
+        const QRectF away = viewport->rectangleAt(0);
+        QTest::mouseMove(&view, view.contentItem()
+                                    ->mapFromItem(viewport, away.center()).toPoint());
+        QTRY_VERIFY2(!peek->isVisible(), "the contents stayed up after the pointer left");
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()

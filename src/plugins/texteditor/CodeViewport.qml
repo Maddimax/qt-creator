@@ -128,6 +128,52 @@ Item {
             anchors.margins: Spacing.PaddingHXs
         }
 
+        // What a fold is hiding, while the pointer rests on its box. Over the
+        // text and outside the row that owns the box: a row is one line tall
+        // and clips, and this is several lines.
+        Rectangle {
+            id: peek
+
+            objectName: "foldPeek"
+
+            // The lines to show, empty when nothing is being peeked at. The
+            // box that set them clears them again when the pointer leaves.
+            property var lines: []
+            property Item anchorTo: null
+
+            visible: peek.lines.length > 0 && peek.anchorTo !== null
+            z: 10
+            color: Tokens.backgroundDefault
+            border.color: Tokens.strokeSubtle
+            radius: 3
+            width: peekLines.implicitWidth + 2 * Spacing.PaddingHS
+            height: peekLines.implicitHeight + 2 * Spacing.PaddingVS
+            x: peek.anchorTo ? peek.anchorTo.mapToItem(root, 0, 0).x : 0
+            y: peek.anchorTo
+               ? peek.anchorTo.mapToItem(root, 0, peek.anchorTo.height).y
+               : 0
+
+            Column {
+                id: peekLines
+
+                x: Spacing.PaddingHS
+                y: Spacing.PaddingVS
+
+                Repeater {
+                    model: peek.lines
+
+                    delegate: Text {
+                        required property string modelData
+
+                        text: modelData
+                        textFormat: Text.RichText
+                        font: viewport.font
+                        color: Tokens.textDefault
+                    }
+                }
+            }
+        }
+
         // Behind the viewport rather than over it. Clicking text is the
         // fallback for the whole area, so anything inside the viewport that
         // wants a click of its own - the box standing in for a fold - has to
@@ -712,6 +758,8 @@ Item {
                     spacing: Spacing.GapHM
 
                     Rectangle {
+                        id: foldBox
+
                         width: replacement.implicitWidth + 2 * Spacing.PaddingHS
                         height: viewport.lineHeight
                         visible: replacement.text !== ""
@@ -731,10 +779,44 @@ Item {
                         // The box is the other way to open a fold: the gutter
                         // marker is far from what the reader is looking at,
                         // and the widget editor opens on this too.
-                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        HoverHandler {
+                            id: foldBoxHover
+
+                            cursorShape: Qt.PointingHandCursor
+
+                            onHoveredChanged: {
+                                if (foldBoxHover.hovered) {
+                                    peek.anchorTo = foldBox
+                                    peekDelay.restart()
+                                    return
+                                }
+                                peekDelay.stop()
+                                // Only if this box is the one being shown: the
+                                // pointer can arrive at the next box before
+                                // this one hears that it left.
+                                if (peek.anchorTo === foldBox) {
+                                    peek.lines = []
+                                    peek.anchorTo = null
+                                }
+                            }
+                        }
 
                         TapHandler {
                             onTapped: viewport.toggleFold(trailing.lineData.lineNumber)
+                        }
+
+                        // Resting on the box shows what it swallowed, so a
+                        // folded function can be read without opening it - the
+                        // widget editor draws the same lines in a box of its
+                        // own. After a moment, or every box the pointer
+                        // crosses on its way somewhere would flash one up.
+                        Timer {
+                            id: peekDelay
+
+                            objectName: "foldPeekDelay"
+                            interval: 40
+                            onTriggered: peek.lines
+                                = viewport.foldedLinesAt(trailing.lineData.lineNumber)
                         }
                     }
                 }

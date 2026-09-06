@@ -587,6 +587,16 @@ public:
     // visibleLine() reports it. Does nothing for a line that starts no fold,
     // so a gutter may call it for whatever the user clicked.
     Q_INVOKABLE void toggleFold(int lineNumber);
+    // What the fold on \a lineNumber is hiding, one entry per line, as rich
+    // text in the colours its highlighter gave it. Empty when that line is not
+    // folded. The widget editor draws the same lines in a box when the pointer
+    // rests on a collapsed line, which is how a folded function is read
+    // without opening it.
+    //
+    // Rich text rather than plain: the formats are on the hidden blocks'
+    // layouts already - a fold does not un-highlight anything - and a box of
+    // uncoloured code beside coloured code reads as a different file.
+    Q_INVOKABLE QStringList foldedLinesAt(int lineNumber) const;
 
     // The gutter's mark column, clicked at \a y in this item's coordinates.
     // What a click there means is the document's to decide, so that both views
