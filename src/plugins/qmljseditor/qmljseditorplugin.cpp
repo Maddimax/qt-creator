@@ -266,12 +266,9 @@ static FormatResult reformatByQmlFormat(QPointer<QmlJSEditorDocument> document)
         return FormatResult::Failed;
     IEditor *currentEditor = EditorManager::currentEditor();
     IEditor *editor = editors.contains(currentEditor) ? currentEditor : editors.first();
-    if (auto widget = TextEditor::TextEditorWidget::fromEditor(editor)) {
-        overrideTabSettings(document);
-        TextEditor::formatEditor(widget, command);
-        return FormatResult::Success;
-    }
-    return FormatResult::Failed;
+    overrideTabSettings(document);
+    TextEditor::formatEditor(editor, command);
+    return FormatResult::Success;
 }
 
 static FormatResult reformatByBuiltInFormatter(QPointer<QmlJSEditorDocument> document)
@@ -379,11 +376,8 @@ static FormatResult reformatByCustomFormatter(
         return FormatResult::Failed;
     IEditor *currentEditor = EditorManager::currentEditor();
     IEditor *editor = editors.contains(currentEditor) ? currentEditor : editors.first();
-    if (auto widget = TextEditor::TextEditorWidget::fromEditor(editor)) {
-        TextEditor::formatEditor(widget, command);
-        return FormatResult::Success;
-    }
-    return FormatResult::Failed;
+    TextEditor::formatEditor(editor, command);
+    return FormatResult::Success;
 }
 
 FormatResult QmlJSEditorPluginPrivate::reformatFile(ReformatOption option)

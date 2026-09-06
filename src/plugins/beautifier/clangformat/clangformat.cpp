@@ -378,17 +378,17 @@ void ClangFormat::formatFile()
 
 void ClangFormat::formatAtPosition(const int pos, const int length)
 {
-    const TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
-    if (!widget)
+    const TextDocument * const document = TextDocument::currentTextDocument();
+    if (!document)
         return;
 
-    const TextEncoding encoding = widget->textDocument()->encoding();
+    const TextEncoding encoding = document->encoding();
     if (!encoding.isValid()) {
         formatCurrentFile(textCommand(pos, length));
         return;
     }
 
-    const QString &text = widget->textAt(0, pos + length);
+    const QString text = Utils::Text::textAt(document->document(), 0, pos + length);
     const QStringView buffer(text);
     QStringEncoder encoder(encoding.name());
     const int encodedOffset = QByteArray(encoder.encode(buffer.left(pos))).size();
@@ -398,11 +398,9 @@ void ClangFormat::formatAtPosition(const int pos, const int length)
 
 void ClangFormat::formatAtCursor()
 {
-    const TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
-    if (!widget)
+    const QTextCursor tc = TextEditor::textCursorOf(Core::EditorManager::currentEditor());
+    if (tc.isNull())
         return;
-
-    const QTextCursor tc = widget->textCursor();
 
     if (tc.hasSelection()) {
         const int selectionStart = tc.selectionStart();
@@ -418,11 +416,10 @@ void ClangFormat::formatAtCursor()
 
 void ClangFormat::formatLines()
 {
-    const TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
-    if (!widget)
+    const QTextCursor tc = TextEditor::textCursorOf(Core::EditorManager::currentEditor());
+    if (tc.isNull())
         return;
 
-    const QTextCursor tc = widget->textCursor();
     // Current line by default
     int lineStart = tc.blockNumber() + 1;
     int lineEnd = lineStart;

@@ -15,6 +15,7 @@
 
 #include <utils/async.h>
 #include <utils/differ.h>
+#include <utils/environment.h>
 #include <utils/fileutils.h>
 #include <utils/globaltasktree.h>
 #include <utils/qtcassert.h>
@@ -45,15 +46,14 @@ using FormatOutput = Result<QString>;
 
 void formatCurrentFile(const Command &command, int startPos, int endPos)
 {
-    if (TextEditorWidget *editor = TextEditorWidget::currentTextEditorWidget())
-        formatEditorAsync(editor, command, startPos, endPos);
+    formatEditorAsync(Core::EditorManager::currentEditor(), command, startPos, endPos);
 }
 
-static QString sourceData(TextEditorWidget *editor, int startPos, int endPos)
+static QString sourceData(TextDocument *document, int startPos, int endPos)
 {
     return (startPos < 0)
-            ? editor->toPlainText()
-            : Utils::Text::textAt(editor->document(), startPos, (endPos - startPos));
+            ? document->plainText()
+            : Utils::Text::textAt(document->document(), startPos, (endPos - startPos));
 }
 
 static FormatOutput format(const FormatInput &input)
@@ -283,7 +283,7 @@ static void showError(const QString &error)
  * Checks the state of @a task and if the formatting was successful calls updateEditorText() with
  * the respective members of @a task.
  */
-static void checkAndApplyTask(const QPointer<PlainTextEdit> &textEditor, const FormatInput &input,
+static void checkAndApplyTask(const QPointer<Core::IEditor> &editor, const FormatInput &input,
                               const FormatOutput &output)
 {
     if (!output.has_value()) {
@@ -296,14 +296,15 @@ static void checkAndApplyTask(const QPointer<PlainTextEdit> &textEditor, const F
         return;
     }
 
-    if (!textEditor) {
+    auto * const document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
+    if (!document) {
         showError(Tr::tr("File %1 was closed.").arg(input.filePath.displayName()));
         return;
     }
 
     const QString formattedData = (input.startPos < 0) ? *output
-        : textEditor->toPlainText().replace(input.startPos, (input.endPos - input.startPos), *output);
-    updateEditorText(textEditor, formattedData);
+        : document->plainText().replace(input.startPos, (input.endPos - input.startPos), *output);
+    updateEditorText(editor.data(), formattedData);
 }
 
 /**
@@ -339,68 +340,49 @@ void updateEditorText(Core::IEditor *editor, const QString &text)
     view->setScrollY(view->scrollY() + (view->cursorRectangle().y() - before));
 }
 
-void formatEditor(Core::IEditor *editor, const Command &command)
-{
-    auto * const document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
-    if (!document)
-        return;
-    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
-        formatEditor(widget, command);
-        return;
-    }
-
-    const QString source = document->plainText();
-    if (source.isEmpty())
-        return;
-    const FormatInput input{document->filePath(), source, command, -1, -1};
-    const FormatOutput output = format(input);
-    if (!output.has_value()) {
-        showError(output.error());
-        return;
-    }
-    if (output->isEmpty()) {
-        showError(Tr::tr("Could not format file %1.").arg(input.filePath.displayName()));
-        return;
-    }
-    updateEditorText(editor, *output);
-}
-
-void formatEditor(TextEditorWidget *editor, const Command &command, int startPos, int endPos)
+void formatEditor(Core::IEditor *editor, const Command &command, int startPos, int endPos)
 {
     QTC_ASSERT(startPos <= endPos, return);
 
-    const QString sd = sourceData(editor, startPos, endPos);
+    auto * const document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
+    if (!document)
+        return;
+
+    const QString sd = sourceData(document, startPos, endPos);
     if (sd.isEmpty())
         return;
-    const FormatInput input{editor->textDocument()->filePath(), sd, command, startPos, endPos};
+    const FormatInput input{document->filePath(), sd, command, startPos, endPos};
     checkAndApplyTask(editor, input, format(input));
 }
 
 /**
  * Behaves like formatEditor except that the formatting is done asynchronously.
  */
-void formatEditorAsync(TextEditorWidget *editor, const Command &command, int startPos, int endPos)
+void formatEditorAsync(Core::IEditor *editor, const Command &command, int startPos, int endPos)
 {
     QTC_ASSERT(startPos <= endPos, return);
 
-    const QString sd = sourceData(editor, startPos, endPos);
+    auto * const document = editor ? qobject_cast<TextDocument *>(editor->document()) : nullptr;
+    if (!document)
+        return;
+
+    const QString sd = sourceData(document, startPos, endPos);
     if (sd.isEmpty())
         return;
 
-    const TextDocument *doc = editor->textDocument();
-    const FormatInput input{doc->filePath(), sd, command, startPos, endPos};
+    const FormatInput input{document->filePath(), sd, command, startPos, endPos};
     const auto onSetup = [input](Async<FormatOutput> &task) {
         task.setConcurrentCallData(format, input);
     };
-    const auto onDone = [editor = QPointer<PlainTextEdit>(editor), input](
+    const auto onDone = [editor = QPointer<Core::IEditor>(editor), input](
                             const Async<FormatOutput> &task, DoneWith result) {
         if (result == DoneWith::Cancel)
             showError(Tr::tr("File was modified."));
         else
             checkAndApplyTask(editor, input, task.result());
     };
-    const auto onTreeSetup = [doc](QTaskTree &taskTree) {
-        QObject::connect(doc, &TextDocument::contentsChanged, &taskTree, &QTaskTree::cancel,
+    const auto onTreeSetup = [document](QTaskTree &taskTree) {
+        QObject::connect(document, &TextDocument::contentsChanged, &taskTree, &QTaskTree::cancel,
                          Qt::QueuedConnection);
     };
     GlobalTaskTree::start({AsyncTask<FormatOutput>(onSetup, onDone)}, onTreeSetup);
@@ -412,6 +394,8 @@ void formatEditorAsync(TextEditorWidget *editor, const Command &command, int sta
 
 #include <QTest>
 
+#include <coreplugin/editormanager/editormanager.h>
+
 namespace TextEditor::Internal {
 
 class FormatTextTest final : public QObject
@@ -421,7 +405,23 @@ class FormatTextTest final : public QObject
 private slots:
     void testFormatting_data();
     void testFormatting();
+    void testAFileIsFormattedInEitherView();
+    void testOnlyTheChosenRangeComesBackFormatted();
 };
+
+// A formatter that needs no formatter installed: upper case is a change that
+// can be asked for exactly and checked exactly.
+static std::optional<Command> upperCaseCommand()
+{
+    const FilePath tr = Utils::Environment::systemEnvironment().searchInPath("tr");
+    if (tr.isEmpty())
+        return {};
+    Command command;
+    command.setExecutable(tr);
+    command.addOptions({"a-z", "A-Z"});
+    command.setProcessing(Command::PipeProcessing);
+    return command;
+}
 
 void FormatTextTest::testFormatting_data()
 {
@@ -464,6 +464,74 @@ void FormatTextTest::testFormatting()
     TextEditor::updateEditorText(editor.get(), result);
 
     QCOMPARE(editor->toPlainText(), result);
+}
+
+void FormatTextTest::testAFileIsFormattedInEitherView()
+{
+    const std::optional<Command> command = upperCaseCommand();
+    if (!command)
+        QSKIP("no tr to format with");
+
+    Utils::TemporaryDirectory dir("format-whole-file");
+    QVERIFY(dir.isValid());
+    const FilePath file = dir.filePath("t.cpp");
+
+    for (const bool quick : {false, true}) {
+        QVERIFY(file.writeFileContents("int one = 1;\nint two = 2;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Asked of no editor in particular, which is what every beautifier
+        // menu entry does.
+        formatCurrentFile(*command);
+        QTRY_COMPARE(document->plainText(), QString("INT ONE = 1;\nINT TWO = 2;\n"));
+    }
+}
+
+void FormatTextTest::testOnlyTheChosenRangeComesBackFormatted()
+{
+    const std::optional<Command> command = upperCaseCommand();
+    if (!command)
+        QSKIP("no tr to format with");
+
+    Utils::TemporaryDirectory dir("format-a-range");
+    QVERIFY(dir.isValid());
+    const FilePath file = dir.filePath("t.cpp");
+    QVERIFY(file.writeFileContents("int one = 1;\nint two = 2;\nint three = 3;\n"));
+
+    TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+    QVERIFY(factory);
+    const bool wasQuick = factory->usesQuickEditor();
+    const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+    factory->setUsesQuickEditor(true);
+
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+    QVERIFY2(!TextEditorWidget::fromEditor(editor),
+             "the file opened in a widget editor, so this tests nothing");
+    auto * const document = qobject_cast<TextDocument *>(editor->document());
+    QVERIFY(document);
+
+    // The second line only. Putting the answer back where it came from is the
+    // half that reads the whole text, so a wrong offset shows up as the wrong
+    // line changing rather than as nothing happening.
+    const QTextBlock second = document->document()->findBlockByNumber(1);
+    formatCurrentFile(*command, second.position(), second.position() + second.length() - 1);
+    QTRY_COMPARE(document->plainText(),
+                 QString("int one = 1;\nINT TWO = 2;\nint three = 3;\n"));
 }
 
 QObject *createFormatTextTest()

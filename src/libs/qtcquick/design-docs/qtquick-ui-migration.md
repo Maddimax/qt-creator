@@ -40824,3 +40824,161 @@ rather than counting, because entry 54's lesson was that a census only finds
 what its question can see.
 
 The printing decision (keep / drop / move) is still the owner's call.
+
+## 2026-09-06 — Formatting, all of it, in either view (batch 58)
+
+Entry 57 said this was the only remaining *verified* breakage: three
+ClangFormat entry points, one of Uncrustify's, and behind them
+`formatCurrentFile()`, which every beautifier menu entry funnels through:
+
+```cpp
+void formatCurrentFile(const Command &command, int startPos, int endPos)
+{
+    if (TextEditorWidget *editor = TextEditorWidget::currentTextEditorWidget())
+        formatEditorAsync(editor, command, startPos, endPos);
+}
+```
+
+Eight call sites across ClangFormat, Uncrustify, ArtisticStyle and
+CMakeFormatter reach that `if`, and on a C++ file it was always false.
+
+### The pipeline was widget-shaped for no reason
+
+Entry 56 called this "widget-shaped end to end" and predicted a bigger batch.
+It was smaller than that, because reading it showed the widget was never
+actually needed — every use was of the *document*:
+
+- `sourceData(TextEditorWidget *, ...)` wanted `toPlainText()` and
+  `document()`. Both are `TextDocument`'s.
+- `checkAndApplyTask(QPointer<PlainTextEdit>, ...)` wanted `toPlainText()` to
+  splice a formatted range back into, and `updateEditorText()` — which had
+  had an `IEditor` overload since the batch that taught it to scroll a Quick
+  view.
+- `formatEditorAsync(TextEditorWidget *, ...)` wanted `textDocument()` for the
+  file path and the `contentsChanged` signal to cancel on.
+
+So all three took a `Core::IEditor *` instead, and `QPointer<PlainTextEdit>`
+became `QPointer<Core::IEditor>` — which answers the same question ("was the
+file closed while the formatter ran?") for both views.
+
+### Two `formatEditor` overloads became one
+
+There were two, and the `IEditor` one had been added by an earlier batch
+without removing the widget one:
+
+    void formatEditor(TextEditorWidget *editor, const Command &, int, int);
+    void formatEditor(Core::IEditor *editor, const Command &);   // Quick path
+
+The second dispatched to the first when there was a widget and otherwise
+reimplemented it without ranges, duplicating the error handling. Now there is
+one function with the range arguments defaulted, and it is `checkAndApplyTask`
+that handles the errors for both. The three callers that passed a widget
+(`qmljseditorplugin` twice, `cmakeformatter` once) all had the shape
+
+```cpp
+if (auto widget = TextEditorWidget::fromEditor(editor)) {
+    ...
+    formatEditor(widget, cmd);
+}
+```
+
+so they lost a branch each and stopped returning `FormatResult::Failed` for a
+file that is merely in the other view.
+
+### The gates
+
+- `ClangFormat::formatAtPosition` — `TextDocument::currentTextDocument()` for
+  the encoding, and `Utils::Text::textAt()` in place of
+  `TextEditorWidget::textAt()`.
+- `ClangFormat::formatAtCursor`, `ClangFormat::formatLines`,
+  `Uncrustify::formatSelectedText` — all three wanted only a cursor, so all
+  three are now `textCursorOf(currentEditor())` with a null check.
+
+`ArtisticStyle` needed nothing: it only ever called `formatCurrentFile`.
+
+### The test, without a formatter installed
+
+Entry 56 recorded the honest limit — "without a clang-format binary a test can
+assert the *right command is assembled and dispatched*, but not that the
+document comes back formatted" — and that limit turned out to be wrong, which
+is worth recording as plainly as the original claim.
+
+A `Command` is an executable plus options plus a processing mode. With
+`PipeProcessing`, `/usr/bin/tr a-z A-Z` **is** a formatter: it reads the source
+on stdin and writes a transformed version back. It is installed everywhere,
+it needs no configuration, and upper case is a change that can be asked for
+exactly and checked exactly.
+
+So `FormatTextTest` now has two real end-to-end tests:
+
+- `testAFileIsFormattedInEitherView` runs `formatCurrentFile()` — asked of no
+  editor in particular, which is what the menu entries do — over **both**
+  views in a loop, asserting per iteration that the view is the one it claims
+  (`QCOMPARE(fromEditor(editor) == nullptr, quick)`).
+- `testOnlyTheChosenRangeComesBackFormatted` formats the middle line of three
+  in the Quick view. This is the half that reads the whole document to splice
+  the answer back in — the line that used to say `textEditor->toPlainText()`.
+
+Both `QSKIP` with "no tr to format with" if it is not on PATH.
+
+### Controls — three, all biting
+
+- **A: `formatCurrentFile`'s widget gate restored.** The loop test fails on
+  its **second** iteration and passes its first: the widget view still
+  formats, the Quick one does not. That is the control saying exactly what
+  the defect was.
+- **B: `setUsesQuickEditor(false)`** in the range test — red at the vacuity
+  guard.
+- **C: `checkAndApplyTask` made to use the formatter's answer whole** instead
+  of splicing it into the range. Red with the document reduced to
+  `"INT TWO = 2;"`, which is precisely what losing the splice does.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 592 passed, 0 failed (was 590) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Beautifier` | 0 | 13 passed, 0 failed |
+| `-test QmlJSEditor` | 0 | 15 passed, 0 failed |
+| `-test CMakeProjectManager` | 1 | 71 passed, **1 failed** |
+
+**The CMake failure is not this batch's, and that was measured rather than
+argued.** `CMakeToolsSettingsTest::testNarrowingToADeviceLeavesOtherDevicesToolsOut`
+fails identically (`shownRows(page)` 2, expected 3) on batch 57's tree with
+none of these changes applied — checked by parking the batch as a commit,
+restoring `src/` from `HEAD~1`, rebuilding and re-running. It is a settings
+page counting rows per device and depends on what CMake tools this machine has
+configured; nothing in it reaches a formatter.
+
+The first attempt at that check was worthless and is worth recording: reverting
+only `cmakeformatter.cpp` left the file unable to compile against the new
+header, so the plugin never relinked and the "baseline" run was still the
+modified binary. **A revert that does not build is not a baseline.** Revert the
+whole change or none of it — the same rule entry 30 arrived at for racy
+failures, in a different disguise.
+
+No `.qbs` change: no files added.
+
+### What is left
+
+**No verified breakage remains.** Both gaps entry 54 found by reading are
+closed (56, 57) and the cluster behind them is closed too. What is left of the
+42 is triage: entry 51 said 42 was an upper bound, entry 55 took
+`refactoringchanges.cpp` off it, and `qmljseditor` and `qmldesigner` are still
+expected to come off.
+
+Three of the six files touched here were on that list — `formattexteditor.cpp`,
+`clangformat.cpp`, `uncrustify.cpp` — and `qmljseditorplugin.cpp` and
+`cmakeformatter.cpp` lost their widget branches as a side effect, so the count
+drops by more than the batch aimed at.
+
+**Suggested next: triage the remainder by reading, not counting.** Entry 54's
+lesson was that a census only finds what its question can see, and the two
+real defects it did find were both found by *reading the code the pointer
+gated*, not by counting pointers. The list is short enough now to read all of
+it. Expect most of it to come off — a `TextEditorWidget *` in a file is not a
+defect unless something a user can reach depends on it being non-null.
+
+The printing decision (keep / drop / move) is still the owner's call, and is
+now the only open question this file has that is not triage.

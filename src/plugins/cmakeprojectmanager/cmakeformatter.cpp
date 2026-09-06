@@ -231,10 +231,8 @@ void CMakeFormatterSettings::applyIfNecessary(IDocument *document, IDocument::Sa
 
     IEditor *currentEditor = EditorManager::currentEditor();
     IEditor *editor = editors.contains(currentEditor) ? currentEditor : editors.first();
-    if (auto widget = TextEditorWidget::fromEditor(editor)) {
-        extendCommandWithConfigs(command, editor->document()->filePath());
-        TextEditor::formatEditor(widget, command);
-    }
+    extendCommandWithConfigs(command, editor->document()->filePath());
+    TextEditor::formatEditor(editor, command);
 }
 
 static CMakeFormatterSettings &formatterSettings()

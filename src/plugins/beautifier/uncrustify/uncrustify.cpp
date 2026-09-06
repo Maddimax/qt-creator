@@ -307,11 +307,10 @@ void Uncrustify::formatSelectedText()
         return;
     }
 
-    const TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
-    if (!widget)
+    QTextCursor tc = TextEditor::textCursorOf(Core::EditorManager::currentEditor());
+    if (tc.isNull())
         return;
 
-    QTextCursor tc = widget->textCursor();
     if (tc.hasSelection()) {
         // Extend selection to full lines
         const int posSelectionEnd = tc.selectionEnd();
