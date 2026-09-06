@@ -294,8 +294,15 @@ public:
             // Then what the document offers for this click. A container holds
             // what a language registered once; these may exist only while the
             // menu is open, which is what the quick fixes for a cursor are.
-            if (TextDocument * const doc = m_document.get())
-                actions += doc->contextMenuActions();
+            // Not asked before there is a place to ask about: the entries a
+            // document offers are the ones for a particular cursor, and a null
+            // one is not a place.
+            TextViewport * const view = viewport();
+            if (TextDocument * const doc = view ? m_document.get() : nullptr) {
+                const QTextCursor cursor = view->textCursor();
+                if (!cursor.isNull())
+                    actions += doc->contextMenuActions(cursor);
+            }
             const QList<QAction *> standard = actionsOf(Constants::M_STANDARDCONTEXTMENU);
             for (QAction * const action : standard) {
                 if (!actions.contains(action))
@@ -6855,10 +6862,14 @@ private slots:
                 , m_action(new QAction("Fix It", this))
             {}
 
-            QList<QAction *> contextMenuActions() const final
+            QList<QAction *> contextMenuActions(const QTextCursor &cursor) final
             {
                 ++m_timesAsked;
-                m_action->setText(QString("Fix It %1").arg(m_timesAsked));
+                // The place asked about, so that a caller which loses the
+                // cursor is caught rather than merely the count changing.
+                m_action->setText(QString("Fix It %1 at %2")
+                                      .arg(m_timesAsked)
+                                      .arg(cursor.isNull() ? -1 : cursor.position()));
                 return {m_action};
             }
 
@@ -6920,8 +6931,14 @@ private slots:
                                    [](const QString &t) { return t.startsWith("Fix It"); });
         };
 
+        // Somewhere in particular, so that the place asked about is checkable.
+        if (TextViewport * const view = Internal::viewportForEditor(editor.get()))
+            view->setCursorPosition(0);
+
         const QStringList first = ours(offered());
         QCOMPARE(first.size(), 1);
+        QVERIFY2(!first.first().endsWith("at -1"),
+                 qPrintable("the view asked about nowhere: " + first.first()));
 
         // Asked again and answered again, with a different text: a container
         // would have given the same entry both times. That is the whole reason

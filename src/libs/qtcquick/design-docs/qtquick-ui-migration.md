@@ -46690,3 +46690,95 @@ one, and this one has a named user waiting rather than a hypothetical:
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — The context menu seam takes a cursor, and QmlJS did not fit it (batch 116)
+
+This batch set out to wire entry 115's seam to its named user and **did not
+finish it**. What it landed is the correction that attempt forced, and an
+honest account of where the wiring stopped.
+
+### The gap this closed - in the seam entry 115 built
+
+`TextDocument::contextMenuActions()` took no arguments. Its one intended user
+proposes **the quick fixes for the place that was clicked**, and a document has
+no cursor of its own, so the seam could not serve the case it was built for.
+
+It takes a cursor now. Both views pass theirs - the widget its `textCursor()`,
+the Qt Quick provider its viewport's - and neither asks with a null one, which
+is a place rather than nowhere.
+
+**A seam is not finished until its first user fits it.** Entry 115 was written,
+tested and green, and still had the wrong signature; only trying to use it
+showed that.
+
+### The crash that proved the guard was needed
+
+The first wiring passed `view ? view->textCursor() : QTextCursor()`, and a null
+cursor reached `QmlJSQuickFixAssistInterface`, which builds an
+`AssistInterface` from it: **SEGV in `QTextCursor::document()`**. Entry 110
+found the same thing with a control and dismissed it as unrealistic. It was
+not - the provider runs before the viewport exists.
+
+Both ends are guarded now: the provider does not ask without a place, and a
+document need not defend itself against nowhere.
+
+### Where the QmlJS wiring stopped, and why it was reverted
+
+`QmlJSEditorDocument::contextMenuActions()` was written: it builds one
+Refactoring action carrying a `QMenu`, refilled per click from the quick fix
+processor. It compiles, it is reached, and **the menu comes out empty**.
+
+Instrumented rather than guessed at:
+
+    PROBE provider TextEditor::IAssistProvider(0x...) processor 0x...
+    (the fill callback never runs)
+
+The processor exists; `start()` returns null and no asynchronous proposal
+arrives. `QmlJSQuickFixTest` gets its operations from `findQmlJSQuickFixes()`
+directly rather than through the provider's processor, so the path that works
+in that test is not the path the menu uses - and finding out which one is
+right is a debugging session, not the tail of this batch.
+
+**Reverted rather than landed half-working.** A seam with a synthetic user and
+an honest note beats production code that quietly offers an empty menu.
+
+### The test had to be made to care about the cursor
+
+Control CT - passing a null cursor from the Qt Quick provider - was **green**
+at first: the synthetic document ignored the cursor, so losing it changed
+nothing. The document now puts the position it was asked about into the
+action's text, and CT and CU each redden their own view.
+
+That is the third time in this document a control has caught a test measuring
+less than its subject. The pattern: **a stand-in that ignores an argument
+cannot test that the argument arrives.**
+
+### Controls
+
+- **CT**: the Qt Quick provider asking with a null cursor - red on the quick
+  row.
+- **CU**: the widget asking with a null cursor - red on the widget row.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 21 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+1. **The Refactoring submenu**, with the question this batch leaves behind:
+   why does `quickFixAssistProvider()->createProcessor(...)->start()` yield
+   nothing where `findQmlJSQuickFixes()` yields operations? Answer that and
+   the wiring is a few lines.
+2. The outline model index and `jumpToOutlineElement()` - the `ToolBarOutline`
+   seam (entry 98), incomplete for C++ too.
+3. The context pane - measured in entry 114: widget geometry, a decision.
+4. `restoreState()` folding auxiliary data - small.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

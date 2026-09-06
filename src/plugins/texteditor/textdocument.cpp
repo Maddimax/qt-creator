@@ -635,8 +635,9 @@ QList<QAction *> TextDocument::ownToolBarActions() const
     return {};
 }
 
-QList<QAction *> TextDocument::contextMenuActions() const
+QList<QAction *> TextDocument::contextMenuActions(const QTextCursor &cursor)
 {
+    Q_UNUSED(cursor)
     return {};
 }
 

@@ -7143,7 +7143,7 @@ void TextEditorWidget::appendContextMenuActions(QMenu *menu, Id menuContextId)
     if (menuContextId.isValid())
         appendMenuActionsFromContext(menu, menuContextId);
     if (TextDocument * const document = textDocument()) {
-        const QList<QAction *> fromDocument = document->contextMenuActions();
+        const QList<QAction *> fromDocument = document->contextMenuActions(textCursor());
         if (!fromDocument.isEmpty()) {
             menu->addActions(fromDocument);
             menu->addSeparator();
