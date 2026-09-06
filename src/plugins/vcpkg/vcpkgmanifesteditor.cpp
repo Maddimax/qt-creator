@@ -8,9 +8,11 @@
 #include "vcpkgsettings.h"
 #include "vcpkgtr.h"
 
+#include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/icore.h>
 
 #include <utils/icon.h>
+#include <utils/qtcassert.h>
 #include <utils/layoutbuilder.h>
 #include <utils/stringutils.h>
 #include <utils/utilsicons.h>
@@ -29,8 +31,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QPlainTextEdit>
-#include <QToolBar>
 
 using namespace ProjectExplorer;
 using namespace TextEditor;
@@ -113,60 +113,71 @@ private:
     const std::unique_ptr<CMakeCodeSettings> m_settings;
 };
 
-class VcpkgManifestEditorWidget final : public TextEditor::TextEditorWidget
+// The two buttons a manifest gets beside every text editor's, and the settings
+// button beside them. Parented to the editor, so it goes when the editor does.
+class VcpkgManifestDecorations final : public QObject
 {
 public:
-    VcpkgManifestEditorWidget()
+    explicit VcpkgManifestDecorations(Core::IEditor *editor)
+        : QObject(editor)
+        , m_document(qobject_cast<TextDocument *>(editor->document()))
     {
+        QTC_ASSERT(m_document, return);
+
         const QIcon vcpkgIcon = Utils::Icon({{":/vcpkg/images/vcpkgicon.png",
                                               Utils::Theme::IconsBaseColor}}).icon();
-        m_searchPkgAction = toolBar()->addAction(vcpkgIcon, Tr::tr("Add vcpkg Package..."));
+        m_searchPkgAction = new QAction(vcpkgIcon, Tr::tr("Add vcpkg Package..."), this);
         connect(m_searchPkgAction, &QAction::triggered, this, [this] {
             const Search::VcpkgManifest package =
                 Search::showVcpkgPackageSearchDialog(documentToManifest());
             if (!package.name.isEmpty()) {
                 const QByteArray modifiedDocument =
-                    addDependencyToManifest(textDocument()->contents(), package.name);
-                textDocument()->setContents(modifiedDocument);
+                    addDependencyToManifest(m_document->contents(), package.name);
+                m_document->setContents(modifiedDocument);
             }
         });
+        TextEditor::insertExtraToolBarActionIn(editor, TextEditorWidget::Left, m_searchPkgAction);
 
         const QIcon cmakeIcon = ProjectExplorer::Icons::CMAKE_LOGO_TOOLBAR.icon();
-        m_cmakeCodeAction = toolBar()->addAction(cmakeIcon, Tr::tr("CMake Code..."));
+        m_cmakeCodeAction = new QAction(cmakeIcon, Tr::tr("CMake Code..."), this);
         connect(m_cmakeCodeAction, &QAction::triggered, this, [this] {
             CMakeCodeDialog dlg(documentToManifest().dependencies);
             dlg.exec();
         });
+        TextEditor::insertExtraToolBarActionIn(editor, TextEditorWidget::Left, m_cmakeCodeAction);
 
-        QAction *optionsAction = toolBar()->addAction(Utils::Icons::SETTINGS_TOOLBAR.icon(),
-                                                      Core::ICore::msgShowSettings());
+        auto *optionsAction = new QAction(Utils::Icons::SETTINGS_TOOLBAR.icon(),
+                                          Core::ICore::msgShowSettings(), this);
         connect(optionsAction, &QAction::triggered, [] {
             Core::ICore::showSettings(Constants::Settings::GENERAL_ID);
         });
+        TextEditor::insertExtraToolBarActionIn(editor, TextEditorWidget::Left, optionsAction);
 
-        updateToolBar();
-        connect(&vcpkgSettingsForProject(ProjectTree::currentProject())->vcpkgRoot, &Utils::BaseAspect::changed,
-                this, &VcpkgManifestEditorWidget::updateToolBar);
+        updateActions();
+        connect(&vcpkgSettingsForProject(ProjectTree::currentProject())->vcpkgRoot,
+                &Utils::BaseAspect::changed,
+                this, &VcpkgManifestDecorations::updateActions);
     }
 
-    void updateToolBar()
+    void updateActions()
     {
-        Utils::FilePath vcpkgRoot =
+        const Utils::FilePath vcpkgRoot =
             vcpkgSettingsForProject(ProjectTree::currentProject())->vcpkgRoot.expandedValue();
-        Utils::FilePath vcpkg = vcpkgRoot.pathAppended("vcpkg").withExecutableSuffix();
-        const bool vcpkgEncabled = vcpkg.isExecutableFile();
-        m_searchPkgAction->setEnabled(vcpkgEncabled);
-        m_cmakeCodeAction->setEnabled(vcpkgEncabled);
+        const Utils::FilePath vcpkg = vcpkgRoot.pathAppended("vcpkg").withExecutableSuffix();
+        const bool vcpkgEnabled = vcpkg.isExecutableFile();
+        m_searchPkgAction->setEnabled(vcpkgEnabled);
+        m_cmakeCodeAction->setEnabled(vcpkgEnabled);
     }
 
 private:
     Search::VcpkgManifest documentToManifest() const
     {
-        return Search::parseVcpkgManifest(textDocument()->contents());
+        return Search::parseVcpkgManifest(m_document->contents());
     }
 
-    QAction *m_searchPkgAction;
-    QAction *m_cmakeCodeAction;
+    TextDocument * const m_document;
+    QAction *m_searchPkgAction = nullptr;
+    QAction *m_cmakeCodeAction = nullptr;
 };
 
 static TextDocument *createVcpkgManifestDocument()
@@ -195,7 +206,13 @@ public:
         setDisplayName(Tr::tr("Vcpkg Manifest Editor"));
         addMimeType(Constants::VCPKGMANIFEST_MIMETYPE);
         setDocumentCreator(createVcpkgManifestDocument);
-        setEditorWidgetCreator([] { return new VcpkgManifestEditorWidget; });
+        // vcpkg.json opens in the Qt Quick view, like every other JSON file.
+        // Its widget subclass only ever added tool bar buttons, and those are
+        // an editor decorator now.
+        setUsesQuickEditor(true);
+        setEditorDecorator([](Core::IEditor *editor) {
+            new VcpkgManifestDecorations(editor);
+        });
         setUseGenericHighlighter(true);
     }
 };

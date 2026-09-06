@@ -10208,6 +10208,11 @@ void TextEditorFactory::setUseGenericHighlighter(bool enabled)
     d->m_useGenericHighlighter = enabled;
 }
 
+bool TextEditorFactory::useGenericHighlighter() const
+{
+    return d->m_useGenericHighlighter;
+}
+
 void TextEditorFactory::setAutoCompleterCreator(const AutoCompleterCreator &creator)
 {
     d->m_autoCompleterCreator = creator;

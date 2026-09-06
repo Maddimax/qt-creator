@@ -778,6 +778,7 @@ public:
     void setIndenterCreator(const IndenterCreator &creator);
     void setSyntaxHighlighterCreator(const SyntaxHighLighterCreator &creator);
     void setUseGenericHighlighter(bool enabled);
+    bool useGenericHighlighter() const;
     void setAutoCompleterCreator(const AutoCompleterCreator &creator);
     void setOptionalActionMask(int optionalActions);
     // The ActionManager container a right click should offer, beside what

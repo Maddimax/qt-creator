@@ -44288,3 +44288,123 @@ Unchanged from entry 88 except that item 1's second half is done:
 All three are decisions rather than work. The migration's stated purpose is
 met: C++, JSON, qmake, CMake and Python open in `TextViewport`, and so does
 every text file without a dedicated factory.
+
+## 2026-09-06 — vcpkg.json moved, and a gap that was not one (batch 90)
+
+Entry 89 said what remained was three decisions. Before writing that a fourth
+time, this batch re-read entry 53, which listed the languages still on the
+widget side: **"Python, CMake, GenericProject and Vcpkg still open in the
+widget editor because their factories never ask."** Python and CMake have
+since moved. Vcpkg had not, and nothing had looked at it since.
+
+Entry 53 also said "converting another language is a new project, not
+leftover work." Four languages have been converted since, each in a batch. **A
+cost is true as of its date and not after** — that sentence was right when the
+seams did not exist and is wrong now that they do.
+
+### The gap this closed
+
+`vcpkg.json` was the last JSON file that still opened in a widget editor.
+JSON moved in entry 80, but the vcpkg manifest has a factory of its own, so
+`devcontainer.json` got the Qt Quick view and `vcpkg.json` — the same
+language, one glob away — did not.
+
+`VcpkgManifestEditorWidget` subclassed `TextEditorWidget` for one reason:
+three tool bar buttons. It is a `QObject` decoration parented to the editor
+now, exactly as Python's was in entry 86, and the factory says
+`setUsesQuickEditor(true)` with `setEditorDecorator()`.
+
+Both censuses changed in this commit: `Vcpkg.VcpkgManifestEditor` in
+`testWhichFactoriesAreQuick`, `vcpkg.json` in
+`testWhichLanguagesOpenInTheQuickEditor`.
+
+### What was new about this one
+
+Every language converted so far had tool bar actions that were built once and
+never changed. Vcpkg's two buttons **turn themselves off when there is no
+`vcpkg` executable to run**, and back on when the setting is changed while the
+editor is open. That is the first converted language to depend on a Quick tool
+bar following an action after it is in place.
+
+It works, and it works because `QtcQuick::ActionModel` connects each action's
+`changed()` and re-emits `dataChanged` — written for menus, where "an action's
+text is rewritten to say what it will do next". The tool bar row gets it for
+free. Now asserted rather than assumed:
+`testTheButtonsFollowWhetherVcpkgIsThere` opens the editor with an empty root,
+checks the button is off, writes an executable `vcpkg` into a new root, points
+the setting at it, and checks the button came on.
+
+### A gap that measurement dissolved
+
+Reading the factory made a second gap look certain. `m_useGenericHighlighter`
+is consulted in exactly one place:
+
+    texteditor.cpp:10900   if (m_useGenericHighlighter)
+                               textEditorWidget->setupGenericHighlighter();
+
+— inside the **widget** branch. The Quick branch never reads it. Both
+`jsoneditor.cpp` and `cmakeeditor.cpp` set `setUseGenericHighlighter(true)`
+*and* `setUsesQuickEditor(true)`, so on that reading a CMakeLists.txt in the
+Qt Quick editor has been showing uncoloured text since entry 84.
+
+It has not. `testALanguageWithoutItsOwnHighlighterIsColouredInEitherView`
+opens a `CMakeLists.txt` and a `settings.json` in each view and compares the
+definition name: they match, and the widget side is non-empty, so the
+comparison is of something. `QuickTextEditor::configureHighlighter()` does the
+job itself, unconditionally, for any document that has no highlighter of its
+own — which is why the flag is never missed.
+
+**Instrument, don't hypothesise** — again. The read was correct about the
+code and wrong about the behaviour, because it found the branch that reads the
+flag and stopped before finding the code that does not need it. The test is
+kept: it is the assertion that was missing, whatever the answer turned out to
+be.
+
+`setUseGenericHighlighter(true)` stays on the three converted factories. It is
+not dead — control AN put vcpkg back on the widget path and the highlighting
+came from the flag there.
+
+### A moc fact worth the ten minutes it cost
+
+The new test class first landed at the bottom of `vcpkg_test.cpp` and would
+not compile: moc emitted `VcpkgManifestEditorTest` unqualified, having lost
+`namespace Vcpkg::Internal`. Between the file's first test class and the new
+one are `R"(...)"` blocks of JSON test data with unbalanced braces, and
+**moc's namespace tracking does not survive them**. Declaring the class above
+the raw strings fixes it.
+
+The failure names the class, not the raw string, so nothing in the error
+points at the cause.
+
+### Controls
+
+- **AN**: `setUsesQuickEditor(false)` on the vcpkg factory — four reds:
+  "a manifest opened in the widget editor", the button lookup, and *both*
+  censuses ("vcpkg.json opened in the widget editor").
+- **AO**: the settings connection removed from the decoration — red at "the
+  package button stayed off after vcpkg appeared".
+- **AP**: `configureHighlighter()` returning early — both rows of the
+  highlighting test red, which is what says that test has something to check.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 653 passed, 0 failed (was 651) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Vcpkg` | 0 | 15 passed, 0 failed (was 11) |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+`GenericProject` is the last name on entry 53's list that has not moved — its
+factory is a plain `TextEditorFactory` for `.files`/`.includes`/`.config`
+with no widget subclass at all, so it is smaller than this one was. GLSL,
+Java, Nim and the compilation-database editor are the others a sweep turns up;
+each needs the same "does everything this language configures have somewhere
+to go" pass, and none has been given it.
+
+Otherwise unchanged: Markdown (a tool bar design question, then hosting the
+view entry 89 separated out), the whitespace difference (declined, entry 68),
+and printing (entry 31, the owner's).

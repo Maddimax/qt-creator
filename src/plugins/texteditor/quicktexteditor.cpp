@@ -5242,7 +5242,8 @@ private slots:
         QStringList expected{QString(QUICK_TEXT_EDITOR_ID), QString("CppEditor.C++Editor"),
                              QString("Editors.Json"), QString("Qt4.proFileEditor"),
                              QString("CMakeProject.CMakeEditor"),
-                             QString("PythonEditor.PythonEditor")};
+                             QString("PythonEditor.PythonEditor"),
+                             QString("Vcpkg.VcpkgManifestEditor")};
         if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
             expected.removeOne(QString("CppEditor.C++Editor"));
         expected.sort();
@@ -5285,6 +5286,10 @@ private slots:
             // TextEditorWidget; it puts its button in through the editor now,
             // which is what had to be true before this row could change.
             {"devcontainer.json", true},
+            // Its own factory, because of the two buttons a manifest gets -
+            // which are an editor decorator now, so the factory no longer
+            // needs a widget to hang them on.
+            {"vcpkg.json", true},
         };
 
         QStringList wrong;
@@ -9409,6 +9414,58 @@ private slots:
     // file builds a QuickTextEditor and looks inside it; this asks whether the
     // view stands on its own, which is what an editor made of more than one
     // pane would need - Markdown's text beside its preview.
+    void testALanguageWithoutItsOwnHighlighterIsColouredInEitherView_data()
+    {
+        QTest::addColumn<QString>("fileName");
+        QTest::addColumn<QByteArray>("contents");
+        QTest::newRow("CMake") << "CMakeLists.txt" << QByteArray("project(demo)\n");
+        QTest::newRow("JSON") << "settings.json" << QByteArray("{\"a\": 1}\n");
+    }
+
+    void testALanguageWithoutItsOwnHighlighterIsColouredInEitherView()
+    {
+        QFETCH(QString, fileName);
+        QFETCH(QByteArray, contents);
+
+        Utils::TemporaryDirectory dir("generic-highlighting");
+        QVERIFY(dir.isValid());
+
+        const auto definitionIn = [&dir, &fileName, &contents](bool quick, QString *name) {
+            // A directory each rather than a prefixed name: these languages
+            // are matched on the file name, so two views cannot share one.
+            const Utils::FilePath viewDir = dir.filePath(quick ? QString("quick") : QString("widget"));
+            QVERIFY(viewDir.ensureWritableDir());
+            const Utils::FilePath file = viewDir / fileName;
+            QVERIFY(file.writeFileContents(contents));
+
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            QVERIFY(factory);
+            QVERIFY2(factory->useGenericHighlighter(),
+                     "this language does not ask for the generic highlighter");
+            const bool wasQuick = factory->usesQuickEditor();
+            const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+            factory->setUsesQuickEditor(quick);
+
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+            *name = HighlighterHelper::definitionForDocument(document).name();
+        };
+
+        QString widgetDefinition;
+        QString quickDefinition;
+        definitionIn(false, &widgetDefinition);
+        definitionIn(true, &quickDefinition);
+
+        QVERIFY2(!widgetDefinition.isEmpty(),
+                 "the widget editor found no definition either, so this compares nothing");
+        QCOMPARE(quickDefinition, widgetDefinition);
+    }
+
     void testAViewCanBeBuiltWithoutAnEditor()
     {
         // Text that is in no file and no editor.

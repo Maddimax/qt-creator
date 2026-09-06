@@ -28,6 +28,7 @@ public:
 
 #ifdef WITH_TESTS
         addTestCreator(createVcpkgSearchTest);
+        addTestCreator(createVcpkgManifestEditorTest);
 #endif
     }
 

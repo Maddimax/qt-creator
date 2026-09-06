@@ -8,5 +8,6 @@
 namespace Vcpkg::Internal {
 
 QObject *createVcpkgSearchTest();
+QObject *createVcpkgManifestEditorTest();
 
 } // namespace Vcpkg::Internal

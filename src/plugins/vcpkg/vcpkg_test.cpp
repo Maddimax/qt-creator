@@ -3,9 +3,22 @@
 
 #include "vcpkg_test.h"
 
+#include "vcpkgconstants.h"
 #include "vcpkgmanifesteditor.h"
 #include "vcpkgsearch.h"
+#include "vcpkgsettings.h"
 
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+
+#include <texteditor/texteditor.h>
+#include <texteditor/textdocument.h>
+
+#include <utils/algorithm.h>
+#include <utils/temporarydirectory.h>
+
+#include <QAction>
+#include <QScopeGuard>
 #include <QTest>
 
 namespace Vcpkg::Internal {
@@ -25,6 +38,97 @@ private slots:
     void testWhenAPackageCanBeAdded();
     void testTheCMakeCodeAPackageNeeds();
 };
+
+class VcpkgManifestEditorTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testAManifestOpensInTheQuickViewWithItsButtons();
+    void testTheButtonsFollowWhetherVcpkgIsThere();
+
+private:
+    // Opens \a dir/vcpkg.json in whatever factory claims it, and hands back
+    // the actions its tool bar shows. Empty where nothing opened it.
+    static QList<QAction *> toolBarActionsFor(Core::IEditor *editor);
+};
+
+QList<QAction *> VcpkgManifestEditorTest::toolBarActionsFor(Core::IEditor *editor)
+{
+    auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    return document ? document->toolBarActions() : QList<QAction *>();
+}
+
+void VcpkgManifestEditorTest::testAManifestOpensInTheQuickViewWithItsButtons()
+{
+    Utils::TemporaryDirectory dir("vcpkg-manifest");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath manifest = dir.filePath("vcpkg.json");
+    QVERIFY(manifest.writeFileContents("{\n}\n"));
+
+    Core::IEditor * const editor = Core::EditorManager::openEditor(manifest);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+    QCOMPARE(editor->document()->id(), Utils::Id(Constants::VCPKGMANIFEST_EDITOR_ID));
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+             "a manifest opened in the widget editor");
+
+    const QStringList shown
+        = Utils::transform(toolBarActionsFor(editor), [](QAction *a) { return a->text(); });
+    QVERIFY2(Utils::anyOf(shown, [](const QString &t) { return t.contains("vcpkg Package"); }),
+             qPrintable("no package button: " + shown.join(", ")));
+    QVERIFY2(Utils::anyOf(shown, [](const QString &t) { return t.contains("CMake Code"); }),
+             qPrintable("no CMake code button: " + shown.join(", ")));
+}
+
+void VcpkgManifestEditorTest::testTheButtonsFollowWhetherVcpkgIsThere()
+{
+    Utils::TemporaryDirectory dir("vcpkg-root");
+    QVERIFY(dir.isValid());
+
+    VcpkgSettings * const settings = vcpkgSettingsForProject(nullptr);
+    QVERIFY(settings);
+    const Utils::FilePath wasRoot = settings->vcpkgRoot();
+    const QScopeGuard restore([settings, wasRoot] { settings->vcpkgRoot.setValue(wasRoot); });
+
+    // A root with no vcpkg in it, decided before the editor is opened.
+    const Utils::FilePath empty = dir.filePath("empty");
+    QVERIFY(empty.ensureWritableDir());
+    settings->vcpkgRoot.setValue(empty);
+
+    const Utils::FilePath manifest = dir.filePath("vcpkg.json");
+    QVERIFY(manifest.writeFileContents("{\n}\n"));
+    Core::IEditor * const editor = Core::EditorManager::openEditor(manifest);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+    const auto packageButton = [editor] {
+        return Utils::findOrDefault(toolBarActionsFor(editor), [](QAction *a) {
+            return a->text().contains("vcpkg Package");
+        });
+    };
+    QAction * const button = packageButton();
+    QVERIFY(button);
+    QVERIFY2(!button->isEnabled(), "the package button offered itself with no vcpkg to run");
+
+    // And now there is one. The editor is already open, so this is the
+    // settings connection rather than anything read at construction.
+    const Utils::FilePath root = dir.filePath("root");
+    QVERIFY(root.ensureWritableDir());
+    const Utils::FilePath vcpkg = root.pathAppended("vcpkg").withExecutableSuffix();
+    QVERIFY(vcpkg.writeFileContents("#!/bin/sh\n"));
+    QVERIFY(vcpkg.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+    QVERIFY(vcpkg.isExecutableFile());
+    settings->vcpkgRoot.setValue(root);
+
+    QVERIFY2(button->isEnabled(), "the package button stayed off after vcpkg appeared");
+}
+
+QObject *createVcpkgManifestEditorTest()
+{
+    return new VcpkgManifestEditorTest;
+}
 
 using namespace Search;
 
@@ -271,6 +375,7 @@ QObject *createVcpkgSearchTest()
 {
     return new VcpkgSearchTest;
 }
+
 
 } // namespace Vcpkg::Internal
 
