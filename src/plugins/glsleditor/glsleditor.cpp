@@ -379,7 +379,21 @@ public:
     explicit GlslSemantics(TextDocument *document)
         : QObject(document)
         , m_document(document)
+        , m_vulkanAction(new QAction(this))
     {
+        // Checkable, and the tool bar draws it from the action - which is what
+        // lets either kind of view show it. The widget editor used to own a
+        // QToolButton for this and nothing else could see it.
+        m_vulkanAction->setCheckable(true);
+        m_vulkanAction->setChecked(m_vulkanEnabled);
+        m_vulkanAction->setIcon(vulkanIcon.icon());
+        updateVulkanToolTip();
+        connect(m_vulkanAction, &QAction::toggled, this, [this](bool enabled) {
+            setVulkanEnabled(enabled);
+            updateNow();
+        });
+        m_document->addToolBarAction(m_vulkanAction);
+
         m_timer.setInterval(UPDATE_DOCUMENT_DEFAULT_INTERVAL);
         m_timer.setSingleShot(true);
         connect(&m_timer, &QTimer::timeout, this, &GlslSemantics::updateNow);
@@ -394,17 +408,31 @@ public:
 
     // Whether the file may use Vulkan keywords. The editor's tool bar says so;
     // re-reading is the caller's business, which is why this does not do it.
-    void setVulkanEnabled(bool enabled) { m_vulkanEnabled = enabled; }
+    void setVulkanEnabled(bool enabled)
+    {
+        m_vulkanEnabled = enabled;
+        m_vulkanAction->setChecked(enabled);
+        updateVulkanToolTip();
+    }
+
+    QAction *vulkanAction() const { return m_vulkanAction; }
     bool isVulkanEnabled() const { return m_vulkanEnabled; }
 
     Document::Ptr glslDocument() const { return m_glslDocument; }
 
     void scheduleUpdate() { m_timer.start(); }
+
+    void updateVulkanToolTip()
+    {
+        m_vulkanAction->setToolTip(m_vulkanEnabled ? Tr::tr("Vulkan support is enabled.")
+                                                   : Tr::tr("Vulkan support is disabled."));
+    }
     void updateNow();
 
 private:
     TextDocument * const m_document;
     QTimer m_timer;
+    QAction * const m_vulkanAction;
     bool m_vulkanEnabled = true;
     Document::Ptr m_glslDocument;
 };
@@ -457,7 +485,6 @@ private:
     QString wordUnderCursor() const;
 
     QComboBox *m_outlineCombo = nullptr;
-    QToolButton *m_vulkanSupport = nullptr;
 };
 
 GlslEditorWidget::GlslEditorWidget()
@@ -481,27 +508,9 @@ GlslEditorWidget::GlslEditorWidget()
     policy.setHorizontalPolicy(QSizePolicy::Expanding);
     m_outlineCombo->setSizePolicy(policy);
 
-    m_vulkanSupport = new QToolButton;
-    m_vulkanSupport->setCheckable(true);
-    m_vulkanSupport->setChecked(true);
-    m_vulkanSupport->setIcon(vulkanIcon.icon());
-    const auto updateVulkanToolTip = [this] {
-        m_vulkanSupport->setToolTip(
-            m_vulkanSupport->isChecked() ? Tr::tr("Vulkan support is enabled.")
-                                         : Tr::tr("Vulkan support is disabled."));
-    };
-    updateVulkanToolTip();
-
+    // The Vulkan switch is on the document, which is where either kind of
+    // view reads its tool bar from.
     insertExtraToolBarWidget(TextEditorWidget::Left, m_outlineCombo);
-    insertExtraToolBarWidget(TextEditorWidget::Right, m_vulkanSupport);
-
-    connect(m_vulkanSupport, &QToolButton::clicked, this, [this, updateVulkanToolTip] {
-        updateVulkanToolTip();
-        if (GlslSemantics * const semantics = GlslSemantics::of(textDocument())) {
-            semantics->setVulkanEnabled(m_vulkanSupport->isChecked());
-            semantics->updateNow();
-        }
-    });
 }
 
 int GlslEditorWidget::editorRevision() const
@@ -891,6 +900,39 @@ private slots:
         QCOMPARE(reported, int(TextEditor::BaseHoverHandler::Priority_Diagnostic));
         QVERIFY2(!handler.toolTip().isEmpty(),
                  "a shader that does not parse offered no tooltip");
+    }
+
+    // The Vulkan switch was a QToolButton the editor widget owned, so nothing
+    // else could see it. It is a checkable action on the document now, which
+    // is where either kind of view reads its tool bar from.
+    void testTheVulkanSwitchIsAnActionOnTheDocument()
+    {
+        GlslDocument document;
+        document.setMimeType(Utils::Constants::GLSL_FRAG_MIMETYPE);
+        GlslSemantics * const semantics = GlslSemantics::of(&document);
+        QVERIFY(semantics);
+
+        QAction * const vulkan = semantics->vulkanAction();
+        QVERIFY2(vulkan, "the semantics offers no Vulkan action");
+        QVERIFY2(document.toolBarActions().contains(vulkan),
+                 "the Vulkan action is not in what the document offers a tool bar");
+        QVERIFY2(vulkan->isCheckable(), "the Vulkan action cannot be checked");
+        QVERIFY2(vulkan->isChecked(), "Vulkan is off before anyone said so");
+        QVERIFY2(!vulkan->toolTip().isEmpty(), "the action says nothing about itself");
+
+        // Pressing it is what turns Vulkan off, and the parse follows.
+        document.document()->setPlainText("#version 450\nuniform texture2D t;\nvoid main() {}\n");
+        semantics->updateNow();
+        QVERIFY2(document.extraSelections(TextEditorWidget::CodeWarningsSelection).isEmpty(),
+                 "a Vulkan shader was faulted while Vulkan was on");
+
+        const QString onTip = vulkan->toolTip();
+        vulkan->trigger();
+        QVERIFY2(!vulkan->isChecked(), "the action did not come off when triggered");
+        QVERIFY2(!semantics->isVulkanEnabled(), "the flag did not follow the action");
+        QVERIFY2(!document.extraSelections(TextEditorWidget::CodeWarningsSelection).isEmpty(),
+                 "a Vulkan type still parsed after the action turned Vulkan off");
+        QVERIFY2(vulkan->toolTip() != onTip, "the action says the same thing either way");
     }
 
     // What the tool bar's Vulkan switch changes: the keywords the parse

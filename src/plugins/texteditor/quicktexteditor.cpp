@@ -9856,6 +9856,66 @@ private slots:
         QCOMPARE(editor->currentLine(), 30);
     }
 
+    // TextDocument::toolBarActions() calls itself "what a view should ask
+    // for". Only one of the two views was asking: a language that describes
+    // its tool bar on its document was drawn by the Qt Quick view and ignored
+    // by the widget one.
+    void testADocumentsToolBarActionIsDrawnByEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testADocumentsToolBarActionIsDrawnByEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("document-toolbar-action");
+        QVERIFY(dir.isValid());
+        // A .cpp rather than a .txt: plain text is claimed by the Qt Quick
+        // factory directly, so flipping the text editor factory's switch would
+        // not give a widget editor to compare against.
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int main() { return 0; }\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Where each view actually draws from.
+        const auto drawn = [editor, document]() -> QList<QAction *> {
+            if (TextEditorWidget * const w = TextEditorWidget::fromEditor(editor)) {
+                QWidget * const bar = w->toolBar();
+                return bar ? bar->actions() : QList<QAction *>();
+            }
+            return document->toolBarActions();
+        };
+        QAction restart("Start or Restart");
+        QVERIFY2(!drawn().contains(&restart), "the action was there before it was added");
+
+        // On the document, not through insertExtraToolBarActionIn(), which
+        // would put it on the widget and prove nothing.
+        document->addToolBarAction(&restart);
+        QTRY_VERIFY2(drawn().contains(&restart),
+                     "the view draws nothing for an action the document offers");
+
+        // And taking it back takes it out of the row.
+        document->removeToolBarAction(&restart);
+        QTRY_VERIFY2(!drawn().contains(&restart),
+                     "the action stayed in the row after the document dropped it");
+    }
+
     // addOptionalActionsIn() is how a language says what it turned out to be
     // able to do - a language server only knows once it has answered its
     // initialize. It used to reach the Qt Quick editor and nothing else, so an

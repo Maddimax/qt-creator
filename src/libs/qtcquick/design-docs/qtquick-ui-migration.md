@@ -46040,3 +46040,96 @@ is the last thing between GLSL and `setUsesQuickEditor(true)`.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — A document's tool bar row reaches both views (batch 108)
+
+GLSL's Vulkan switch, and the gap that had to close first.
+
+### The gap this closed
+
+`TextDocument::toolBarActions()` describes itself as "what a view should ask
+for". **Only one of the two views was asking.** Nothing in
+`texteditor.cpp` mentioned it, so a language that describes its tool bar on
+its document was drawn by the Qt Quick view and ignored by the widget one.
+
+Nothing was broken by it *yet*, because `insertExtraToolBarActionIn()` prefers
+a widget when there is one - entry 101 found that the hard way - so a document
+only ever collected actions in editors that had no widget. But it made the
+document row a Qt Quick feature by accident, and moving GLSL's button there
+would have deleted it from the editor GLSL actually has.
+
+`TextEditorWidgetPrivate::updateDocumentToolBarActions()` inserts them now and
+follows `toolBarActionsChanged`, keeping its own list so a refresh takes back
+only what it put there.
+
+**This is the shape entry 101 warned about, arriving from the other side**: an
+editor keeps widget behaviour until its pane changes, so anything the Qt Quick
+side gains has to be given to the widget side too, or moving a language across
+loses it.
+
+### GLSL's Vulkan switch
+
+A `QToolButton` the editor widget owned, checkable, with a tooltip that said
+which way it was. It is a checkable `QAction` on `GlslSemantics` - which owns
+the flag it toggles - offered through `document->addToolBarAction()`.
+
+It is the **first production user** of the checkable tool bar action from
+entry 93, which that entry recorded as a seam ahead of its users. It took ten
+batches to get one.
+
+The button was on the right of the row and the action lands on the left, with
+the language's other actions. A document row has no sides; the Qt Quick row
+draws them in one place.
+
+### Controls
+
+- **CF**: `updateDocumentToolBarActions()` returning immediately - red at "the
+  view draws nothing for an action the document offers", on the widget row
+  only, which is the row that is new.
+- **CG**: the Vulkan action never offered to the document - red at "the Vulkan
+  action is not in what the document offers a tool bar".
+
+### A test that started by measuring the wrong thing
+
+The both-views test first used a `notes.txt`, and the widget row failed at
+`QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick)` - plain
+text is claimed by `QuickTextEditorFactory` **directly**, so flipping the
+text editor factory's switch gives no widget editor to compare against. A
+`.cpp` does.
+
+Worth keeping: **`setUsesQuickEditor(false)` is not a way to get a widget
+editor for a file the Qt Quick factory claims by mime type.** The census in
+this file has said so about `notes.txt` since entry 50; a test that wants both
+views has to pick a language with a factory of its own.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 672 passed, 0 failed (was 670) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test GLSLEditor` | 0 | 8 passed, 0 failed (was 7) |
+
+No `.qbs` change: no files added.
+
+### What is left, for GLSL - one thing, and it is the question
+
+| What | State |
+| --- | --- |
+| the parse, diagnostics, semantic ranges | done, entry 105 |
+| completion, the auto-completer | done, entry 106 |
+| the tooltip | done, entry 107 |
+| the Vulkan switch | **done** |
+| the outline `QComboBox` | **the only thing left** |
+
+`GlslEditorWidget` now exists for one widget: a `QComboBox` whose model is
+commented out (`// ### m_outlineCombo->setModel(m_outlineModel);`), so it
+draws an empty box that does nothing.
+
+**The question, stated once more and now blocking:** should it exist? If not,
+deleting it removes `GlslEditorWidget` entirely and the factory says
+`setUsesQuickEditor(true)`. If it should, it needs a model first, and then it
+is the outline seam the Qt Quick row already has (`ToolBarOutline`, entry 98).
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

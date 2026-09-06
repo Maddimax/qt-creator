@@ -768,6 +768,10 @@ public:
     TabSettingsButton *m_tabSettingsButton = nullptr;
     QToolButton *m_fileEncodingButton = nullptr;
     QAction *m_fileEncodingLabelAction = nullptr;
+    // What the document asked for, so that a refresh can take back what it
+    // put there without disturbing anything else in the row.
+    QList<QPointer<QAction>> m_documentToolBarActions;
+    void updateDocumentToolBarActions();
     TextEditorWidgetFind *m_find = nullptr;
 
     QToolButton *m_fileLineEnding = nullptr;
@@ -1428,6 +1432,28 @@ void TextEditorWidgetPrivate::setupScrollBar()
     }
 }
 
+// The actions the document says belong in the tool bar. A language client
+// attaches to one document rather than to a language and puts its button
+// there; so does a language that describes its tool bar rather than building
+// one. TextDocument::toolBarActions() calls itself "what a view should ask
+// for", and this is the widget view asking.
+void TextEditorWidgetPrivate::updateDocumentToolBarActions()
+{
+    for (const QPointer<QAction> &action : std::as_const(m_documentToolBarActions)) {
+        if (action)
+            m_toolBar->removeAction(action);
+    }
+    m_documentToolBarActions.clear();
+
+    if (!m_document)
+        return;
+    const QList<QAction *> actions = m_document->toolBarActions();
+    for (QAction * const action : actions) {
+        q->insertExtraToolBarAction(TextEditorWidget::Left, action);
+        m_documentToolBarActions.append(action);
+    }
+}
+
 void TextEditorWidgetPrivate::setDocument(const QSharedPointer<TextDocument> &doc)
 {
     QSharedPointer<TextDocument> previousDocument = m_document;
@@ -1444,6 +1470,12 @@ void TextEditorWidgetPrivate::setDocument(const QSharedPointer<TextDocument> &do
     auto documentLayout = qobject_cast<TextDocumentLayout *>(
         m_document->document()->documentLayout());
     QTC_CHECK(documentLayout);
+
+    updateDocumentToolBarActions();
+    m_documentConnections << connect(m_document.data(),
+                                     &TextDocument::toolBarActionsChanged,
+                                     this,
+                                     &TextEditorWidgetPrivate::updateDocumentToolBarActions);
 
     m_documentConnections << connect(documentLayout,
                                      &TextDocumentLayout::updateBlock,
