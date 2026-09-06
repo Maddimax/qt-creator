@@ -5655,6 +5655,106 @@ private slots:
                      "the drag went on fetching lines after the button came up");
     }
 
+    // A drag carrying text over the editor is being asked where to put it, and
+    // the widget editor answers by drawing a caret at the drop point and
+    // hiding the one the reader left behind. The Qt Quick view drew nothing at
+    // all, so a drag gave no idea where the text would land.
+    void testADragOverTheEditorShowsWhereItWouldLand()
+    {
+        TemporaryDirectory dir("qtc-viewport-dropcaret");
+        const FilePath file = dir.filePath("target.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 300);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 400; height: 300\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/DropCaretTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        viewport->setReadOnly(false);
+
+        QTextDocument * const text = viewport->textDocument()->document();
+        // The reader's caret on the first line, and the drag over the third:
+        // one caret drawn either way, so where it is drawn is the question.
+        viewport->setCursorPosition(0);
+        const QRectF home = viewport->rectangleAt(0);
+        const int overThird = text->findBlockByNumber(2).position() + 2;
+        const QRectF target = viewport->rectangleAt(overThird);
+        QVERIFY(!home.isNull() && !target.isNull());
+        QVERIFY2(!qFuzzyCompare(home.y() + 1, target.y() + 1),
+                 "the two places are on the same row, so this cannot tell them apart");
+
+        const auto drawnCarets = [viewport] {
+            QList<QPointF> at;
+            const QVariantList rects = viewport->caretRectangles();
+            for (const QVariant &entry : rects)
+                at << entry.toRectF().topLeft();
+            return at;
+        };
+        QCOMPARE(drawnCarets(), QList<QPointF>({home.topLeft()}));
+
+        // A drag arriving and moving over the third line.
+        QMimeData mime;
+        mime.setText("dropped");
+        const QPoint inWindow = view.contentItem()
+                                    ->mapFromItem(viewport, target.center()).toPoint();
+        QDragEnterEvent entering(inWindow, Qt::CopyAction, &mime, Qt::LeftButton, {});
+        QCoreApplication::sendEvent(&view, &entering);
+        QDragMoveEvent moving(inWindow, Qt::CopyAction, &mime, Qt::LeftButton, {});
+        QCoreApplication::sendEvent(&view, &moving);
+
+        QTRY_COMPARE(drawnCarets(), QList<QPointF>({target.topLeft()}));
+
+        // And it follows: a second move puts it on the second line instead.
+        // Two positions rather than one, so that the caret arriving with the
+        // drag and the caret following it are separate claims.
+        const int overSecond = text->findBlockByNumber(1).position() + 2;
+        const QRectF second = viewport->rectangleAt(overSecond);
+        QVERIFY(!second.isNull());
+        QDragMoveEvent movingAgain(view.contentItem()
+                                       ->mapFromItem(viewport, second.center()).toPoint(),
+                                   Qt::CopyAction, &mime, Qt::LeftButton, {});
+        QCoreApplication::sendEvent(&view, &movingAgain);
+        QTRY_COMPARE(drawnCarets(), QList<QPointF>({second.topLeft()}));
+
+        // And when the drag goes away again, the reader's own caret is back.
+        QDragLeaveEvent leaving;
+        QCoreApplication::sendEvent(&view, &leaving);
+        QTRY_COMPARE(drawnCarets(), QList<QPointF>({home.topLeft()}));
+
+        // A drag that ends in a drop rather than by leaving: the drop caret
+        // has to go then too, and a DropArea does not promise an exit after
+        // one. Asserted against wherever the caret ended up rather than
+        // against a position, because the drop moves it - a stuck drop caret
+        // would still be at the point the text landed on, not after it.
+        QDragEnterEvent arriving(inWindow, Qt::CopyAction, &mime, Qt::LeftButton, {});
+        QCoreApplication::sendEvent(&view, &arriving);
+        QDropEvent dropping(inWindow, Qt::CopyAction, &mime, Qt::LeftButton, {});
+        QCoreApplication::sendEvent(&view, &dropping);
+        QTRY_COMPARE(text->toPlainText().contains("dropped"), true);
+        QCOMPARE(drawnCarets(),
+                 QList<QPointF>({viewport->rectangleAt(viewport->cursorPosition()).topLeft()}));
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()

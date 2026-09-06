@@ -609,6 +609,13 @@ public:
     // No matching end: every press sets the anchor before anything reads it,
     // and a drag only extends while the button is down, so there is nothing a
     // stale one could reach - checked, a reset made no difference.
+    // Where a drag hovering over the view would put what it is carrying.
+    // While one is over it that is the only caret drawn: the reader is being
+    // asked where the text lands, and the caret they left behind is not the
+    // answer. The widget editor draws the same thing from its own drop cursor.
+    Q_INVOKABLE void setDropCaretAt(qreal x, qreal y);
+    Q_INVOKABLE void clearDropCaret();
+
     Q_INVOKABLE void beginLineSelection(qreal y);
     Q_INVOKABLE void extendLineSelection(qreal y);
 
@@ -1322,6 +1329,9 @@ private:
     // promises, and the only way to see that the selection also appears below
     // the fold. Kept rather than answered afresh: a drag changes the selection
     // on every mouse move, and the file is searched once a frame at most.
+    // Where a drag over the view would drop, or -1 when none is over it.
+    int m_dropCaretPosition = -1;
+
     // The line a gutter drag began on, or -1 when no such drag is going on.
     int m_lineSelectionAnchor = -1;
 

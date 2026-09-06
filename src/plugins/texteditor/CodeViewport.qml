@@ -366,10 +366,17 @@ Item {
             // Files are opened, not inserted, so a URL is somebody else's to
             // handle and this has to keep its hands off it.
             onEntered: (drag) => {
-                if (drag.hasUrls || !drag.hasText || viewport.readOnly)
+                if (drag.hasUrls || !drag.hasText || viewport.readOnly) {
                     drag.accepted = false
+                    return
+                }
+                viewport.setDropCaretAt(drag.x, drag.y)
             }
+            // Where the text would land, followed while the pointer moves.
+            onPositionChanged: (drag) => viewport.setDropCaretAt(drag.x, drag.y)
+            onExited: viewport.clearDropCaret()
             onDropped: (drop) => {
+                viewport.clearDropCaret()
                 if (drop.hasUrls || !drop.hasText || viewport.readOnly) {
                     drop.accepted = false
                     return

@@ -49287,3 +49287,115 @@ Item 3, and read the QML as well as the C++ this time - which is the lesson at
 the top of this entry. `dropEvent` is the one to start with: dragging a file
 onto an editor, and dragging text between two of them, are gestures rather than
 conditions, and a gesture is what the last two seams have each been hiding.
+
+## 2026-09-07 — A drag with nothing to aim at (batch 140)
+
+Entry 139 said to read the drag-and-drop seam next, and to read the **QML as
+well as the C++** - which is what made the difference here, in both directions.
+
+### What the seam already had
+
+`CodeViewport.qml` has a `DropArea` and a `dragProxy`, and between them they
+cover more than a grep of `textviewport.cpp` would suggest:
+
+| The widget | Here |
+| --- | --- |
+| `dragEnterEvent()` refuses URLs so a dropped **file** opens instead of pasting its path | `onEntered` refuses `drag.hasUrls` |
+| refuses a drop into a read-only view | `viewport.readOnly` in the same check |
+| a move within the same editor takes the text from where it was, once | `droppedOnSelf` and `Drag.onDragFinished` |
+| sets the caret to the drop point before inserting | `dropText()` |
+
+Four conditions, all present. **The one that was missing is not a condition.**
+
+### The gap
+
+`dragMoveEvent()` keeps a second cursor - `m_dndCursor` - at the position under
+the pointer, and the widget paints **that** caret and suppresses the reader's
+own while a drag is over it. Move the pointer and it follows; leave, or drop,
+and it goes.
+
+The `DropArea` had `onEntered` and `onDropped` and nothing in between. **A drag
+over the Qt Quick editor showed nothing at all** - no indication of where the
+text would land, which is the whole question a drag is asking.
+
+`setDropCaretAt()` / `clearDropCaret()` on the viewport, and
+`caretRectangles()` answers with the drop caret alone while one is set. That
+last part is what makes it a three-line change in the QML instead of a new
+delegate: the form already draws whatever that property lists.
+
+### The test drives real drag events
+
+`QTest` has no drag helper for Quick, but a `QQuickWindow` routes
+`QDragEnterEvent`, `QDragMoveEvent`, `QDragLeaveEvent` and `QDropEvent` to its
+`DropArea`s, so `QCoreApplication::sendEvent(&view, &event)` is enough. Worth
+knowing: it means a drop *gesture* is testable here, not just the handler.
+
+Two drag positions rather than one, because "the caret arrives with the drag"
+and "the caret follows the drag" are separate claims - and control FK, which
+removes only `onPositionChanged`, is red on the second and green on the first.
+
+The drop case is asserted against **wherever the caret ended up** rather than
+against a position:
+
+```cpp
+QCOMPARE(drawnCarets(),
+         QList<QPointF>({viewport->rectangleAt(viewport->cursorPosition()).topLeft()}));
+```
+
+which reads as a tautology and is not one: it fails exactly when a drop caret
+is left behind, because then the list is the drop point and the caret has moved
+past the inserted text. Control FM shows it.
+
+### Controls
+
+- **FJ**: `caretRectangles()` no longer preferring the drop caret - red at the
+  first drag position.
+- **FK**: `onPositionChanged` removed - red at the second, green at the first.
+- **FL**: `onExited` removed - red at "the reader's own caret is back".
+- **FM**: `onDropped` no longer clearing it - red at the drop. A `DropArea`
+  does not promise an exit after a drop, so this is its own line and its own
+  control.
+
+Four controls, four different lines of the test.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 701 passed, 0 failed (was 700) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### One difference left in this seam, not closed
+
+The widget's `dropEvent()` asks `canInsertFromMimeData(mime)` - a virtual a
+language's editor can widen, to accept HTML or a format of its own. The QML
+asks `drop.hasText`. Nothing in the tree overrides it today, so there is
+nothing to lose yet; it becomes a gap the moment something does, and the answer
+would be to ask the *document* rather than the view, the way every other seam
+in this document ended up working.
+
+### Where this leaves it
+
+1. **`inputMethodEvent`, `changeEvent`, `event()`** - the handlers still
+   unread.
+2. **The collapsed-fold popup** - a feature, entry 137.
+3. **Middle-click paste** - a feature, unmeasurable on macOS.
+4. **`canInsertFromMimeData`** - above.
+5. **The link press/release handshake** - read, both answers defensible.
+6. **Home on a wrapped line** - entry 133.
+7. **QmlJS's context pane** - a UI decision, entry 114.
+8. **The whitespace drawing difference** - declined, entry 68.
+9. **Printing** - entry 31.
+10. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+Item 1, and `inputMethodEvent` first. It is the one place where the Qt Quick
+side is a **hand-written implementation** rather than a port of conditions -
+the widget inherits `PlainTextEdit`'s - so the comparison is not a list of
+guards but a question of whether composing text, a preedit string and the
+surrounding-text queries behave the same. That is the last seam where the two
+implementations differ in kind rather than in detail, and it is the one a
+reader typing Japanese or Korean would notice first.

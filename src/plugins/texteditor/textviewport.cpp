@@ -2851,6 +2851,13 @@ QRectF TextViewport::cursorRectangle() const
 QVariantList TextViewport::caretRectangles() const
 {
     QVariantList rects;
+    // A drag over the view is being asked where its text goes, so that is the
+    // caret to draw and the only one - which is what the widget editor does
+    // while its drop cursor is set.
+    if (m_dropCaretPosition >= 0) {
+        rects.append(rectangleAt(m_dropCaretPosition));
+        return rects;
+    }
     rects.append(rectangleAt(m_cursorPosition));
     for (const QTextCursor &cursor : m_extraCursors)
         rects.append(rectangleAt(cursor.position()));
@@ -5292,6 +5299,23 @@ void TextViewport::clickMarkColumn(qreal y, Qt::KeyboardModifiers modifiers)
     if (doc->clickMark(line))
         return;
     doc->requestMark(line, modifiers);
+}
+
+void TextViewport::setDropCaretAt(qreal x, qreal y)
+{
+    const int position = positionAt(x, y);
+    if (m_dropCaretPosition == position)
+        return;
+    m_dropCaretPosition = position;
+    emit cursorRectangleChanged();
+}
+
+void TextViewport::clearDropCaret()
+{
+    if (m_dropCaretPosition < 0)
+        return;
+    m_dropCaretPosition = -1;
+    emit cursorRectangleChanged();
 }
 
 void TextViewport::beginLineSelection(qreal y)
