@@ -47775,3 +47775,144 @@ because a duplicate is the one editor nobody opens on purpose - and the
 remaining item on that list is that a duplicate has no `finalizeInitialization`
 equivalent on the Quick side at all. Nothing is known to be missing there
 today; it is simply the next place to look if something is.
+
+## 2026-09-06 — The place entry 127 said to look, looked at (batch 128)
+
+Entry 127 ended by naming the next place to look:
+
+> a duplicate has no `finalizeInitialization` equivalent on the Quick side at
+> all. Nothing is known to be missing there today; it is simply the next place
+> to look if something is.
+
+**Looked. Nothing is missing.** This batch closes no gap, and says so rather
+than finding one to close.
+
+### What the widget copies, and where each of those lives here
+
+`TextEditorWidget::finalizeInitializationAfterDuplication()` is overridden in
+exactly one place - `CppEditorWidget` - and it carries four things from the
+first half to the second:
+
+| The widget copies | On the Qt Quick side |
+| --- | --- |
+| the semantic info, where it is valid | `CppEditorDocument`'s, shared by both halves |
+| the `CodeWarningsSelection` extra selections | `cppeditordocument.cpp` sets them on the **document**; `TextViewport::updateDocumentSelections()` reads them from there on its first polish |
+| the preprocessor button's highlight | widget chrome with no counterpart |
+| the parse-context widget and action | the document's `parseContextModel()`, drawn from `toolBarChoice()` |
+
+Three of the four are document-level here, which is the whole point of pushing
+them down there. **The widget has to copy them because a `TextEditorWidget`
+caches them; a `TextViewport` reads them.** That is a difference in favour of
+the new view, and it is why there is nothing to write.
+
+### The hypothesis a probe killed
+
+The thing that looked wrong, and was not: `configureLanguageServices()` guards
+every line that touches the view on `if (TextViewport * const view = viewport())`,
+and for a *duplicate* it runs from the constructor - where the QML form has
+only just been created. If `viewport()` were null there, a split half would
+silently have no comment definition, no language auto completer and no
+tooltips.
+
+Probed rather than reasoned about, over four languages:
+
+```
+SPLITPROBE main.cpp
+     first = comment=y completer=CppEditor::Internal::CppAutoCompleter
+     copy  = comment=y completer=CppEditor::Internal::CppAutoCompleter
+```
+
+The view exists by then. Same for CMake, GLSL and JSON. **A fix would have
+been written for a bug that is not there**, and the probe cost ten minutes.
+
+### What did land: the first test through the real split path
+
+`EditorManager::split()`, not `duplicate()`. The distinction matters and is the
+reason this is worth a test rather than a note: the editor manager's path also
+emits `editorOpened` for the copy - which is where **C++** hangs its outline,
+its use selections, its Ctrl+U walk and its decl/def link, none of them on the
+factory - and it asks the copy for a tool bar row. Batches 126 and 127 both
+found live defects in duplication and **neither of the tests that found them
+went through this path**.
+
+So: split a real C++ file and the second half is the same editor as the first -
+a Qt Quick view on the same document, at the same caret, with its own outline,
+its own tool bar row, the same contexts, and Rename Symbol enabled.
+
+Also worth recording, because it looks like a counter-example to entry 127:
+**C++ never lost anything to a split**, before 126 or after. Its wiring hangs
+off `EditorManager::editorOpened`, and `EditorManagerPrivate::duplicateEditor()`
+runs `addEditor()`, which emits it. The languages that used the *factory* seams
+were the ones that lost out. A test over C++ is still the right one to have -
+it is the goal language, and it is the half of the split path nothing covered.
+
+### Controls
+
+Five assertions, five controls, each red on its own assertion.
+
+- **DU**: the copy built with an empty language context - red on
+  `second->context() == first->context()`.
+- **DV**: the copy built with `OptionalActions::None` - red at "the split half
+  is not offered a command C++ answers".
+- **DW**: CppEditor's `editorOpened` handler made to skip the *second* editor
+  for a document - red at "the split half has no outline of its own". Skipping
+  it for both would have tripped the first-half guard instead, which is why the
+  control is written that way.
+- **DX**: `restoreState()` made a no-op - red on the caret, which is what says
+  the split lands where the reader was looking.
+- **DY**: `toolBar()` made to bail for the second editor of a document - red at
+  "the split half has no tool bar row". A presence check, but not a vacuous
+  one: `toolBar()` really does return null when `viewport()` is not there yet,
+  and for a copy that is a live ordering question.
+
+The test also has two fixture guards of its own - the first half must have an
+outline and a tool bar row - because every assertion on the second half is
+meaningless if the first never had the thing.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 679 passed, 0 failed (was 678) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+The rest of the TextEditor suite passing *after* a test that splits the window
+is itself the check that the `REMOVE_ALL_SPLITS` cleanup works;
+`closeAllEditors()` does not undo a split.
+
+No production code changed, so there is nothing else to re-run and no `.qbs`
+change.
+
+### Where this leaves it
+
+**Duplication is finished.** Three batches went into it, two found live
+defects, and this one established that the third lead was empty and left a test
+where the guessing had been.
+
+What is left is what has been left for five entries:
+
+1. **QmlJS's context pane** - a UI decision, and the only one on this list that
+   needs somebody to choose rather than to measure.
+2. **The whitespace drawing difference** - declined, entry 68.
+3. **Printing** - open since entry 31.
+4. **The four pinned factories** - each blocked by a caller that casts
+   `createEditor()` to a `BaseTextEditor` subclass.
+
+### What I would do next
+
+Entry 126 proposed deleting `setEditorCreator()`'s remaining reason to exist,
+and that is now the only item on the list that is ordinary work rather than a
+decision or somebody else's. Four callers cast what a factory builds:
+`createPlainTextEditor()`, Designer's form source, VcsBase (twice, editor *and*
+widget), and SCXML. Each could ask the document or the editor interface for
+what it wants - the shape every seam in this document ended up taking - and
+each one converted is one factory that stops being pinned to the widget path.
+
+The two that should probably not move even then - the language client
+inspector's JSON box and the binding editor - want a text box in a dialog, and
+entry 88 asserted the first of those is a widget editor **on purpose**. Fixing
+their casts would still be worth it: it is the cast that pins them, not the
+wanting.
+
+Failing that, the honest answer is that the goal of this document is met and
+the remaining items need a decision from its owner rather than another batch.

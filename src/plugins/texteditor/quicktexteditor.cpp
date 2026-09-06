@@ -6149,6 +6149,85 @@ private slots:
                  "the split half's right-click menu offers nothing of the language's own");
     }
 
+    // Everything asked about a split so far has been asked of duplicate()
+    // directly. The editor manager's own path does more: it emits editorOpened
+    // for the copy - which is where C++ hangs its outline, its use selections
+    // and its Ctrl+U walk - and it asks the copy for a tool bar row. Two
+    // batches running found live defects in duplication, and neither of the
+    // tests that found them went through this path.
+    void testARealSplitOfACppFileIsTheSameEditorTwice()
+    {
+        Utils::TemporaryDirectory dir("real-split");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int alpha;\nint beta;\nint gamma;\n"));
+
+        // A split outlives closeAllEditors(), so the suite would run the rest
+        // of its tests in a split window.
+        const QScopeGuard unsplit([] {
+            if (Core::Command * const cmd
+                = Core::ActionManager::command(Core::Constants::REMOVE_ALL_SPLITS)) {
+                if (QAction * const action = cmd->action())
+                    action->trigger();
+            }
+            Core::EditorManager::closeAllEditors(false);
+        });
+
+        Core::IEditor * const first = Core::EditorManager::openEditor(file);
+        QVERIFY(first);
+        QVERIFY2(!TextEditorWidget::fromEditor(first),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        TextViewport * const firstView = viewportForEditor(first);
+        QVERIFY(firstView);
+        QTRY_VERIFY(firstView->visibleLineCount() > 0);
+        first->gotoLine(3, 4);
+        // The first half has to have what the second is asked for, or this
+        // measures the fixture.
+        QVERIFY2(first->findChild<ToolBarOutline *>(),
+                 "the first half has no outline, so this tests nothing");
+        QVERIFY2(first->toolBar(), "the first half has no tool bar row, so this tests nothing");
+
+        Core::EditorManager::split();
+
+        Core::IEditor *second = nullptr;
+        const QList<Core::IEditor *> all
+            = Core::DocumentModel::editorsForDocument(first->document());
+        for (Core::IEditor * const each : all) {
+            if (each != first)
+                second = each;
+        }
+        QVERIFY2(second, "splitting made no second editor for the document");
+
+        TextViewport * const secondView = viewportForEditor(second);
+        QVERIFY2(secondView, "the split half is not a Qt Quick view");
+        QCOMPARE(second->document(), first->document());
+        // Where the reader was looking, rather than the top of the file.
+        QCOMPARE(secondView->cursorPosition(), firstView->cursorPosition());
+
+        // What the language hung on the copy when the editor manager announced
+        // it, and what the copy was built with.
+        QVERIFY2(second->findChild<ToolBarOutline *>(),
+                 "the split half has no outline of its own");
+        QVERIFY2(second->toolBar(), "the split half has no tool bar row");
+        QCOMPARE(second->context(), first->context());
+
+        // And a command only this language answers, which is the factory's
+        // mask arriving: registered either way, enabled only where the
+        // language said it can answer.
+        Core::Command * const rename = Core::ActionManager::command(Constants::RENAME_SYMBOL);
+        QVERIFY(rename);
+        QAction *renameThere = nullptr;
+        for (const Utils::Id &each : commandContextsOf(second)) {
+            if (QAction * const action = rename->actionForContext(each)) {
+                renameThere = action;
+                break;
+            }
+        }
+        QVERIFY2(renameThere, "Rename Symbol is not registered for the split half at all");
+        QVERIFY2(renameThere->isEnabled(),
+                 "the split half is not offered a command C++ answers");
+    }
+
     void testASplitKeepsWhatTheLanguageAddsToAnEditor_data()
     {
         QTest::addColumn<bool>("quick");
