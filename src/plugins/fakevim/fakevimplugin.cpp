@@ -1439,12 +1439,16 @@ static void setupTest(QString *title, FakeVimHandler **handler, QWidget **edit)
 {
     *title = QString::fromLatin1("test.cpp");
 
-    // FakeVim attaches to a QPlainTextEdit, and the Qt Quick editor is not
-    // one - see editorOpened(). So these tests, which drive a FakeVimHandler
-    // over such a widget, ask for the widget editor rather than opening
-    // whatever the factory offers and finding no handler at all. Whether
-    // FakeVim should work in the Quick editor is a separate question; while
-    // the answer is no, testing it there tests nothing.
+    // These tests take iedit->widget() and drive a FakeVimHandler over it
+    // directly - setupWidget() and handleCommand() below - so the fixture
+    // needs an actual QPlainTextEdit to hand the handler. The widget editor
+    // is asked for on those grounds.
+    //
+    // Not because FakeVim stops at the Qt Quick editor: editorOpened() casts
+    // to TextViewport *first* and wraps it in a ViewportAdapter, and
+    // FakeVimInQuickEditorTest drives Vim over that view in six tests. This
+    // comment used to say the answer was no, which was true before the
+    // adapter existed and has not been since.
     TextEditorFactory * const factory
         = TextEditorFactory::preferredFactoryFor(FilePath::fromString(*title));
     const bool wasQuick = factory && factory->usesQuickEditor();

@@ -40275,3 +40275,84 @@ There is nothing left that a batch can close without either a decision or
 somebody else's bug. That has been true since entry 50 and this entry does not
 change it - it removes the last reason to wonder whether one of those
 failures was ours.
+
+## 2026-09-06 (53) -- One production switch, and a comment that outlived its truth
+
+Entry 52 said there was nothing a batch could close without a decision. Rather
+than write that a third time, this batch went looking with fresh eyes at
+something no entry had asked: **which factories actually turn the Qt Quick
+editor on.**
+
+### The answer is one
+
+    grep setUsesQuickEditor, production code only
+
+    cppeditor/cppeditorplugin.cpp:237
+      setUsesQuickEditor(!qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
+
+**That is the whole of it.** Every other call in the tree - and there are
+fifty-odd - is a test arranging its own fixture. A test already guards this:
+`quicktexteditor.cpp` says "the single production one", and asserts it.
+
+So the migration's scope is exactly what the goal says and no more: C++ opens
+in the Qt Quick view, and Python, CMake, GenericProject and Vcpkg still open
+in the widget editor because their factories never ask. Plain text reaches the
+Quick view through the parent-mime claim, which is why `notes.txt` is expected
+`true` in the language census.
+
+**Converting another language is a new project, not leftover work** - each
+would need the same "does everything this language configures have somewhere
+to go" pass that C++ took fifty entries to finish. Written down so nobody
+reads the empty list as "the other languages were forgotten".
+
+### What that search turned up
+
+One `setUsesQuickEditor(false)` outside a test-looking name, in
+`fakevimplugin.cpp`. It is inside `#ifdef WITH_TESTS`, so FakeVim does not
+force the widget editor on anybody - but its comment said:
+
+> FakeVim attaches to a QPlainTextEdit, and the Qt Quick editor is not one -
+> see editorOpened(). ... Whether FakeVim should work in the Quick editor is a
+> separate question; **while the answer is no**, testing it there tests
+> nothing.
+
+`editorOpened()` casts to `TextEditor::TextViewport` **first** and wraps it in
+a `ViewportAdapter`; `FakeVimInQuickEditorTest` drives Vim over that view in
+six tests, which entry 44 fixed and which pass. **The answer is yes and has
+been for some time.**
+
+The real reason that fixture wants a widget editor is different and is now
+what the comment says: those tests take `iedit->widget()` and drive a
+`FakeVimHandler` over it directly, so they need an actual `QPlainTextEdit` to
+hand it. That is about the fixture, not about what FakeVim supports.
+
+### Negative controls
+
+None available, and the honest reason is that the change is a comment. What
+takes its place: the claim it removed is already contradicted by a test that
+runs - `FakeVimInQuickEditorTest::testFakeVimDrivesTheQuickEditor` - so the
+correction is checkable rather than asserted.
+
+### Verification
+
+    -test TextEditor    589 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+    -test FakeVim       266 passed, 0 failed, 10 skipped, exit 0
+
+One file besides this one, and the change to it is a comment. Two compiler
+warnings in `fakevimplugin.cpp` (a missing `override` at 646, an unused lambda
+capture at 2526) are pre-existing and untouched - a comment cannot introduce
+them.
+
+### What this leaves
+
+Unchanged from entry 52: **the printing decision**, and two suites that are
+not this migration's. This entry adds one thing to the record rather than to
+the list - that the single production switch is the C++ one, and the other
+languages are out of scope by construction rather than by oversight.
+
+Two entries running have now found a **stale comment asserting a gap that is
+not there or a coverage that is** - Print in entry 51, FakeVim here. Both were
+written when they were true. If a third turns up, the pattern is worth a pass
+of its own: this file's claims have been checked repeatedly, and the source's
+have not.
