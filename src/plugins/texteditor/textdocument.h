@@ -306,6 +306,12 @@ public:
     // them together, which is what a view should ask for.
     QList<QAction *> toolBarActions() const;
 
+    // What a right click should offer for *this* document, asked each time the
+    // menu opens. Not the same as the language's ActionManager container: an
+    // entry here may exist only at the moment of the click - the quick fixes
+    // proposed for the cursor it happened at are the case that needs it.
+    virtual QList<QAction *> contextMenuActions() const;
+
     // What Ctrl+click and Follow Symbol do in *this* document, whatever its
     // language's factory offers - which is how a language server, attached to
     // one document rather than to a language, gets to answer them.

@@ -233,6 +233,9 @@ public:
     void print(QPrinter *);
 
     void appendStandardContextMenuActions(QMenu *menu);
+    // What a right click lists, without showing it: the language's container,
+    // what the document offers for this click, and the standard entries.
+    void appendContextMenuActions(QMenu *menu, Utils::Id menuContextId);
 
     uint optionalActions();
     void setOptionalActions(uint optionalActions);

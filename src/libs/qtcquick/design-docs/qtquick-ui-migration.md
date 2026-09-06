@@ -46610,3 +46610,83 @@ No `.qbs` change: no files added.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — A document can put entries in the context menu (batch 115)
+
+Entry 114 named this seam and stopped rather than start it badly. Here it is.
+
+### The gap this closed
+
+Both views build a right-click menu from `ActionManager` containers and
+nothing else - the widget in `showDefaultContextMenu()`, the Qt Quick editor
+in its `contextActions` provider. A container holds what a language
+**registered once**.
+
+QmlJS's Refactoring submenu is not that. It is built at the moment of the
+click, from whatever quick fixes the processor proposes for the cursor it
+happened at. There was nowhere to put an entry that exists only while the menu
+is open.
+
+`TextDocument::contextMenuActions()` is virtual and asked **each time the menu
+opens** - not a stored list like `toolBarActions()`, because the answer is
+allowed to be different every time. Both views ask it, which is entry 108's
+rule applied on purpose this time: anything one view gains has to reach the
+other, or moving a language across loses it.
+
+### The standing rule, applied to a menu
+
+`showDefaultContextMenu()` did two things: work out what the menu lists, then
+show it. The listing is `appendContextMenuActions()` now and the showing is
+three lines. **That is the closure rule this project runs on** - what a thing
+lists is separable from what it does - and it is also what made the widget
+half testable at all: a menu that `exec()`s cannot be inspected.
+
+### The test asks twice
+
+A document that renames its action every time it is asked, and the test checks
+the second answer differs from the first. Without that, the test would pass
+against a stored list, which is exactly the thing this seam exists to not be.
+
+Each row asks the way its own view asks: the widget builds a `QMenu` through
+the new function, the Qt Quick row reads the form's `contextActions` model.
+The first draft asked the *document* directly on the Qt Quick row, which would
+have tested the document and said nothing about the wiring - entry 107's
+lesson, caught this time before the control did.
+
+### Controls
+
+- **CR**: the Qt Quick provider ignoring the document - red on the quick row
+  only.
+- **CS**: the widget's menu ignoring the document - red on the widget row
+  only.
+
+Each reddens exactly its own view, which is what says the two paths are
+independent rather than one calling the other.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed (was 672) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 21 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+The seam has no user yet - entry 93's checkable action waited ten batches for
+one, and this one has a named user waiting rather than a hypothetical:
+
+1. **QmlJS's Refactoring submenu** moves to
+   `QmlJSEditorDocument::contextMenuActions()`. The proposals arrive
+   asynchronously in the general case, and the existing widget code already
+   handles that by filling the submenu after it is shown; an action carrying a
+   `QMenu` behaves the same way, and `ActionModel::MenuRole` draws it.
+2. The outline model index and `jumpToOutlineElement()` - the `ToolBarOutline`
+   seam (entry 98), incomplete for C++ too.
+3. The context pane - measured in entry 114: widget geometry, a decision.
+4. `restoreState()` folding auxiliary data - small.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

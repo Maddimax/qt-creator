@@ -291,6 +291,11 @@ public:
             // The language's own entries first, the way the widget editor puts
             // them before what every text editor offers.
             QList<QAction *> actions = actionsOf(m_contextMenuId);
+            // Then what the document offers for this click. A container holds
+            // what a language registered once; these may exist only while the
+            // menu is open, which is what the quick fixes for a cursor are.
+            if (TextDocument * const doc = m_document.get())
+                actions += doc->contextMenuActions();
             const QList<QAction *> standard = actionsOf(Constants::M_STANDARDCONTEXTMENU);
             for (QAction * const action : standard) {
                 if (!actions.contains(action))
@@ -6823,6 +6828,108 @@ private slots:
         QTRY_VERIFY2(vulkan.isChecked(), "pressing the button did not check the action");
         QTRY_VERIFY2(drawn->property("checked").toBool(),
                      "the action is on but the button is not");
+    }
+
+    // A right click offers what the language registered once - its
+    // ActionManager container - and, since this batch, what the document
+    // offers for *this* click. The second kind cannot live in a container: the
+    // quick fixes proposed for a cursor exist only while the menu is open.
+    void testADocumentsContextMenuActionsAreOfferedByEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testADocumentsContextMenuActionsAreOfferedByEitherView()
+    {
+        QFETCH(bool, quick);
+
+        // A document that proposes something different every time it is asked,
+        // which is the whole point of the seam.
+        class ClickDocument final : public TextDocument
+        {
+        public:
+            ClickDocument()
+                : TextDocument("QuickEditorContextMenuTest")
+                , m_action(new QAction("Fix It", this))
+            {}
+
+            QList<QAction *> contextMenuActions() const final
+            {
+                ++m_timesAsked;
+                m_action->setText(QString("Fix It %1").arg(m_timesAsked));
+                return {m_action};
+            }
+
+            QAction * const m_action;
+            mutable int m_timesAsked = 0;
+        };
+
+        class ClickFactory final : public TextEditorFactory
+        {
+        public:
+            explicit ClickFactory(bool quick)
+            {
+                setId("QuickEditorContextMenuTest");
+                setDisplayName("Context Menu Test");
+                setDocumentCreator([] { return new ClickDocument; });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        ClickFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = static_cast<ClickDocument *>(editor->document());
+        QVERIFY(document);
+
+        // What each view would list, asked the way that view asks - the widget
+        // builds a QMenu, the Qt Quick form reads a model.
+        QtcQuick::ActionModel *model = nullptr;
+        if (quick) {
+            QWidget * const host = editor->widget();
+            QVERIFY(host);
+            auto * const form = host->findChild<QQuickWidget *>();
+            QVERIFY(form);
+            QTRY_VERIFY(form->rootObject());
+            model = form->rootObject()->property("contextActions")
+                        .value<QtcQuick::ActionModel *>();
+            QVERIFY2(model, "the form was given no context actions at all");
+        }
+
+        const auto offered = [&editor, model]() -> QStringList {
+            if (model) {
+                model->refresh();
+                QStringList texts;
+                for (int row = 0; row < model->rowCount({}); ++row) {
+                    texts << model->data(model->index(row, 0),
+                                         QtcQuick::ActionModel::TextRole).toString();
+                }
+                return texts;
+            }
+            TextEditorWidget * const w = TextEditorWidget::fromEditor(editor.get());
+            QMenu menu;
+            w->appendContextMenuActions(&menu, {});
+            return Utils::transform(menu.actions(), [](QAction *a) { return a->text(); });
+        };
+
+        const auto ours = [](const QStringList &texts) {
+            return Utils::filtered(texts,
+                                   [](const QString &t) { return t.startsWith("Fix It"); });
+        };
+
+        const QStringList first = ours(offered());
+        QCOMPARE(first.size(), 1);
+
+        // Asked again and answered again, with a different text: a container
+        // would have given the same entry both times. That is the whole reason
+        // this is a question rather than a stored list.
+        const QStringList second = ours(offered());
+        QCOMPARE(second.size(), 1);
+        QVERIFY2(second.first() != first.first(),
+                 qPrintable("the document was not asked again: " + second.first()));
     }
 
     // What a language wants in the toolbar row. The document says so and the

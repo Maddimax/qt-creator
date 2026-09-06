@@ -7138,12 +7138,24 @@ static void appendMenuActionsFromContext(QMenu *menu, Id menuContextId)
         menu->addAction(action);
 }
 
+void TextEditorWidget::appendContextMenuActions(QMenu *menu, Id menuContextId)
+{
+    if (menuContextId.isValid())
+        appendMenuActionsFromContext(menu, menuContextId);
+    if (TextDocument * const document = textDocument()) {
+        const QList<QAction *> fromDocument = document->contextMenuActions();
+        if (!fromDocument.isEmpty()) {
+            menu->addActions(fromDocument);
+            menu->addSeparator();
+        }
+    }
+    appendStandardContextMenuActions(menu);
+}
+
 void TextEditorWidget::showDefaultContextMenu(QContextMenuEvent *e, Id menuContextId)
 {
     QMenu menu;
-    if (menuContextId.isValid())
-        appendMenuActionsFromContext(&menu, menuContextId);
-    appendStandardContextMenuActions(&menu);
+    appendContextMenuActions(&menu, menuContextId);
     menu.exec(e->globalPos());
 }
 
