@@ -48195,3 +48195,135 @@ views do, does the Qt Quick side guard it with everything the widget guards it
 with? That cannot be automated, but it can be walked - `texteditor.cpp`'s key
 handling and `textviewport.cpp`'s are the same twenty-odd operations side by
 side, and the four found this way so far were all in that file pair.
+
+## 2026-09-06 — Two of the four questions Tab asks (batch 131)
+
+Entry 130 finished with a shape rather than a list: **the widget editor asks
+several questions where the Qt Quick view asks one**, and the place to look is
+the two key handlers side by side. Walked them. The first `case` that differs is
+`Qt::Key_Tab`, and it differs twice.
+
+### What the widget's Tab asks
+
+1. a snippet's holes - `snippetTabOrBacktab()`
+2. **`skipAutoCompletedText`** - step the caret past what was auto-inserted
+3. **`typingSettings().tabShouldIndent()`** - indent the *line* rather than
+   insert one indent's worth
+4. otherwise `indent()` / `unindent()`
+
+The Qt Quick view asked 1 and 4.
+
+### The gaps this batch closed
+
+**Tab did not step over what the view had just inserted.** The preference says
+what it offers in as many words - *"Skip automatically inserted character if
+re-typed manually after completion **or by pressing tab**"* - and typing over
+it was the only half implemented. So typing `f(` in a C++ file gave `f(|)`, and
+Tab **indented between the brackets** instead of stepping out of them. In a
+loop, because closers nest: `{ g(` leaves `)}` pending and one Tab steps out of
+both.
+
+**`tabKeyBehavior` did nothing.** *"Tab key performs auto-indent: Never /
+Always / In Leading White Space."* The Quick view always inserted one indent's
+worth, so the default agreed and **the two other options were dead**. Which is
+why nobody noticed: the preference is `TabNeverIndents` out of the box.
+
+### Measured, not reasoned
+
+Both tests assert what a real `TextEditorWidget` does, key for key, taken from
+a throwaway probe rather than from reading `tabShouldIndent()`:
+
+| behaviour | caret in the leading white space | caret inside the word |
+| --- | --- | --- |
+| Never | `      alpha`, caret 4 | `        be  ta`, caret 22 |
+| Always | `alpha`, caret 0 | `    beta`, caret 16 |
+| In Leading White Space | `alpha`, caret 0 | `        be  ta`, caret 22 |
+
+Two carets are needed because one does not tell the three apart: inside the
+white space, Always and In-Leading-White-Space agree; inside the word, Never
+and In-Leading-White-Space agree. The data table has both.
+
+### The control that did not bite, and what it took to make it
+
+The fix has four moving parts and three controls bit at once. The fourth -
+**EK**, dropping the caret move onto the first non-space before auto-indenting
+- passed with every row green.
+
+It is not a redundant line; the test simply had no input where it shows. Every
+row so far auto-indented a line to a *shallower* indent, so the caret collapsed
+to the same place whether it had been moved first or not. Probed the widget for
+a line whose auto-indent is **deeper** than the white space in front of the
+caret, added those rows, and EK bites: caret 14 where 22 is wanted.
+
+**Third entry running where the first version of an assertion could not fail.**
+The pattern is the same each time and worth stating as a rule: *an assertion
+whose input does not separate the two behaviours is not an assertion.* Finding
+the separating input is the work; the rest is typing.
+
+### A difference found and deliberately not closed
+
+Building that row turned up a **third** disagreement, outside this batch:
+
+| | `        alpha\n  beta`, caret in the two-space indent, plain `indent()` |
+| --- | --- |
+| widget | `     beta` - five spaces |
+| Qt Quick | `   beta` - three |
+
+Both views route that case to `indent()`, so it is not about `tabKeyBehavior`
+at all - it is `TextDocument::indent()` being reached with a different caret,
+or being asked a different question. The row was dropped from this test rather
+than left failing or silently adjusted, because bending an expectation to
+whatever the code does is how the test in entry 130 came to assert a bug.
+**Written down here as the next thing to look at.**
+
+### Controls
+
+- **EH**: the step-over block removed - red at "Tab indented between the
+  brackets".
+- **EI**: `skipAutoCompletedText()` not consulted - red at the case where the
+  preference is off and Tab should indent.
+- **EJ**: `tabShouldIndent()` not consulted - red on exactly the three
+  non-default rows, and green on the three where the default and the fallback
+  agree. That split is what says the data table discriminates.
+- **EK**: the caret move dropped - red on the two rows added for it, after
+  being green on everything else.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 689 passed, 0 failed (was 680) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+1. **`indent()` with the caret inside leading white space** - found above,
+   measured, not closed.
+2. **The rest of the key handler diff.** `Key_Tab` was the first `case` walked
+   and it held two gaps; `Key_Backspace` held one last entry. Neither
+   `Key_Delete`, `Key_Insert`, Home/End, nor the text-insertion path has been
+   read this way yet.
+3. **QmlJS's context pane** - a UI decision.
+4. **The whitespace drawing difference** - declined, entry 68.
+5. **Printing** - open since entry 31.
+6. **The four pinned factories**, and `forceOpenLinksInNextSplit`, which
+   nothing reads.
+
+### What I would do next
+
+Finish the walk. Three of the last four gaps came out of the same file pair,
+and the method now has a shape worth naming, because it is cheap and it keeps
+working:
+
+1. read one `case` in `TextEditorWidget::keyPressEvent`, list every condition
+2. read the same key in `TextViewport`, list every condition
+3. where the lists differ, **probe a real widget** for the answer before
+   writing a line of production code
+4. build the data table from the probe, then make the assertions separate the
+   behaviours
+
+Steps 3 and 4 are the ones that have repeatedly caught me out, in three
+different shapes now: a test asserting the old behaviour (130), an assertion
+that could not fail (129), and a control that could not bite (131).

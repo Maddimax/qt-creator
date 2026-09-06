@@ -264,6 +264,24 @@ static FilePath writeLines(const TemporaryDirectory &dir, const QString &name, i
     return file;
 }
 
+// The base AutoCompleter allows brackets nowhere and inserts nothing - both
+// are what a language's subclass adds. The tests below are about what an
+// editor does once one has, not about which languages do, so they bring the
+// smallest completer that answers "(" with ")".
+class ClosesParentheses final : public AutoCompleter
+{
+public:
+    bool contextAllowsAutoBrackets(const QTextCursor &, const QString &) const final
+    {
+        return true;
+    }
+    QString insertMatchingBrace(const QTextCursor &, const QString &text, QChar, bool,
+                                int *) const final
+    {
+        return text == "(" ? QString(")") : QString();
+    }
+};
+
 // Whatever QML said while a component was alive. A binding loop is a warning
 // and nothing else - the component still builds and still draws - so the only
 // way a test sees one is by listening.
@@ -1794,6 +1812,161 @@ private slots:
     // them apart, so the widget editor asks it only where it knows it inserted
     // something, and only when the reader has not turned that off. This view
     // asked it every time.
+    // "Skip automatically inserted character if re-typed manually after
+    // completion or by pressing tab." Two triggers, and this view had the
+    // first: Tab between the brackets of "f(|)" indented instead of stepping
+    // out of them, which is an indent in the middle of a call.
+    void testTabStepsOverWhatThisViewInserted()
+    {
+        TemporaryDirectory dir("qtc-viewport-tabskip");
+        const FilePath file = dir.filePath("call.txt");
+        QVERIFY(file.writeFileContents("f\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(fixture.hasFocus());
+        viewport->setReadOnly(false);
+        viewport->setAutoCompleter(new ClosesParentheses);
+
+        TextDocument * const doc = viewport->textDocument();
+        QVERIFY(doc);
+        TabSettingsData tabs = doc->tabSettings();
+        tabs.m_indentSize = 4;
+        tabs.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        doc->setTabSettings(tabs);
+        const auto firstLine = [doc] { return doc->document()->firstBlock().text(); };
+
+        QVERIFY2(globalCompletionSettings().skipAutoCompletedText(),
+                 "the preference under test starts turned off");
+
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, '(');
+        QCOMPARE(firstLine(), QString("f()"));
+        QCOMPARE(viewport->cursorPosition(), 2);
+
+        // Out of the brackets, and the text is exactly as it was.
+        QTest::keyClick(&fixture.view, Qt::Key_Tab);
+        QCOMPARE(firstLine(), QString("f()"));
+        QCOMPARE(viewport->cursorPosition(), 3);
+
+        // Once stepped over, it is no longer pending: a second Tab indents,
+        // because there is nothing left to step out of.
+        QTest::keyClick(&fixture.view, Qt::Key_Tab);
+        // One space, not four: an indent goes to the next multiple of the
+        // indent size, and the caret was at column three.
+        QCOMPARE(firstLine(), QString("f() "));
+
+        // And the preference turns the stepping off, leaving the indent.
+        const bool was = globalCompletionSettings().skipAutoCompletedText();
+        const QScopeGuard restore(
+            [was] { globalCompletionSettings().skipAutoCompletedText.setValue(was); });
+        globalCompletionSettings().skipAutoCompletedText.setValue(false);
+
+        QTextCursor all(doc->document());
+        all.select(QTextCursor::Document);
+        all.insertText("f\n");
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, '(');
+        QCOMPARE(firstLine(), QString("f()"));
+        QTest::keyClick(&fixture.view, Qt::Key_Tab);
+        QCOMPARE(firstLine(), QString("f(  )"));
+        QCOMPARE(viewport->cursorPosition(), 4);
+    }
+
+    void testTabFollowsTheTabKeyBehaviourSetting_data()
+    {
+        QTest::addColumn<QString>("before");
+        QTest::addColumn<int>("behavior");
+        QTest::addColumn<int>("caret");
+        QTest::addColumn<QString>("text");
+        QTest::addColumn<int>("caretAfter");
+
+        const QString twoLines = "    alpha\n        beta\n";
+        // A line whose auto-indent is deeper than the white space in front of
+        // the caret, which is the only shape where moving the caret past that
+        // white space first changes where it ends up.
+        const QString shallower = "        alpha\n  beta\n";
+
+        // Measured against a real TextEditorWidget rather than reasoned about:
+        // these are the answers the widget editor gives, key for key.
+        const QString start = "    alpha\n        beta\n";
+        Q_UNUSED(start)
+        // In the leading white space of the first line.
+        QTest::newRow("never, in the indent")
+            << twoLines << int(TypingSettingsData::TabNeverIndents) << 2
+            << QString("      alpha\n        beta\n") << 4;
+        QTest::newRow("always, in the indent")
+            << twoLines << int(TypingSettingsData::TabAlwaysIndents) << 2
+            << QString("alpha\n        beta\n") << 0;
+        QTest::newRow("leading, in the indent")
+            << twoLines << int(TypingSettingsData::TabLeadingWhitespaceIndents) << 2
+            << QString("alpha\n        beta\n") << 0;
+        // Inside the word on the second line, which is what tells Always from
+        // In-Leading-White-Space apart.
+        QTest::newRow("never, in the word")
+            << twoLines << int(TypingSettingsData::TabNeverIndents) << 20
+            << QString("    alpha\n        be  ta\n") << 22;
+        QTest::newRow("always, in the word")
+            << twoLines << int(TypingSettingsData::TabAlwaysIndents) << 20
+            << QString("    alpha\n    beta\n") << 16;
+        QTest::newRow("leading, in the word")
+            << twoLines << int(TypingSettingsData::TabLeadingWhitespaceIndents) << 20
+            << QString("    alpha\n        be  ta\n") << 22;
+        // And where auto-indent makes the line deeper: the caret ends up at
+        // the first non-space rather than adrift in the white space it was in.
+        QTest::newRow("always, shallower line")
+            << shallower << int(TypingSettingsData::TabAlwaysIndents) << 15
+            << QString("        alpha\n        beta\n") << 22;
+        QTest::newRow("leading, shallower line")
+            << shallower << int(TypingSettingsData::TabLeadingWhitespaceIndents) << 15
+            << QString("        alpha\n        beta\n") << 22;
+    }
+
+    // "Tab key performs auto-indent: Never / Always / In Leading White Space."
+    // This view always inserted one indent's worth, so the two settings that
+    // are not the default did nothing at all.
+    void testTabFollowsTheTabKeyBehaviourSetting()
+    {
+        QFETCH(QString, before);
+        QFETCH(int, behavior);
+        QFETCH(int, caret);
+        QFETCH(QString, text);
+        QFETCH(int, caretAfter);
+
+        TemporaryDirectory dir("qtc-viewport-tabbehavior");
+        const FilePath file = dir.filePath("indented.txt");
+        QVERIFY(file.writeFileContents(before.toUtf8()));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        QVERIFY(fixture.hasFocus());
+        viewport->setReadOnly(false);
+
+        TextDocument * const doc = viewport->textDocument();
+        QVERIFY(doc);
+        // Said here rather than taken from the global code style, so that what
+        // one level costs is not a shared setting's to change.
+        TabSettingsData tabs = doc->tabSettings();
+        tabs.m_indentSize = 4;
+        tabs.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        doc->setTabSettings(tabs);
+
+        TypingSettingsData typing = doc->typingSettings();
+        typing.m_tabKeyBehavior = TypingSettingsData::TabKeyBehavior(behavior);
+        doc->setTypingSettings(typing);
+
+        viewport->setCursorPosition(caret);
+        QTest::keyClick(&fixture.view, Qt::Key_Tab);
+        QCOMPARE(doc->document()->toPlainText(), text);
+        QCOMPARE(viewport->cursorPosition(), caretAfter);
+    }
+
     void testBackspaceOnlyTakesAPairThisViewPutIn()
     {
         TemporaryDirectory dir("qtc-viewport-autobackspace");
@@ -1821,23 +1994,6 @@ private slots:
             viewport->setCursorPosition(0);
         };
 
-        // The base AutoCompleter allows brackets nowhere and inserts nothing -
-        // both are what a language's subclass adds. This test is about what
-        // happens once one has, not about which languages do, so it brings the
-        // smallest one that answers "(" with ")".
-        class ClosesParentheses final : public AutoCompleter
-        {
-        public:
-            bool contextAllowsAutoBrackets(const QTextCursor &, const QString &) const final
-            {
-                return true;
-            }
-            QString insertMatchingBrace(const QTextCursor &, const QString &text, QChar, bool,
-                                        int *) const final
-            {
-                return text == "(" ? QString(")") : QString();
-            }
-        };
         viewport->setAutoCompleter(new ClosesParentheses);
 
         // The fixture is only worth anything if brackets are inserted at all.

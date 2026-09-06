@@ -2471,6 +2471,46 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
             event->accept();
             return;
         }
+        // Then over whatever this view inserted and the reader has not typed
+        // over yet. "Skip automatically inserted character if re-typed
+        // manually after completion *or by pressing tab*" is the whole of what
+        // the preference offers, and typing over it was the only half here -
+        // so Tab between the brackets of "f(|)" indented instead of stepping
+        // out of them.
+        //
+        // In a loop, because closers nest: "{ g(" leaves ")}" pending and Tab
+        // steps out of both.
+        if (globalCompletionSettings().skipAutoCompletedText() && m_extraCursors.isEmpty()) {
+            QTextCursor caret = textCursor();
+            bool stepped = false;
+            while (!m_autoCompleted.isNull()
+                   && m_autoCompleted.selectionStart() == caret.position()) {
+                stepped = true;
+                caret.setPosition(m_autoCompleted.selectionEnd());
+                setAutoCompletedRange(0, 0);
+            }
+            if (stepped) {
+                setTextCursor(caret);
+                event->accept();
+                return;
+            }
+        }
+        // And where the reader has asked Tab to indent the line rather than to
+        // insert one indent's worth. Off by default, which is why the two
+        // views agreed until somebody turned it on.
+        if (m_extraCursors.isEmpty() && doc) {
+            QTextCursor caret = textCursor();
+            int suggested = caret.position();
+            if (doc->typingSettings().tabShouldIndent(doc->document(), caret, &suggested)) {
+                if (suggested != caret.position() && !caret.hasSelection()) {
+                    caret.setPosition(suggested);
+                    setTextCursor(caret);
+                }
+                doc->autoIndent(caret);
+                event->accept();
+                return;
+            }
+        }
         // One indent's worth of whatever the tab settings say, and a whole
         // block where something is selected. A literal tab is what a text box
         // types; it is not what a code style asks for.
