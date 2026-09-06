@@ -73,7 +73,11 @@ void findMarkdownLinkAt(TextDocument *document,
                         bool resolveTarget,
                         bool inNextSplit);
 
-class MarkdownEditor : public BaseTextEditor
+// A Core::IEditor rather than a BaseTextEditor: BaseTextEditor answers
+// document(), toolBar() and the rest through TextEditorWidget::fromEditor(),
+// which is the text pane - and this editor is two panes, only one of which is
+// text. What it needed from that base is a handful of one-line answers, below.
+class MarkdownEditor : public Core::IEditor
 {
     Q_OBJECT
 public:
@@ -316,7 +320,7 @@ public:
         });
     }
 
-    BaseTextEditor *duplicate() override
+    Core::IEditor *duplicate() override
     {
         auto other = new MarkdownEditor(m_document);
         other->restoreState(saveState());
@@ -430,6 +434,20 @@ public:
         m_textEditorWidget->toolBar()->insertAction(m_swapViews, leftAction);
         m_textEditorWidget->toolBar()->insertAction(m_swapViews, rightAction);
     }
+
+    Core::IDocument *document() const override { return m_document.data(); }
+
+    QWidget *toolBar() override { return m_textEditorWidget->toolBarWidget(); }
+
+    int currentLine() const override { return m_textEditorWidget->textCursor().blockNumber() + 1; }
+
+    int currentColumn() const override
+    {
+        const QTextCursor cursor = m_textEditorWidget->textCursor();
+        return cursor.position() - cursor.block().position() + 1;
+    }
+
+    QString selectedText() const override { return m_textEditorWidget->selectedText(); }
 
     void gotoLine(int line, int column, bool centerLine) override
     {
@@ -584,12 +602,12 @@ private:
     Utils::MarkdownBrowser *m_previewWidget;
     TextEditorWidget *m_textEditorWidget;
     TextDocumentPtr m_document;
+    QByteArray m_savedNavigationState;
     QList<QAction *> m_markDownActions;
     QAction *m_toggleEditorVisible;
     QAction *m_togglePreviewVisible;
     QAction *m_swapViews;
     std::optional<QPoint> m_previewRestoreScrollPosition;
-    QByteArray m_savedNavigationState;
     MirroredHighlight m_editorHighlight;
     MirroredHighlight m_previewHighlight;
     bool m_blockMirrorHighlights = false;
@@ -735,6 +753,53 @@ private slots:
     // The tool bar used to be seven QToolButtons handed to
     // insertExtraToolBarWidget(), which a view that is not a widget has
     // nowhere to put. It is seven QActions now.
+    // BaseTextEditor answers document(), toolBar(), currentLine() and the
+    // rest through TextEditorWidget::fromEditor() - the text pane. This editor
+    // is two panes and answers for itself, so that the text one can be
+    // replaced without the editor going with it.
+    void testTheEditorAnswersWithoutBeingAWidgetEditor()
+    {
+        Utils::TemporaryDirectory dir("markdown-editor-shape");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("doc.md");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        QVERIFY2(!qobject_cast<BaseTextEditor *>(editor),
+                 "the Markdown editor is a BaseTextEditor again");
+
+        // The text pane is still found through the aggregate, which is how
+        // everything outside this file reaches it and does not care what the
+        // editor is.
+        TextEditorWidget * const text = TextEditorWidget::fromEditor(editor);
+        QVERIFY2(text, "the text pane is no longer reachable from the editor");
+
+        QCOMPARE(editor->document(), text->textDocument());
+        QVERIFY2(editor->toolBar(), "the editor offers no toolbar row");
+
+        // Where the caret is, which BaseTextEditor used to answer.
+        QTextCursor cursor(text->document());
+        cursor.setPosition(text->document()->findBlockByNumber(1).position() + 2);
+        text->setTextCursor(cursor);
+        QCOMPARE(editor->currentLine(), 2);
+        QCOMPARE(editor->currentColumn(), 3);
+
+        // And the state it saves puts the caret back, which is what the
+        // navigation history and reopening both ride on.
+        const QByteArray state = editor->saveState();
+        QTextCursor elsewhere(text->document());
+        elsewhere.setPosition(0);
+        text->setTextCursor(elsewhere);
+        QCOMPARE(editor->currentLine(), 1);
+        editor->restoreState(state);
+        QCOMPARE(editor->currentLine(), 2);
+        QCOMPARE(editor->currentColumn(), 3);
+    }
+
     void testTheToolBarIsDescribedByActions()
     {
         Utils::TemporaryDirectory dir("markdown-toolbar");

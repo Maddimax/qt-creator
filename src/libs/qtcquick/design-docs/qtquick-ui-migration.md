@@ -45222,3 +45222,107 @@ blocks it.
 Unchanged elsewhere: GLSL (entry 93's table, with entry 97's correction to
 it, plus the question about its empty outline combo), the whitespace
 difference (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — MarkdownEditor stops being a BaseTextEditor (batch 99)
+
+Entry 98 said the swap was one batch. It is one batch *after* this one: the
+structural half and the substitution half are separable, and doing them
+together would mean changing what the editor is and what it draws in the same
+commit, with nothing but the end state to check either against.
+
+So this batch does the structural half with **behaviour held constant** - the
+text pane is still a `TextEditorWidget`, and every test that passed before
+passes after.
+
+### The gap this closed
+
+`BaseTextEditor` answers `document()`, `toolBar()`, `currentLine()`,
+`currentColumn()` and `selectedText()` through
+`TextEditorWidget::fromEditor()` - that is, through the **text pane**. An
+editor that is two panes, only one of which is text, cannot have its identity
+tied to one of them: replacing the text pane would take the editor's answers
+with it.
+
+`MarkdownEditor` is a `Core::IEditor` now and answers for itself. The five
+answers are one line each; the interface is that small.
+
+    Core::IDocument *document() const override { return m_document.data(); }
+    QWidget *toolBar() override { return m_textEditorWidget->toolBarWidget(); }
+    ...
+
+`duplicate()` returns `Core::IEditor *` rather than `BaseTextEditor *`.
+
+**Nothing outside this file changed**, and the reason is worth recording:
+`TextEditorWidget::fromEditor()` is `Aggregation::query<TextEditorWidget>(
+editor->widget())` and contains no cast to `BaseTextEditor`. Everything that
+reaches Markdown's text pane goes through the aggregate the constructor
+builds, and that is untouched by what the editor derives from.
+
+### Entry 96 got one thing wrong about this file
+
+It said `MarkdownEditor` "forwards three signals from its `TextEditorWidget`"
+to `BaseTextEditor`'s navigation-history slots, and that it would have to
+write its own after a swap.
+
+It already had. `saveCurrentStateForNavigationHistory()`,
+`addSavedStateToNavigationHistory()` and `addCurrentStateToNavigationHistory()`
+have been members of `MarkdownEditor` all along, shadowing the base's. I found
+out by adding them and getting "class member cannot be redeclared" four times
+over.
+
+The compiler caught it in seconds, which is the point: **the reading was wrong
+and the build said so immediately.** An item on a remaining-work list is worth
+exactly the check that was done on it, and that one had none.
+
+### The test
+
+`testTheEditorAnswersWithoutBeingAWidgetEditor` asserts the editor is not a
+`BaseTextEditor`, that the text pane is still reachable through the aggregate,
+that `document()` is the pane's document, that `currentLine()` and
+`currentColumn()` report where the caret is, and that `saveState()` /
+`restoreState()` put it back - the last being what the navigation history and
+reopening both ride on, and the answers this batch newly had to write.
+
+### Controls
+
+- **BK**: `currentColumn()` without its `+ 1` - red at the column comparison.
+- **BM**: the base class put back to `BaseTextEditor` - **does not compile**,
+  because `duplicate()`'s return type is no longer covariant. Recorded as
+  what it is: the structural assertion in the test is a guard against someone
+  re-deriving deliberately, and the compiler stops the accident.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 665 passed, 0 failed (was 664) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown - the substitution, and one missing export
+
+Replace `m_textEditorWidget` with `createQuickTextView()` plus
+`createQuickTextToolBar()`. Every call site has a `TextViewport` twin, and the
+pieces are all tested standing alone (entries 89, 96, 97, 98).
+
+**One seam is still missing**: `createQuickTextView()` takes a `CodeSource`,
+and the one that points at a document somebody else already owns -
+`AdoptedSource` - is file-local to `quicktexteditor.cpp`. `CodeBuffer` holds
+its own text and `CodeDocument` opens a file; neither is what an editor whose
+document the editor manager opened needs. That has to be exported first, and
+it is three lines.
+
+Two things will change in the substitution and should not be discovered then:
+
+- Markdown's highlighting comes from `setupGenericHighlighter()` on the
+  widget. The document-level twin is `HighlighterHelper::setDefinitionOn()`;
+  the *bare view* configures nothing itself, unlike `QuickTextEditor`, which
+  does it in `configureHighlighter()`.
+- The italic "i" and bold "b" lose their font. Entry 95 kept it by styling the
+  widget tool bar's button; a Qt Quick row draws the action, and this is where
+  that deferred question comes due.
+
+Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
+the question about its empty outline combo), the whitespace difference
+(declined, entry 68), and printing (entry 31, the owner's).
