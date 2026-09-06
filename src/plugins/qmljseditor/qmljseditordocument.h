@@ -36,6 +36,11 @@ public:
 
     TextEditor::IAssistProvider *quickFixAssistProvider() const override;
 
+    // The Refactoring submenu a right click offers, built from the quick fixes
+    // proposed at \a cursor. The editor widget builds its own menu and never
+    // asks for this; a view that is not one has no other way to get it.
+    QList<QAction *> contextMenuActions(const QTextCursor &cursor) override;
+
     // What this language proposes, which is a question about the file rather
     // than about the view showing it - and which is what a view that is not a
     // widget asks. Completion only: a quick fix still needs the widget it is
@@ -57,6 +62,10 @@ protected:
     void triggerPendingUpdates() override;
 
 private:
+    // The one Refactoring action, refilled per click. A QAction does not own
+    // the menu it carries, so this owns both.
+    QAction *m_refactoringAction = nullptr;
+
     // The parse errors, as extra selections on this document. It used to be a
     // signal the editor widget answered, which left a QML file open in any
     // other view underlining nothing.

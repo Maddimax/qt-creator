@@ -46782,3 +46782,84 @@ No `.qbs` change: no files added.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — QmlJS's Refactoring menu, and the question entry 116 left (batch 117)
+
+Entry 116 stopped with a question written down: why does the quick fix
+processor yield nothing where `findQmlJSQuickFixes()` yields operations? This
+batch answered it by measuring, and the answer was **not** in either place the
+question pointed at.
+
+### The answer
+
+`matchSplitInitializerQuickFix()` - and every other matcher - reads:
+
+    const int pos = interface->currentFile()->cursor().position();
+
+**The position comes from the refactoring file, not from the interface.** And
+`RefactoringFile::cursor()`, for a file built from a document rather than a
+widget, returns "the caret in whichever view is showing it".
+
+So the interface was right, the semantic info was right, the refactoring file
+was right - and the fixes were being asked about **position 0**, because the
+test built its own `QTextCursor` and never moved the editor's caret. The
+production path was never broken: a real right click puts the caret where it
+happened, which is the cursor the provider then passes.
+
+Two wrong guesses on the way, both recorded because each cost a build:
+
+- **Entry 116's guess** - "the provider's processor path differs from the one
+  the passing test drives". It does not; `perform()` calls
+  `findQmlJSQuickFixes()` directly.
+- **This batch's first guess** - `semanticInfo().document` being null while
+  `isSemanticInfoOutdated()` is already false. That **is** true and the working
+  test waits for both, so the guard is right and now says why; but it was not
+  what made the menu empty.
+
+**Two guesses, one probe.** The probe printed the interface, the semantic
+document, the refactoring file and the fix count in one line and settled it:
+
+    PROBE iface 0x... semanticDoc true currentFile true pos 28 fixes 0
+
+Everything valid, zero fixes - which pointed at what `findQmlJSQuickFixes`
+reads rather than at what it was given.
+
+### The gap this closed
+
+`QmlJSEditorDocument::contextMenuActions()` offers one Refactoring action
+carrying a `QMenu`, refilled per click from the quick fix processor. It is the
+first user of entry 115's seam, and it is what a QML file in a view that is
+not a widget needs to be offered a refactoring at all.
+
+The widget keeps its own `contextMenuEvent()`, which never calls
+`showDefaultContextMenu()` - so nothing is offered twice and the widget menu's
+ordering, with the submenu at its marked insertion point, is untouched.
+
+### Controls
+
+- **CV**: the document offering nothing - red at the entry count.
+- **CW**: the Refactoring entry never enabled - red at "was left disabled with
+  entries in it", so the test checks the state a menu actually shows and not
+  only the contents.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 22 passed, 0 failed (was 21) |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+| What | Size |
+| --- | --- |
+| the outline model index, `jumpToOutlineElement()` | the `ToolBarOutline` seam (entry 98); incomplete for C++ too |
+| the context pane, `showTextMarker()` | measured in entry 114: widget geometry, a decision |
+| `restoreState()` folding auxiliary data | small |
+| `updateUses()` | stays with the view (entry 111) |
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

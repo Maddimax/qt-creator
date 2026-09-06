@@ -31,7 +31,13 @@
 #include "qmljseditorplugin.h"
 #include "qmljseditortr.h"
 #include "qmljshighlighter.h"
+#include "qmljsquickfix.h"
 #include "qmljsquickfixassist.h" // required to resolve type of Internal::quickFixAssistProvider()
+#include <texteditor/codeassist/assistproposalitem.h>
+#include <texteditor/codeassist/genericproposalmodel.h>
+#include <texteditor/codeassist/iassistprocessor.h>
+#include <texteditor/codeassist/iassistproposal.h>
+#include <texteditor/quickfix.h>
 #include "qmljssemantichighlighter.h"
 #include "qmljssemanticinfoupdater.h"
 #include "qmljstextmark.h"
@@ -865,6 +871,65 @@ void QmlJSEditorDocument::updateCodeWarnings(QmlJS::Document::Ptr doc)
     setExtraSelections(TextEditor::TextEditorWidget::CodeWarningsSelection, selections);
 }
 
+QList<QAction *> QmlJSEditorDocument::contextMenuActions(const QTextCursor &cursor)
+{
+    // Nowhere in particular is not a place; and a parse that is out of date -
+    // or one that has not produced a document yet - proposes nothing. The
+    // second half is easy to miss: isSemanticInfoOutdated() goes false before
+    // semanticInfo().document is filled in, and the quick fixes need that
+    // document.
+    if (cursor.isNull() || isSemanticInfoOutdated() || semanticInfo().document.isNull())
+        return {};
+
+    if (!m_refactoringAction) {
+        m_refactoringAction = new QAction(Tr::tr("Refactoring"), this);
+        auto * const menu = new QMenu;
+        m_refactoringAction->setMenu(menu);
+        // A QAction does not own the menu it carries.
+        connect(this, &QObject::destroyed, menu, [menu] { delete menu; });
+    }
+    QMenu * const menu = m_refactoringAction->menu();
+    menu->clear();
+    m_refactoringAction->setEnabled(false);
+
+    std::unique_ptr<TextEditor::AssistInterface> interface
+        = createAssistInterface(cursor, TextEditor::QuickFix,
+                                TextEditor::ExplicitlyInvoked, nullptr);
+    if (!interface)
+        return {m_refactoringAction};
+
+    TextEditor::IAssistProcessor * const processor
+        = quickFixAssistProvider()->createProcessor(interface.get());
+    QAction * const action = m_refactoringAction;
+    const auto fill = [menu = QPointer(menu), action = QPointer(action), processor](
+                          TextEditor::IAssistProposal *proposal) {
+        const QScopedPointer<TextEditor::IAssistProposal> holdProposal(proposal);
+        const QScopedPointer<TextEditor::IAssistProcessor> holdProcessor(processor);
+        if (!menu || !proposal)
+            return;
+        const auto model = proposal->model().staticCast<TextEditor::GenericProposalModel>();
+        for (int index = 0; index < model->size(); ++index) {
+            auto * const item
+                = static_cast<const TextEditor::AssistProposalItem *>(model->proposalItem(index));
+            const TextEditor::QuickFixOperation::Ptr operation
+                = item->data().value<TextEditor::QuickFixOperation::Ptr>();
+            QAction * const entry = menu->addAction(operation->description());
+            connect(entry, &QAction::triggered, menu, [operation] { operation->perform(); });
+        }
+        if (action)
+            action->setEnabled(!menu->isEmpty());
+    };
+
+    // Answered on the spot where the language can, and later where it cannot -
+    // the menu is already open by then, which is what a QMenu copes with.
+    if (TextEditor::IAssistProposal * const proposal = processor->start(std::move(interface)))
+        fill(proposal);
+    else
+        processor->setAsyncCompletionAvailableHandler(fill);
+
+    return {m_refactoringAction};
+}
+
 std::unique_ptr<TextEditor::AssistInterface> QmlJSEditorDocument::createAssistInterface(
     const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
     Core::IEditor *editor) const
@@ -890,6 +955,63 @@ class QmlJSEditorDocumentTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // A right click in a QML file offers Refactoring, whose entries are the
+    // quick fixes proposed at that place. They cannot live in an ActionManager
+    // container, so the document offers them.
+    void testTheRefactoringMenuComesFromTheDocument()
+    {
+        Utils::TemporaryDirectory dir("qmljs-refactoring-menu");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Test.qml");
+        // The shape QmlJSQuickFixTest uses for Split Initializer, so there is
+        // known to be something to offer.
+        QVERIFY(file.writeFileContents(
+            "import QtQuick\nItem {\n    Item { x: 10; y: 20; width: 10 }\n}\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Both halves: isSemanticInfoOutdated() goes false before the document
+        // is filled in, and the quick fixes need that document.
+        QTRY_VERIFY2(!document->isSemanticInfoOutdated()
+                         && !document->semanticInfo().document.isNull(),
+                     "the parse never produced a document");
+
+        QTextCursor cursor(document->document());
+        // On the inner "Item", where Split Initializer applies.
+        cursor.setPosition(document->plainText().indexOf("Item { x:") + 2);
+        // Where the reader is, not just what is asked about: a quick fix reads
+        // the position from its refactoring file, which is the caret of
+        // whichever view shows the document.
+        TextEditor::setTextCursorOf(editor, cursor);
+
+        const QList<QAction *> offered = document->contextMenuActions(cursor);
+        QCOMPARE(offered.size(), 1);
+        QAction * const refactoring = offered.first();
+        QVERIFY2(refactoring->menu(), "the Refactoring entry carries no menu");
+        QTRY_VERIFY2(!refactoring->menu()->isEmpty(),
+                     "no quick fix was offered where one applies");
+        QVERIFY2(refactoring->isEnabled(),
+                 "the Refactoring entry was left disabled with entries in it");
+        const QStringList entries = Utils::transform(refactoring->menu()->actions(),
+                                                     [](QAction *a) { return a->text(); });
+        QVERIFY2(entries.contains("Split Initializer"), qPrintable(entries.join(", ")));
+
+        // Asked where nothing applies, the menu is empty - so the assertion
+        // above is about this cursor rather than about the file.
+        QTextCursor atImport(document->document());
+        atImport.setPosition(2);
+        TextEditor::setTextCursorOf(editor, atImport);
+        const QList<QAction *> nothing = document->contextMenuActions(atImport);
+        QCOMPARE(nothing.size(), 1);
+        QVERIFY2(nothing.first()->menu()->isEmpty(),
+                 "a quick fix was offered on the import line");
+    }
+
     // The QML entries a right click offers. QmlJSEditorWidget names its
     // container in contextMenuEvent(), which a view that is not a widget
     // cannot do - it reads the one the factory names instead.
