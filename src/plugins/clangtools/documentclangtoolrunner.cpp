@@ -88,11 +88,11 @@ void DocumentClangToolRunner::hideDiagnostics()
         TaskHub::removeTask(t);
 }
 
-static void removeClangToolRefactorMarkers(TextEditor::TextEditorWidget *editor)
+static void removeClangToolRefactorMarkers(Core::IEditor *editor)
 {
     if (!editor)
         return;
-    editor->clearRefactorMarkers(Constants::CLANG_TOOL_FIXIT_AVAILABLE_MARKER_ID);
+    TextEditor::setRefactorMarkersIn(editor, Constants::CLANG_TOOL_FIXIT_AVAILABLE_MARKER_ID, {});
 }
 
 void DocumentClangToolRunner::scheduleRun()
@@ -101,7 +101,7 @@ void DocumentClangToolRunner::scheduleRun()
         mark->disable();
     hideDiagnostics();
     m_tasks.clear();
-    for (TextEditor::TextEditorWidget *editor : std::as_const(m_editorsWithMarkers))
+    for (Core::IEditor * const editor : std::as_const(m_editorsWithMarkers))
         removeClangToolRefactorMarkers(editor);
     m_runTimer.start();
 }
@@ -313,12 +313,12 @@ void DocumentClangToolRunner::onDone(const AnalyzeOutputData &output)
         m_marks << mark;
     }
 
-    for (auto editor : TextEditor::BaseTextEditor::textEditorsForDocument(m_document)) {
-        if (TextEditor::TextEditorWidget *widget = editor->editorWidget()) {
-            widget->setRefactorMarkers(markers, Constants::CLANG_TOOL_FIXIT_AVAILABLE_MARKER_ID);
-            if (!m_editorsWithMarkers.contains(widget))
-                m_editorsWithMarkers << widget;
-        }
+    for (Core::IEditor * const editor : Core::DocumentModel::editorsForDocument(m_document)) {
+        TextEditor::setRefactorMarkersIn(editor,
+                                         Constants::CLANG_TOOL_FIXIT_AVAILABLE_MARKER_ID,
+                                         markers);
+        if (!m_editorsWithMarkers.contains(editor))
+            m_editorsWithMarkers << editor;
     }
 }
 
@@ -349,3 +349,82 @@ bool DocumentClangToolRunner::isSuppressed(const Diagnostic &diagnostic) const
 }
 
 } // namespace ClangTools::Internal
+
+#ifdef WITH_TESTS
+
+#include <texteditor/texteditor.h>
+
+#include <QTest>
+
+namespace ClangTools::Internal {
+
+class DocumentClangToolRunnerTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testAFixItIsOfferedInAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("clangtools-fixit-marker");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("int one = 1;\nint two = 2;\nint three = 3;\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        DocumentClangToolRunner runner(document);
+        QVERIFY(document->refactorMarkers(Constants::CLANG_TOOL_FIXIT_AVAILABLE_MARKER_ID)
+                    .isEmpty());
+
+        // What clang-tidy hands back when it has a fix for the second line: a
+        // diagnostic whose explaining step is the fix itself. Without one no
+        // marker is offered, which is the tool's own rule and not this one's.
+        ExplainingStep fix;
+        fix.isFixIt = true;
+        fix.message = "use the other thing";
+        Diagnostic diagnostic;
+        diagnostic.name = "modernize-something";
+        diagnostic.description = "This could be written better";
+        diagnostic.type = "warning";
+        diagnostic.location = Link(file, 2, 0);
+        diagnostic.explainingSteps = {fix};
+        diagnostic.hasFixits = true;
+
+        AnalyzeOutputData output;
+        output.success = true;
+        output.fileToAnalyze = file;
+        output.toolType = CppEditor::ClangToolType::Tidy;
+        output.diagnostics = {diagnostic};
+        runner.onDone(output);
+
+        const TextEditor::RefactorMarkers markers
+            = document->refactorMarkers(Constants::CLANG_TOOL_FIXIT_AVAILABLE_MARKER_ID);
+        QCOMPARE(markers.size(), 1);
+        QCOMPARE(markers.first().cursor.blockNumber(), 1);
+        QCOMPARE(markers.first().tooltip, QString("This could be written better"));
+    }
+};
+
+QObject *createDocumentClangToolRunnerTest()
+{
+    return new DocumentClangToolRunnerTest;
+}
+
+} // ClangTools::Internal
+
+#include "documentclangtoolrunner.moc"
+
+#endif // WITH_TESTS

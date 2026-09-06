@@ -377,12 +377,13 @@ void Manager::gotoLocations(const QList<QVariant> &list)
     if (locations.size() > 1) {
         // The symbol has multiple locations. Check if we are already at one location,
         // and if so, cycle to the "next" one
-        if (auto textEditor = TextEditor::BaseTextEditor::currentTextEditor()) {
+        if (Core::IEditor * const editor = Core::EditorManager::currentEditor()) {
             // check if current cursor position is a known location of the symbol
-            const FilePath filePath = textEditor->document()->filePath();
-            int line;
-            int column;
-            textEditor->convertPosition(textEditor->position(), &line, &column);
+            const FilePath filePath = editor->document()->filePath();
+            const QTextCursor cursor = TextEditor::textCursorOf(editor);
+            int line = 0;
+            int column = 0;
+            Utils::Text::convertPosition(cursor.document(), cursor.position(), &line, &column);
             const SymbolLocation current(filePath, line, column + 1);
             if (auto it = locations.constFind(current), end = locations.constEnd(); it != end) {
                 // we already are at the symbol, cycle to next location
@@ -437,3 +438,71 @@ void setupClassViewManager()
 }
 
 } // ClassView::Internal
+
+#ifdef WITH_TESTS
+
+#include <texteditor/texteditor.h>
+
+#include <utils/temporarydirectory.h>
+
+#include <QTest>
+
+namespace ClassView::Internal {
+
+class ClassViewLocationTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheSecondClickCyclesInAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("classview-cycle");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\nfour\nfive\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+
+        // Two places the same symbol is known at - a declaration and a
+        // definition, as far as the Class View is concerned.
+        const QList<QVariant> both{QVariant::fromValue(SymbolLocation(file, 2, 1)),
+                                   QVariant::fromValue(SymbolLocation(file, 4, 1))};
+
+        // The first click goes to one of them, whichever the set hands back
+        // first.
+        Manager::instance()->gotoLocations(both);
+        const int first = editor->currentLine();
+        QVERIFY2(first == 2 || first == 4, qPrintable(QString::number(first)));
+
+        // The second goes to the *other* one, which is the whole point of
+        // cycling and needs the caret to be read back out of the view.
+        Manager::instance()->gotoLocations(both);
+        QCOMPARE(editor->currentLine(), first == 2 ? 4 : 2);
+
+        // And a third comes back round.
+        Manager::instance()->gotoLocations(both);
+        QCOMPARE(editor->currentLine(), first);
+    }
+};
+
+QObject *createClassViewLocationTest()
+{
+    return new ClassViewLocationTest;
+}
+
+} // ClassView::Internal
+
+#include "classviewmanager.moc"
+
+#endif // WITH_TESTS

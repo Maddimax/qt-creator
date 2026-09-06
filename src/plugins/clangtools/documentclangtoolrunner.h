@@ -15,6 +15,8 @@
 #include <QObject>
 #include <QTimer>
 
+namespace Core { class IEditor; }
+
 namespace TextEditor {
 class TextDocument;
 class TextEditorWidget;
@@ -39,6 +41,10 @@ private:
     void run();
 
     void onDone(const AnalyzeOutputData &output);
+
+#ifdef WITH_TESTS
+    friend class DocumentClangToolRunnerTest;
+#endif
     void finalize();
 
     bool isSuppressed(const Diagnostic &diagnostic) const;
@@ -50,10 +56,14 @@ private:
     QList<ProjectExplorer::Task> m_tasks;
     FileInfo m_fileInfo;
     QMetaObject::Connection m_projectSettingsUpdate;
-    QList<QPointer<TextEditor::TextEditorWidget>> m_editorsWithMarkers;
+    QList<QPointer<Core::IEditor>> m_editorsWithMarkers;
     SuppressedDiagnosticsList m_suppressed;
     Utils::FilePath m_lastProjectDirectory;
     QtTaskTree::QSingleTaskTreeRunner m_taskTreeRunner;
 };
+
+#ifdef WITH_TESTS
+QObject *createDocumentClangToolRunnerTest();
+#endif
 
 } // namespace ClangTools::Internal

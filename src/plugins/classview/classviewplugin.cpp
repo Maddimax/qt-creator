@@ -27,6 +27,10 @@ class ClassViewPlugin final : public ExtensionSystem::IPlugin
     {
         setupClassViewNavigationWidgetFactory();
         setupClassViewManager();
+
+#ifdef WITH_TESTS
+        addTestCreator(createClassViewLocationTest);
+#endif
     }
 };
 

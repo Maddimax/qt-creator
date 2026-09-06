@@ -200,13 +200,12 @@ static void updateParserConfig(ClangdClient *client)
 {
     if (!client->reachable())
         return;
-    if (const auto editor = TextEditor::BaseTextEditor::currentTextEditor()) {
-        if (!client->documentOpen(editor->textDocument()))
-            return;
-        const FilePath filePath = editor->textDocument()->filePath();
-        if (const auto processor = ClangEditorDocumentProcessor::get(filePath))
-            client->updateParserConfig(filePath, processor->parserConfig());
-    }
+    TextEditor::TextDocument * const document = TextEditor::TextDocument::currentTextDocument();
+    if (!document || !client->documentOpen(document))
+        return;
+    const FilePath filePath = document->filePath();
+    if (const auto processor = ClangEditorDocumentProcessor::get(filePath))
+        client->updateParserConfig(filePath, processor->parserConfig());
 }
 
 static bool projectIsParsing(const ClangdClient *client)

@@ -44,4 +44,8 @@ private:
 
 void setupClassViewManager();
 
+#ifdef WITH_TESTS
+QObject *createClassViewLocationTest();
+#endif
+
 } // ClassView::Internal

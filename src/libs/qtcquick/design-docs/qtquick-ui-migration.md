@@ -41285,3 +41285,129 @@ comparing both ways are the ones that serve the languages that turn out to
 have moved without anyone deciding it - LanguageClient first.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — The scan with the right pattern: 88, not 20 (batch 61)
+
+Entry 60 asked for exactly this: re-run the widget-only scan tree-wide with
+`textEditorWidgetsForDocument` in the pattern. Doing it properly meant asking
+what *else* the pattern had been missing.
+
+### The pattern was wrong twice over
+
+Entries 54 to 59 grepped two spellings. There are at least eight, and the two
+that matter most were never in it:
+
+    43  ->editorWidget()                    <- never scanned
+    17  TextEditorWidget::fromEditor(
+    16  qobject_cast<BaseTextEditor *>      <- never scanned
+     4  qobject_cast<TextEditorWidget *>
+     4  BaseTextEditor::currentTextEditor()
+     2  textEditorsForDocument(             <- entry 60 added the widget variant
+     1  currentTextEditorWidget()
+     1  textEditorWidgetsForDocument(
+    ---
+    88  in 41 files (was "20 in 13 files")
+
+`qobject_cast<BaseTextEditor *>` is the one to remember. **A Quick editor is a
+`QuickTextEditor`, not a `BaseTextEditor`**, so that cast fails for every file
+in the Qt Quick view - and it reads like an ordinary downcast, not like a
+widget question. `BaseTextEditor::currentTextEditor()` is the same cast with a
+friendlier name.
+
+Six entries of triage used a pattern that could not see either.
+
+### Three live defects, all C++, all found in the first pass
+
+**clang-tidy and clazy fix-its** - `documentclangtoolrunner.cpp`:
+
+```cpp
+for (auto editor : TextEditor::BaseTextEditor::textEditorsForDocument(m_document)) {
+    if (TextEditor::TextEditorWidget *widget = editor->editorWidget())
+        widget->setRefactorMarkers(markers, ...FIXIT_AVAILABLE_MARKER_ID);
+}
+```
+
+The same defect as batch 60's, in a second plugin, reached by a different
+spelling. A C++ file in the Qt Quick editor was offered **no clang-tidy fix-it
+markers at all**. `setRefactorMarkersIn()` again, and `m_editorsWithMarkers`
+becomes `QPointer<Core::IEditor>`.
+
+**clangd's parser config** - `clangmodelmanagersupport.cpp`.
+`updateParserConfig()` asked `BaseTextEditor::currentTextEditor()` for the
+current file and returned when it was null, so clangd was never told the
+current file's parser configuration. That is the parse-context chooser -
+which project part a header is being parsed as - and `cppeditorplugin.cpp`'s
+own comment lists it among the things that "are reachable without being that
+widget now". It was not.
+
+**Class View, cycling between a symbol's locations** -
+`classviewmanager.cpp`. Clicking a symbol with a declaration and a definition
+is supposed to alternate between them: the code compares the caret against the
+known locations, and asked `currentTextEditor()` for the caret. Null in the
+Quick view, so it never matched, so **every click went to the same location**.
+
+### Not defects, confirmed by reading
+
+`highlighterhelper.cpp`, `cpprefactoringchanges.cpp` and `suggestionhost.cpp`
+all match the pattern and are all correct dispatches with the viewport branch
+already written, two of them with a comment saying why. `debuggertooltipmanager.cpp`
+re-activates the editor window when the pointer leaves a pinned tooltip; in
+the Quick view it is a no-op rather than a crash, and it is cosmetic.
+
+### Controls — three, all biting
+
+- **I**: `BaseTextEditor::currentTextEditor()` restored in Class View - red,
+  and red in the informative shape: the second click reports line 4 where 2
+  was expected, i.e. it stayed where it was instead of cycling.
+- **J**: the widget-only delivery restored in clangtools - red,
+  `markers.size()` 0 against 1.
+- Both tests carry the vacuity guard, and the Class View one asserts three
+  clicks (there, back, and round again) rather than one, so a fix that merely
+  moved the caret once would not pass.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 594 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test ClassView` | 0 | 3 passed, 0 failed (the plugin had no tests at all) |
+| `-test ClangTools` | 11 | 63 passed, **11 failed**, 3 skipped |
+| `-test ClangCodeModel` | 43 | 429 passed, **43 failed** |
+
+**Both failing suites fail identically without this batch**, measured the way
+entry 58 arrived at: park the work as a commit, restore `src/` from `HEAD~1`,
+rebuild everything, re-run. Baseline ClangTools 60 passed / 11 failed - the
+three extra passes here are the new test class - and ClangCodeModel 429 / 43,
+unchanged in both columns. They need project files and a working clangd.
+
+### The honest gap in this batch
+
+`updateParserConfig()` is **fixed but untested**: asserting it needs a running
+clangd with an open document, which is what the 43 pre-existing
+ClangCodeModel failures are about on this machine. The other two are tested
+with biting controls. Stated here rather than left for someone to assume from
+the commit.
+
+No `.qbs` change: no files added.
+
+### What is left, and it is smaller than 88
+
+Of the 88, this batch read the ones reachable with a C++ file current and
+fixed all three that were broken. The rest divides into: correct dispatches
+(most of the `editorWidget()` count is QmlDesigner and lspinspector calling it
+on a widget editor they made themselves), test code, and languages that are
+still in the widget editor.
+
+**Suggested next: finish reading the 88.** This batch read maybe a third of
+them - the ones the count made most suspicious - and found three defects in
+that third. The remaining two thirds have never been read with the right
+question, and the base rate so far says roughly one defect per ten sites
+read. That is worth the hour.
+
+After that, the comparison evidence entry 60 asked for. Note that ClangTools
+and ClangCodeModel cannot supply it on this machine until their project and
+clangd failures are dealt with, which is a separate problem and not this
+migration's.
+
+The printing decision (keep / drop / move) remains the owner's call.

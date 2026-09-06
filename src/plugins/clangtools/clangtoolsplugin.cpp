@@ -201,6 +201,7 @@ private:
 
 #ifdef WITH_TESTS
         addTestCreator(createInlineSuppressedDiagnosticsTest);
+        addTestCreator(createDocumentClangToolRunnerTest);
         addTestCreator(createTidyOptionsDialogTest);
         addTestCreator(createFilterDialogTest);
         addTest<PreconfiguredSessionTests>();
