@@ -45895,3 +45895,77 @@ smaller than it sounds: the answer may simply be to delete it.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — GLSL's completion moves off the editor widget too (batch 106)
+
+Two more rows of entry 93's table, and no new seam needed for either - both
+already existed and GLSL simply was not using them.
+
+### The gap this closed
+
+**`createAssistInterface()`** was an override on `GlslEditorWidget`, so a
+shader open in anything else got the plain text proposals. `TextDocument`
+declares it virtual for exactly this, and it is what `TextViewport` asks
+(`textviewport.cpp:423`). So the answer was a `GlslDocument` - a
+`TextDocument` subclass that builds the `GlslCompletionAssistInterface` from
+the `GlslSemantics` entry 105 put on it, and delegates every other kind to the
+base.
+
+**The auto-completer** was `setAutoCompleter(new GlslCompleter)` in the
+widget's constructor. It is `setAutoCompleterCreator()` on the factory, which
+is the one place either kind of view reads it from.
+
+The factory's document creator makes a `GlslDocument` now, which is also where
+`GlslSemantics` is attached - so the two live together rather than one being
+bolted on by a lambda.
+
+### Three tests, and one of them exists because of a rule
+
+`testCompletionIsAnsweredByTheDocument` builds a document with no editor
+anywhere, parses it, and asks it for a completion interface: it is the GLSL
+one, it carries the same parse `GlslSemantics` holds, and **a different kind
+is still the base's answer** - so the override took over completion rather
+than everything.
+
+`testTheAutoCompleterComesFromTheFactory` exists because moving one line from
+a constructor to a factory is the kind of change that is obviously right and
+silently wrong. It opens a `.frag` and checks the widget got a `GlslCompleter`
+rather than the plain one. Control CC removes the factory line and it goes
+red.
+
+That is the standard from entry 93 applied on purpose rather than after being
+caught: **if no control can reach a line, either cover it or do not claim it
+works.**
+
+### Controls
+
+- **CB**: `GlslDocument::createAssistInterface()` delegating everything to the
+  base - red at "the document answered with the plain text interface".
+- **CC**: `setAutoCompleterCreator()` removed from the factory - red at "the
+  shader was given the plain text auto-completer".
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 670 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test GLSLEditor` | 0 | 6 passed, 0 failed (was 4) |
+
+No `.qbs` change: no files added.
+
+### What is left, for GLSL
+
+| What | State |
+| --- | --- |
+| the parse, diagnostics, semantic ranges | done, entry 105 |
+| completion, the auto-completer | **done** |
+| `onTooltipRequested` | asks the document already; needs a home that is not a widget |
+| the checkable Vulkan button | a checkable `QAction` - entries 93 and 103 made both halves |
+| the outline `QComboBox` | **ask first**: its model is commented out, so it draws an empty box |
+
+The widget is down to three things, two of them ordinary. Then the factory can
+say `setUsesQuickEditor(true)` and GLSL joins the census.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

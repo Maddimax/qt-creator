@@ -48,6 +48,9 @@
 #include <QTreeView>
 
 #ifdef WITH_TESTS
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
 #include <QTest>
 #endif
 
@@ -406,6 +409,39 @@ private:
     Document::Ptr m_glslDocument;
 };
 
+// The document answers what its language proposes. TextDocument declares this
+// virtual for exactly that, and it is what the Qt Quick view asks - so putting
+// it here rather than on the editor widget is what lets a shader be completed
+// in a view that is not one.
+class GlslDocument final : public TextDocument
+{
+public:
+    GlslDocument()
+        : TextDocument(Constants::C_GLSLEDITOR_ID)
+    {
+        // What the file means, kept with the file rather than with an editor:
+        // two editors on one shader parse it once between them, and a view
+        // that is not a widget gets it too.
+        new GlslSemantics(this);
+    }
+
+    std::unique_ptr<AssistInterface> createAssistInterface(
+        const QTextCursor &cursor, AssistKind kind, AssistReason reason,
+        Core::IEditor *editor) const final
+    {
+        if (kind != Completion)
+            return TextDocument::createAssistInterface(cursor, kind, reason, editor);
+
+        GlslSemantics * const semantics = GlslSemantics::of(const_cast<GlslDocument *>(this));
+        return std::make_unique<GlslCompletionAssistInterface>(
+            cursor,
+            filePath(),
+            reason,
+            mimeType(),
+            semantics ? semantics->glslDocument() : Document::Ptr());
+    }
+};
+
 class GlslEditorWidget : public TextEditorWidget
 {
 public:
@@ -415,9 +451,6 @@ public:
     bool isOutdated() const;
 
     QSet<QString> identifiers() const;
-
-    std::unique_ptr<AssistInterface> createAssistInterface(AssistKind assistKind,
-                                                           AssistReason reason) const override;
 
 private:
     void setSelectedElements();
@@ -430,8 +463,6 @@ private:
 
 GlslEditorWidget::GlslEditorWidget()
 {
-    setAutoCompleter(new GlslCompleter);
-
     m_outlineCombo = new QComboBox;
     m_outlineCombo->setMinimumContentsLength(22);
 
@@ -685,21 +716,6 @@ int languageVariant(const QString &type)
     return variant;
 }
 
-std::unique_ptr<AssistInterface> GlslEditorWidget::createAssistInterface(
-    AssistKind kind, AssistReason reason) const
-{
-    if (kind != Completion)
-        return TextEditorWidget::createAssistInterface(kind, reason);
-
-    GlslSemantics * const semantics = GlslSemantics::of(textDocument());
-    return std::make_unique<GlslCompletionAssistInterface>(
-        textCursor(),
-        textDocument()->filePath(),
-        reason,
-        textDocument()->mimeType(),
-        semantics ? semantics->glslDocument() : Document::Ptr());
-}
-
 #ifdef WITH_TESTS
 
 class GlslEditorTest final : public QObject
@@ -733,6 +749,64 @@ private slots:
 
         // No editor was opened anywhere in this test.
         QVERIFY(Core::EditorManager::visibleEditors().isEmpty());
+    }
+
+    // Completion used to be answered by the editor widget, so a shader open
+    // in anything else got the plain text proposals. The document answers now,
+    // and it is the document the Qt Quick view asks.
+    void testCompletionIsAnsweredByTheDocument()
+    {
+        GlslDocument document;
+        document.setMimeType(Utils::Constants::GLSL_FRAG_MIMETYPE);
+        document.document()->setPlainText("#version 450\nvoid main() { gl_FragC }\n");
+        GlslSemantics * const semantics = GlslSemantics::of(&document);
+        QVERIFY(semantics);
+        semantics->updateNow();
+        QVERIFY2(semantics->glslDocument(), "the shader was never parsed");
+
+        QTextCursor cursor(document.document());
+        cursor.setPosition(document.plainText().indexOf("gl_FragC") + 8);
+
+        const std::unique_ptr<AssistInterface> interface
+            = document.createAssistInterface(cursor, Completion, ExplicitlyInvoked, nullptr);
+        QVERIFY2(interface, "the document proposes nothing at all");
+        auto * const glsl = dynamic_cast<GlslCompletionAssistInterface *>(interface.get());
+        QVERIFY2(glsl, "the document answered with the plain text interface");
+
+        // Carrying the parse is the whole point: without it the proposals are
+        // the words in the file rather than the language's.
+        QVERIFY2(glsl->glslDocument(), "the interface carries no parse");
+        QCOMPARE(glsl->glslDocument(), semantics->glslDocument());
+        QCOMPARE(glsl->mimeType(), QString(Utils::Constants::GLSL_FRAG_MIMETYPE));
+
+        // And a different kind is still the base's answer, so this did not
+        // take over everything.
+        const std::unique_ptr<AssistInterface> quickFix
+            = document.createAssistInterface(cursor, QuickFix, ExplicitlyInvoked, nullptr);
+        QVERIFY(quickFix);
+        QVERIFY2(!dynamic_cast<GlslCompletionAssistInterface *>(quickFix.get()),
+                 "a quick fix was answered with the completion interface");
+    }
+
+    // The auto-completer used to be the widget's, made in its constructor.
+    // The factory makes it now, which is the one place either kind of view
+    // reads it from.
+    void testTheAutoCompleterComesFromTheFactory()
+    {
+        Utils::TemporaryDirectory dir("glsl-completer");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("shader.frag");
+        QVERIFY(file.writeFileContents("void main() {}\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "nothing opened a .frag file");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        QVERIFY2(widget, "a shader no longer opens in a widget editor");
+        QVERIFY2(dynamic_cast<GlslCompleter *>(widget->autoCompleter()),
+                 "the shader was given the plain text auto-completer");
     }
 
     // What the tool bar's Vulkan switch changes: the keywords the parse
@@ -789,14 +863,8 @@ public:
         addMimeType(Utils::Constants::GLSL_TESS_MIMETYPE);
         addMimeType(Utils::Constants::GLSL_GEOM_MIMETYPE);
 
-        setDocumentCreator([]() {
-            auto * const document = new TextDocument(Constants::C_GLSLEDITOR_ID);
-            // What the file means, kept with the file rather than with an
-            // editor: two editors on one shader parse it once between them,
-            // and a view that is not a widget gets it too.
-            new GlslSemantics(document);
-            return document;
-        });
+        setDocumentCreator([] { return new GlslDocument; });
+        setAutoCompleterCreator([] { return new GlslCompleter; });
         setEditorWidgetCreator([]() { return new GlslEditorWidget; });
         setIndenterCreator(&createGlslIndenter);
         setSyntaxHighlighterCreator(&createGlslHighlighter);
