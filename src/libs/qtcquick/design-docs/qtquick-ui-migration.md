@@ -47025,3 +47025,81 @@ For **QmlJS**:
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — QmlJS hands over an outline (batch 120)
+
+Entry 119 corrected the note this batch started from: the Qt Quick tool bar
+row **does** draw a language's outline when the editor has one -
+`QuickTextEditor::toolBar()` looks for it with `findChild<ToolBarOutline *>()`.
+QmlJS never handed one over.
+
+### The gap this closed
+
+`QmlJSOutline` is a `ToolBarOutline`: its model is the document's
+`QmlOutlineModel`, its current index is the innermost element covering the
+caret, and activating a row jumps there through the editor rather than through
+a widget. The factory's editor decorator parents one to every editor that has
+a relay - that is, every view that is not a widget.
+
+The widget keeps its combo box; nothing about it changed.
+
+Placed **above** nothing conditional, deliberately: entry 119 is what a
+`return` in the middle of that block costs.
+
+### What the test could not reach, and why it says less than it wanted to
+
+The test this batch wanted asserts the row *names a different element* as the
+caret moves between two. It cannot run: in a Qt Quick QML editor the semantic
+info never becomes current inside `QTRY`'s timeout, so there is no outline
+content to check.
+
+Chased far enough to rule things out and no further:
+
+- `QmlJSEditorDocumentPrivate::onDocumentUpdated()` has **no view dependency** -
+  it guards on the file path and the revision only.
+- The reparse is driven by `contentsChanged` on the `QTextDocument`, which a
+  Qt Quick view raises like any other.
+- `ModelManagerInterface::activateScan()` is called from
+  `QmlJSEditorWidget`'s constructor, which looked like the answer. **Moving it
+  to the document did not fix the symptom, so it was reverted** - a change made
+  while chasing something, that does not fix it, is not evidence about
+  anything and does not belong in the commit.
+
+So the test asserts the **wiring** instead: a Qt Quick QML editor has a
+`ToolBarOutline`, and its model is the document's own. That is entry 107's
+lesson, and it is honestly less than the behaviour.
+
+**Written down as the next question**: why does a QML file parse for a widget
+editor and not for a Qt Quick one in this suite? It is either a real gap - a
+Qt Quick QML editor showing no outline content, no semantic warnings and no
+quick fixes - or a test-harness artefact. Nothing here distinguishes them yet,
+and saying which would need the measurement.
+
+### Controls
+
+- **DB**: no outline handed over - red at "the editor has no outline for the
+  toolbar row to draw".
+- **DC**: the outline's model returning null - red at "the outline has no model
+  to draw", so the test checks that it is drawable and not merely present.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 24 passed, 0 failed (was 23) |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+1. **The parse question above.** It is the first thing to answer, because if a
+   Qt Quick QML editor really does not parse then several of the last five
+   batches are wired to something that never fires.
+2. The context pane - measured in entry 114: a decision, and the last one.
+
+`updateUses()` stays with the view (entry 111).
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

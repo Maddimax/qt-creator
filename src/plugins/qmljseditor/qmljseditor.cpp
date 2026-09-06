@@ -1110,6 +1110,78 @@ bool QmlJSEditor::isDesignModePreferred() const
 // QmlJSEditorFactory
 //
 
+// Which element the caret is in, for the tool bar row to draw. The editor
+// widget fills a combo box of its own; a view that is not one is handed this
+// and draws it itself, the way CppEditorOutline is.
+class QmlJSOutline final : public TextEditor::ToolBarOutline
+{
+public:
+    QmlJSOutline(Core::IEditor *editor, QmlJSEditorDocument *document)
+        : ToolBarOutline(editor)
+        , m_editor(editor)
+        , m_document(document)
+    {}
+
+    QAbstractItemModel *model() const override { return m_document->outlineModel(); }
+    QModelIndex currentIndex() const override { return m_current; }
+
+    QString currentText() const override
+    {
+        return m_current.isValid() ? m_current.data().toString() : QString();
+    }
+
+    void activate(const QModelIndex &index) override
+    {
+        const SourceLocation location = m_document->outlineModel()->sourceLocation(index);
+        if (!location.isValid())
+            return;
+
+        // The reader asked to be taken somewhere, so Go Back returns here.
+        EditorManager::cutForwardNavigationHistory();
+        EditorManager::addCurrentPositionToNavigationHistory();
+
+        QTextCursor cursor(m_document->document());
+        cursor.setPosition(location.offset);
+        TextEditor::setTextCursorOf(m_editor, cursor);
+    }
+
+    // Where the caret is now. Called when it moves and when the parse that
+    // the model is built from is replaced.
+    void updateIndex()
+    {
+        if (!m_document->outlineModel()->document())
+            return;
+        const QModelIndex index = indexAt(TextEditor::textCursorOf(m_editor).position(), {});
+        if (index == m_current)
+            return;
+        m_current = index;
+        emit currentIndexChanged();
+    }
+
+private:
+    // The innermost element covering \a position, which is what the row names.
+    QModelIndex indexAt(int position, const QModelIndex &root) const
+    {
+        Internal::QmlOutlineModel * const model = m_document->outlineModel();
+        QModelIndex last = root;
+        const int rows = model->rowCount(root);
+        for (int row = 0; row < rows; ++row) {
+            const QModelIndex child = model->index(row, 0, root);
+            const SourceLocation location = model->sourceLocation(child);
+            if (position >= int(location.offset)
+                && position <= int(location.offset + location.length)) {
+                last = child;
+                break;
+            }
+        }
+        return last == root ? root : indexAt(position, last);
+    }
+
+    Core::IEditor * const m_editor;
+    QmlJSEditorDocument * const m_document;
+    QModelIndex m_current;
+};
+
 QmlJSEditorFactory::QmlJSEditorFactory()
     : QmlJSEditorFactory(Constants::C_QMLJSEDITOR_ID)
 {}
@@ -1134,8 +1206,20 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
     setEditorDecorator([](Core::IEditor *editor) {
         TextEditor::SymbolRequests * const requests
             = TextEditor::symbolRequestsForEditor(editor);
+        // No relay means a widget editor, which owns all of this itself.
         if (!requests)
             return;
+
+        // Which element the caret is in, which is what the tool bar row says.
+        // Not below anything conditional: entry 119 is what that costs.
+        if (auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document())) {
+            auto * const outline = new QmlJSOutline(editor, document);
+            outline->setParent(editor);
+            QObject::connect(editor, &Core::IEditor::cursorPositionChanged, outline,
+                             [outline] { outline->updateIndex(); });
+            QObject::connect(document, &QmlJSEditorDocument::semanticInfoUpdated, outline,
+                             [outline] { outline->updateIndex(); });
+        }
         auto * const findReferences = new FindReferences(editor);
         QObject::connect(requests, &TextEditor::SymbolRequests::requestUsages, editor,
                 [editor, findReferences](const QTextCursor &cursor) {

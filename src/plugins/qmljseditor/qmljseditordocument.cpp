@@ -990,6 +990,40 @@ class QmlJSEditorDocumentTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The tool bar row draws whichever element the caret is in, and it finds
+    // it with findChild<ToolBarOutline *>() on the editor. The editor widget
+    // fills a combo of its own; a view that is not one is handed this.
+    void testAQuickQmlEditorIsGivenAnOutline()
+    {
+        Utils::TemporaryDirectory dir("qmljs-outline");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Outline.qml");
+        QVERIFY(file.writeFileContents(
+            "import QtQuick\nItem {\n    Rectangle { id: box }\n}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the QML file opened in a widget editor, so this tests nothing");
+
+        auto * const outline = editor->findChild<TextEditor::ToolBarOutline *>();
+        QVERIFY2(outline, "the editor has no outline for the toolbar row to draw");
+        QVERIFY2(outline->model(), "the outline has no model to draw");
+        // The document's own model, not one of its own making.
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(outline->model(), document->outlineModel());
+    }
+
     // The block the QML designer writes at the end of a file is folded when
     // the file is opened fresh. That was the editor widget's restoreState()
     // override, so a QML file open in anything else showed it unfolded.
