@@ -9085,6 +9085,9 @@ private slots:
         QTest::newRow("python") << "m.py" << "def f():\n    x = 1\n";
         QTest::newRow("json") << "m.json" << "{\n    \"a\": 1\n}\n";
         QTest::newRow("qmake project") << "m.pro" << "TEMPLATE = app\n    SOURCES = a.cpp\n";
+        // Recognised by its name rather than its suffix, which is why each
+        // view gets a directory of its own below instead of a prefix.
+        QTest::newRow("cmake") << "CMakeLists.txt" << "project(x)\n    set(A 1)\n";
     }
 
     void testMovingALanguageWouldChangeNothing()
@@ -9096,7 +9099,13 @@ private slots:
         QVERIFY(dir.isValid());
 
         const auto edited = [&dir, &name, &start](bool quick, QString *out) {
-            const Utils::FilePath file = dir.filePath((quick ? "q_" : "w_") + name);
+            // A directory per view rather than a prefix on the file: a name
+            // like CMakeLists.txt is matched whole, and "w_CMakeLists.txt" is
+            // plain text. That prefix is what made entry 69 record cmake as
+            // agreeing when neither editor had opened it.
+            const Utils::FilePath sub = dir.filePath(QString::fromLatin1(quick ? "quick" : "widget"));
+            QVERIFY(sub.ensureWritableDir());
+            const Utils::FilePath file = sub / name;
             QVERIFY(file.writeFileContents(start.toUtf8()));
             TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
             QVERIFY(factory);

@@ -43034,3 +43034,95 @@ What remains is not another audit:
 
 The printing decision (keep / drop / move) remains the owner's call, and is
 now one of two open decisions rather than the only one.
+
+## 2026-09-06 — CMake can move too, and entry 76's reason was wrong (batch 77)
+
+Entry 76 left one unmeasured item: CMake and Markdown, which "need their own
+factories flipped, not the plain text one". The measurement was worth doing,
+because **the reason entry 76 gave for why they could not be flipped was
+wrong**, and the real reason was a defect in the test that produced it.
+
+### What entry 76 said, and what is actually true
+
+Entry 76 explained the empty rows as `preferredFactoryFor()` answering
+`Core.PlainTextEditor` while `CMakeProject.CMakeEditor` "claims the mime type
+and wins". Measured, with the file given its **real name**:
+
+    CMakeLists.txt   preferredFactoryFor = CMakeProject.CMakeEditor
+    notes.md         preferredFactoryFor = Core.PlainTextEditor
+                     opens in             Editors.MarkdownViewer
+
+`preferredFactoryFor()` finds the CMake factory perfectly well. The reason the
+row came back empty is that the test wrote the file as `w_CMakeLists.txt`:
+**that name is matched whole, not by suffix, so a prefix turns a CMake file
+into plain text.** Entries 69 and 76 both prefixed, and both drew a conclusion
+from it - entry 69 that CMake agreed, entry 76 that it could not be flipped.
+Neither had opened a CMake editor.
+
+### CMake moves cleanly
+
+With a directory per view instead of a prefix, `CMakeProject.CMakeEditor`
+flips like any other `TextEditorFactory`, and the same editing script - break
+a line, type, take a word back, comment it, break again, take another word
+back - gives **identical text in both views**.
+
+So the languages whose move is now measured and asserted are **four**: Python,
+JSON, qmake project files and CMake.
+
+### Markdown cannot be flipped, and that part of entry 76 stands
+
+`notes.md` opens in `Editors.MarkdownViewer`, which is not a
+`TextEditorFactory` - there is no `setUsesQuickEditor()` on it to call.
+Moving Markdown is a different piece of work from moving the other four, and
+nothing here measures it.
+
+### Controls
+
+- **AB**: the prefix put back - red on the **cmake** row alone, and red
+  through the guard rather than through the comparison:
+  `Actual (fromEditor(editor) == nullptr): 1, Expected (quick): 0`. That is
+  the mechanism demonstrated: with a prefix the file is plain text, so the
+  "widget" row opened in the **Qt Quick** plain text editor instead.
+- The guard that caught it - `QCOMPARE(fromEditor(editor) == nullptr, quick)`
+  - is the one entry 76 added. It is what turns this from a silent false
+  `same` into a failure that names its own cause.
+
+### A note on the shape of these two mistakes
+
+Entry 69 measured a divergence that was an artefact, and recorded it as a
+cost. Entry 76 measured an absence that was the same artefact, and recorded a
+mechanism for it. Both were written as findings. **Both were about a filename.**
+
+The lesson is not about filenames. It is that a probe which produces a
+surprising result deserves one check that it is asking the question it thinks
+it is asking - here, "did an editor of the expected kind actually open?" -
+before the result is written down as a fact about the code.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 643 passed, 0 failed (was 642) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CMakeProjectManager` | 1 | 71 passed, **1 failed** |
+
+The CMake failure is `CMakeToolsSettingsTest::testNarrowingToADeviceLeavesOther
+DevicesToolsOut`, `shownRows(page)` 2 against 3 - the same test, the same
+assertion and the same numbers that **entry 58 measured on a clean tree** by
+parking its work and rebuilding. This batch changed one file,
+`quicktexteditor.cpp`, in another plugin; it cannot reach a CMake settings
+page.
+
+No `.qbs` change: no files added.
+
+### What is left
+
+1. **Move Python, JSON, qmake or CMake.** Four languages, each with an
+   assertion that says moving it changes nothing. A decision, not an
+   investigation.
+2. **Markdown** would need `Editors.MarkdownViewer` looked at as its own
+   thing; unmeasured.
+3. The whitespace drawing difference from entry 68 - still declined, still
+   recorded.
+
+The printing decision (keep / drop / move) remains the owner's call.
