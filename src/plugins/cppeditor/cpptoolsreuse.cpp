@@ -26,6 +26,9 @@
 #include <texteditor/codeassist/assistinterface.h>
 #include <texteditor/displaysettings.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditorconstants.h>
+#include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/actionmanager/command.h>
 #include <texteditor/texteditor.h>
 
 #ifdef WITH_TESTS
@@ -37,6 +40,7 @@
 #include "modelmanagertesthelper.h"
 #include "cpplocalrenaming.h"
 #include <utils/temporarydirectory.h>
+#include <QApplication>
 #include <QScopeGuard>
 #include <QTest>
 #endif
@@ -1257,6 +1261,73 @@ private slots:
                  "the editor has no outline for the toolbar row to draw");
         QVERIFY2(editor->findChild<TextEditor::SelectionExpander *>(),
                  "the editor has no selection expander, so Ctrl+U walks brackets");
+    }
+
+    // The census for the goal this work is for. Everything CppEditor
+    // configures on a TextEditorWidget has to have somewhere to go on the Qt
+    // Quick side, and this is that list asked of one editor at once. Each of
+    // the five has its own test elsewhere; this one is here so that adding a
+    // sixth thing to the factory and forgetting the Qt Quick side is a
+    // failure rather than a discovery.
+    void testAQuickCppEditorHasEverythingTheFactoryConfigures()
+    {
+        Utils::TemporaryDirectory dir("cpp-quick-census");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int one() { return 1; }\nint two() { return one(); }\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Completion.
+        QVERIFY2(document->completionAssistProvider(),
+                 "no completion provider reached the document");
+
+        // Quick fixes.
+        QVERIFY2(document->quickFixAssistProvider(),
+                 "no quick fix provider reached the document");
+
+        // Follow symbol.
+        QVERIFY2(TextEditor::TextEditorFactory::linkFinderFor(document),
+                 "no link finder reached the document");
+
+        // Refactoring: Find Usages and Rename ask through the relay.
+        QVERIFY2(TextEditor::symbolRequestsForEditor(editor),
+                 "the view offers no relay for Find Usages and Rename");
+
+        // The optional-action mask, asked as what it does rather than as the
+        // object that does it: a command C++'s mask turns on. A command is
+        // enabled by the active context, so the view has to actually have
+        // focus - entry 97 is what a test that skips this measures instead.
+        QWidget * const host = editor->widget();
+        QVERIFY(host);
+        host->resize(400, 300);
+        host->show();
+        const QScopeGuard hideIt([host] { host->hide(); });
+        host->activateWindow();
+        QApplication::setActiveWindow(host);
+        host->setFocus(Qt::OtherFocusReason);
+        QTRY_VERIFY2(QApplication::focusWidget(), "nothing took focus in this fixture");
+
+        Core::Command * const comment
+            = Core::ActionManager::command(TextEditor::Constants::UN_COMMENT_SELECTION);
+        QVERIFY(comment);
+        QTRY_VERIFY2(comment->action()->isEnabled(),
+                     "Toggle Comment is off, so the factory's mask did not reach this view");
     }
 
     void testRenameAnswersTheViewsRequest()

@@ -47354,3 +47354,81 @@ whoever wants to check it.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — The census for the goal (batch 124)
+
+Entry 123 left QmlJS's context pane as the only item. Before spending a batch
+on a floating widget's placement, this one asked the question at the top of
+every batch: **is the goal actually met, item by item?**
+
+The standing instruction names five things: completion, quick fixes, follow
+symbol, refactoring, and the optional-action mask. Four had tests. The fifth
+did not - not for C++.
+
+### What the census found
+
+`testAQuickCppEditorHasEverythingTheFactoryConfigures` opens a C++ file in the
+Qt Quick view and asks for all five at once. Four passed immediately.
+
+**Toggle Comment came back disabled**, which looked like the sixth gap. It was
+not: a `Command`'s action is enabled by the **active context**, and a test that
+opens an editor without showing or focusing it has no active context. Entry 97
+wrote that down - *"a context test that never gave anything focus would have
+measured the fixture and reported it as a defect in the code"* - and this is
+the same trap, one entry after the one that fell into it about `QVERIFY2`
+versus `QTRY_VERIFY2`.
+
+Shown, activated and focused, it passes. **No sixth gap.**
+
+### Why the census exists at all
+
+Every one of the five has its own test elsewhere. This one is not for finding
+today's bug; it is so that adding a sixth thing to `CppEditorFactory` and
+forgetting the Qt Quick side is a **failure** rather than a discovery. The
+five have been closed one at a time over a hundred entries, each by someone
+noticing; nothing until now asked for all of them together.
+
+One assertion was dropped rather than widened for: `findChild<
+OptionalActionGate *>()` does not link outside `TextEditor` - the class is
+internal and unexported. The mask is asked as what it *does* - a command it
+turns on - which is the better question anyway.
+
+### Controls
+
+- **DI**: C++'s optional-action mask emptied - red at "Toggle Comment is off,
+  so the factory's mask did not reach this view".
+- **DJ**: the factory left on the widget path - red at "the C++ file opened in
+  a widget editor, so this tests nothing", which is what says the census is
+  about the Qt Quick view.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CppEditor,SymbolJumpTest` | 0 | 12 passed, 0 failed (was 11) |
+
+No `.qbs` change: no files added.
+
+### Where this leaves the whole thing
+
+**The goal is met and now says so in a test.** A C++ file opens in
+`TextEditor::TextViewport`, and everything `CppEditorFactory` configures
+reaches it.
+
+What is left in this document, in full:
+
+1. **QmlJS's context pane.** Measured twice now: entry 114 found it places a
+   floating `QWidget` with `QPlainTextEdit` geometry; this entry's look found
+   `TextViewport::cursorRectangle()` and `rectangleAt(int)` already there, so
+   the geometry exists. What remains is genuinely a UI decision - does the pane
+   stay a `QWidget` popup asking a view-agnostic interface, or become QML? -
+   and it is hard to test either way, being the placement of a floating
+   window.
+2. **The whitespace drawing difference** - declined with a reason, entry 68.
+3. **Printing** - keep, drop or move. Open since entry 31.
+
+And the languages nobody has asked to move: Designer's form source, SCXML, the
+binding editor, EffectComposer, the plain text fallback, VcsBase. Each is the
+shape of the eleven already done; none is blocked.
