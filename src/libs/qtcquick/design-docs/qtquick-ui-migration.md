@@ -40356,3 +40356,111 @@ not there or a coverage that is** - Print in entry 51, FakeVim here. Both were
 written when they were true. If a third turns up, the pattern is worth a pass
 of its own: this file's claims have been checked repeatedly, and the source's
 have not.
+
+## 2026-09-06 (54) -- "Complete" was wrong: 42 paths that need a widget
+
+Entry 53 proposed auditing the source's claims, since two stale ones had turned
+up in two batches. The audit of *comments* found nothing more. The audit that
+replaced it found a great deal, and it means entries 50 to 53 were too
+confident.
+
+### What was actually asked
+
+Every census so far counted **commands registered in a context**. That misses
+an entire class: production code that does
+
+    if (auto *w = TextEditorWidget::fromEditor(editor))   // or
+    TextEditorWidget *w = TextEditorWidget::currentTextEditorWidget();
+    if (!w) return;
+
+For a file open in the Qt Quick view both answer null, and the feature
+**silently does nothing**. No command is missing; nothing is greyed out;
+nothing is logged. It just does not happen.
+
+Counted over the tree, excluding test blocks:
+
+    37  dispatch seams - the widget branch, then the viewport branch. Correct.
+    42  widget-only, with no viewport fallback at all.
+
+The 42, by file:
+
+     5  texteditor/texteditor.cpp            4  beautifier/clangformat.cpp
+     4  git/instantblame.cpp                 3  fakevim/fakevimplugin.cpp
+     3  texteditor/refactoringchanges.cpp    2  debugger/disassembleragent.cpp
+     2  debugger/qml/qmlengineutils.cpp      2  lua/bindings/texteditor.cpp
+     2  projectexplorer/editorconfiguration.cpp
+     2  qmljseditor/qmljseditorplugin.cpp    2  texteditor/formattexteditor.cpp
+     1 each: acpclient, beautifier/uncrustify, cmakeformatter, cppeditorplugin,
+             cppfunctiondecldeflink, debugger/sourceagent, emacskeys,
+             languageclientmanager, languageclientutils, qmldesigner, valgrind
+
+### Two verified, by reading the code they gate
+
+    ClangFormat::disableFormattingSelectedText()
+        TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
+        if (!widget) return;
+
+    Git's Instant Blame
+        TextEditorWidget *widget = TextEditorWidget::currentTextEditorWidget();
+        if (!widget) { qCInfo(log) << "Cannot get current text editor widget."; stop(); return; }
+
+**"Disable Formatting for Selected Text" and Instant Blame do nothing on a C++
+file today**, because a C++ file opens in the Qt Quick view and
+`currentTextEditorWidget()` is null whenever it is current. Both are
+user-visible features and neither has ever been mentioned in this file.
+
+`refactoringchanges.cpp` has three more, and **refactoring is one of the five
+things the standing warning names**: "everything CppEditor configures on a
+TextEditorWidget - completion, quick fixes, follow symbol, refactoring, the
+optional-action mask - has to have somewhere to go on the Quick side first."
+Four of the five were checked. Refactoring was assumed.
+
+### What this does to the record
+
+Entries 50, 52 and 53 said the migration was complete and only a decision
+about printing was left. **That was wrong, and it was wrong because every
+check asked the same question.** Eighteen plugins were compared both ways and
+1471 verdicts matched - and none of it would catch a feature whose tests do
+not exist, which is exactly what these are: nothing tests Instant Blame in an
+editor, so nothing noticed it stopped working.
+
+The lesson is the sharper form of entry 40's: **a census only finds what its
+question can see.** Commands were counted, then command *behaviour* was
+compared, and both were blind to a capability reached through a pointer that
+comes back null.
+
+Not all 42 are gaps. `qmljseditor` and `qmldesigner` are about QML files, which
+do not open in this view; FakeVim's mini-buffer is a widget by construction;
+some may be dead. **Triage is the next batch**, and it needs doing per site
+rather than in bulk.
+
+### Negative controls
+
+None; nothing was changed. The two verifications are quotations of the code
+being gated, and the count is reproducible - test blocks excluded by
+`#ifdef WITH_TESTS`, seams distinguished by whether `viewportForEditor` appears
+within twelve lines.
+
+### Verification
+
+    -test TextEditor    589 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+**This batch changed no code.** One file, and it is this one.
+
+### What this leaves
+
+A real list again, and it is the largest one this file has had since the early
+entries:
+
+1. **Triage the 42.** Per site: a gap, legitimately widget-only, or dead. The
+   two verified above are gaps.
+2. **`refactoringchanges.cpp`** first among them - the standing warning names
+   refactoring and this file never checked it.
+3. **Beautifier and Instant Blame** next: both user-visible, both small, and
+   both reachable with seams that already exist (`textCursorOf`,
+   `setTextCursorOf`, `lineColumnOf`).
+4. Then the printing decision, and CppEditor's locator race, as before.
+
+**Entries 50 to 53 should be read with this one.** The migration is not
+finished; it was finished as far as anybody had thought to look.
