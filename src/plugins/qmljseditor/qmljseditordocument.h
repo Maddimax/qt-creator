@@ -50,7 +50,6 @@ public:
     void setSourcesWithCapabilities(const LanguageServerProtocol::ServerCapabilities &cap);
 
 signals:
-    void updateCodeWarnings(QmlJS::Document::Ptr doc);
     void semanticInfoUpdated(const QmlJSTools::SemanticInfo &semanticInfo);
 
 protected:
@@ -58,6 +57,11 @@ protected:
     void triggerPendingUpdates() override;
 
 private:
+    // The parse errors, as extra selections on this document. It used to be a
+    // signal the editor widget answered, which left a QML file open in any
+    // other view underlining nothing.
+    void updateCodeWarnings(QmlJS::Document::Ptr doc);
+
     friend class Internal::QmlJSEditorDocumentPrivate; // sending signals
     Internal::QmlJSEditorDocumentPrivate *d;
 };

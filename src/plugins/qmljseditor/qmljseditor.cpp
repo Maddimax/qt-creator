@@ -140,9 +140,6 @@ void QmlJSEditorWidget::finalizeInitialization()
     connect(this->document(), &QTextDocument::modificationChanged,
             this, &QmlJSEditorWidget::updateModificationChange);
 
-    connect(qmlJsEditorDocument(), &QmlJSEditorDocument::updateCodeWarnings,
-            this, &QmlJSEditorWidget::updateCodeWarnings);
-
     connect(qmlJsEditorDocument(), &QmlJSEditorDocument::semanticInfoUpdated,
             this, &QmlJSEditorWidget::semanticInfoUpdated);
 
@@ -172,55 +169,6 @@ QModelIndex QmlJSEditorWidget::outlineModelIndex()
         m_outlineModelIndex = indexForPosition(position());
     }
     return m_outlineModelIndex;
-}
-
-static void appendExtraSelectionsForMessages(
-        QList<QTextEdit::ExtraSelection> *selections,
-        const QList<DiagnosticMessage> &messages,
-        const QTextDocument *document)
-{
-    for (const DiagnosticMessage &d : messages) {
-        const int line = d.loc.startLine;
-        const int column = qMax(1U, d.loc.startColumn);
-
-        QTextEdit::ExtraSelection sel;
-        QTextCursor c(document->findBlockByNumber(line - 1));
-        sel.cursor = c;
-
-        sel.cursor.setPosition(c.position() + column - 1);
-
-        if (d.loc.length == 0) {
-            if (sel.cursor.atBlockEnd())
-                sel.cursor.movePosition(QTextCursor::StartOfWord, QTextCursor::KeepAnchor);
-            else
-                sel.cursor.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-        } else {
-            sel.cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor, d.loc.length);
-        }
-
-        const auto fontSettings = TextEditor::globalFontSettings().data();
-
-        if (d.isWarning())
-            sel.format = fontSettings.toTextCharFormat(TextEditor::C_WARNING);
-        else
-            sel.format = fontSettings.toTextCharFormat(TextEditor::C_ERROR);
-
-        sel.format.setToolTip(d.message);
-
-        selections->append(sel);
-    }
-}
-
-void QmlJSEditorWidget::updateCodeWarnings(Document::Ptr doc)
-{
-    if (!doc->ast() && doc->language().isFullySupportedLanguage()) {
-        // show parsing errors
-        QList<QTextEdit::ExtraSelection> selections;
-        appendExtraSelectionsForMessages(&selections, doc->diagnosticMessages(), document());
-        setExtraSelections(CodeWarningsSelection, selections);
-    } else {
-        setExtraSelections(CodeWarningsSelection, QList<QTextEdit::ExtraSelection>());
-    }
 }
 
 void QmlJSEditorWidget::foldAuxiliaryData()

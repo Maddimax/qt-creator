@@ -46321,3 +46321,78 @@ the diagnostic ranges.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — QmlJS's parse errors move to its document (batch 111)
+
+Entry 105's shape, done for QmlJS: what the file *is* stops being something an
+editor widget works out.
+
+### The gap this closed
+
+`QmlJSEditorWidget::updateCodeWarnings()` turned a failed parse into extra
+selections on itself, so a QML file open in anything else underlined nothing.
+
+It was reached by a **signal round trip**: `QmlJSEditorDocument` emitted
+`updateCodeWarnings(Document::Ptr)` and the widget answered it. The document
+was telling an editor about its own parse and asking to be drawn.
+
+Now the document does it. `appendExtraSelectionsForMessages()` moved with it
+and produces `TextDocument::ExtraSelection` rather than the QtWidgets pair.
+
+**The signal is gone entirely**, because once the widget's handler went,
+nothing in the tree connected to it - checked before deleting rather than
+assumed. A signal with no listeners is a round trip to nowhere.
+
+### What did not move, and why
+
+`updateUses()` looked like the same job and is not: it highlights the other
+places the identifier **under the caret** appears, and a caret belongs to a
+view rather than to a file. Two documents' worth of the same file would want
+two different sets. It stays with whichever view has the caret.
+
+That is the line this migration keeps drawing: **the file's meaning is the
+document's, and anything keyed to a caret is the view's.**
+
+### The test, and its second half
+
+`testParseErrorsAreOnTheDocument` opens a `.qml` that cannot parse and reads
+the selections off the **document**, not off any widget. Then it opens one
+that parses and checks it was left alone - without that half, control CL
+(treating every file as parsing) would have gone green, because the assertion
+would have been "some QML file somewhere has warnings".
+
+### Controls
+
+- **CK**: the warnings never written to the document - red.
+- **CL**: the `!doc->ast()` test dropped so nothing is ever reported - red, and
+  only because of the second half above.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 672 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 19 passed, 0 failed (was 18) |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+`QmlJSEditorWidget` still owns:
+
+| What | Shape |
+| --- | --- |
+| the quick fix assist interface | needs the widget it acts on; the biggest remaining piece |
+| `contextMenuEvent()` | builds a Refactoring submenu from that interface, so it follows it |
+| `findUsages()`, `renameSymbolUnderCursor()` | `TextEditorWidget` virtuals; `TextViewport` has both, gated by the optional-action mask |
+| the outline model index, `jumpToOutlineElement()` | the `ToolBarOutline` seam from entry 98 |
+| the context pane, `showTextMarker()` | QML-specific UI, unexamined |
+| `updateUses()` | stays with the view, above |
+| `restoreState()` folding auxiliary data | small |
+
+Two of those - the quick fix interface and the context menu that grows out of
+it - are one piece and the largest thing between QmlJS and the Qt Quick view.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

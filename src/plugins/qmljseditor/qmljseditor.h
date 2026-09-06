@@ -89,7 +89,6 @@ private:
 
     void semanticInfoUpdated(const QmlJSTools::SemanticInfo &semanticInfo);
 
-    void updateCodeWarnings(QmlJS::Document::Ptr doc);
     void foldAuxiliaryData();
 
 protected:

@@ -5,8 +5,17 @@
 
 #include "qmljscompletionassist.h"
 
+#include <texteditor/texteditor.h>
+
+#include <texteditor/fontsettings.h>
+
 #ifdef WITH_TESTS
+#include <coreplugin/editormanager/editormanager.h>
+
 #include <utils/mimeconstants.h>
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
 
 #include <QTest>
 #endif
@@ -548,7 +557,7 @@ void QmlJSEditorDocumentPrivate::onDocumentUpdated(Document::Ptr doc)
                && m_qmllsStatus.semanticWarningsSource == QmllsStatus::Source::EmbeddedCodeModel) {
         createTextMarks(doc->diagnosticMessages());
     }
-    emit q->updateCodeWarnings(doc);
+    q->updateCodeWarnings(doc);
 }
 
 void QmlJSEditorDocumentPrivate::reupdateSemanticInfo()
@@ -801,6 +810,54 @@ Internal::QmlOutlineModel *QmlJSEditorDocument::outlineModel() const
     return d->m_outlineModel;
 }
 
+static void appendExtraSelectionsForMessages(
+        QList<TextEditor::TextDocument::ExtraSelection> *selections,
+        const QList<DiagnosticMessage> &messages,
+        const QTextDocument *document)
+{
+    for (const DiagnosticMessage &d : messages) {
+        const int line = d.loc.startLine;
+        const int column = qMax(1U, d.loc.startColumn);
+
+        TextEditor::TextDocument::ExtraSelection sel;
+        QTextCursor c(document->findBlockByNumber(line - 1));
+        sel.cursor = c;
+
+        sel.cursor.setPosition(c.position() + column - 1);
+
+        if (d.loc.length == 0) {
+            if (sel.cursor.atBlockEnd())
+                sel.cursor.movePosition(QTextCursor::StartOfWord, QTextCursor::KeepAnchor);
+            else
+                sel.cursor.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
+        } else {
+            sel.cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor, d.loc.length);
+        }
+
+        const auto fontSettings = TextEditor::globalFontSettings().data();
+
+        if (d.isWarning())
+            sel.format = fontSettings.toTextCharFormat(TextEditor::C_WARNING);
+        else
+            sel.format = fontSettings.toTextCharFormat(TextEditor::C_ERROR);
+
+        sel.format.setToolTip(d.message);
+
+        selections->append(sel);
+    }
+}
+
+// The parse errors, as extra selections on the document. Where they were on
+// the editor widget, a QML file open in anything else underlined nothing -
+// and a widget cannot be asked for them by whoever else is showing the file.
+void QmlJSEditorDocument::updateCodeWarnings(QmlJS::Document::Ptr doc)
+{
+    QList<TextEditor::TextDocument::ExtraSelection> selections;
+    if (!doc->ast() && doc->language().isFullySupportedLanguage())
+        appendExtraSelectionsForMessages(&selections, doc->diagnosticMessages(), document());
+    setExtraSelections(TextEditor::TextEditorWidget::CodeWarningsSelection, selections);
+}
+
 std::unique_ptr<TextEditor::AssistInterface> QmlJSEditorDocument::createAssistInterface(
     const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
     Core::IEditor *editor) const
@@ -821,6 +878,45 @@ class QmlJSEditorDocumentTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The parse errors used to be put on the editor widget, so a QML file
+    // open in anything else underlined nothing. They are the document's now.
+    void testParseErrorsAreOnTheDocument()
+    {
+        Utils::TemporaryDirectory dir("qmljs-warnings");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("broken.qml");
+        // Unbalanced, so there is no AST at all - which is the branch that
+        // reports parse errors rather than semantic ones.
+        QVERIFY(file.writeFileContents("import QtQuick\nItem { width: }\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "nothing opened a .qml file");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY2(document, "a .qml file did not open with a QmlJSEditorDocument");
+
+        // On the document, which is what anything showing the file can read -
+        // asked of the document rather than of the widget on purpose.
+        QTRY_VERIFY2(!document->extraSelections(
+                          TextEditor::TextEditorWidget::CodeWarningsSelection).isEmpty(),
+                     "a QML file that does not parse was given no warnings");
+
+        // And a file that parses is left alone, so the assertion above is not
+        // true of every QML file.
+        const Utils::FilePath fine = dir.filePath("fine.qml");
+        QVERIFY(fine.writeFileContents("import QtQuick\nItem { width: 1 }\n"));
+        Core::IEditor * const good = Core::EditorManager::openEditor(fine);
+        QVERIFY(good);
+        const QScopeGuard closeGood(
+            [good] { Core::EditorManager::closeEditors({good}, false); });
+        auto * const fineDocument = qobject_cast<QmlJSEditorDocument *>(good->document());
+        QVERIFY(fineDocument);
+        QVERIFY2(fineDocument->extraSelections(
+                     TextEditor::TextEditorWidget::CodeWarningsSelection).isEmpty(),
+                 "a QML file that parses was given warnings");
+    }
+
     // Completion used to be answered by QmlJSEditorWidget, so a QML file open
     // in anything else got the plain text proposals. TextDocument declares
     // createAssistInterface() virtual for exactly this, and it is what a view
