@@ -4102,15 +4102,20 @@ void TextViewport::selectLineAt(int position)
     setTextCursor(cursor);
 }
 
-void TextViewport::zoomBy(int steps)
+void TextViewport::zoomBy(qreal steps)
 {
-    if (steps == 0 || !behaviorSettings().m_scrollWheelZooming)
+    if (qFuzzyIsNull(steps) || !behaviorSettings().m_scrollWheelZooming)
         return;
 
-    // The same step the widget editor takes, and always at least one, so a
-    // high-resolution wheel still does something per notch.
-    const int step = steps * 10;
-    globalFontSettings().increaseFontZoom(step != 0 ? step : (steps > 0 ? 1 : -1));
+    // The same step the widget editor takes in zoomF(), and always at least
+    // one: a quarter of a notch would otherwise round to nothing, and a
+    // trackpad reports little else.
+    qreal step = steps * 10;
+    if (step > 0 && step < 1)
+        step = 1;
+    else if (step < 0 && step > -1)
+        step = -1;
+    globalFontSettings().increaseFontZoom(int(step));
 }
 
 // The kind under which the bracket pair is highlighted, so that setting it

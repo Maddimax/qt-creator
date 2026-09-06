@@ -801,7 +801,11 @@ public:
     // Ctrl and the wheel. Zoom is a global setting rather than this view's, so
     // every editor grows together - which is what the widget editor does, and
     // what makes the two agree about how big the text is.
-    Q_INVOKABLE void zoomBy(int steps);
+    // \a steps is in wheel notches, and is a fraction of one far more often
+    // than it is one: a mouse notch reports 120 eighths of a degree, and a
+    // trackpad reports whatever the fingers did. Taking an int here made every
+    // fraction truncate to nothing before the call was even entered.
+    Q_INVOKABLE void zoomBy(qreal steps);
 
     // \a onScrollBar is the colour to mark these on the scroll bar in, which
     // the widget editor picks per kind and separately from the colour they are

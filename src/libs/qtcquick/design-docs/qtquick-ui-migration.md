@@ -48828,3 +48828,128 @@ like a single call in the QML - the shape that has produced a gap every time it
 has appeared. Middle-click paste is the other one worth measuring early,
 because it is a whole gesture rather than a condition, and a missing gesture is
 the one thing this walk has not yet turned up.
+
+## 2026-09-06 — A trackpad could not zoom (batch 136)
+
+Entry 135 pointed at `mouseReleaseEvent` and middle-click paste. Both turned
+out to be dead ends on this machine, and a third thing walked past on the way
+turned out to be the gap. All three are worth writing down, because two of them
+are *not* defects and reporting them as such is the failure mode this document
+keeps recording.
+
+### The gap: Ctrl and the wheel, by less than a notch
+
+```cpp
+Q_INVOKABLE void zoomBy(int steps);          // and the QML:
+viewport.zoomBy(event.angleDelta.y / 120)
+```
+
+A mouse notch reports 120 eighths of a degree; **a trackpad reports whatever
+the fingers did**, and a high-resolution wheel reports fractions too. So the
+argument is a fraction of a notch far more often than it is one - and an `int`
+parameter truncated every fraction to zero *before the function was entered*,
+where `if (steps == 0) return;` threw it away.
+
+The widget takes a float and clamps the scaled step to a minimum of one:
+
+```
+WZOOM delta 1     -> 110
+WZOOM delta 0.25  -> 102
+WZOOM delta 0.05  -> 101   <- rounds to nothing, kept as one
+WZOOM delta -0.25 -> 98
+```
+
+The Qt Quick view answered 100 to the last three. **Ctrl and a trackpad did
+nothing at all.**
+
+`zoomBy()` takes a `qreal` now and applies the same clamp. The comment it
+already carried - *"and always at least one, so a high-resolution wheel still
+does something per notch"* - described a guard that could not fire:
+`steps != 0` implies `steps * 10 != 0`, so the fallback beside it was dead.
+
+### Two things that looked like gaps and are not
+
+**Double click just after an opening bracket.** `mouseDoubleClickEvent()` has a
+branch that selects the whole block instead of the word. A bare
+`TextEditorWidget` with a generic highlighter does exactly that - measured,
+`{ "a": [1, 2] }` clicked at 1 selects all fifteen characters - and
+`CodeViewport.qml` has no such branch, which reads like a clear gap.
+
+It is not, because the branch needs `selectBlockUp()` to succeed:
+
+```
+BRACE widget-state at 7  openParen true at 6  selectBlockUp false
+BRACE widget-state at 15 openParen true at 14 selectBlockUp false
+BRACE widget-state at 18 openParen true at 17 selectBlockUp false
+```
+
+Through a real editor it does not fire - in C++ because `CppEditorWidget`
+overrides `selectBlockUp()` and its semantic info is not there without a
+project, and in JSON because the base one declines too. Driven the way a user
+drives it, **both editors select `{`**:
+
+```
+BRACE json quick=false -> sel 0..1 [{]
+BRACE json quick=true  -> sel 0..1 [{]
+```
+
+The positive observation came from a widget I built by hand, which is the
+"fixture answers a different question" trap of entries 131-133 in its purest
+form. Not reported as a gap.
+
+**Middle-click paste.** The widget's release handler pastes the PRIMARY
+selection, and `CodeViewport.qml` does not accept `Qt.MiddleButton` at all - so
+the gesture is missing. But it is guarded by
+`QGuiApplication::clipboard()->supportsSelection()`, which is **false on macOS**,
+so neither the widget's behaviour nor a fix can be measured here. Recorded as
+unmeasured rather than closed or dismissed: it is real on X11 and Wayland and
+wants a Linux run.
+
+### Controls
+
+- **EV**: `zoomBy()` back to an `int` - red on all three fraction rows and
+  green on the whole-notch one, which is the split that says the rows
+  discriminate.
+- **EW**: the minimum-step clamp dropped - red on the twentieth-of-a-notch row
+  only. Without it that row would have ridden on EV.
+- **EX**: `scrollWheelZooming` not consulted - red on the second half of every
+  row, where the preference is turned off.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 697 passed, 0 failed (was 693) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+1. **Middle-click paste and the PRIMARY selection** - a whole gesture, missing,
+   and unmeasurable on this machine. Needs a Linux run before and after.
+2. **The link press/release handshake.** The widget remembers the press and
+   follows on release; the Quick view follows on press. Read, not measured -
+   the difference only shows if the pointer moves between press and release,
+   and both answers are defensible.
+3. **`mouseMoveEvent`** - the link highlight under Ctrl, the drag threshold.
+4. **Home on a wrapped line** - entry 133.
+5. **QmlJS's context pane** - a UI decision.
+6. **The whitespace drawing difference** - declined, entry 68.
+7. **Printing** - open since entry 31.
+8. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+The mouse seam has one gap left that can be measured here - item 3 - and two
+that cannot. That is a sharper way to put where this whole walk has got to:
+**the reachable gaps are running out.** Nine batches of side-by-side reading
+have produced eight fixes, and the last two both needed several probes to find
+one thing, with two false positives along the way.
+
+So after item 3 I would stop reading handlers and pick up the item that has
+been deferred longest and needs a person rather than a measurement - **QmlJS's
+context pane**, item 5 - or say plainly that what is left is the owner's to
+decide. The geometry it needs exists; the question of whether it stays a
+`QWidget` popup or becomes QML has been open since entry 114 and no amount of
+probing will answer it.

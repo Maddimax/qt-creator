@@ -5333,6 +5333,54 @@ private slots:
         QCOMPARE(text->toPlainText().trimmed(), QString("aydef"));
     }
 
+    void testCtrlWheelZoomsByLessThanAWholeNotch_data()
+    {
+        QTest::addColumn<qreal>("delta");
+        QTest::addColumn<int>("zoom");
+        // A real TextEditorWidget's answers to zoomF(), from 100%.
+        QTest::newRow("a whole notch") << 1.0 << 110;
+        QTest::newRow("a quarter of one") << 0.25 << 102;
+        QTest::newRow("a twentieth, which rounds to nothing") << 0.05 << 101;
+        QTest::newRow("a quarter backwards") << -0.25 << 98;
+    }
+
+    // Ctrl and the wheel zooms. A mouse notch reports 120 eighths of a degree
+    // and a trackpad reports whatever the fingers did, so the delta a wheel
+    // event carries is a fraction of a notch far more often than it is one -
+    // and zoomBy() took an int, so every fraction truncated to zero and did
+    // nothing at all. The widget editor takes a float and keeps a minimum of
+    // one, so it always zooms by something.
+    void testCtrlWheelZoomsByLessThanAWholeNotch()
+    {
+        QFETCH(qreal, delta);
+        QFETCH(int, zoom);
+
+        TemporaryDirectory dir("qtc-viewport-zoom");
+        const FilePath file = writeLines(dir, "zoom.txt", 20);
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        const bool wasZooming = globalBehaviorSettings().scrollWheelZooming();
+        const int wasZoom = globalFontSettings().fontZoom();
+        const QScopeGuard restore([wasZooming, wasZoom] {
+            globalBehaviorSettings().scrollWheelZooming.setValue(wasZooming);
+            globalFontSettings().setFontZoom(wasZoom);
+        });
+        globalBehaviorSettings().scrollWheelZooming.setValue(true);
+
+        globalFontSettings().setFontZoom(100);
+        viewport->zoomBy(delta);
+        QCOMPARE(globalFontSettings().fontZoom(), zoom);
+
+        // And the preference still turns the whole thing off.
+        globalBehaviorSettings().scrollWheelZooming.setValue(false);
+        globalFontSettings().setFontZoom(100);
+        viewport->zoomBy(delta);
+        QCOMPARE(globalFontSettings().fontZoom(), 100);
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()
