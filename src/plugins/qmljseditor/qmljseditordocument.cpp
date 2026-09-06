@@ -1015,6 +1015,13 @@ private slots:
         QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
                  "the QML file opened in a widget editor, so this tests nothing");
 
+        // Shown, because the work below is what a document puts off until a
+        // view says somebody is looking - the widget editor does it from
+        // showEvent() for the same reason.
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+
         auto * const outline = editor->findChild<TextEditor::ToolBarOutline *>();
         QVERIFY2(outline, "the editor has no outline for the toolbar row to draw");
         QVERIFY2(outline->model(), "the outline has no model to draw");
@@ -1031,6 +1038,17 @@ private slots:
                          && !document->semanticInfo().document.isNull(),
                      "a QML file in the Qt Quick view was never parsed");
 
+        // ...but the model the row draws is still empty, and this records why
+        // rather than leaving it to be rediscovered. Filling it is work the
+        // document defers until triggerPendingUpdates() is called, and that is
+        // called by the *view*: TextEditorWidget does it from showEvent(). A
+        // Qt Quick view calls it nowhere, and calling it on show alone is not
+        // enough - the parse has not finished by then, and nothing calls it
+        // again afterwards.
+        QEXPECT_FAIL("", "a Qt Quick view never triggers the document's deferred work",
+                     Abort);
+        QVERIFY2(outline->model()->rowCount({}) > 0,
+                 "the outline model is empty after the file was parsed");
     }
 
     // The block the QML designer writes at the end of a file is folded when

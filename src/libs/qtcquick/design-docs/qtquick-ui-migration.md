@@ -47194,3 +47194,89 @@ The first is the next batch and is narrow: find who should call
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — Who triggers a document's deferred work, and nobody does (batch 122)
+
+Entry 121 named this as narrow. It is not narrow, and **this batch ships no
+fix** - only the measurement chain and a test that records the gap where it
+will be seen.
+
+### What was measured
+
+`QmlJSEditorDocument` defers filling the outline model until
+`triggerPendingUpdates()` is called. Every caller of it in the tree:
+
+    TextEditorWidget::showEvent()             -> triggerPendingUpdates()
+    TextEditorWidgetPrivate::applyFontSettingsDelayed()  (if visible)
+    QmlJSEditorWidget (one place)
+
+All three are widgets. A Qt Quick view calls it nowhere, so the flag
+`m_outlineModelNeedsUpdate` is set by the parse and never acted on.
+
+### Three attempts, and why each was reverted
+
+1. **`QQuickItem::visibleChanged` on the viewport.** Probed: the handler
+   **never runs**. An item in a `QQuickWidget` is visible from the start;
+   showing the widget is not an item visibility change.
+2. **`QEvent::Show` on the editor's widget.** The first version watched
+   `widget()` while the filter is installed on `widget()->quickWidget()`, so
+   it never matched. Corrected, it fires - and the probe showed *why it is not
+   enough*:
+
+       PROBE triggerPendingUpdates needsUpdate false outdated true
+
+   Show happens **before** the parse finishes. The flag is set afterwards and
+   nothing calls again.
+3. So the show hook alone changes nothing observable. Control **DE** removed
+   it and no test moved. **Reverted**, on entry 116's precedent: a change that
+   is half of a fix and fixes nothing is not worth landing.
+
+### What the batch does leave
+
+A `QEXPECT_FAIL` in `testAQuickQmlEditorIsGivenAnOutline`, with the reason
+written where the next person is standing:
+
+    QEXPECT_FAIL("", "a Qt Quick view never triggers the document's deferred work", Abort);
+    QVERIFY2(outline->model()->rowCount({}) > 0, ...);
+
+The test still asserts everything up to it - the outline exists, its model is
+the document's, and the file **is** parsed, which entry 121 fixed. The one
+thing that does not work is marked as not working, and the suite will fail
+loudly on an XPASS the day somebody fixes it.
+
+**A known gap belongs in the test, not only in a document.** Three entries in
+a row have now ended with something recorded in prose; this one is recorded
+where it runs.
+
+### What the fix needs
+
+Not a hook, but the right pair of them: **on show**, and **when deferred work
+appears while shown**. The second has no signal today -
+`m_outlineModelNeedsUpdate` is private state with no notification, and the
+widget path gets away with it because a widget is usually shown after the
+parse rather than before.
+
+The honest shape is probably a signal on `TextDocument` - "I have work waiting
+for a view" - which both views answer. That is a seam, and it wants designing
+rather than adding.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 24 passed, 0 failed, 1 expected failure |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+1. The deferred-work seam above. It is the last functional gap and it is a
+   design question, not a wiring one.
+2. The context pane - measured in entry 114: also a decision.
+
+Both are decisions now, which is where this document said QmlJS would end up.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).
