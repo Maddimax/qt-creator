@@ -689,6 +689,15 @@ bool TextViewport::isMouseHidden() const
     return m_mouseHidden;
 }
 
+bool TextViewport::hoverTooltipsAllowed(Qt::KeyboardModifiers modifiers) const
+{
+    if (modifiers & Qt::ControlModifier)
+        return false;
+    if (modifiers & Qt::ShiftModifier)
+        return true;
+    return !behaviorSettings().m_constrainHoverTooltips;
+}
+
 void TextViewport::showMouse()
 {
     if (!m_mouseHidden)
@@ -1545,6 +1554,9 @@ void TextViewport::hoverMoveEvent(QHoverEvent *event)
     // have been about is no longer under the mouse.
     Utils::ToolTip::hide();
 
+    if (!hoverTooltipsAllowed(event->modifiers()))
+        return;
+
     m_hoverTimer->start();
 }
 
@@ -1563,6 +1575,11 @@ void TextViewport::keyReleaseEvent(QKeyEvent *event)
     // moved since.
     if (event->key() == Qt::Key_Control)
         clearLink();
+    // Letting go of Shift takes back what only Shift was allowing to be seen.
+    if (event->key() == Qt::Key_Shift && behaviorSettings().m_constrainHoverTooltips) {
+        m_hoverTimer->stop();
+        Utils::ToolTip::hide();
+    }
     if (event->key() == Qt::Key_Alt && m_maybeKeyboardTooltip) {
         m_maybeKeyboardTooltip = false;
         askForTooltipAtCaret();

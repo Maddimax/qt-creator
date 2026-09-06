@@ -8317,6 +8317,88 @@ private slots:
         QCOMPARE(shellView->commentDefinition().singleLine, QString("#"));
     }
 
+    void testAHoverTooltipObeysTheModifierTheSettingsAskFor()
+    {
+        BehaviorSettings &behavior = globalBehaviorSettings();
+        const bool wasConstrained = behavior.constrainHoverTooltips();
+        const QScopeGuard restoreSetting([&behavior, wasConstrained] {
+            behavior.constrainHoverTooltips.setValue(wasConstrained);
+        });
+        behavior.constrainHoverTooltips.setValue(true);
+
+        class CountingHoverHandler final : public BaseHoverHandler
+        {
+        public:
+            int asked = 0;
+            void identifyMatch(HoverTarget *, int, ReportPriority report) override
+            {
+                ++asked;
+                setToolTip("something");
+                report(Priority_Tooltip);
+            }
+            void operateTooltip(HoverTarget *, const QPoint &) override {}
+        };
+
+        Utils::TemporaryDirectory dir("hover-modifier");
+        QVERIFY(dir.isValid());
+
+        // Two editors, because one view has one hover timer: a second hover
+        // into the same view would restart it rather than let the first have
+        // its turn, and "it was superseded" is not "it was refused".
+        struct Fixture
+        {
+            Core::IEditor *editor = nullptr;
+            TextViewport *view = nullptr;
+            CountingHoverHandler handler;
+        };
+        const auto open = [&dir](const QString &name, Fixture &f) {
+            const Utils::FilePath file = dir.filePath(name);
+            QVERIFY(file.writeFileContents("alpha beta gamma"));
+            f.editor = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+            QVERIFY(f.editor);
+            auto * const quick = f.editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(quick);
+            QTRY_VERIFY(quick->rootObject());
+            f.view = quick->rootObject()->findChild<TextViewport *>();
+            QVERIFY(f.view);
+            f.view->setTooltipHost(quick);
+            f.view->setHoverHandlers({&f.handler});
+            QTRY_VERIFY(f.view->lineHeight() > 0);
+        };
+
+        Fixture refused;
+        Fixture allowed;
+        open("refused.txt", refused);
+        open("allowed.txt", allowed);
+        const QScopeGuard closeThem([&refused, &allowed] {
+            Core::EditorManager::closeEditors({refused.editor, allowed.editor}, false);
+        });
+
+        const auto hover = [](Fixture &f, int position, Qt::KeyboardModifiers modifiers) {
+            const QPointF at(f.view->rectangleAt(position).center().x(),
+                             f.view->lineHeight() / 2);
+            QHoverEvent move(QEvent::HoverMove, at, at, at, modifiers);
+            QCoreApplication::sendEvent(f.view, &move);
+        };
+
+        // Started first, so its timer would fire first if it were started at
+        // all. Plain hover, and the setting says Shift is required.
+        hover(refused, 2, Qt::NoModifier);
+        // And this one is allowed, by holding what the setting asks for.
+        hover(allowed, 2, Qt::ShiftModifier);
+
+        QTRY_VERIFY2(allowed.handler.asked > 0,
+                     "a Shift+hover was refused although the setting asks for Shift");
+        QCOMPARE(refused.handler.asked, 0);
+
+        // Control belongs to following links, in either setting.
+        behavior.constrainHoverTooltips.setValue(false);
+        hover(refused, 8, Qt::ControlModifier);
+        hover(allowed, 8, Qt::NoModifier);
+        QTRY_VERIFY(allowed.handler.asked > 1);
+        QCOMPARE(refused.handler.asked, 0);
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

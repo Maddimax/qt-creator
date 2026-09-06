@@ -41757,3 +41757,119 @@ batches found that the Qt Quick view was already right, so expect a low hit
 rate and do not force a fix to justify the look.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — The settings audit: a preference the Qt Quick view ignored (batch 65)
+
+Entry 64 asked for the settings to be audited the way the factory had been,
+and warned to expect a low hit rate. That warning was right: **54 settings
+fields, four candidates, two false positives, one dormant feature, one real
+gap.**
+
+### The audit
+
+Every field of `TypingSettingsData`, `StorageSettingsData`,
+`BehaviorSettingsData`, `DisplaySettingsData` and `MarginSettingsData`,
+against what each view reads:
+
+    TypingSettingsData     5 fields   0 widget-only
+    StorageSettingsData    6 fields   0
+    BehaviorSettingsData   7 fields   2 candidates
+    DisplaySettingsData   31 fields   2 candidates
+    MarginSettingsData     5 fields   0
+
+The first run of the sweep reported **twenty** widget-only fields. Nearly all
+were false, because the Qt Quick side reads them through the aspect accessor
+(`displayFoldingMarkers()`) rather than the data member
+(`m_displayFoldingMarkers`), and some of it is in `.qml`. This is the third
+batch running in which the first version of a sweep produced a mostly-false
+list. **Take it as the rule: the first answer a sweep gives is wrong.**
+
+Two of the four survivors were also false, and both for the same reason - the
+Qt Quick side reads them through a differently named helper:
+
+- `m_mouseHiding` is read by `hideMouseWhileTyping(behaviorSettings())` in
+  `TextViewport::keyPressEvent`.
+- `m_displayMinimap` is read by `MinimapView::wanted()`, in a file the sweep
+  did not look at.
+
+`m_markDiffChangeSigns` is real but **dormant in both views**:
+`setDiffSignGlyphs()` has no callers anywhere in the tree, so the glyph list
+is always empty and the widget draws nothing either. Not a gap; recorded so it
+is not chased again.
+
+### The gap: "on Shift+mouseover" meant nothing
+
+`Behavior > Show help tooltips using the mouse` has a setting that says
+tooltips should appear only while Shift is held. The widget editor applies it
+in `viewportEvent()`:
+
+```cpp
+if (QApplication::keyboardModifiers() & Qt::ControlModifier
+    || (!(... & Qt::ShiftModifier) && d->m_behaviorSettings.m_constrainHoverTooltips))
+    return true;   // eat the tooltip
+```
+
+`TextViewport::hoverMoveEvent()` started its hover timer regardless. So in the
+Qt Quick editor **the preference did nothing**: tooltips appeared on a plain
+hover for a reader who had asked them not to, and appeared *while Ctrl was
+held*, which is the modifier for following a link and the one case the widget
+is careful to keep clear.
+
+`hoverTooltipsAllowed()` now applies the same rule, and letting go of Shift
+takes back a tooltip that only Shift was allowing - the widget's other half,
+in `keyReleaseEvent()`.
+
+### Testing an absence without waiting for one
+
+The negative here is "no tooltip was asked for", which has no event to wait
+on - exactly the case the project's testing rules say tempts a sleep.
+
+Two hovers into *one* view cannot answer it: the second restarts the same
+timer, so the first never fires whether it was refused or merely superseded.
+**"It was superseded" is not "it was refused".**
+
+So the test opens **two** editors. The one that should be refused is hovered
+first, the one that should be allowed second; waiting for the second to be
+asked is what proves the first had its turn, because both timers have the same
+interval and the first was started earlier. The second half repeats it with
+Ctrl, which is refused under either setting.
+
+### Controls
+
+- **Q**: the modifier gate removed from `hoverMoveEvent()` - red with
+  `refused.handler.asked` 1 against 0, which is the defect exactly.
+- The first version of the test failed at its second half because both hovers
+  used the same position and the hover runner skips a repeat. Fixed by hovering
+  somewhere else, not by dropping the assertion.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 599 passed, 0 failed (was 598) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+**The settings audit is finished**, as the factory audit was in entry 64.
+Between them, everything the widget editor is *configured* with has been
+checked against what the Qt Quick view reads.
+
+What has not been audited is the third source: what the **document** carries
+that a view acts on - `TextDocument`'s marks, its highlighter, its indenter,
+its encoding, its `TextBlockUserData`. Entry 64 suggested this and it is still
+the right next thing, but note that it is a much larger surface than either
+audit so far and much of it is shared by construction, since both views show
+the same `TextDocument`.
+
+**A cheaper next step, and the one I would take:** the last three batches each
+found their defect in a *user preference or language setting that one view
+consults and the other does not*. That pattern is now exhausted. The pattern
+that has not been tried is **the commands**: entry ~50 counted which commands
+exist in each view and compared their behaviour, but never checked what each
+command does when the *setting it depends on* is turned off. That is where a
+fourth one of these would live.
+
+The printing decision (keep / drop / move) remains the owner's call.

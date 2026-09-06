@@ -521,6 +521,12 @@ public:
     void deliverCompletions(IAssistProposal *proposal);
 
     bool isMouseHidden() const;
+
+    // Whether a tooltip should be prepared for a hover carrying \a modifiers.
+    // Control is for following links and must not be interrupted by one, and
+    // "show help tooltips using the mouse: on Shift+mouseover" means nothing
+    // on a plain hover. The rule TextEditorWidget::viewportEvent() applies.
+    bool hoverTooltipsAllowed(Qt::KeyboardModifiers modifiers) const;
     // Called by the form when the pointer moves: a mouse that has moved is a
     // mouse the user is looking for again.
     Q_INVOKABLE void showMouse();
