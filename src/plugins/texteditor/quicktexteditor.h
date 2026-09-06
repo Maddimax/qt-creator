@@ -9,6 +9,9 @@
 #include <coreplugin/icontext.h>
 
 #include <QObject>
+#include <QPointer>
+
+#include <functional>
 
 namespace Core { class IEditor; }
 namespace QtcQuick { class ActionModel; class QuickWidget; }
@@ -76,6 +79,39 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
 // that. The source pointing at \a document belongs to the widget handed back.
 QtcQuick::QuickWidget *createQuickTextViewOver(TextDocument *document,
                                                QtcQuick::ActionModel *contextActions);
+
+// Which of an editor's commands the file's language can actually answer. A
+// command is registered either way, so that its menu entry keeps its place and
+// its shortcut, and disabled where the language has nothing to answer with -
+// which is what the widget editor does with the same mask.
+//
+// A child of the editor it belongs to, because that is how a language that
+// learns later what it can do finds it: addOptionalActionsIn() looks for one
+// rather than knowing which editors have one.
+class OptionalActionGate final : public QObject
+{
+    Q_OBJECT
+
+public:
+    // \a viewport is asked each time rather than held: two of the gated
+    // commands edit, so whether the view is writable is part of the answer,
+    // and the view outlives neither this nor the editor reliably.
+    OptionalActionGate(QObject *parent, const std::function<TextViewport *()> &viewport);
+
+    // \a needs of OptionalActions::None leaves \a action alone: a command
+    // every language can answer is not gated at all.
+    void gate(QAction *action, uint needs);
+
+    void setOptionalActions(uint optionalActions);
+    void addOptionalActions(uint optionalActions);
+    void update();
+
+private:
+    struct GatedAction { QPointer<QAction> action; uint needs; };
+    QList<GatedAction> m_gated;
+    uint m_optionalActions = 0;
+    const std::function<TextViewport *()> m_viewport;
+};
 
 // The view inside a widget createQuickTextView() handed back.
 TextViewport *viewportIn(QWidget *host);

@@ -45429,3 +45429,106 @@ belongs to the widget pane and goes with it.
 Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
 the question about its empty outline combo), the whitespace difference
 (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — The optional-action gate comes out of the editor (batch 101)
+
+Entry 100 ended on a decision: Markdown registers its own Follow Symbol, or
+the command registrations come out of `QuickTextEditor`. This batch took the
+general half of the second, and **did not do the substitution**, for a reason
+worth recording.
+
+### Why the substitution did not happen
+
+Entry 100 said the substitution was "mechanical plus one decision". Working
+through the call sites says it is mechanical plus **three**, and each is a
+behaviour Markdown has today:
+
+| What | Where it goes |
+| --- | --- |
+| Follow Symbol (F2) | this entry, half of it |
+| navigation history | `MarkdownEditor` connects three `TextEditorWidget` signals; `TextViewport` has no equivalent, and `QuickTextEditor` drives its own from `saveState()` |
+| the italic "i" and bold "b" | entry 95 kept the font by styling the widget tool bar's button; a Qt Quick row draws the action |
+
+Swapping now would land all three as quiet regressions in the one editor
+Markdown has. **A batch that has to ship three regressions to finish is not
+ready**, and saying so is cheaper than finding out from a bug report.
+
+### The gap this closed
+
+    void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
+    {
+        if (auto * const quick = qobject_cast<QuickTextEditor *>(editor))
+            quick->addOptionalActions(optionalActions);
+    }
+
+This is how a language says what it turned out to be able to do - a language
+server only knows once it has answered its initialize - and it reached one
+class. An editor that registers commands and is not that class could never
+hear the answer.
+
+The gating is now `OptionalActionGate`: the `gate()`/`addOptionalActions()`/
+`update()` trio and the list they work on, moved out whole.
+`QuickTextEditor` owns one as a child and forwards to it;
+`addOptionalActionsIn()` **finds** one rather than knowing who has one.
+
+A child rather than an argument because that is the only handle the free
+function has: it is given an editor and nothing else.
+
+### The dispatcher prefers a widget, which the first test forgot
+
+The first version of the test opened a Markdown file and expected the answer
+to reach a gate on it. It did not, and the reason is the public seam:
+
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->addOptionalActions(optionalActions);
+        return;
+    }
+    Internal::addOptionalActionsIn(editor, optionalActions);
+
+Markdown still **has** a widget pane, so the widget answer wins - correctly,
+today. The test now uses a small `Core::IEditor` with no text widget at all,
+which is what a two-pane editor becomes only once its pane actually changes.
+
+Worth keeping: **an editor keeps widget behaviour until its pane changes**,
+whatever its base class. Entry 99 changed what `MarkdownEditor` *is*; this is
+the reminder that it changed nothing about what it *has*.
+
+### Controls
+
+- **BP**: `addOptionalActionsIn()` back to casting to `QuickTextEditor` - red
+  at "the language's answer never reached this editor's gate", and the Qt
+  Quick editor's own mask test stays green, which is right: it has a gate
+  either way.
+- **BQ**: `OptionalActionGate::update()` returning immediately - red at the
+  editor's own `testTheOptionalCommandsFollowTheFactorysMask` **and** at the
+  new test. The first half is the one that matters: it says the Qt Quick
+  editor's gating now goes through the extracted class rather than a copy left
+  behind.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 667 passed, 0 failed (was 666) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown
+
+Two of the three above, and then the substitution:
+
+1. **Navigation history.** `QuickTextEditor` records it from its own
+   `saveState()` at the two moments that matter. A host of a bare view has to
+   do the same; whether that is worth a seam or four lines per host is the
+   open question.
+2. **The two styled glyphs.** Entry 94 raised it, entry 95 deferred it by
+   styling the widget's button, and the swap is where it comes due.
+3. The registrations themselves are still in `QuickTextEditor`'s constructor.
+   Markdown needs one of them - Follow Symbol - and now has somewhere to gate
+   it. Four lines in `MarkdownEditor` rather than a 300-line extraction is the
+   proportionate answer, and this entry is what makes it possible.
+
+Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
+the question about its empty outline combo), the whitespace difference
+(declined, entry 68), and printing (entry 31, the owner's).

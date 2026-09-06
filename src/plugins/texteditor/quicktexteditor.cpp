@@ -263,9 +263,10 @@ public:
                              Utils::Id contextMenuId = {})
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document.get()))
-        , m_optionalActions(optionalActions)
+        , m_gate(new OptionalActionGate(this, [this] { return viewport(); }))
         , m_contextMenuId(contextMenuId)
     {
+        m_gate->setOptionalActions(optionalActions);
         // duplicate() answers, so say so: the editor manager asks this rather
         // than trying, and an editor it thinks cannot be duplicated is moved
         // between split views instead of copied - which loses the tab the
@@ -824,37 +825,14 @@ public:
 
     Core::IDocument *document() const final { return m_document.get(); }
 
-    // A command only some languages can answer, and the bit of the factory's
-    // mask that says whether this one does. Registered either way, so that the
-    // menu entry keeps its place and its shortcut; disabled where the language
-    // has nothing to answer with, which is what the widget editor does.
-    void gate(QAction *action, uint needs)
-    {
-        if (needs != OptionalActions::None)
-            m_gatedActions.append({action, needs});
-    }
+    void gate(QAction *action, uint needs) { m_gate->gate(action, needs); }
 
     // What the language turned out to be able to do, on top of what its
     // factory said up front - a language server only knows once it has
     // answered its initialize.
-    void addOptionalActions(uint optionalActions)
-    {
-        m_optionalActions |= optionalActions;
-        updateOptionalActions();
-    }
+    void addOptionalActions(uint optionalActions) { m_gate->addOptionalActions(optionalActions); }
 
-    void updateOptionalActions()
-    {
-        TextViewport * const view = viewport();
-        const bool writable = view && view->canEdit();
-        for (const auto &[action, needs] : std::as_const(m_gatedActions)) {
-            if (!action)
-                continue;
-            const bool edits = needs & (OptionalActions::Format
-                                        | OptionalActions::UnCommentSelection);
-            action->setEnabled((m_optionalActions & needs) && (!edits || writable));
-        }
-    }
+    void updateOptionalActions() { m_gate->update(); }
 
     // The editor's own part of the toolbar row. Built on demand and once: the
     // editor manager asks whenever this editor becomes current, and a new one
@@ -1288,9 +1266,7 @@ public:
     QPointer<QAction> m_wrapAction;
     // Enabled only while there is a suggestion to take.
     QList<QPointer<QAction>> m_suggestionActions;
-    struct GatedAction { QPointer<QAction> action; uint needs; };
-    QList<GatedAction> m_gatedActions;
-    uint m_optionalActions = OptionalActions::None;
+    OptionalActionGate * const m_gate;
     QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
@@ -1325,10 +1301,52 @@ public:
     }
 };
 
+OptionalActionGate::OptionalActionGate(QObject *parent,
+                                       const std::function<TextViewport *()> &viewport)
+    : QObject(parent)
+    , m_viewport(viewport)
+{}
+
+void OptionalActionGate::gate(QAction *action, uint needs)
+{
+    if (needs != OptionalActions::None)
+        m_gated.append({action, needs});
+}
+
+void OptionalActionGate::setOptionalActions(uint optionalActions)
+{
+    m_optionalActions = optionalActions;
+    update();
+}
+
+void OptionalActionGate::addOptionalActions(uint optionalActions)
+{
+    m_optionalActions |= optionalActions;
+    update();
+}
+
+void OptionalActionGate::update()
+{
+    TextViewport * const view = m_viewport ? m_viewport() : nullptr;
+    const bool writable = view && view->canEdit();
+    for (const auto &[action, needs] : std::as_const(m_gated)) {
+        if (!action)
+            continue;
+        const bool edits = needs & (OptionalActions::Format
+                                    | OptionalActions::UnCommentSelection);
+        action->setEnabled((m_optionalActions & needs) && (!edits || writable));
+    }
+}
+
 void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
 {
-    if (auto * const quick = qobject_cast<QuickTextEditor *>(editor))
-        quick->addOptionalActions(optionalActions);
+    // Whoever owns one, rather than only the Qt Quick editor: an editor made
+    // of more than one pane registers its own commands and gates them the
+    // same way.
+    if (!editor)
+        return;
+    if (auto * const gate = editor->findChild<OptionalActionGate *>())
+        gate->addOptionalActions(optionalActions);
 }
 
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
@@ -9733,6 +9751,54 @@ private slots:
     // exists, so a view for one cannot own its text the way CodeBuffer does
     // nor open the file the way CodeDocument does. This is the third case, and
     // it is what an editor made of two panes needs for its text pane.
+    // addOptionalActionsIn() is how a language says what it turned out to be
+    // able to do - a language server only knows once it has answered its
+    // initialize. It used to reach the Qt Quick editor and nothing else, so an
+    // editor made of more than one pane could register commands and never hear
+    // that they were answerable.
+    void testAnEditorThatIsNeitherKindCanGateItsCommands()
+    {
+        // Neither a widget editor nor the Qt Quick one, which is what an
+        // editor made of two panes is while only one of them is text.
+        class PaneEditor final : public Core::IEditor
+        {
+        public:
+            PaneEditor()
+                : m_document(new TextDocument)
+                , m_widget(new QWidget)
+            {
+                setWidget(m_widget.get());
+            }
+            Core::IDocument *document() const final { return m_document.get(); }
+            QWidget *toolBar() final { return nullptr; }
+
+        private:
+            const std::unique_ptr<TextDocument> m_document;
+            const std::unique_ptr<QWidget> m_widget;
+        };
+
+        PaneEditor editor;
+        QVERIFY2(!TextEditorWidget::fromEditor(&editor),
+                 "this editor has a widget pane, so the widget answer would win");
+
+        QAction follow;
+        auto * const gate = new OptionalActionGate(
+            &editor, []() -> TextViewport * { return nullptr; });
+        gate->gate(&follow, OptionalActions::FollowSymbolUnderCursor);
+        gate->update();
+        QVERIFY2(!follow.isEnabled(),
+                 "a command nobody has answered for was offered anyway");
+
+        // A different bit does not turn it on, or the assertion below would
+        // pass for anything at all.
+        TextEditor::addOptionalActionsIn(&editor, OptionalActions::FindUsage);
+        QVERIFY2(!follow.isEnabled(), "an unrelated answer enabled the command");
+
+        TextEditor::addOptionalActionsIn(&editor, OptionalActions::FollowSymbolUnderCursor);
+        QVERIFY2(follow.isEnabled(),
+                 "the language's answer never reached this editor's gate");
+    }
+
     void testAViewCanBeBuiltOverADocumentAnEditorOwns()
     {
         Utils::TemporaryDirectory dir("adopted-document");
