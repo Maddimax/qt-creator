@@ -36,6 +36,14 @@ public:
 
     TextEditor::IAssistProvider *quickFixAssistProvider() const override;
 
+    // What this language proposes, which is a question about the file rather
+    // than about the view showing it - and which is what a view that is not a
+    // widget asks. Completion only: a quick fix still needs the widget it is
+    // going to act on.
+    std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
+        const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
+        Core::IEditor *editor) const override;
+
     void setIsDesignModePreferred(bool value);
     bool isDesignModePreferred() const;
 
@@ -53,5 +61,10 @@ private:
     friend class Internal::QmlJSEditorDocumentPrivate; // sending signals
     Internal::QmlJSEditorDocumentPrivate *d;
 };
+
+
+#ifdef WITH_TESTS
+QObject *createQmlJSEditorDocumentTest();
+#endif
 
 } // QmlJSEditor

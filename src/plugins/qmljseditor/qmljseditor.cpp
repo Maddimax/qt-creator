@@ -1126,10 +1126,11 @@ std::unique_ptr<AssistInterface> QmlJSEditorWidget::createAssistInterface(
     AssistKind assistKind,
     AssistReason reason) const
 {
-    if (assistKind == Completion) {
-        return std::make_unique<QmlJSCompletionAssistInterface>(
-            textCursor(), textDocument()->filePath(), reason, qmlJsEditorDocument()->semanticInfo());
-    } else if (assistKind == QuickFix) {
+    // The document's answer, so that there is one of it: a view that is not a
+    // widget asks the document, and this used to build its own copy.
+    if (assistKind == Completion)
+        return textDocument()->createAssistInterface(textCursor(), assistKind, reason, nullptr);
+    if (assistKind == QuickFix) {
         return std::make_unique<Internal::QmlJSQuickFixAssistInterface>(
             const_cast<QmlJSEditorWidget *>(this), reason);
     }

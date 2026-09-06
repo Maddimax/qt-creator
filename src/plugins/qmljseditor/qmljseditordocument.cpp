@@ -3,6 +3,14 @@
 
 #include "qmljseditordocument.h"
 
+#include "qmljscompletionassist.h"
+
+#ifdef WITH_TESTS
+#include <utils/mimeconstants.h>
+
+#include <QTest>
+#endif
+
 #include "qmljseditordocument_p.h"
 #include "qmljseditorplugin.h"
 #include "qmljseditortr.h"
@@ -793,6 +801,65 @@ Internal::QmlOutlineModel *QmlJSEditorDocument::outlineModel() const
     return d->m_outlineModel;
 }
 
+std::unique_ptr<TextEditor::AssistInterface> QmlJSEditorDocument::createAssistInterface(
+    const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
+    Core::IEditor *editor) const
+{
+    if (kind != TextEditor::Completion)
+        return TextDocument::createAssistInterface(cursor, kind, reason, editor);
+    return std::make_unique<QmlJSCompletionAssistInterface>(cursor, filePath(), reason,
+                                                            semanticInfo());
+}
+
+#ifdef WITH_TESTS
+
+// Declared above anything with a raw string in it: moc's namespace tracking
+// does not survive those, and a Q_OBJECT class after them comes out
+// unqualified.
+class QmlJSEditorDocumentTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // Completion used to be answered by QmlJSEditorWidget, so a QML file open
+    // in anything else got the plain text proposals. TextDocument declares
+    // createAssistInterface() virtual for exactly this, and it is what a view
+    // that is not a widget asks.
+    void testCompletionIsAnsweredByTheDocument()
+    {
+        QmlJSEditorDocument document(Utils::Id("QmlJSEditor.QMLJSEditor"));
+        document.setMimeType(Utils::Constants::QML_MIMETYPE);
+        document.document()->setPlainText("import QtQuick\nItem { width: 1 }\n");
+
+        QTextCursor cursor(document.document());
+        cursor.setPosition(document.plainText().indexOf("width") + 5);
+
+        const std::unique_ptr<TextEditor::AssistInterface> interface
+            = document.createAssistInterface(cursor, TextEditor::Completion,
+                                             TextEditor::ExplicitlyInvoked, nullptr);
+        QVERIFY2(interface, "the document proposes nothing at all");
+        auto * const qml = dynamic_cast<QmlJSCompletionAssistInterface *>(interface.get());
+        QVERIFY2(qml, "the document answered with the plain text interface");
+        QCOMPARE(qml->cursor().position(), cursor.position());
+
+        // A different kind is still the base's answer, so this did not take
+        // over everything - a quick fix needs the widget it will act on.
+        const std::unique_ptr<TextEditor::AssistInterface> quickFix
+            = document.createAssistInterface(cursor, TextEditor::QuickFix,
+                                             TextEditor::ExplicitlyInvoked, nullptr);
+        QVERIFY(quickFix);
+        QVERIFY2(!dynamic_cast<QmlJSCompletionAssistInterface *>(quickFix.get()),
+                 "a quick fix was answered with the completion interface");
+    }
+};
+
+QObject *createQmlJSEditorDocumentTest()
+{
+    return new QmlJSEditorDocumentTest;
+}
+
+#endif // WITH_TESTS
+
 TextEditor::IAssistProvider *QmlJSEditorDocument::quickFixAssistProvider() const
 {
     if (const auto baseProvider = TextDocument::quickFixAssistProvider())
@@ -860,3 +927,5 @@ void QmlJSEditorDocument::setSourcesWithCapabilities(
 
 
 } // QmlJSEditor
+
+#include "qmljseditordocument.moc"

@@ -46224,3 +46224,100 @@ What still opens in `TextEditorWidget` is what nobody has moved: QML/JS,
 VcsBase's editors, the diff editor, the binary editor and the rest. Each is
 the same shape as the eleven above, and none of them is blocked - the seams
 they would need all exist and are tested standing alone.
+
+## 2026-09-06 — QmlJS begins, and entry 109's sweep was wrong (batch 110)
+
+Entry 109 closed by saying nothing was blocked and naming the editors still on
+the widget path. **The list was produced by a bad sweep** and this batch starts
+by correcting it.
+
+### The sweep entry 109 should have run
+
+Grepping `.cpp` files for `class ... : TextEditorFactory` finds four factories
+and misses every one whose class is declared in a **header** - which includes
+`QmlJSEditorFactory`, the biggest of them. Asking instead which files call
+`setEditorWidgetCreator()` finds fourteen, of which these are production
+factories with no Qt Quick anywhere:
+
+    designer/formeditor.cpp          qbsprojectmanager/qbseditor.cpp
+    effectcomposer/...               qmldesigner/.../bindingeditorwidget.cpp
+    qmljseditor/qmljseditor.cpp      scxmleditor/scxmleditor.cpp
+    texteditor/plaintexteditorfactory.cpp   vcsbase/vcsbaseeditor.cpp
+
+Entry 109 also named "the binary editor", which is not a `TextEditorFactory`
+at all.
+
+**A sweep is a measurement and gets the same rule as any other**: the pattern
+it uses is part of the claim. `grep` over `.cpp` for a class declaration
+answers a question about where classes are *defined*, not about which exist.
+
+### One thing the corrected sweep turned up
+
+    class QbsEditorWidget : public QmlJSEditorWidget
+    {
+    };
+
+Empty. `QbsEditorFactory` derives from `QmlJSEditorFactory`, which already
+sets a widget creator building a `QmlJSEditorWidget`; the qbs factory sets it
+again to build an identical empty subclass. **Not touched in this batch** -
+it is a different plugin and a different commit - but recorded, because qbs
+follows QmlJS across for free once that class is gone.
+
+### The gap this closed
+
+`QmlJSEditorWidget::createAssistInterface()` answered completion, so a QML
+file open in anything else got the plain text proposals. This is entry 106's
+move, done again for QmlJS: `QmlJSEditorDocument` overrides
+`TextDocument::createAssistInterface()`, and the widget **delegates to it**
+rather than keeping a second copy.
+
+Only the completion half moved. The quick fix branch builds a
+`QmlJSQuickFixAssistInterface` from `const_cast<QmlJSEditorWidget *>(this)` -
+it needs the widget it is going to act on, and that is a batch of its own.
+
+### An editing mistake worth writing down
+
+The document's new function landed **inside another function's return type**:
+
+    TextEditor::std::unique_ptr<AssistInterface> QmlJSEditorDocument::create...
+
+The anchor was `IAssistProvider *QmlJSEditorDocument::quickFixAssistProvider()`
+and the file says `TextEditor::IAssistProvider *...`. The anchor matched as a
+**substring**, so the insertion went after `TextEditor::`. Two builds, and the
+compiler error named `std` rather than anything to do with the anchor.
+
+**An anchor that is a substring of a longer identifier splices into the middle
+of it.** Anchor on a line start, or include enough to be unambiguous.
+
+### Controls
+
+- **CI**: the document delegating every kind to the base - red at "the
+  document answered with the plain text interface".
+- **CJ**: a valid cursor at position 0 instead of the one asked about - red at
+  the position comparison. The first attempt passed `QTextCursor()`, which
+  **crashes** rather than failing: a null cursor is not a mistake anyone
+  makes, and a control that crashes tests the assertion less than one that
+  returns a wrong answer.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 672 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 18 passed, 0 failed (was 15) |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+`QmlJSEditorWidget` still owns: the outline model index and the jump to it, the
+context pane, `updateUses()`, `updateCodeWarnings()`, `findUsages()` and
+`renameSymbolUnderCursor()` overrides, the quick fix assist interface,
+`contextMenuEvent()` and `event()`. Several batches, in the shape GLSL took
+across entries 105 to 109 - and QmlJS has a head start, because
+`QmlJSEditorDocument` already carries the semantic info, the outline model and
+the diagnostic ranges.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).
