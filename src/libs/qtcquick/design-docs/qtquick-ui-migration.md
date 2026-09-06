@@ -48327,3 +48327,130 @@ working:
 Steps 3 and 4 are the ones that have repeatedly caught me out, in three
 different shapes now: a test asserting the old behaviour (130), an assertion
 that could not fail (129), and a control that could not bite (131).
+
+## 2026-09-06 — Entry 131's third difference was my fixture (batch 132)
+
+Entry 131 closed with a difference it had found and deliberately not chased:
+
+> | | `        alpha\n  beta`, caret in the two-space indent, plain `indent()` |
+> | widget | `     beta` - five spaces |
+> | Qt Quick | `   beta` - three |
+
+Chased it. **There is no difference.** The two views agree exactly; the two
+measurements were taken at two different indent sizes, and the reason is a line
+in my own fixture that does not do what it reads as.
+
+### The mechanism
+
+```cpp
+void TextDocument::setTabSettings(const TabSettingsData &tabSettings)
+{
+    if (const TabSettingsData candidate = tabSettings.autoDetect(document());
+```
+
+**`setTabSettings()` does not store what it is handed.** It runs the
+indentation detector over the document first and keeps *that* - which is a
+preference, "Auto detect", on by default, and does exactly what it says: reads
+the file and answers with what the file is indented by.
+
+So the two probes differed in one thing only, and it was not the editor:
+
+| | when the tab settings were set | detector saw | indent size in force |
+| --- | --- | --- | --- |
+| widget probe (entry 131) | before `setPlainText()` | an empty document | **4**, as asked |
+| Qt Quick fixture | after the file was opened | a file indented by two | **2** |
+
+`indent()` at column 1 with size 4 goes to column 4 - five spaces. With size 2
+it goes to column 2 - three. Both editors do the same thing; they were asked
+different questions.
+
+Confirmed rather than argued: the widget probe was re-run with the text set
+*first*, and it answers `   beta` too.
+
+```
+WIND settingsFirst= true  indentSize now 4 ->         alpha\n     beta\n
+WIND settingsFirst= false indentSize now 2 ->         alpha\n   beta\n
+```
+
+### What that cost, and what it bought
+
+Entry 131 was right to drop the row rather than bend the expectation, and right
+to write the difference down - but it reported it as a difference *between the
+editors*, which it is not. **Corrected here.**
+
+The instructive part is why the hunt was quick this time: entry 131's own rule
+- probe the reference implementation, do not reason about it - is what produced
+the two-line table above, and instrumenting the fixture rather than theorising
+about `indentOrUnindent()` is what found the 2. Ten minutes, after twenty
+minutes of reading `indentOrUnindent()` that explained nothing.
+
+**`texteditor_test.cpp` already knew.** It sets `m_autoDetect = false` in its
+fixtures, in two places. The widget tests have always turned the detector off;
+the three fixtures in `textviewport_test.cpp` never did, and one of them
+predates this migration's entries entirely.
+
+### What landed
+
+- **Three fixtures made honest.** `tabs.m_autoDetect = false`, and a
+  `QCOMPARE(doc->tabSettings().m_indentSize, 4)` right after, so a fixture that
+  is silently overruled says so instead of running at a size nobody chose. All
+  four affected tests still pass: their expectations happened not to depend on
+  the difference, which is luck rather than design and is now not needed.
+- **Entry 131's dropped row put back.** `never, shallower line` now asserts the
+  widget's five spaces and caret 18, and passes. The loop is closed in a test
+  rather than in prose.
+- **A guard for the trap itself**:
+  `testTabSettingsAreDetectedFromTheTextUnlessTurnedOff`. A file indented by
+  two, `setTabSettings()` asked for four, and the answer is two - unless
+  detection is off, when the answer is the question.
+
+No production change. The bug was in a test, and so is the fix.
+
+### Controls
+
+- **EL**: `m_autoDetect = false` taken back out of the Tab fixture - red at
+  exactly entry 131's numbers, `   beta` where `     beta` is wanted. That is
+  the whole claim of this entry, reproduced on demand.
+- **EM**: `setTabSettings()` made to store what it is handed - red at the
+  guard's first comparison, 4 where 2 is wanted, which is what says the guard
+  is about live behaviour and not about a constant.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 691 passed, 0 failed (was 689) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### A rule this earns
+
+Four entries running have turned on a test being wrong rather than the code:
+an assertion that could not fail (129), a test asserting the old behaviour
+(130), a control that could not bite (131), and now **a fixture whose setup
+line was quietly overruled** (132). They are one family, and the rule that
+covers all four is short:
+
+> **Assert the fixture, not just the outcome.** If a test sets something up,
+> read it back and compare. A setter that negotiates - `setTabSettings()`
+> detects, `setReadOnly()` may be overridden by the document, a `Command` is
+> enabled by whatever context is active - will otherwise decide the test's
+> meaning without telling it.
+
+Entry 97 wrote half of this ("a context test that never gave anything focus
+measured the fixture and reported it as a defect in the code"). This is the
+other half: the fixture can also be *set* and not take.
+
+### Where this leaves it
+
+1. **The rest of the key handler diff.** `Key_Tab` gave two gaps, `Key_Backspace`
+   one. `Key_Delete`, `Key_Insert`, Home/End and the text-insertion path have
+   not been read this way.
+2. **QmlJS's context pane** - a UI decision.
+3. **The whitespace drawing difference** - declined, entry 68.
+4. **Printing** - open since entry 31.
+5. **The four pinned factories**, and `forceOpenLinksInNextSplit`, which
+   nothing reads.
+
+Item 1 is the one with a track record: three gaps from two keys.

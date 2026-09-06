@@ -1745,7 +1745,11 @@ private slots:
         TabSettingsData tabs = doc->tabSettings();
         tabs.m_indentSize = 4;
         tabs.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        // Or setTabSettings() would read the sample text and answer with what
+        // *it* is indented by instead - see the test beside this one.
+        tabs.m_autoDetect = false;
         doc->setTabSettings(tabs);
+        QCOMPARE(doc->tabSettings().m_indentSize, 4);
 
         QTextDocument * const text = doc->document();
         const auto secondLine = [text] { return text->findBlockByNumber(1).text(); };
@@ -1812,6 +1816,39 @@ private slots:
     // them apart, so the widget editor asks it only where it knows it inserted
     // something, and only when the reader has not turned that off. This view
     // asked it every time.
+    // setTabSettings() does not store what it is handed: it runs the
+    // indentation detector over the document first, and answers with what the
+    // text says unless the reader has turned that off. A fixture that sets its
+    // tab settings after putting text in silently runs at whatever that text
+    // is indented by - which is how a difference between the two editors was
+    // reported in entry 131 that turned out to be two different indent sizes.
+    void testTabSettingsAreDetectedFromTheTextUnlessTurnedOff()
+    {
+        TemporaryDirectory dir("qtc-viewport-tabdetect");
+        const FilePath file = dir.filePath("twos.txt");
+        // Indented by two throughout, which is what the detector will say.
+        QVERIFY(file.writeFileContents("a\n  b\n    c\n  d\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        TextDocument * const doc = viewport->textDocument();
+        QVERIFY(doc);
+
+        TabSettingsData asked = doc->tabSettings();
+        asked.m_indentSize = 4;
+        asked.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        QVERIFY2(asked.m_autoDetect, "detection is off by default, so this tests nothing");
+        doc->setTabSettings(asked);
+        QCOMPARE(doc->tabSettings().m_indentSize, 2);
+
+        // And turned off, the answer is the question.
+        asked.m_autoDetect = false;
+        doc->setTabSettings(asked);
+        QCOMPARE(doc->tabSettings().m_indentSize, 4);
+    }
+
     // "Skip automatically inserted character if re-typed manually after
     // completion or by pressing tab." Two triggers, and this view had the
     // first: Tab between the brackets of "f(|)" indented instead of stepping
@@ -1836,7 +1873,11 @@ private slots:
         TabSettingsData tabs = doc->tabSettings();
         tabs.m_indentSize = 4;
         tabs.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        // Or setTabSettings() would read the sample text and answer with what
+        // *it* is indented by instead - see the test beside this one.
+        tabs.m_autoDetect = false;
         doc->setTabSettings(tabs);
+        QCOMPARE(doc->tabSettings().m_indentSize, 4);
         const auto firstLine = [doc] { return doc->document()->firstBlock().text(); };
 
         QVERIFY2(globalCompletionSettings().skipAutoCompletedText(),
@@ -1917,6 +1958,9 @@ private slots:
             << QString("    alpha\n        be  ta\n") << 22;
         // And where auto-indent makes the line deeper: the caret ends up at
         // the first non-space rather than adrift in the white space it was in.
+        QTest::newRow("never, shallower line")
+            << shallower << int(TypingSettingsData::TabNeverIndents) << 15
+            << QString("        alpha\n     beta\n") << 18;
         QTest::newRow("always, shallower line")
             << shallower << int(TypingSettingsData::TabAlwaysIndents) << 15
             << QString("        alpha\n        beta\n") << 22;
@@ -1955,7 +1999,11 @@ private slots:
         TabSettingsData tabs = doc->tabSettings();
         tabs.m_indentSize = 4;
         tabs.m_tabPolicy = TabSettingsData::SpacesOnlyTabPolicy;
+        // Or setTabSettings() would read the sample text and answer with what
+        // *it* is indented by instead - see the test beside this one.
+        tabs.m_autoDetect = false;
         doc->setTabSettings(tabs);
+        QCOMPARE(doc->tabSettings().m_indentSize, 4);
 
         TypingSettingsData typing = doc->typingSettings();
         typing.m_tabKeyBehavior = TypingSettingsData::TabKeyBehavior(behavior);
