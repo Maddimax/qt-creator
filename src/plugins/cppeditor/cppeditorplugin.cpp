@@ -614,16 +614,24 @@ void CppEditorPlugin::addPerSymbolActions()
                 // answers would be two searches.
                 TextEditor::SymbolRequests * const requests
                     = TextEditor::symbolRequestsForEditor(editor);
-                if (!requests || CppModelManager::usesClangd(document))
+                // No relay at all means a widget editor, which owns all of
+                // this itself.
+                if (!requests)
                     return;
-                connect(requests, &TextEditor::SymbolRequests::requestUsages, editor,
-                        [editor](const QTextCursor &cursor) {
-                            CppEditor::findUsagesOf(editor, cursor);
-                        });
-                connect(requests, &TextEditor::SymbolRequests::requestRename, editor,
-                        [editor](const QTextCursor &cursor) {
-                            CppEditor::renameUsagesOf(editor, {}, cursor);
-                        });
+                // The searches, and only those, are the language client's when
+                // clangd is in charge - answering them here as well would be
+                // two searches. Everything below is the view's own and is
+                // wanted either way.
+                if (!CppModelManager::usesClangd(document)) {
+                    connect(requests, &TextEditor::SymbolRequests::requestUsages, editor,
+                            [editor](const QTextCursor &cursor) {
+                                CppEditor::findUsagesOf(editor, cursor);
+                            });
+                    connect(requests, &TextEditor::SymbolRequests::requestRename, editor,
+                            [editor](const QTextCursor &cursor) {
+                                CppEditor::renameUsagesOf(editor, {}, cursor);
+                            });
+                }
 
                 // Which function the caret is in, which is what the toolbar
                 // combo says. CppEditorWidget owns one of these itself; the

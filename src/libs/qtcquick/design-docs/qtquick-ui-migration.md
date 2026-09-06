@@ -46944,3 +46944,84 @@ Two things, and neither is ordinary work:
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — A return that took three things with it (batch 119)
+
+Entry 118 pointed at QmlJS's outline and noted, from a comment, that C++'s own
+outline is "kept up to date and not yet drawn" in the Qt Quick view. Reading
+that comment's neighbourhood found something else, and it is a live defect in
+**the goal language**.
+
+### The gap this closed
+
+`cppeditorplugin.cpp`, in what a C++ editor gets when it is created:
+
+    TextEditor::SymbolRequests * const requests = symbolRequestsForEditor(editor);
+    if (!requests || CppModelManager::usesClangd(document))
+        return;
+    connect(requests, requestUsages, ...);
+    connect(requests, requestRename, ...);
+
+    // Which function the caret is in ...
+    auto * const outline = new CppEditorOutline(editor, document);
+    // What Ctrl+U encloses next ...
+    auto * const expander = new CppSelectionExpander(editor, document);
+    // A declaration and definition that have drifted apart ...
+    auto * const declDefLink = new CppDeclDefLinkController(editor);
+
+The `return` was written for the two searches - with clangd in charge the
+language client answers the same relay, and two answers would be two searches.
+**Everything below it was skipped as well**, and none of the three has
+anything to do with clangd.
+
+So with clangd in charge - the default for C++ - a C++ file in the Qt Quick
+view had no outline in its tool bar row, the plain bracket walk instead of the
+syntax tree for Ctrl+U, and no declaration/definition link.
+
+The clangd test now guards only the two connections. `if (!requests) return;`
+stays: no relay means a widget editor, which owns all of this itself.
+
+**A `return` in the middle of a setup block is a claim about everything after
+it.** This one's comment described the two lines above it.
+
+### What the control could and could not say
+
+- **DA**: nothing below the searches created at all - red at "the editor has
+  no outline for the toolbar row to draw" and at the existing
+  `testFindUsagesAnswersTheViewsRequest`. That is the guard working.
+- **CZ**: the original wide return put back - **green**.
+  `CppModelManager::usesClangd()` is false in this environment: clangd is not
+  configured, so the wide return is never taken and the test cannot tell the
+  two versions apart.
+
+**Said plainly rather than glossed**: the defect is established by reading,
+not by a failing test, and the new test is a regression guard for the
+structure rather than a demonstration of the bug. Making it discriminate would
+need a project with clangd enabled, which this suite has no way to set up.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CppEditor,SymbolJumpTest` | 0 | 11 passed, 0 failed (was 10) |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+For **C++**, which is the goal: nothing known. This was the last thing found
+by reading what a Qt Quick C++ editor is given, and it is given all of it now.
+
+For **QmlJS**:
+
+1. The outline model index and `jumpToOutlineElement()` - and the note that
+   sent this batch looking is now half wrong: C++'s outline **is** drawn by
+   the Qt Quick row when it exists, which is what `findChild<ToolBarOutline *>()`
+   in `QuickTextEditor::toolBar()` is for. QmlJS needs to hand one over the way
+   C++ does.
+2. The context pane - measured in entry 114: a decision, and the last one.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

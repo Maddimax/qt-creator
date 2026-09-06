@@ -1225,6 +1225,40 @@ private slots:
     // Rename asks the same relay, but reaches the model manager the long way
     // round: follow symbol first, so that renaming something declared in a
     // generated file can say so, and the rename runs from that answer.
+    // The outline the tool bar row draws, the Ctrl+U walk and the
+    // declaration/definition link are all things a view that is not a widget
+    // gets from the editor rather than from a widget subclass. They sat below
+    // a return meant for the searches alone.
+    void testAQuickCppEditorGetsWhatTheWidgetSubclassOwns()
+    {
+        Utils::TemporaryDirectory dir("cpp-quick-editor-parts");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int one() { return 1; }\nint two() { return 2; }\n"));
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        // All three sat below the return, and each is what a widget subclass
+        // owns for the widget editor.
+        QVERIFY2(editor->findChild<TextEditor::ToolBarOutline *>(),
+                 "the editor has no outline for the toolbar row to draw");
+        QVERIFY2(editor->findChild<TextEditor::SelectionExpander *>(),
+                 "the editor has no selection expander, so Ctrl+U walks brackets");
+    }
+
     void testRenameAnswersTheViewsRequest()
     {
         Utils::TemporaryDirectory dir("cpp-rename-without-a-widget");
