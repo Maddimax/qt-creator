@@ -44080,3 +44080,101 @@ language anyone has asked about is either moved or measured:
 (1b). It needs no new mechanism, it is the last thing standing between the
 widget text editor and being unused by any language in the tree, and unlike
 the tool bar question it can be finished and tested by whoever picks it up.
+
+## 2026-09-06 — Entry 87's own proposal does not survive measurement (batch 88)
+
+Entry 87 ended by proposing the Markdown preview pane, on the grounds that it
+"needs no new mechanism". Measured first, as this file now measures everything
+before acting on it: **it does need one.**
+
+### Why the preview pane is not a seam away
+
+`MarkdownEditor` would have to hold the Qt Quick view's widget in its
+splitter. `QuickTextEditor` cannot supply one, because its constructor
+interleaves being a view with being an editor:
+
+    setWidget(widget);                        the editor's widget *is* the host
+    widget->quickWidget()->installEventFilter(this);
+    view->setTooltipHost(widget->quickWidget());
+    view->setEditor(this);                    the view points back at the editor
+    m_contextActions.setProvider([this] ...);
+    connect(view, &TextViewport::cursorPositionChanged, this, ...);
+
+There is no "build me a Qt Quick text view for this document" that stops short
+of "and be the editor". Separating the two is a real piece of architecture -
+worth doing, quite possibly, but it is not the small finishable thing entry 87
+described.
+
+**Fourth time a recorded cost has been wrong when re-measured** - entries 69,
+76, 78, and now 87's own closing proposal, written one batch earlier. The rule
+this file arrived at holds without exception so far: *a cost is true as of its
+date and not after.*
+
+### What was closed instead
+
+Entry 80 introduced a wart and called it cosmetic:
+`LanguageClient::createJsonEditor()` walks the factories that claim a `.json`
+and keeps the first whose editor is a `BaseTextEditor`. Since JSON moved, that
+means **building a Qt Quick editor, and the Qt Quick plain text editor behind
+it, and destroying both** before landing on the plain text editor it wanted -
+two QML editors constructed and thrown away per LSP inspector window.
+
+It asks for `createPlainTextEditor()` directly now. That is exactly what it
+was already ending up with, and the box is configured from scratch below
+whatever it came from, so nothing about it changes except the waste.
+
+This is a wart **this project made**, which is the best reason to be the one
+to remove it.
+
+### A test the function never had
+
+`createJsonEditor()` had no test at all, which is why entry 80 could change
+its behaviour and only notice by reading. It now has one: the box is a widget
+editor, its document is highlighted, and a malformed message gets a mark.
+Three assertions, because "an editor came back" would have passed while the
+box showed unhighlighted text.
+
+### Controls
+
+- **AK**: the factory walk put back, stopping at the first - red at "no editor
+  was made for the inspector's messages".
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 650 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test LanguageClient` | 0 | 44 passed, 0 failed (was 43) |
+
+No `.qbs` change: no files added.
+
+### There is no ordinary next step, and this is the second entry to say so
+
+Entry 87 said it and then proposed something that turned out to be
+architecture. Saying it again, with that correction made:
+
+**Everything that was a gap is closed. Everything that is left is a decision,
+a design, or a piece of architecture.**
+
+1. **Markdown**, in two parts: a tool bar design question (how a checkable
+   tool bar button should look), and separating "a Qt Quick text view" from
+   "a Qt Quick editor" so something else can host the view. The second is the
+   substantial one and the one that would let *any* composite editor - the
+   diff editor's two panes, the binding editor - move.
+2. The whitespace drawing difference (entry 68). Declined, with the reason.
+3. **Printing** - keep, drop or move. The owner's since entry 31.
+
+### What I would do next
+
+**Separate the view from the editor** - item 1's second half - and do it for
+its own sake rather than for Markdown. It is the only remaining thing that
+unlocks more than one caller, `QuickTextEditor` would get smaller rather than
+larger, and it can be tested the way everything else here has been: build a
+view without an editor, check it draws the document.
+
+If that is too large a piece to want, then the honest answer is that this
+migration is finished for the purpose stated at the top of every batch - a C++
+file opens in `TextViewport`, and so now do JSON, qmake, CMake and Python -
+and what remains is somebody's decision about scope rather than more of the
+same work.

@@ -673,6 +673,31 @@ class QuickFixMarkerTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The JSON box the LSP inspector shows messages in. It has never had a
+    // test, and it changed under JSON moving to the Qt Quick view: it takes
+    // the first factory whose editor is a BaseTextEditor, which the Qt Quick
+    // one is not.
+    void testTheJsonBoxIsAWidgetEditorThatHighlightsJson()
+    {
+        const std::unique_ptr<TextEditor::BaseTextEditor> editor(createJsonEditor());
+        QVERIFY2(editor.get(), "no editor was made for the inspector's messages");
+
+        TextEditor::TextEditorWidget * const widget = editor->editorWidget();
+        QVERIFY2(widget, "the box is not a widget editor, so what configures it did nothing");
+
+        // What the box is configured to be: JSON, without the furniture of a
+        // code editor.
+        TextEditor::TextDocument * const document = editor->textDocument();
+        QVERIFY(document);
+        QVERIFY2(document->syntaxHighlighter(), "the box would show JSON unhighlighted");
+
+        // And it reports a parse error on the line it is on, which is the
+        // only thing in it that is about JSON rather than about text.
+        document->setPlainText("{ \"a\": }");
+        QTRY_VERIFY2(!document->marks().isEmpty(),
+                     "a malformed message was not marked as one");
+    }
+
     void testAQuickFixIsOfferedInAViewThatIsNotAWidget()
     {
         Utils::TemporaryDirectory dir("lsp-quickfix-marker");

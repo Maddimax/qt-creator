@@ -999,14 +999,14 @@ bool LanguageFilter::operator==(const LanguageFilter &other) const
 BaseTextEditor *createJsonEditor(QObject *parent)
 {
     using namespace Text;
-    BaseTextEditor *textEditor = nullptr;
-    for (Core::IEditorFactory *factory : Core::IEditorFactory::preferredEditorFactories("foo.json")) {
-        Core::IEditor *editor = factory->createEditor();
-        if (textEditor = qobject_cast<BaseTextEditor *>(editor); textEditor)
-            break;
-        delete editor;
-    }
-    QTC_ASSERT(textEditor, textEditor = createPlainTextEditor());
+    // The plain text editor, asked for by name. This used to walk the
+    // factories that claim a .json and keep the first whose editor is a
+    // BaseTextEditor - which, since JSON moved to the Qt Quick view, means
+    // building a Qt Quick editor and the Qt Quick plain text editor behind it
+    // and throwing both away before landing here anyway. The box is
+    // configured below whatever it came from, so ask for it directly.
+    BaseTextEditor * const textEditor = createPlainTextEditor();
+    QTC_ASSERT(textEditor, return nullptr);
     textEditor->setParent(parent);
 
     TextDocument *document = textEditor->textDocument();
