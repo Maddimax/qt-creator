@@ -352,6 +352,15 @@ signals:
     void tabSettingsChanged();
     void fontSettingsChanged();
     void extraSelectionsChanged();
+
+    // This document has work it put off until a view is looking - a language's
+    // outline model, its semantic highlighting. A view answers by calling
+    // triggerPendingUpdates() once it is visible, and by remembering to do so
+    // when it is shown if it is not.
+    //
+    // Deferred rather than done, because a file nobody is looking at should
+    // not be paying for a highlighter pass.
+    void pendingUpdatesRequested();
     void refactorMarkersChanged();
     // Which actions the toolbar should show has changed.
     void toolBarActionsChanged();

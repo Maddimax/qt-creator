@@ -339,6 +339,17 @@ public:
                     m_jumps, &JumpRecorder::caretMoved);
         }
 
+        // Work the document put off until a view is looking. Done now if this
+        // one is, and remembered for its next show if it is not - which is the
+        // usual case, because a file is parsed before its editor is shown.
+        connect(m_document.data(), &TextDocument::pendingUpdatesRequested, this, [this] {
+            QWidget * const host = Core::IEditor::widget();
+            if (host && host->isVisible())
+                m_document->triggerPendingUpdates();
+            else
+                m_updatesWaitingForAShow = true;
+        });
+
         // Preferences are pushed into a document, not read from one, so an
         // editor that pushes nothing saves and indents differently from every
         // other editor in Creator without saying so. The widget editor
@@ -828,6 +839,11 @@ public:
     // what stops the shortcut and lets the key arrive as an ordinary key press.
     bool eventFilter(QObject *watched, QEvent *event) final
     {
+        if (event->type() == QEvent::Show && m_updatesWaitingForAShow) {
+            m_updatesWaitingForAShow = false;
+            m_document->triggerPendingUpdates();
+        }
+
         if (event->type() == QEvent::ShortcutOverride) {
             if (TextViewport * const view = viewport()) {
                 if (view->wantsKeyBeforeShortcuts(static_cast<QKeyEvent *>(event))) {
@@ -1255,6 +1271,8 @@ public:
     QList<QPointer<QAction>> m_suggestionActions;
     OptionalActionGate * const m_gate;
     JumpRecorder * const m_jumps;
+    // See pendingUpdatesRequested(): asked for while nobody was looking.
+    bool m_updatesWaitingForAShow = false;
     QPointer<QAction> m_whitespaceAction;
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.

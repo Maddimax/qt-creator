@@ -1477,6 +1477,15 @@ void TextEditorWidgetPrivate::setDocument(const QSharedPointer<TextDocument> &do
                                      this,
                                      &TextEditorWidgetPrivate::updateDocumentToolBarActions);
 
+    // Work the document put off until a view is looking. showEvent() covers
+    // being shown after it was asked for; this covers being asked for while
+    // already shown.
+    m_documentConnections << connect(m_document.data(), &TextDocument::pendingUpdatesRequested,
+                                     q, [this] {
+                                         if (q->isVisible())
+                                             q->triggerPendingUpdates();
+                                     });
+
     m_documentConnections << connect(documentLayout,
                                      &TextDocumentLayout::updateBlock,
                                      this,

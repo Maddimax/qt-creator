@@ -607,6 +607,8 @@ void QmlJSEditorDocumentPrivate::acceptNewSemanticInfo(const SemanticInfo &seman
 
     m_outlineModelNeedsUpdate = true;
     m_semanticHighlightingNecessary = true;
+    // Whoever is showing this file, if anyone: the work above waits for one.
+    emit q->pendingUpdatesRequested();
 
     if (m_qmllsStatus.semanticWarningsSource == QmllsStatus::Source::EmbeddedCodeModel)
         createTextMarks(m_semanticInfo);
@@ -1038,17 +1040,26 @@ private slots:
                          && !document->semanticInfo().document.isNull(),
                      "a QML file in the Qt Quick view was never parsed");
 
-        // ...but the model the row draws is still empty, and this records why
-        // rather than leaving it to be rediscovered. Filling it is work the
-        // document defers until triggerPendingUpdates() is called, and that is
-        // called by the *view*: TextEditorWidget does it from showEvent(). A
-        // Qt Quick view calls it nowhere, and calling it on show alone is not
-        // enough - the parse has not finished by then, and nothing calls it
-        // again afterwards.
-        QEXPECT_FAIL("", "a Qt Quick view never triggers the document's deferred work",
-                     Abort);
-        QVERIFY2(outline->model()->rowCount({}) > 0,
-                 "the outline model is empty after the file was parsed");
+        // And the model the row draws is filled. Filling it is work the
+        // document puts off until a view says somebody is looking, which it
+        // asks for with pendingUpdatesRequested() - on a timer, so this waits.
+        QTRY_VERIFY2(outline->model()->rowCount({}) > 0,
+                     "the outline model is empty after the file was parsed");
+
+        // So the row names the element the caret is in, and a different one
+        // when it moves.
+        const auto nameAt = [document, outline, editor](const char *needle) {
+            QTextCursor cursor(document->document());
+            cursor.setPosition(document->plainText().indexOf(QLatin1String(needle)));
+            TextEditor::setTextCursorOf(editor, cursor);
+            return outline->currentText();
+        };
+        QString inBox;
+        QTRY_VERIFY2(!(inBox = nameAt("Rectangle")).isEmpty(),
+                     "the outline names nothing where the caret is");
+        const QString inLabel = nameAt("Text {");
+        QVERIFY2(inLabel != inBox,
+                 qPrintable(QString("the outline said \"%1\" in both elements").arg(inBox)));
     }
 
     // The block the QML designer writes at the end of a file is folded when

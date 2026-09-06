@@ -47280,3 +47280,77 @@ Both are decisions now, which is where this document said QmlJS would end up.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — A document can say it has work waiting for a view (batch 123)
+
+Entry 122 called this "a seam worth designing rather than adding in passing"
+and shipped no fix. **That judgement was wrong** and the check that showed it
+was one look at where the flags are set: two lines, one place. It is the same
+shape as `foldOnFirstOpen()` in entry 118 and
+`contextMenuActions()` in entry 115, neither of which anybody called a
+decision.
+
+**Fourth time in this document** a deferral did not survive being looked at -
+entries 103, 109 and 113 were the others. The tell is the same every time: the
+entry that defers repeats the previous entry's framing instead of opening the
+file.
+
+### The gap this closed
+
+`TextDocument::pendingUpdatesRequested()`. A language emits it when it has put
+work off - QmlJS does, where it sets `m_outlineModelNeedsUpdate` and
+`m_semanticHighlightingNecessary` in one place after a parse. A view answers:
+
+- **Qt Quick**: does it now if it is visible, and remembers it for its next
+  show if not. Which is the usual case, because a file is parsed before its
+  editor is shown.
+- **The widget**: does it now if it is visible. `showEvent()` already covered
+  being shown *after* the work was asked for; this covers being asked for
+  while already shown, **which was a hole there too**.
+
+So a QML file in the Qt Quick view has its outline filled, and the tool bar
+row names the element the caret is in - the thing entries 120, 121 and 122
+were each one step away from.
+
+### Two of my own tests were wrong, and said so differently
+
+- Entry 122's `QEXPECT_FAIL` assertion used a plain `QVERIFY2`. The work is
+  started on a timer, so it could never have passed even with the fix - the
+  test never waited. `QTRY_VERIFY2`.
+- The behaviour half pointed at `id: box` and `id: label`, and got `"id"`
+  twice: the innermost node covering a property is the property. Pointing at
+  `Rectangle` and `Text {` names the elements.
+
+The first is the more interesting one. **An expected failure records a belief,
+and a belief can be wrong in the test rather than in the code.** Entry 122
+concluded "a Qt Quick view never triggers deferred work" from an assertion
+that could not have passed either way.
+
+### Controls
+
+- **DF**: the document never asking - red at "the outline model is empty after
+  the file was parsed".
+- **DG**: the Qt Quick view ignoring the request - red at the same place. Each
+  end of the new seam, separately.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 24 passed, 0 failed, **no expected failures** |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+For QmlJS: **the context pane, and nothing else.** Measured in entry 114 - a
+floating `QWidget` placed by `QPlainTextEdit` pixel geometry, so either
+`TextViewport` grows those queries or the pane is rebuilt in QML. That one is
+a decision, and after four wrong deferrals the honest thing to add is: it was
+*measured*, unlike the others, and the measurement is in entry 114 for
+whoever wants to check it.
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).
