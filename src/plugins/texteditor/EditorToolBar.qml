@@ -135,6 +135,7 @@ Row {
             required property string actionToolTip
             required property bool actionCheckable
             required property bool actionChecked
+            required property var actionFont
             // An action can carry an icon instead of a text - the button that
             // brings back a minimized info bar is a warning sign and nothing
             // else - so a button bound only to the text would draw empty.
@@ -155,6 +156,10 @@ Row {
             ToolTip.text: languageButton.actionToolTip
             ToolTip.visible: hovered && ToolTip.text !== ""
             checkable: languageButton.actionCheckable
+            // The action's emphasis, not its whole font: what size and family
+            // a tool bar button uses is the tool bar's business.
+            labelBold: languageButton.actionFont.bold
+            labelItalic: languageButton.actionFont.italic
             // Assigned rather than bound: activate() writes to checked on
             // every click of a checkable button, and a JavaScript assignment
             // destroys a binding. The action is what decides, so its answer is

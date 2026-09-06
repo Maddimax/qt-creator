@@ -95,6 +95,8 @@ QVariant ActionModel::data(const QModelIndex &index, int role) const
         return action->isCheckable();
     case CheckedRole:
         return action->isChecked();
+    case FontRole:
+        return action->font();
     case SeparatorRole:
         return false;
     case IconRole:
@@ -119,6 +121,7 @@ QHash<int, QByteArray> ActionModel::roleNames() const
             {VisibleRole, "actionVisible"},
             {CheckableRole, "actionCheckable"},
             {CheckedRole, "actionChecked"},
+            {FontRole, "actionFont"},
             {SeparatorRole, "actionSeparator"},
             {IconRole, "actionIcon"},
             {ToolTipRole, "actionToolTip"},

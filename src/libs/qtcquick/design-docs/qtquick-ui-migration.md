@@ -45614,3 +45614,102 @@ One decision and then the work:
 Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
 the question about its empty outline combo), the whitespace difference
 (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — "A QAction cannot carry a font" was wrong (batch 103)
+
+Entry 102 said Markdown had one thing left in its way and that it was the
+owner's call. It was not a call at all. **`QAction` has a `font` property**,
+and it notifies through `changed()` - which `ActionModel` has connected all
+along.
+
+    qaction.h:44   Q_PROPERTY(QFont font READ font WRITE setFont NOTIFY changed)
+
+That sentence - "a `QAction` cannot carry a font" - was written in entry 94,
+repeated in 95, and cited as a blocker in 100, 101 and 102. **Five entries, no
+check**, and the check was one grep of a header that has been on this machine
+the whole time.
+
+The rule this breaks is the one at the top of this document: a claim about why
+something cannot be done needs the measurement that produced it, or a mark
+saying it is a guess. This one got neither, and it turned an afternoon of
+ordinary work into a standing question with the owner's name on it.
+
+### The gap this closed
+
+Three small pieces:
+
+- `ActionModel` gained a `FontRole`, so the row can see what the action says.
+- `QtcButton` gained `labelBold` and `labelItalic`. Its `labelFont` is
+  `readonly` and derived from the role - the same shape `checkable` had before
+  entry 93 - and the same answer: the type scale is the role's, whether the
+  label is emphasised is the caller's.
+- The tool bar delegate maps the action's font onto those two, and **only**
+  those two. A row that took the action's whole font would take its size and
+  family too, which belong to the design tokens.
+
+`MarkdownEditor` sets the font on its emphasis and strong actions now, and
+`styleGlyph()` - entry 95's workaround, which reached into the tool bar for
+the button it had made - is gone. `QToolButton::setDefaultAction()` copies the
+action's font, so the widget tool bar draws it unchanged; that is asserted
+rather than assumed.
+
+### Two QML facts that cost a build each
+
+**Reading a font property gives a reference to it, not a copy.** The first
+version did
+
+    let f = root.labelFont
+    if (root.labelItalic) f.italic = true
+
+and the write went back through to a `readonly` property, where it was
+silently dropped. The button reported `labelItalic: true` and drew upright.
+Built from parts with `Qt.font({...})` instead.
+
+**QML reports a `pixelSize` for a point-sized font.** The token font is
+`pointSize 12, pixelSize -1`; QML computes a pixel size and hands it over, so
+`if (labelFont.pixelSize > 0)` is always true and the rebuilt font came out
+`pixelSize 12, pointSize -1`. The same number and a different size on a
+high-DPI screen. Ask `pointSize` first.
+
+The second one is a bug that would have shipped: the test compared the
+emphasised font with the plain one field by field, which is the only reason it
+was caught. **A test that had only checked `italic()` would have passed.**
+
+### Controls
+
+- **BT**: the delegate's `labelItalic` binding removed - red at "the action
+  turned italic and the row kept drawing it upright".
+- **BU**: the emphasis action's font never set - red at "the emphasis action
+  is not italic", which is the widget half.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 670 passed, 0 failed (was 668) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+`QtcQuick_qmllint` and `TextEditor_qmllint` clean on both changed QML files.
+No `.qbs` change: no files added.
+
+### What is left, for Markdown
+
+**Nothing but the substitution.** Every piece has an answer and a test:
+
+| Piece | Answer |
+| --- | --- |
+| the view over the editor's document | `createQuickTextViewOver()` - entry 100 |
+| the tool bar row | `createQuickTextToolBar()` - entry 98 |
+| find | comes with the view - entry 96 |
+| the text context | `IContext::attach()` - entry 97 |
+| Follow Symbol | register it, gate with `OptionalActionGate` - entry 101 |
+| navigation history | `JumpRecorder` - entry 102 |
+| the styled glyphs | the action's font - this entry |
+| state, caret, goto line | `TextViewport` twins |
+| highlighting | `HighlighterHelper::setDefinitionOn()` |
+
+That is one batch, and there is no decision left in it.
+
+Unchanged elsewhere: GLSL (entry 93's table with entry 97's correction, plus
+the question about its empty outline combo), the whitespace difference
+(declined, entry 68), and printing (entry 31, the owner's).

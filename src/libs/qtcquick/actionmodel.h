@@ -38,6 +38,9 @@ public:
         VisibleRole,
         CheckableRole,
         CheckedRole,
+        // The action's own font. A tool bar takes the weight and the slant
+        // from it and leaves the size and family to its own type scale.
+        FontRole,
         SeparatorRole,
         IconRole,
         // What the action says about itself when pointed at, shortcut and

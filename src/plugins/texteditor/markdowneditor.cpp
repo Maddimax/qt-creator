@@ -231,12 +231,10 @@ public:
         for (auto it = m_markDownActions.rbegin(); it != m_markDownActions.rend(); ++it)
             m_textEditorWidget->insertExtraToolBarAction(TextEditorWidget::Left, *it);
 
-        // These two are a styled glyph rather than an icon, and a QAction
-        // cannot carry a font - so the button the tool bar made for each is
-        // styled once it exists. A view that draws these itself will need its
-        // own answer; the action is what it will be given.
-        styleGlyph(emphasis, [](QFont f) { f.setItalic(true); return f; });
-        styleGlyph(strong, [](QFont f) { f.setBold(true); return f; });
+        // These two are a styled glyph rather than an icon. A QAction carries
+        // a font, so it says so itself and either tool bar can read it.
+        emphasis->setFont([emphasis] { QFont f = emphasis->font(); f.setItalic(true); return f; }());
+        strong->setFont([strong] { QFont f = strong->font(); f.setBold(true); return f; }());
 
         m_swapViews = Command::createActionWithShortcutToolTip(SWAPVIEWS_ACTION, this);
         m_swapViews->setEnabled(showEditor && showPreview);
@@ -398,15 +396,6 @@ public:
                 *selectionLength = -8; // https:// is 8 chars
             }
         });
-    }
-
-    // Restyles the tool bar's own button for \a action, which is the only
-    // place a font can live once the tool bar is described by actions.
-    void styleGlyph(QAction *action, const std::function<QFont(QFont)> &restyle)
-    {
-        QWidget * const button = m_textEditorWidget->toolBar()->widgetForAction(action);
-        QTC_ASSERT(button, return);
-        button->setFont(restyle(button->font()));
     }
 
     void toggleEditor() { m_toggleEditorVisible->toggle(); }
@@ -757,6 +746,50 @@ private slots:
     // rest through TextEditorWidget::fromEditor() - the text pane. This editor
     // is two panes and answers for itself, so that the text one can be
     // replaced without the editor going with it.
+    // The emphasis and strong buttons are a styled glyph rather than an icon.
+    // The action carries the font now, so both kinds of tool bar can read it -
+    // this checks the widget one still draws it, which is what styling the
+    // button by hand used to do.
+    void testTheStyledGlyphsAreCarriedByTheirActions()
+    {
+        Utils::TemporaryDirectory dir("markdown-glyphs");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("doc.md");
+        QVERIFY(file.writeFileContents("word\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QWidget * const bar = editor->toolBar();
+        QVERIFY(bar);
+        QToolBar * const toolBar = bar->findChild<QToolBar *>();
+        QVERIFY(toolBar);
+
+        QHash<QString, QAction *> byText;
+        for (QAction * const action : toolBar->actions())
+            byText.insert(action->text(), action);
+
+        QAction * const emphasis = byText.value("Emphasis");
+        QAction * const strong = byText.value("Strong");
+        QAction * const inlineCode = byText.value("Inline Code");
+        QVERIFY(emphasis && strong && inlineCode);
+
+        // The action says so.
+        QVERIFY2(emphasis->font().italic(), "the emphasis action is not italic");
+        QVERIFY2(strong->font().bold(), "the strong action is not bold");
+        // And one that is neither, so the assertions above are not true of
+        // every action in the row.
+        QVERIFY2(!inlineCode->font().italic() && !inlineCode->font().bold(),
+                 "a plain action came out styled");
+
+        // And the widget tool bar draws it, which is what this replaced.
+        auto * const italicButton = qobject_cast<QWidget *>(toolBar->widgetForAction(emphasis));
+        QVERIFY2(italicButton, "the toolbar made no button for the emphasis action");
+        QVERIFY2(italicButton->font().italic(),
+                 "the button the toolbar made ignores the action's font");
+    }
+
     void testTheEditorAnswersWithoutBeingAWidgetEditor()
     {
         Utils::TemporaryDirectory dir("markdown-editor-shape");

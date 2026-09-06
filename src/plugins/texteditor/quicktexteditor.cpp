@@ -9747,6 +9747,61 @@ private slots:
     // The row above the view, built for a host that is not the Qt Quick
     // editor. An editor made of two panes wants the same row over its text
     // pane, and should not have to know which QML file it lives in.
+    // A button whose label *is* the emphasis - Markdown's italic "i". The
+    // action carries the font; the row takes the weight and the slant from it
+    // and keeps its own size and family.
+    void testAnActionsEmphasisReachesTheQuickToolBar()
+    {
+        CodeBuffer source;
+        source.setText("text\n");
+        const std::unique_ptr<QWidget> viewHost(
+            Internal::createQuickTextView(&source, nullptr));
+        QVERIFY(viewHost.get());
+        viewHost->resize(400, 300);
+        viewHost->show();
+        const QScopeGuard hideView([&viewHost] { viewHost->hide(); });
+        TextViewport *view = nullptr;
+        QTRY_VERIFY(view = Internal::viewportIn(viewHost.get()));
+
+        QAction glyph("i");
+        QtcQuick::ActionModel actions;
+        actions.setActions({&glyph});
+
+        const std::unique_ptr<QWidget> bar(
+            Internal::createQuickTextToolBar(view, &actions, nullptr, nullptr));
+        QVERIFY(bar.get());
+        bar->resize(600, 40);
+        bar->show();
+        const QScopeGuard hideBar([&bar] { bar->hide(); });
+
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "languageToolBarButton")),
+                     "the row drew nothing for the action");
+
+        const auto drawnFont = [drawn] {
+            return drawn->property("emphasisedLabelFont").value<QFont>();
+        };
+
+        // Before and after on the same button, so that what is compared is the
+        // emphasis and not the row's own type scale - whose weight for this
+        // kind of button is already heavy.
+        const QFont plain = drawnFont();
+        QVERIFY2(!plain.italic(), "the row draws every label italic");
+
+        glyph.setFont([&glyph] { QFont f = glyph.font(); f.setItalic(true); return f; }());
+        QTRY_VERIFY2(drawnFont().italic(),
+                     "the action turned italic and the row kept drawing it upright");
+
+        // Its emphasis, not its whole font: the size and family are the row's.
+        const QFont emphasised = drawnFont();
+        QCOMPARE(emphasised.family(), plain.family());
+        QCOMPARE(emphasised.pixelSize(), plain.pixelSize());
+        QCOMPARE(emphasised.pointSize(), plain.pointSize());
+        QCOMPARE(emphasised.weight(), plain.weight());
+    }
+
     // An editor's document is opened by the editor manager before the editor
     // exists, so a view for one cannot own its text the way CodeBuffer does
     // nor open the file the way CodeDocument does. This is the third case, and

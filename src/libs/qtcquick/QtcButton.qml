@@ -109,6 +109,38 @@ Item {
             return Fonts.iconStandard
         return Fonts.labelMedium // Tag
     }
+    // Weight and slant on top of the role's font, for a button standing for
+    // something whose label *is* the emphasis - Markdown's italic "i" and bold
+    // "b". Not the whole font: the size and the family are the type scale's,
+    // and a caller able to set those would step outside it.
+    property bool labelBold: false
+    property bool labelItalic: false
+
+    // The role's font untouched unless something asked for emphasis: reading a
+    // font property gives a reference to it, so mutating a local copy of it
+    // writes back through to a readonly property and is dropped. Built from
+    // parts instead, and only where it has to be.
+    readonly property font emphasisedLabelFont: {
+        if (!root.labelBold && !root.labelItalic)
+            return root.labelFont
+        let spec = {
+            family: root.labelFont.family,
+            weight: root.labelBold ? Font.Bold : root.labelFont.weight,
+            italic: root.labelItalic || root.labelFont.italic,
+            letterSpacing: root.labelFont.letterSpacing
+        }
+        // Point size where the font has one. QML reports a pixelSize for a
+        // point-sized font too - it computes one - so asking which is set has
+        // to be asked of pointSize. Carrying the wrong one over turns a point
+        // size into a pixel size: the same number, a different size on a
+        // high-DPI screen.
+        if (root.labelFont.pointSize > 0)
+            spec.pointSize = root.labelFont.pointSize
+        else
+            spec.pixelSize = root.labelFont.pixelSize
+        return Qt.font(spec)
+    }
+
     readonly property int labelLineHeight: {
         if (root.isLarge)
             return Fonts.h5LineHeight
@@ -213,7 +245,7 @@ Item {
     Text {
         id: label
         text: root.text
-        font: root.labelFont
+        font: root.emphasisedLabelFont
         color: root.labelColor
         elide: Text.ElideRight
         horizontalAlignment: root.centerLabel ? Text.AlignHCenter : Text.AlignLeft
