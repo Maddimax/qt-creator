@@ -39752,3 +39752,90 @@ One file, no new file and no `.qbs` edit.
   QmlDesigner's link error; **`-test ClangFormat`**, not an accepted name; and
   the **shared "this test is about the Qt Quick view"** helper, still at three
   call sites and still short of the fourth that would justify it.
+
+## 2026-09-06 (47) -- The delayed collector is load-bearing, not a hazard
+
+Entry 46 left the locator index race as the thing in the way of comparing
+CppEditor's suite. Chasing it found a mechanism, and the mechanism suggested a
+fix that **made the suite five times worse**.
+
+### The mechanism, which is real
+
+Closing an editor calls `CppModelManager::delayedGC()`, which starts a **500ms
+single-shot timer** that collects the global snapshot when it fires:
+
+    connect(&d->m_delayedGcTimer, &QTimer::timeout, this, &CppModelManager::GC);
+    void CppModelManager::delayedGC() { if (d->m_enableGC) d->m_delayedGcTimer.start(500); }
+
+`CppEditor::Tests::TestCase`'s constructor runs a synchronous `GC()` but never
+stops a **pending** one. So a timer armed by an earlier test's editor closes
+lands in the middle of a later test and takes away the documents it has just
+parsed. That is not a guess - it is the shape of every symptom entry 46 saw,
+and `enableGarbageCollector()` already exists and already stops the timer,
+called only from the editor-closing helper.
+
+### The fix that was not one
+
+Hold the collector off for a `TestCase`'s lifetime - disable in the
+constructor, hand it back in the destructor. Measured:
+
+    baseline (entry 46)   6, 6, 7, 6 failures
+    with this change      33+ failures, still climbing when it was stopped
+
+and the new failures were `garbageCollectGlobalSnapshot()` itself returning
+false in `ReformatPointerDeclarationTest`, `ExtractFunctionTest`,
+`GenerateConstructorTest`, `OptimizeForLoopTest`, `FlipLogicalOperandsTest`...
+That function asserts the snapshot is **empty**, and with the delayed
+collector suppressed, documents accumulate between tests until it is not.
+
+**The delayed GC is not merely a hazard that fires at bad times. It is what
+cleans up between tests.** Suppressing it removes the cleaning and leaves only
+the hazard's absence, which is a far worse trade. Reverted; a clean run on the
+reverted tree gives 7 - five known-stable failures and two locator flakes,
+which is the entry-46 baseline.
+
+### Why this is written down rather than quietly dropped
+
+The hypothesis was reasonable, the mechanism behind it is real, and the change
+still had to go. Written down so the next person does not spend the same
+afternoon: **the pending timer is a race, and disabling the timer is not the
+fix.** Whatever does fix it has to stop a *stale* GC without removing the
+*useful* one - flushing the pending collection at the start of a test rather
+than suppressing it, for instance, which this batch did not get to and does
+not claim.
+
+### Negative controls
+
+None. There was nothing to control: the change was measured against the
+baseline and refuted by it, and the tree is where it started. Saying "no
+controls, because nothing was kept" is the honest form here - a control for a
+reverted change would be theatre.
+
+### Verification
+
+    -test TextEditor    586 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+    -test CppEditor     7 failures on the reverted tree, matching entry 46
+
+**This batch changed no code.** One file, and it is this one.
+
+### What this leaves
+
+- **The locator index race**, still. Two of the seven failures every run.
+  Whoever takes it should start from the paragraph above rather than from the
+  timer.
+- **Five stable CppEditor failures**, unchanged and unexamined:
+  `MoveClassToOwnFileTest` x4 and `SynchronizeMemberFunctionOrderTest`.
+- Unchanged: **drag and drop of text**; **`-test all`**, blocked by
+  QmlDesigner's link error; **`-test ClangFormat`**, not an accepted name; the
+  **shared "this test is about the Qt Quick view"** helper, still three call
+  sites.
+
+A note on where this work now sits. The editor migration itself has been done
+for several entries: C++ files open in the Qt Quick view, every gap the
+standing warning names has a home and a test, and seventeen plugins were
+compared both ways with no behavioural difference. What the last three batches
+have been doing is **fixing CppEditor's test suite so that the eighteenth
+comparison can be trusted** - worth doing, but it is test-infrastructure work
+on somebody else's suite, and it should be called that rather than counted as
+migration progress.
