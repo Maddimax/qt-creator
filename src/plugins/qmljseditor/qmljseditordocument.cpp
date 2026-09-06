@@ -12,11 +12,16 @@
 #include <texteditor/fontsettings.h>
 
 #ifdef WITH_TESTS
+#include "qmljseditorconstants.h"
+
+#include <coreplugin/actionmanager/actioncontainer.h>
+#include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/editormanager/editormanager.h>
 
 #include <utils/mimeconstants.h>
 #include <utils/temporarydirectory.h>
 
+#include <QMenu>
 #include <QScopeGuard>
 
 #include <QTest>
@@ -885,6 +890,30 @@ class QmlJSEditorDocumentTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The QML entries a right click offers. QmlJSEditorWidget names its
+    // container in contextMenuEvent(), which a view that is not a widget
+    // cannot do - it reads the one the factory names instead.
+    void testTheFactoryNamesTheQmlContextMenu()
+    {
+        Utils::TemporaryDirectory dir("qmljs-context-menu");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("thing.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem {}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        QCOMPARE(factory->contextMenuId(), Utils::Id(QmlJSEditor::Constants::M_CONTEXT));
+
+        // And the container it names has entries, or naming it would achieve
+        // nothing.
+        Core::ActionContainer * const container
+            = Core::ActionManager::actionContainer(QmlJSEditor::Constants::M_CONTEXT);
+        QVERIFY2(container && container->menu(), "the QML context menu container does not exist");
+        QVERIFY2(!container->menu()->actions().isEmpty(),
+                 "the QML context menu container is empty");
+    }
+
     // Find Usages and Rename Symbol were QmlJSEditorWidget virtuals, so a QML
     // file open in anything else could not be asked either. A view that is not
     // a widget asks through a relay; this checks the factory wires it up.

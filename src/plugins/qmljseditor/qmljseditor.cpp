@@ -1178,6 +1178,12 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
 
     setCompletionAssistProvider(new QmlJSCompletionAssistProvider);
 
+    // The QML entries a right click offers. QmlJSEditorWidget names this
+    // container in its own contextMenuEvent(), which a view that is not a
+    // widget cannot do - so a QML file in the Qt Quick view got the plain text
+    // menu and nothing of its language's.
+    setContextMenuId(Constants::M_CONTEXT);
+
     setOptionalActionMask(OptionalActions::Format
                             | OptionalActions::UnCommentSelection
                             | OptionalActions::UnCollapseAll

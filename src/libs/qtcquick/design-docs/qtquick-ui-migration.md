@@ -46529,3 +46529,84 @@ only item on that list whose size is still a guess.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — QmlJS names its context menu, and two items get measured (batch 114)
+
+Entry 113 said the context pane was "the one item whose size is still a
+guess". This batch read it before doing anything else, which is the habit
+entries 103, 109 and 113 all had to learn the hard way.
+
+### The context pane is real, and this is what it needs
+
+`QuickToolBar::apply()` and `isAvailable()` take a `TextEditorWidget *`, and
+unlike the last three deferred items they **use** it:
+
+    contextWidget()->setParent(editorWidget->parentWidget());
+    m_editorWidget->convertPosition(offset, &line1, &column1);
+    reg = m_editorWidget->translatedLineRegion(line1 - 1, line2);
+    QPoint p1 = m_editorWidget->mapToParent(m_editorWidget->viewport()->mapToParent(
+                    m_editorWidget->cursorRect(tc).topLeft()) - ...);
+
+A floating `QWidget` parented into the editor's widget hierarchy and placed by
+`QPlainTextEdit` pixel geometry. Porting it is either giving `TextViewport`
+the same geometry queries or rebuilding the pane in QML - a decision and a
+substantial batch, **not** something that dissolves on reading.
+
+Recorded as measured rather than guessed. The three previous "largest piece"
+claims were wrong; this one is right, and now it says why.
+
+### The gap this batch closed
+
+`QmlJSEditorFactory` never called `setContextMenuId()`. Its widget names
+`QML JS Editor.ContextMenu` in `contextMenuEvent()`, which is a thing only a
+widget can do - so a QML file in the Qt Quick view would get the plain text
+menu and none of its language's entries. Entry 84 built that seam for CMake;
+QmlJS simply had not claimed it.
+
+The test asserts both halves: the factory names the container, **and** the
+container has entries - naming an empty one would achieve nothing and pass a
+weaker test.
+
+### The gap this batch found and did not close
+
+The Qt Quick context menu is built from `ActionManager` containers only:
+
+    QList<QAction *> actions = actionsOf(m_contextMenuId);
+    ... plus M_STANDARDCONTEXTMENU
+
+QmlJS's Refactoring submenu is **not** in a container. It is built at the
+moment of the click, from whatever quick fixes the processor proposes for that
+cursor. There is nowhere to put entries that only exist when the menu opens.
+
+`ActionModel` already has a `MenuRole`, so one action carrying a `QMenu`
+would draw - what is missing is a way for a *document* to contribute actions
+to the context menu, asked each time it opens, the way `toolBarActions()` is
+asked for the tool bar row. That is the next seam, and it is the last thing
+between QmlJS's context menu and a view that is not a widget.
+
+### Controls
+
+- **CQ**: `setContextMenuId()` removed - red at the id comparison.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 672 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 21 passed, 0 failed (was 20) |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+| What | Size |
+| --- | --- |
+| the dynamic Refactoring submenu | a seam - `TextDocument::contextMenuActions()`, above |
+| the outline model index, `jumpToOutlineElement()` | the `ToolBarOutline` seam (entry 98); note C++'s own outline is "kept up to date and not yet drawn" in the Qt Quick view, so this is incomplete for everyone |
+| the context pane, `showTextMarker()` | **measured**: widget geometry, a decision and a batch |
+| `restoreState()` folding auxiliary data | small |
+| `updateUses()` | stays with the view (entry 111) |
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).
