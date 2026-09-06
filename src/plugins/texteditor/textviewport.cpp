@@ -4580,6 +4580,53 @@ void TextViewport::dropText(const QString &text, qreal x, qreal y, bool moveFrom
     setCursorPosition(cursor.position());
 }
 
+QString TextViewport::selectedOccurrence() const
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    if (!doc || !displaySettings().highlightSelection())
+        return {};
+    const int from = qMin(m_selectionStart, m_selectionEnd);
+    const int to = qMax(m_selectionStart, m_selectionEnd);
+    if (m_selectionStart < 0 || m_selectionEnd < 0 || from == to)
+        return {};
+    QTextCursor selected(doc->document());
+    selected.setPosition(from);
+    selected.setPosition(to, QTextCursor::KeepAnchor);
+    // One line only, the rule the rows are tinted by and the widget editor's:
+    // a selection that spans lines is a passage, not a name.
+    if (selected.block() != doc->document()->findBlock(selected.anchor()))
+        return {};
+    return selected.selectedText().trimmed();
+}
+
+// Every block, rather than the rows on screen, because the matches that are
+// not on screen are the whole point of the marks. Called from updatePolish(),
+// so dragging a selection over a large file searches it once a frame at most
+// rather than once a mouse move.
+void TextViewport::updateSelectionOnScrollBar()
+{
+    TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
+    const QString wanted = selectedOccurrence();
+    if (wanted == m_selectionOnScrollBarFor)
+        return;
+    m_selectionOnScrollBarFor = wanted;
+    m_selectionOnScrollBar.clear();
+    if (!doc || wanted.isEmpty())
+        return;
+
+    for (QTextBlock block = doc->document()->firstBlock(); block.isValid();
+         block = block.next()) {
+        QString haystack = block.text();
+        // What a row searches too: a non-breaking space reads as a space to
+        // whoever selected it.
+        haystack.replace(QChar::Nbsp, QLatin1Char(' '));
+        for (int at = haystack.indexOf(wanted, 0, Qt::CaseInsensitive); at >= 0;
+             at = haystack.indexOf(wanted, at + 1, Qt::CaseInsensitive)) {
+            m_selectionOnScrollBar.append(block.position() + at);
+        }
+    }
+}
+
 // Worked out once per layout and kept, rather than answered afresh every time
 // the bar asks: a document with a few thousand search results in it would
 // otherwise rebuild every mark on the bar for each scroll of a wheel.
@@ -4633,6 +4680,14 @@ void TextViewport::updateScrollBarHighlights()
         for (const Highlight &highlight : found)
             add(doc->document()->findBlock(highlight.start), kind.value());
     }
+
+    // And where else the selected text appears. The rows on screen are tinted
+    // as they are laid out, so the ones below the fold are visible only here -
+    // which is the marker the "Highlight selection" preference promises.
+    const QColor selectionOnBar
+        = Utils::creatorColor(Utils::Theme::TextEditor_Selection_ScrollBarColor);
+    for (const int position : std::as_const(m_selectionOnScrollBar))
+        add(doc->document()->findBlock(position), selectionOnBar);
 
     if (highlights == m_scrollBarHighlights)
         return;
@@ -5305,6 +5360,11 @@ void TextViewport::documentChangedInternal()
                         &TextViewport::updateDisabledCode, Qt::QueuedConnection);
             }
             connect(text, &QTextDocument::contentsChanged, this, [this] {
+                // The positions the selection was found at are positions in
+                // the text that was just edited, and the needle has not
+                // changed - so say it has, or the marks stay where the matches
+                // used to be.
+                m_selectionOnScrollBarFor.clear();
                 // What was typed decides whether the suggestion still
                 // describes anything - including the case where taking it is
                 // what changed the text.
@@ -6278,6 +6338,7 @@ void TextViewport::updatePolish()
     layOutGhostRows();
     rebuildVisibleLines();
 
+    updateSelectionOnScrollBar();
     updateScrollBarHighlights();
     emit metricsChanged();
     // Everything the caret's position on screen depends on was just recomputed.

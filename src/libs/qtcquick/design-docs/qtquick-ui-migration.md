@@ -47916,3 +47916,139 @@ wanting.
 
 Failing that, the honest answer is that the goal of this document is met and
 the remaining items need a decision from its owner rather than another batch.
+
+## 2026-09-06 — Half of what "Highlight selection" promises (batch 129)
+
+Entry 128 proposed unpinning the four factories that cast what `createEditor()`
+builds. **That is not what this batch did, and the reason is worth writing
+down before the gap it did close.**
+
+### Why the proposed work was not taken
+
+Read the four before starting. The plain text one has two callers -
+`cpppointerdeclarationformatter_test.cpp`, and the language client inspector's
+JSON box, which uses its widget for `configureGenericHighlighter()`,
+`setLineNumbersVisible(false)`, `setRevisionsVisible(false)` and
+`setCodeFoldingSupported(false)`. All four are view chrome for a text box in a
+dialog. Entry 88's judgement holds; converting it means giving `TextViewport`
+the same four knobs and putting a `QQuickWidget` in a settings dialog for no
+gain.
+
+SCXML's is an identity token: `qobject_cast<ScxmlTextEditor *>` in a
+`currentEditorChanged` handler, to find which design widget goes with the
+editor. Keying that on `IEditor *` is mechanical - and buys nothing, because
+SCXML's text pane is read-only and its editor is a mode widget.
+
+**So the honest reading of entry 128's proposal is that it is churn unless the
+factory then moves, and the only one worth moving - VcsBase - needs far more
+than its cast removed.** Recorded rather than done.
+
+### The gap this batch closed
+
+Looked instead for something the *goal language* still lacks, and found one in
+a preference that is **on by default** and says in as many words what it does:
+
+> Adds a colored background **and a marker to the scrollbar** to occurrences of
+> the selected text.
+
+The Qt Quick view did the first half. It tints occurrences on the rows it has
+laid out - `updatePolish()` searches each row's own text as it shapes it - and
+put nothing on the scroll bar. So select a variable name in a C++ file and
+every other use **on screen** lights up, while the ones below the fold are
+invisible. Which is the only reason to look at the bar.
+
+Measured before writing anything, in the real editor over a real `.cpp`:
+
+```
+BARPROBE settings: highlightSelection= true scrollBarHighlights= true
+BARPROBE before selecting: 1
+BARPROBE after  selecting: 1  (five 'alpha' lines in the file)
+```
+
+One mark - the caret's line. After the fix, the same probe says **6**.
+
+### How, and the two designs not taken
+
+`TextViewport::updateSelectionOnScrollBar()` searches every block for the
+selected text and keeps the positions; `updateScrollBarHighlights()` adds them
+in `TextEditor_Selection_ScrollBarColor`, the colour the widget editor uses.
+
+- **Not the widget's design.** `TextEditorWidgetPrivate` runs an async
+  `Utils::searchInContents` through a `QSingleTaskTreeRunner` for exactly this.
+  The Qt Quick view already has a whole-document-matches-plus-scroll-bar idiom
+  that is synchronous - `QuickTextFind::highlightMatches()` walks the document
+  with `QTextDocument::find` on every keystroke in the find field - and
+  importing a second, async one for the same job would have been two answers to
+  one question.
+- **Not `setHighlights(kind, ..., onScrollBar)`.** That seam exists and looks
+  like the obvious fit, but it draws the ranges in the text as well, which the
+  rows already do - so the occurrences would be tinted twice, and the
+  alternative of passing empty formats means appending a no-op
+  `QTextLayout::FormatRange` per match per row.
+
+The cost question the async design exists to answer is answered by *where* it
+runs: `updatePolish()`, which Qt Quick coalesces to once a frame, plus a needle
+guard so a polish that did not change the selection costs nothing. Dragging a
+selection across a large file searches it once a frame, not once a mouse move.
+
+One line of that is not obvious and is the one a test had to be written for:
+**an edit invalidates the answer without changing the question.** The positions
+found are positions in the text that was just edited and the selected string is
+still the selected string, so the needle guard says "nothing to do" and the
+marks stay where the matches used to be. `contentsChanged` clears the guard.
+
+### Controls
+
+- **DZ**: the marks never added to the bar - red at 0 marks where 4 were
+  wanted.
+- **EA**: the single-line rule dropped from `selectedOccurrence()` - **did not
+  bite at first**, see below.
+- **EB**: the preference no longer consulted - red at "the occurrences stayed
+  on the bar with the preference turned off".
+- **EC**: `contentsChanged` no longer clearing the guard - red at 4 marks where
+  5 were wanted after appending a fifth occurrence.
+
+**EA is the one worth reading.** The first version of that assertion selected
+across a hundred lines, and it passed with the rule removed: a multi-line
+`selectedText()` carries U+2029 paragraph separators, which never match
+anything in a single block's text, so the search came back empty either way.
+The assertion could not fail. The case the rule is actually there for is a
+selection reaching **one character** into the next line - `trimmed()` takes the
+separator off again and what is left is indistinguishable from a word. Changed
+to that, and EA bites.
+
+That is the second time in this document that an assertion about *absence*
+passed for the wrong reason. Absence has no event to wait for and usually no
+mechanism to break; the fix both times was to pick the input where the
+mechanism is the only thing standing between the code and the wrong answer.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 680 passed, 0 failed (was 679) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+1. **QmlJS's context pane** - a UI decision.
+2. **The whitespace drawing difference** - declined, entry 68.
+3. **Printing** - open since entry 31.
+4. **The four pinned factories** - and now with a reason written down for why
+   converting their casts is not obviously worth a batch on its own.
+
+### What I would do next
+
+This batch found its work by asking a different question, and the question is
+reusable: **what does a preference promise that the Qt Quick view does not
+deliver?** Preferences are a finite, written-down list of what a text editor is
+supposed to do, several are on by default, and this one had been half-missing
+since the view was written without anybody noticing. Text Editor > Display
+alone has some twenty entries.
+
+That is a census - the third kind, after "which factories are Quick" and "what
+a factory configures reaches its editor" - and it is the one with the best
+prior of the three, because the preference text states the expectation in
+words a test can be written against.

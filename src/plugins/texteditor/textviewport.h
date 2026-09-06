@@ -1255,6 +1255,12 @@ private:
     void layOutGhostRows();
     void setScopeBlock(int blockNumber);
     void updateScrollBarHighlights();
+
+    // The selected text, when it is the kind of selection whose other
+    // occurrences are shown: inside one line, and trimmed. Empty when the
+    // preference is off or when nothing is selected.
+    QString selectedOccurrence() const;
+    void updateSelectionOnScrollBar();
     void rebuildVisibleLines();
     void modifyTabSettings(const std::function<void(TabSettingsData &)> &modify);
     void updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers);
@@ -1289,6 +1295,15 @@ private:
     // name. Joins the edit the reader just made, so one undo takes both.
     void mirrorSnippetHole(int index);
     QMap<Utils::Id, QColor> m_highlightsOnScrollBar;
+
+    // Where else the selected text appears, over the whole file rather than
+    // over the rows on screen. The rows are tinted as they are laid out; this
+    // is what puts the marks on the scroll bar that "Highlight selection"
+    // promises, and the only way to see that the selection also appears below
+    // the fold. Kept rather than answered afresh: a drag changes the selection
+    // on every mouse move, and the file is searched once a frame at most.
+    QList<int> m_selectionOnScrollBar;
+    QString m_selectionOnScrollBarFor;
     QVariantList m_scrollBarHighlights;
     // What the rows were shaped with last time. Anything here changing makes
     // every row's shaping wrong, so none of them can be kept.

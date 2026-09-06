@@ -2816,6 +2816,121 @@ private slots:
                      "the bar still carried marks with the setting turned off");
     }
 
+    // "Highlight selection" promises two things - the preference says so in as
+    // many words: "Adds a colored background and a marker to the scrollbar to
+    // occurrences of the selected text." The Qt Quick view tinted the
+    // occurrences on the rows it had laid out and put nothing on the bar, so
+    // the ones below the fold - which are the reason to look at the bar at all
+    // - were invisible. On by default, both of them.
+    void testTheSelectionsOtherOccurrencesAreShownOnTheScrollBar()
+    {
+        const bool wasBar = displaySettings().scrollBarHighlights();
+        const bool wasSelection = displaySettings().highlightSelection();
+        const QScopeGuard restore([wasBar, wasSelection] {
+            displaySettings().scrollBarHighlights.setValue(wasBar);
+            displaySettings().highlightSelection.setValue(wasSelection);
+        });
+        displaySettings().scrollBarHighlights.setValue(true);
+        displaySettings().highlightSelection.setValue(true);
+
+        TemporaryDirectory dir("qtc-viewport-selection-marks");
+        const FilePath file = dir.filePath("occurrences.txt");
+        // "alpha" on lines 0, 100, 200 and 300 of 400. Line 0 is on screen and
+        // the other three are not, which is the case under test.
+        QString contents;
+        for (int i = 0; i < 400; ++i)
+            contents += (i % 100 == 0) ? QString("alpha\n") : QString("line %1\n").arg(i);
+        QVERIFY(file.writeFileContents(contents.toUtf8()));
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(600, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    width: 600; height: 200\n"
+                                     "    property string path\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/SelectionMarkTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        QVERIFY2(viewport->visibleLineCount() < 100,
+                 "the whole file is on screen, so nothing is below the fold to miss");
+
+        const QColor selectionColour
+            = Utils::creatorColor(Utils::Theme::TextEditor_Selection_ScrollBarColor);
+        const auto marks = [viewport, selectionColour] {
+            QList<qreal> at;
+            const QVariantList highlights = viewport->scrollBarHighlights();
+            for (const QVariant &entry : highlights) {
+                if (entry.toMap().value("color").value<QColor>() == selectionColour)
+                    at << entry.toMap().value("position").toReal();
+            }
+            std::sort(at.begin(), at.end());
+            return at;
+        };
+
+        // The caret's own line is on the bar from the start, so the marks
+        // under test have to be told apart by their colour - and there are
+        // none of them before anything is selected.
+        QVERIFY2(marks().isEmpty(), "the bar carried selection marks with nothing selected");
+
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        QCOMPARE(viewport->selectedText(), QString("alpha"));
+
+        QTRY_COMPARE(marks().size(), 4);
+        // Lines 0, 100, 200 and 300 of 401: a quarter of the file apart.
+        const QList<qreal> where = marks();
+        for (int i = 0; i < where.size(); ++i) {
+            const qreal wanted = qreal(i * 100) / 401;
+            QVERIFY2(qAbs(where.at(i) - wanted) < 0.02,
+                     qPrintable(QString("mark %1 is at %2, not near %3")
+                                    .arg(i).arg(where.at(i)).arg(wanted)));
+        }
+
+        // An edit moves every match that follows it, and the selected text is
+        // still the selected text - so nothing about the *needle* says the
+        // answer is stale. Appended at the end, past every mark and past the
+        // selection, so what changes is the file rather than what is selected.
+        QTextDocument * const text = viewport->document()->textDocument()->document();
+        QTextCursor atEnd(text);
+        atEnd.movePosition(QTextCursor::End);
+        atEnd.insertText("alpha\n");
+        QTRY_COMPARE(marks().size(), 5);
+
+        // A selection that spans lines is a passage, not a name: the widget
+        // editor shows nothing for it and neither does this. One character
+        // past the end of the line rather than a hundred, because that is the
+        // case the rule has to be there for - trimming takes the line break
+        // off again, so what is left looks exactly like the single-line
+        // selection above and would be searched for as one.
+        viewport->setSelectionEnd(6);
+        QTRY_VERIFY2(marks().isEmpty(),
+                     "a selection reaching into the next line was searched for as a word");
+
+        // And the preference turns them off on their own, with the bar itself
+        // still on: turned off while marks are showing, so what is waited for
+        // is them going away rather than their continued absence.
+        viewport->setSelectionEnd(5);
+        QTRY_COMPARE(marks().size(), 5);
+        displaySettings().highlightSelection.setValue(false);
+        QTRY_VERIFY2(marks().isEmpty(),
+                     "the occurrences stayed on the bar with the preference turned off");
+    }
+
     // Scrolling moves the rows up: what row five said is what row four says
     // now, word for word. Telling the view they all changed makes it read
     // every one again, so a scroll is reported as the rows that left the top
