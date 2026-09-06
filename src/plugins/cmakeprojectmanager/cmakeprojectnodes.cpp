@@ -24,11 +24,12 @@ namespace CMakeProjectManager::Internal {
 
 static bool addSubdirectory(const Utils::FilePath &projectPathDir, const Utils::FilePath & subProjectFilePath)
 {
-    TextEditor::BaseTextEditor *editor = qobject_cast<TextEditor::BaseTextEditor *>(
-        Core::EditorManager::openEditorAt(
-            {projectPathDir.pathAppended(Constants::CMAKE_LISTS_TXT)},
-            Constants::CMAKE_EDITOR_ID,
-            Core::EditorManager::DoNotMakeVisible | Core::EditorManager::DoNotChangeCurrentEditor));
+    // Asked of the editor rather than cast to a widget one: a CMakeLists.txt
+    // opens in the Qt Quick view.
+    Core::IEditor *editor = Core::EditorManager::openEditorAt(
+        {projectPathDir.pathAppended(Constants::CMAKE_LISTS_TXT)},
+        Constants::CMAKE_EDITOR_ID,
+        Core::EditorManager::DoNotMakeVisible | Core::EditorManager::DoNotChangeCurrentEditor);
     if (!editor)
         return false;
 
@@ -36,7 +37,9 @@ static bool addSubdirectory(const Utils::FilePath &projectPathDir, const Utils::
     if (subDirectory.isEmpty())
         return false;
 
-    QTextCursor cursor = editor->textCursor();
+    QTextCursor cursor = TextEditor::textCursorOf(editor);
+    if (cursor.isNull())
+        return false;
     cursor.movePosition(QTextCursor::End);
     if (!cursor.block().text().isEmpty())
         cursor.insertText("\n");

@@ -536,17 +536,19 @@ static QList<CMakeBuildSystem::SnippetAndLocation> generateSnippetsAndLocationsF
 static Result<bool> insertSnippetSilently(const FilePath &cmakeFile,
                                           const CMakeBuildSystem::SnippetAndLocation &snippetLocation)
 {
-    BaseTextEditor *editor = qobject_cast<BaseTextEditor *>(Core::EditorManager::openEditorAt(
+    // Asked of the editor rather than cast to a widget one: a CMakeLists.txt
+    // opens in the Qt Quick view.
+    Core::IEditor *editor = Core::EditorManager::openEditorAt(
         {cmakeFile, int(snippetLocation.line), int(snippetLocation.column)},
         Constants::CMAKE_EDITOR_ID,
-        Core::EditorManager::DoNotMakeVisible | Core::EditorManager::DoNotChangeCurrentEditor));
+        Core::EditorManager::DoNotMakeVisible | Core::EditorManager::DoNotChangeCurrentEditor);
     if (!editor) {
-        return ResultError("BaseTextEditor cannot be obtained for " + cmakeFile.toUserOutput()
+        return ResultError("No editor could be obtained for " + cmakeFile.toUserOutput()
                                + ":" + QString::number(snippetLocation.line) + ":"
                                + QString::number(snippetLocation.column));
     }
-    editor->insert(snippetLocation.snippet);
-    editor->editorWidget()->autoIndent();
+    TextEditor::replaceIn(editor, 0, snippetLocation.snippet);
+    TextEditor::autoIndentIn(editor);
     if (!Core::DocumentManager::saveDocument(editor->document()))
         return ResultError("Changes to " + cmakeFile.toUserOutput() + " could not be saved.");
     return true;

@@ -43714,3 +43714,95 @@ read yet.
 5. The whitespace drawing difference - declined.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — CMake moved, and the caller sweep earned its place (batch 84)
+
+Entry 83 closed CMake's two editor gaps and said the flip was next, "with the
+caller sweep entry 82 insisted on". That sweep found **four more**, and they
+are the reason entry 82's lesson was worth writing down.
+
+### Four callers, all the same cast
+
+    cmakebuildsystem.cpp:379    add a file to a CMakeLists.txt
+    cmakebuildsystem.cpp:998    remove a file from one
+    cmakebuildsystem.cpp:1110   rename a file in one
+    cmakeprojectnodes.cpp:30    add a subdirectory
+
+Every one opens the file with `CMAKE_EDITOR_ID` and casts the result to
+`BaseTextEditor`, and every one gives up when that fails - with a log line, or
+by returning `false`, or by returning an error naming the class it wanted:
+
+```cpp
+return ResultError("BaseTextEditor cannot be obtained for " + ...);
+```
+
+These are the project tree's file operations. All four would have stopped
+working the moment CMake moved, and the error messages would have blamed the
+file.
+
+**Entry 82's lesson generalises exactly as written**: converting a function is
+not converting a feature. Entry 83 converted what `CMakeEditor` did and
+reported the editor gaps closed; the four places that *reach* an editor were
+another sweep away.
+
+### Two more seams, because the sites needed four operations
+
+`insert`, `replace`, `position`/`setCursorPosition` and `autoIndent`. Three
+map onto `textCursorOf()`/`setTextCursorOf()` directly. The fourth already
+existed on **both** views - `TextEditorWidget::autoIndent()` and
+`TextViewport::autoIndent()`, both calling the same free
+`TextEditor::autoIndent(MultiTextCursor &, TextDocument *)` - and only the way
+to ask either of them was missing. So `autoIndentIn()` and `replaceIn()`.
+
+That is the fourth time a seam turned out to be a missing *question* rather
+than a missing answer.
+
+### The flip
+
+    setUsesQuickEditor(true);      in CMakeEditorFactory
+
+**CMake is the fourth language moved deliberately.**
+
+    C++     entry ~50
+    JSON    entry 80
+    qmake   entry 82
+    CMake   entry 84
+
+### Controls
+
+- **AH**: the flip reverted - red in **both** censuses, on the factory count
+  and naming `CMakeLists.txt`.
+- Entry 83's **AG** still guards the context help that made it safe.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 648 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CMakeProjectManager` | 1 | 71 passed, **1 failed** |
+
+`CMakeToolsSettingsTest::testNarrowingToADeviceLeavesOtherDevicesToolsOut`
+again, and **measured again** rather than carried over: this batch changed
+three files in that plugin, more than entry 83 did, so the park-and-rebuild
+was run once more. Identical, 7 passed 1 failed. Fourth clean-tree
+measurement of the same test (entries 58, 77, 83, 84).
+
+The four converted operations are **not covered by a test**. They need a
+configured CMake project and a build system that has parsed it; the plugin's
+own suite does not reach them. Stated plainly - the conversion is mechanical
+and the same seams as a dozen before, but nothing asserts a file still gets
+added to a CMakeLists.txt.
+
+No `.qbs` change: no files added.
+
+### What is left
+
+1. **Python** - the last of the four, and the one with a language server, a
+   code model and its own editor widget. On this batch's evidence, budget for
+   the caller sweep to be the larger half.
+2. Markdown - the toolbar-widget decision (entry 78).
+3. `createJsonEditor()`'s discarded editors (entry 80). Cosmetic.
+4. The whitespace drawing difference - declined.
+
+The printing decision (keep / drop / move) remains the owner's call.

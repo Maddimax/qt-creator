@@ -515,6 +515,12 @@ public:
         setDocumentCreator([] { return new CMakeTextDocument; });
         setIndenterCreator(createCMakeIndenter);
         setUseGenericHighlighter(true);
+        // CMakeLists.txt opens in the Qt Quick view. What the editor
+        // subclass used to do is on the factory below, and the four project
+        // tree operations that edit a CMakeLists.txt go through the editor
+        // rather than through a widget now.
+        setUsesQuickEditor(true);
+
         setContextHelpProvider(&cmakeContextHelp);
         // Named here as well as in CMakeEditorWidget::contextMenuEvent(): the
         // widget editor passes its own id, a view that is not one is handed

@@ -10451,6 +10451,28 @@ void setMarginSettingsIn(Core::IEditor *editor,
         view->setMarginSettings(settings);
 }
 
+void autoIndentIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->autoIndent();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->autoIndent();
+}
+
+void replaceIn(Core::IEditor *editor, int length, const QString &text)
+{
+    QTextCursor cursor = textCursorOf(editor);
+    if (cursor.isNull())
+        return;
+    cursor.setPosition(cursor.position() + length, QTextCursor::KeepAnchor);
+    cursor.insertText(text);
+    setTextCursorOf(editor, cursor);
+}
+
 void contextHelpItemIn(Core::IEditor *editor, const Core::IContext::HelpCallback &callback)
 {
     QTC_ASSERT(editor && callback, return);

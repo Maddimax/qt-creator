@@ -1197,6 +1197,13 @@ TEXTEDITOR_EXPORT void insertExtraToolBarActionIn(Core::IEditor *editor,
 TEXTEDITOR_EXPORT void contextHelpItemIn(Core::IEditor *editor,
                                          const Core::IContext::HelpCallback &callback);
 
+// Lay out what is selected in \a editor, or the line the caret is on. Both
+// views already do this; only the way to ask either of them was missing.
+TEXTEDITOR_EXPORT void autoIndentIn(Core::IEditor *editor);
+
+// Replace \a length characters from the caret in \a editor with \a text.
+TEXTEDITOR_EXPORT void replaceIn(Core::IEditor *editor, int length, const QString &text);
+
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax
 // tree where it has an opinion - a SelectionExpander parented to \a editor -
