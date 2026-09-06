@@ -52,6 +52,7 @@
 #include <coreplugin/navigationwidget.h>
 #include <coreplugin/actionmanager/command.h>
 #include <coreplugin/coreconstants.h>
+#include <coreplugin/helpitem.h>
 #include <coreplugin/icontext.h>
 #include <coreplugin/icore.h>
 
@@ -264,13 +265,15 @@ public:
     explicit QuickTextEditor(TextDocumentPtr document,
                              uint optionalActions = OptionalActions::None,
                              Utils::Id contextMenuId = {},
-                             const Core::Context &languageContext = {})
+                             const Core::Context &languageContext = {},
+                             TextEditorFactory *factory = nullptr)
         : m_document(std::move(document))
         , m_source(std::make_unique<AdoptedSource>(m_document))
         , m_gate(new OptionalActionGate(this, [this] { return viewport(); }))
         , m_jumps(new JumpRecorder(this, [this] { return saveState(); }))
         , m_contextMenuId(contextMenuId)
         , m_languageContext(languageContext)
+        , m_factory(factory)
     {
         m_gate->setOptionalActions(optionalActions);
         // duplicate() answers, so say so: the editor manager asks this rather
@@ -921,8 +924,14 @@ public:
     // by building its duplicate through the factory a second time.
     Core::IEditor *duplicate() final
     {
-        return new QuickTextEditor(m_document, m_gate->optionalActions(), m_contextMenuId,
-                                   m_languageContext);
+        auto * const copy = new QuickTextEditor(m_document, m_gate->optionalActions(),
+                                                m_contextMenuId, m_languageContext, m_factory);
+        // And what the language puts on the editor rather than in its text.
+        // The factory ran this over the first half; nothing but this runs it
+        // over the second.
+        if (m_factory)
+            m_factory->decorateEditor(copy);
+        return copy;
     }
 
     QString selectedText() const final
@@ -1282,6 +1291,10 @@ public:
     QtcQuick::ActionModel m_contextActions;
     const Utils::Id m_contextMenuId;
     const Core::Context m_languageContext;
+    // The factory outlives every editor it builds: it is a plugin's, made
+    // once at startup. Null for an editor nothing built - the plain Qt Quick
+    // one, and the views the tests make by hand.
+    TextEditorFactory * const m_factory = nullptr;
     QtcQuick::ActionModel m_toolBarActions;
     bool m_outlineUpdateScheduled = false;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
@@ -1475,9 +1488,10 @@ Core::IEditor *editorForViewport(TextViewport *view)
 Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
                                      const Core::Context &context,
                                      uint optionalActions,
-                                     Utils::Id contextMenuId)
+                                     Utils::Id contextMenuId,
+                                     TextEditorFactory *factory)
 {
-    return new QuickTextEditor(document, optionalActions, contextMenuId, context);
+    return new QuickTextEditor(document, optionalActions, contextMenuId, context, factory);
 }
 
 void setupQuickTextEditor()
@@ -6133,6 +6147,71 @@ private slots:
         }
         QVERIFY2(offered.contains("Only In This Language"),
                  "the split half's right-click menu offers nothing of the language's own");
+    }
+
+    void testASplitKeepsWhatTheLanguageAddsToAnEditor_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("quick") << true;
+        QTest::newRow("widget") << false;
+    }
+
+    // The other half of what a factory configures: not what a language does to
+    // its text, but what it adds to an *editor* - Python's REPL menu and its
+    // interpreter picker, vcpkg's two buttons, what F1 answers over CMake.
+    // The factory runs both over the editor it builds, and neither duplicate
+    // path goes back through it, so a split view had neither. In the widget
+    // editor as much as in this one, which is why both rows are here.
+    void testASplitKeepsWhatTheLanguageAddsToAnEditor()
+    {
+        QFETCH(bool, quick);
+
+        class DecoratedFactory final : public TextEditorFactory
+        {
+        public:
+            explicit DecoratedFactory(bool quick)
+            {
+                setId("QuickEditorDecoratorTest");
+                setDisplayName("Quick Editor Decorator Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorDecoratorTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+                setEditorDecorator([](Core::IEditor *editor) {
+                    editor->setProperty("theLanguageWasHere", true);
+                });
+                setContextHelpProvider(
+                    [](Core::IEditor *, const Core::IContext::HelpCallback &callback) {
+                        callback(Core::HelpItem(QString("QuickEditorDecoratorTest.Topic")));
+                    });
+            }
+        };
+
+        DecoratedFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QCOMPARE(bool(viewportForEditor(editor.get())), quick);
+        // Both only mean anything on the second half if the first has them,
+        // and that is the factory's doing rather than this test's.
+        QVERIFY2(editor->property("theLanguageWasHere").toBool(),
+                 "the factory decorated nothing, so this tests nothing");
+        QString first;
+        editor->contextHelp(
+            [&first](const Core::HelpItem &item) { first = item.helpIds().value(0); });
+        QCOMPARE(first, QString("QuickEditorDecoratorTest.Topic"));
+
+        const std::unique_ptr<Core::IEditor> split(editor->duplicate());
+        QVERIFY2(split.get(), "the editor cannot be split");
+        QCOMPARE(split->document(), editor->document());
+
+        QVERIFY2(split->property("theLanguageWasHere").toBool(),
+                 "the split half is missing what the language adds to an editor");
+
+        QString topic;
+        split->contextHelp(
+            [&topic](const Core::HelpItem &item) { topic = item.helpIds().value(0); });
+        QVERIFY2(topic == QString("QuickEditorDecoratorTest.Topic"),
+                 qPrintable(QString("F1 in the split half answers \"%1\", not the language")
+                                .arg(topic)));
     }
 
 

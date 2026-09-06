@@ -10114,6 +10114,24 @@ public:
     {
         BaseTextEditor *editor = createEditorHelper(other->editorWidget()->textDocumentPtr());
         editor->editorWidget()->finalizeInitializationAfterDuplication(other->editorWidget());
+        decorate(editor);
+        return editor;
+    }
+
+    // What a language adds to an *editor* rather than to its text: a button in
+    // the tool bar, what F1 answers. Run over whichever view was built - and
+    // over a duplicate, which is a second editor on the same document and
+    // needs them as much as the first.
+    Core::IEditor *decorate(Core::IEditor *editor)
+    {
+        if (m_editorDecorator)
+            m_editorDecorator(editor);
+        if (const TextEditorFactory::ContextHelpProvider provider = m_contextHelpProvider) {
+            editor->setContextHelpProvider(
+                [provider, editor](const Core::IContext::HelpCallback &callback) {
+                    provider(editor, callback);
+                });
+        }
         return editor;
     }
 
@@ -10187,28 +10205,23 @@ void TextEditorFactory::setEditorCreator(const EditorCreator &creator)
 
         // Everything above configures the *document*, which is the same one
         // either view shows. Only what draws it differs.
-        const auto withLanguagesHelp = [this](Core::IEditor *editor) {
-            if (d->m_editorDecorator)
-                d->m_editorDecorator(editor);
-            if (const ContextHelpProvider provider = d->m_contextHelpProvider) {
-                editor->setContextHelpProvider(
-                    [provider, editor](const Core::IContext::HelpCallback &callback) {
-                        provider(editor, callback);
-                    });
-            }
-            return editor;
-        };
-
         if (d->m_usesQuickEditor) {
             Context context(id());
             context.add(d->m_editorContexts);
-            return withLanguagesHelp(
+            // Given this factory, because the editor builds its own duplicate
+            // and a duplicate needs decorating too.
+            return d->decorate(
                 Internal::createQuickTextEditor(doc, context, d->m_optionalActionMask,
-                                                d->m_contextMenuId));
+                                                d->m_contextMenuId, this));
         }
 
-        return withLanguagesHelp(d->createEditorHelper(doc));
+        return d->decorate(d->createEditorHelper(doc));
     });
+}
+
+void TextEditorFactory::decorateEditor(Core::IEditor *editor)
+{
+    d->decorate(editor);
 }
 
 void TextEditorFactory::setContextMenuId(Utils::Id menuId)

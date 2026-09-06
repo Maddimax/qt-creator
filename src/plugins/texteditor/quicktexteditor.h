@@ -54,10 +54,15 @@ void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
 // \a contextMenuId is the ActionManager container the language registers its
 // own right-click entries in - CppEditor.ContextMenu for a C++ file - which a
 // widget subclass used to name in its own contextMenuEvent().
+// \a factory is the one this is being built for, kept so that the editor can
+// build its own duplicate the way this call built it: a split view is a
+// second editor on the same document, and the widget editor gets one by
+// going back through its factory.
 Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
                                      const Core::Context &context,
                                      uint optionalActions = OptionalActions::None,
-                                     Utils::Id contextMenuId = {});
+                                     Utils::Id contextMenuId = {},
+                                     TextEditorFactory *factory = nullptr);
 
 // A Qt Quick text view over \a source, laid out by the display settings and
 // nothing else. The caller owns the widget and decides where it goes: the Qt

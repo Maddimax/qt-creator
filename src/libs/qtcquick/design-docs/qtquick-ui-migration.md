@@ -47652,3 +47652,126 @@ Unchanged from entry 125 except that the census now exists:
    them moves: `setDuplicatedSupported` and `setMarksVisible` have nowhere to
    go on the Quick side. Both are one-liners *if* the caller's cast goes first,
    which is the actual blocker.
+
+## 2026-09-06 — A split half the language had not been near (batch 127)
+
+Entry 126 closed one half of what a split view lost and named the other half
+in passing, as pre-existing and shared:
+
+> a *duplicate* gets neither [the editor decorator nor the context help
+> provider], in the widget editor as well as here.
+
+**Named without checking, so this batch checked.** It is true, it is worse than
+"pre-existing" sounds, and it is fixed.
+
+### What a split half was missing
+
+The factory runs two things over the editor it builds - `setEditorDecorator()`
+and `setContextHelpProvider()`, which are what a language adds to an *editor*
+rather than to its text. Neither duplicate path goes back through the factory:
+the widget one calls `createEditorHelper()` directly and the Qt Quick one calls
+`new QuickTextEditor` directly. So, on moved languages, today:
+
+- **Split a Python file** and the second half has no REPL menu and no
+  interpreter picker.
+- **Split a vcpkg manifest** and the second half loses its two buttons.
+- **Press F1 in a split CMakeLists.txt** and nothing answers - measured, not
+  reasoned: the test says *F1 in the split half answers "", not the language*.
+
+And in the **widget editor too**, which is why the test has two rows and why
+the fix is in `TextEditorFactoryPrivate` rather than on the Quick side. QmlJS
+still opens in a widget and has a decorator; it had the same hole.
+
+C++ is not in that list, and the reason is worth writing down because it looks
+like a counter-example. Its outline, use-selections, Ctrl+U expander and
+decl/def link are not on the factory at all - `cppeditorplugin.cpp` hangs them
+off `EditorManager::editorOpened`, and `EditorManagerPrivate::duplicateEditor()`
+runs `addEditor()`, which emits it. **A split C++ view was always getting
+those.** The languages that used the factory seam were the ones that lost out.
+
+### The fix
+
+`withLanguagesHelp` was a lambda local to the creator. It is now
+`TextEditorFactoryPrivate::decorate()`, called from four places instead of two:
+both creation paths and both duplicate paths.
+
+The Quick side needed one thing it did not have: **the factory that built it.**
+`createQuickTextEditor()` takes it and `QuickTextEditor` keeps it, the same way
+entry 126 made it keep the mask, the menu id and the contexts - "how I was
+built, so the copy can be built the same way". `duplicate()` then calls
+`TextEditorFactory::decorateEditor()`.
+
+The alternative - having `duplicate()` find its factory with
+`preferredFactoryFor(filePath())`, the way `configureLanguageServices()` does -
+was rejected on purpose. That answers *which factory claims this file's mime
+type*, which is the same factory only when the editor was opened with the
+preferred one. Open a file with an explicit non-preferred factory id and the
+copy would be decorated by **another language**. Keeping the pointer cannot be
+wrong; deriving it can.
+
+### Controls
+
+- **DQ**: `decorate()` dropped from `duplicateTextEditor()` - red on the
+  **widget** row only.
+- **DR**: `decorateEditor()` dropped from `QuickTextEditor::duplicate()` - red
+  on the **quick** row only. That the two rows fail separately is what says the
+  two halves of the fix are both load-bearing.
+- **DS**: the context help never installed at all - red at the *first-half*
+  guard, which is the guard doing its job rather than the split assertion.
+- **DT**: both duplicate paths left undecorated **and the split's context-help
+  assertion moved ahead of the decorator one** - red at "F1 in the split half
+  answers "", not the language", in both views. Without this the help
+  assertion was unreached behind a failing decorator assertion and could have
+  been vacuous; DS is not a substitute for it.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 678 passed, 0 failed (was 676) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Python` | 0 | 30 passed, 0 failed |
+| `-test QmlJSEditor` | 0 | 24 passed, 0 failed |
+| `-test CppEditor,SymbolJumpTest` | 0 | 12 passed, 0 failed |
+| `-test CppEditor,testAQuickCppEditorHasEverythingTheFactoryConfigures` | 0 | 3 passed, 0 failed |
+| `-test CMakeProjectManager` | 1 | 71 passed, **1 failed** |
+
+The four extra suites are here because `decorate()` is on the widget path as
+well, so this is not a Qt Quick change alone.
+
+**The CMake failure is not this batch's.**
+`CMakeToolsSettingsTest::testNarrowingToADeviceLeavesOtherDevicesToolsOut`
+fails three times out of three, so it is not flaky - and it fails identically
+with these four files reverted to HEAD and rebuilt. It is about CMake tools and
+devices and touches nothing here. Measured rather than assumed, because "it
+looks unrelated" has been wrong before in this document.
+
+No `.qbs` change: no files added.
+
+### What the census still does not ask
+
+Entry 126's census could now check the context help - `contextHelpProvider()`
+has a getter - and deliberately does not. A language's provider may answer an
+empty `HelpItem` for an empty file, which is what the census opens, so the
+assertion would be "a provider exists", not "F1 works". The decorator has no
+getter and could not be checked generically anyway: the census does not know
+what a given decorator was supposed to do. **Both are covered by the test above
+instead, which supplies its own decorator and its own provider and therefore
+knows exactly what to expect.** That is the distinction worth keeping: a census
+checks what a factory *declares*; a test with its own fixture checks what a
+mechanism *does*.
+
+### Where this leaves it
+
+1. **QmlJS's context pane** - a UI decision, unchanged since entry 114.
+2. **The whitespace drawing difference** - declined, entry 68.
+3. **Printing** - open since entry 31.
+4. **The four pinned factories**, and `setDuplicatedSupported` /
+   `setMarksVisible` having nowhere to go on the Quick side when one moves.
+
+Two batches running have now found live defects in the *same function*.
+`duplicate()` is where this migration's assumptions go to be quietly wrong,
+because a duplicate is the one editor nobody opens on purpose - and the
+remaining item on that list is that a duplicate has no `finalizeInitialization`
+equivalent on the Quick side at all. Nothing is known to be missing there
+today; it is simply the next place to look if something is.

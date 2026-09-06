@@ -857,6 +857,12 @@ public:
     void setContextHelpProvider(const ContextHelpProvider &provider);
     ContextHelpProvider contextHelpProvider() const;
 
+    // Run the two above over \a editor. Called for what this factory builds;
+    // public because an editor that builds its own duplicate - the Qt Quick
+    // one does - has to give the copy them too, and a split view without
+    // them is a half the language has not been near.
+    void decorateEditor(Core::IEditor *editor);
+
     void setCommentDefinition(Utils::CommentDefinition definition);
     // What a comment looks like in this language. A view that cannot derive
     // it from a highlighting definition - C++ has its own highlighter, so
