@@ -57,6 +57,7 @@
 #include <coreplugin/icore.h>
 
 #include <QMainWindow>
+#include <QScrollBar>
 #include <coreplugin/dialogs/codecselector.h>
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
@@ -988,7 +989,8 @@ public:
 
         QByteArray state;
         QDataStream stream(&state, QIODevice::WriteOnly);
-        stream << kStateVersion << view->cursorPosition() << view->scrollY() << folded;
+        stream << kStateVersion << view->cursorPosition() << view->scrollY() << folded
+               << view->scrollX();
         return state;
     }
 
@@ -1023,7 +1025,8 @@ public:
         int position = 0;
         qreal scrollY = 0;
         QSet<int> folded;
-        stream >> position >> scrollY >> folded;
+        qreal scrollX = 0;
+        stream >> position >> scrollY >> folded >> scrollX;
 
         // The folds first: putting them back changes where every line below
         // them is, so a caret restored before them would be left pointing at
@@ -1052,9 +1055,17 @@ public:
         }
 
         view->setCursorPosition(position);
-        // After the cursor: setting it scrolls to it, and where the reader
-        // left the view is the more specific answer.
+        // Both offsets, because neither follows from the caret: with wrapping
+        // off a long line runs off the right, and a caret at the left margin
+        // does not mean that is where the reader was looking.
+        //
+        // The order is not load-bearing, whatever the comment here used to
+        // say: setCursorPosition() moves the caret without scrolling to it -
+        // it is setTextCursor() that calls ensureCursorVisible() - so putting
+        // the scroll back first would answer the same. Measured, after a
+        // control that would not bite.
         view->setScrollY(scrollY);
+        view->setScrollX(scrollX);
 
         // Arriving here is a jump like any other, and Go Back is how the
         // reader usually arrives: without this, going back and then moving
@@ -1065,7 +1076,7 @@ public:
     }
 
 private:
-    static constexpr int kStateVersion = 2;
+    static constexpr int kStateVersion = 3;
 
     void applyGlobalSettings()
     {
@@ -10779,6 +10790,67 @@ private slots:
         // The same thing again is not a second entry - it moves to the front.
         copyRange(0, 3);
         QCOMPARE(history->size(), 2);
+    }
+
+    // The other half of what an editor remembers. With wrapping off - which is
+    // the default - a long line runs off the right, and where the reader had
+    // scrolled to is as much a part of where they were as which line it was.
+    // The widget editor writes it into its state:
+    //
+    //     stream << verticalScrollBar()->value();
+    //     stream << horizontalScrollBar()->value();
+    //
+    // and this one wrote only the downward half, so a reload came back at the
+    // left margin.
+    //
+    // One editor rather than the usual two rows. Driving a widget editor
+    // sideways needs a gesture this harness cannot make stick: its horizontal
+    // scroll bar has range, but setting a value on it is undone again before
+    // anything reads it, because the caret is at the left and the view keeps
+    // going back to it. The widget's half is read from the two lines above
+    // instead of driven, and said so here rather than asserted badly.
+    void testTheSidewaysScrollComesBackToo()
+    {
+        Utils::TemporaryDirectory dir("sideways-state");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("wide.cpp");
+        // One line far wider than any window, so there is somewhere to scroll.
+        QString wide = "int x = ";
+        for (int i = 0; i < 200; ++i)
+            wide += QString("someLongIdentifier%1 + ").arg(i);
+        QVERIFY(file.writeFileContents((wide + "0;\n").toUtf8()));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY2(view, "the file opened in a widget editor, so this tests nothing");
+        QTRY_VERIFY(view->visibleLineCount() > 0);
+
+        // The caret stays at the left while the view is scrolled away from it:
+        // that is what tells restoring the scroll apart from restoring the
+        // caret and letting the view follow it there.
+        view->setCursorPosition(0);
+        QTRY_COMPARE(view->scrollX(), qreal(0));
+        view->setScrollX(300);
+        QTRY_VERIFY2(view->scrollX() > 0, "there was nowhere to scroll sideways");
+        const qreal was = view->scrollX();
+
+        const QByteArray state = editor->saveState();
+        QVERIFY(!state.isEmpty());
+
+        view->setScrollX(0);
+        QTRY_COMPARE(view->scrollX(), qreal(0));
+
+        editor->restoreState(state);
+        QTRY_COMPARE(view->scrollX(), was);
     }
 
     void testFoldsSurviveASaveAndRestore_data()

@@ -49643,3 +49643,119 @@ finite, enumerable list, the same kind of artefact as entry 124's census, and
 it is the last place a whole behaviour could still be hiding rather than a
 condition. After that, items 3, 4 and 8 are the only ones with weight and none
 of them is a measurement.
+
+## 2026-09-07 — The sideways half of where the reader was (batch 143)
+
+Entry 142 proposed censusing the widget's commands next. **That census already
+exists** - `testTheQuickEditorAnswersEveryCommandTheWidgetOneDoes` compares the
+two editors' registered commands and holds one known-missing entry,
+`QtCreator.Print`, with the reason (this branch exists to drop PrintSupport);
+and `testEveryEditingCommandEditsTheSame` compares what each one *does*.
+
+Second time in five entries that the proposal at the end of a batch was
+something already done - entry 139's fold-scope highlight was the other. Both
+times the check took one grep and the proposal had not had one. **A proposal is
+a claim about what is missing, and deserves the same evidence as a finding.**
+
+`Core::IEditor`'s virtuals were checked while looking: nine of them, and
+`QuickTextEditor` answers eight. The ninth is `isDesignModePreferred()`, which
+defaults to false and is right for a text editor.
+
+### The gap
+
+Entry 142 named the horizontal scroll as saved by the widget and not here, and
+left it, reasoning that it "only matters with wrapping off *and* a long line".
+Wrapping is off by default and long lines are ordinary in C++, so that
+reasoning was thin. Closed here.
+
+```cpp
+    stream << verticalScrollBar()->value();
+    stream << horizontalScrollBar()->value();   // <- not saved here
+```
+
+Scroll a long line sideways, reload the file, and the Qt Quick editor came back
+at the left margin. The state carries `scrollX` now, restored beside `scrollY`.
+Version 3.
+
+### One editor rather than two rows, and why
+
+The usual shape here is both editors over the same fixture. **It does not work
+for this one**: a widget editor's horizontal scroll bar has range - measured,
+`maximum` 33345 - but setting a value on it is undone before anything reads it,
+because the caret is at the left margin and the view keeps going back to it.
+There is no gesture in this harness that scrolls a widget away from its caret
+and leaves it there.
+
+So the widget's half is quoted from its `saveState()` rather than driven, and
+the test says so. Between "assert it badly" and "say plainly which half is
+read", the second is the honest one - and it is the same call entry 136 made
+about middle-click paste, for the same kind of reason.
+
+### A control that did not bite, and a comment that was wrong
+
+**FU** moved the caret restore *after* the two scroll offsets. The test still
+passed, which said the ordering is not load-bearing - and the comment sitting
+there, inherited from when only `scrollY` was restored, claimed it was:
+
+> After the cursor: setting it scrolls to it, and where the reader left the
+> view is the more specific answer.
+
+`setCursorPosition()` does not scroll to the caret; `setTextCursor()` is what
+calls `ensureCursorVisible()`, and `restoreState()` uses the former. **The
+comment was wrong, and I had just extended it to cover the new line.** Rewritten
+to say what is true and to record that it was measured.
+
+That is the value of a control that will not bite: it is not always a dead
+line. Here the line was fine and the *explanation* was false, which is worse -
+a wrong reason outlives a wrong line, because the next person builds on it.
+
+### Controls
+
+- **FT**: the sideways offset read back and not applied - red, 0 where 300.
+- **FU**: the caret restored after the scrolls - did not bite; see above.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 709 passed, 0 failed (was 708) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+The widget's state now has one field this editor does not keep: the first and
+last visible block numbers. They are a widget-era way of saying what `scrollY`
+says here, and nothing reads them back on restore - the widget writes them and
+its own `restoreState()` ignores them. Not a gap.
+
+1. **The `Cursor` attribute while composing** - unmeasurable here, entry 141.
+2. **The collapsed-fold popup** - a feature, entry 137.
+3. **Middle-click paste** - a feature, unmeasurable on macOS.
+4. **`canInsertFromMimeData`** - entry 140.
+5. **The link press/release handshake** - read, both answers defensible.
+6. **Home on a wrapped line** - entry 133.
+7. **QmlJS's context pane** - a UI decision, entry 114.
+8. **The whitespace drawing difference** - declined, entry 68.
+9. **Printing** - entry 31, and the one known entry in the command census.
+10. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+**Nothing that is a measurement.** The seams are enumerated and walked: nine
+event handlers, the command registrations, what those commands do, the
+preferences, what a factory configures, which languages open where, the editor
+state, and `IEditor`'s own interface. Every one of those is now a test that
+fails when the answer changes.
+
+Of what is left, **items 2 and 7 are the two with weight**, and both are the
+same kind of thing: a piece of UI that exists in the widget world and has to be
+*designed* on this side rather than ported. Item 3 wants a Linux machine. The
+rest are declined, deferred, or somebody else's.
+
+If another batch is wanted, the honest one is item 2 - the collapsed-fold
+popup - taken as a design task rather than a port: it is the only remaining
+item that a reader of C++ would notice, its behaviour is fully specified by the
+widget, and the reason entry 137 called it a decision was its *appearance*, not
+its behaviour. That is a smaller question than it looked.
