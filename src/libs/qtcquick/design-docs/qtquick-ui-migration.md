@@ -40207,3 +40207,71 @@ The lesson, which is not new and is now seven entries old: **a difference
 explained away is a difference not measured.** Entry 31 had the census, the
 one exception, and a plausible sentence. Twenty entries later the sentence was
 still there and still wrong.
+
+## 2026-09-06 (52) -- The last unexamined failures, and they are not ours
+
+Entry 51 left one item, and it is a decision about printing rather than work.
+That decision is not a batch's to take, so this batch took the thing the
+decision does not block: the failures entry 50's whole-suite run exposed in
+plugins the census never covered.
+
+The whole-suite run failed in three plugins:
+
+    QtSupport         10   never censused
+    CppEditor          8   censused, entries 43 and 45-48
+    ProjectExplorer    2   censused, entry 44, differ 0
+
+So `QtSupport` was the only unexamined block, and the largest.
+
+### QtSupport, both ways
+
+    quick   45 verdicts
+    widget  45 verdicts
+    reached by both 45, different verdicts 0
+
+`QtProjectImporterTest::testQtProjectImporter_oneProject` fails identically
+with the Qt Quick editor and with `QTC_WIDGET_CPP_EDITOR=1`. **Pre-existing,
+and nothing to do with which view a C++ file opens in.**
+
+A note on reading those runs: the `Totals:` lines said "16 passed" one way and
+"5 passed" the other, which looks alarming and means nothing - it is the last
+*class's* total, not the run's. The verdict-by-verdict comparison is the
+answer, and it is 45 against 45 with no difference. The same trap as entry 43,
+where two truncated CppEditor totals invited a conclusion the verdicts refused.
+
+### What this completes
+
+**Every plugin that fails in the whole suite has now been compared both ways,
+and not one of the failures is editor-related.** With `QtSupport` the census
+covers eighteen plugins and something over 1500 shared verdicts, and the only
+differences ever found were tests that had written the default into
+themselves - fixed in entries 42 and 44.
+
+### Negative controls
+
+None; nothing was changed. The comparison is the measurement, and it is
+reproducible from the two commands above.
+
+### Verification
+
+    -test TextEditor    589 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+**This batch changed no code.** One file, and it is this one.
+
+### What this leaves
+
+**One question and two suites that are not this migration's.**
+
+- **Printing** - entry 51. Keep it and the branch does not reach its namesake;
+  drop it and a working feature goes; move it and neither happens. The owner
+  picks.
+- **CppEditor's locator index race**, three failures a run, two hypotheses
+  eliminated.
+- **`QtSupport::QtProjectImporterTest`**, ten failures, now known to be
+  unrelated to this work and otherwise unexamined.
+
+There is nothing left that a batch can close without either a decision or
+somebody else's bug. That has been true since entry 50 and this entry does not
+change it - it removes the last reason to wonder whether one of those
+failures was ours.
