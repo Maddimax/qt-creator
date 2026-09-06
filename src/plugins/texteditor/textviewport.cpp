@@ -689,6 +689,23 @@ bool TextViewport::isMouseHidden() const
     return m_mouseHidden;
 }
 
+void TextViewport::contextHelpItem(const std::function<void(const Core::HelpItem &)> &callback)
+{
+    const QString fallbackWordUnderCursor = Utils::Text::wordUnderCursor(textCursor());
+    const auto fromHandler = [fallbackWordUnderCursor, callback](
+                                 HoverTarget *target, BaseHoverHandler *handler, int position) {
+        handler->contextHelpId(target, position,
+                               [fallbackWordUnderCursor, callback](const Core::HelpItem &item) {
+                                   callback(item.isEmpty() ? Core::HelpItem(fallbackWordUnderCursor)
+                                                           : item);
+                               });
+    };
+    const auto fallback = [callback, fallbackWordUnderCursor](HoverTarget *) {
+        callback(Core::HelpItem(fallbackWordUnderCursor));
+    };
+    m_hoverRunner->startChecking(textCursor(), fromHandler, fallback);
+}
+
 bool TextViewport::hoverTooltipsAllowed(Qt::KeyboardModifiers modifiers) const
 {
     if (modifiers & Qt::ControlModifier)

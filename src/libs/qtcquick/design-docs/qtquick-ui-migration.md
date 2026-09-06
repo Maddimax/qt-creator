@@ -43611,3 +43611,106 @@ No `.qbs` change: no files added.
 4. The whitespace drawing difference - declined.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Unblocking CMake: F1 had nowhere to go (batch 83)
+
+Entry 82 said CMake next, audited from where its context menu is named. It is
+named in the same place qmake's was - and the audit found something bigger
+next to it.
+
+### CMake subclasses both, and the editor subclass is the interesting one
+
+    CMakeEditorWidget : TextEditorWidget    contextMenuEvent() -> M_CONTEXT
+    CMakeEditor       : BaseTextEditor      setContextHelpProvider(...)
+
+The widget half is qmake's gap again, closed the same way:
+`setContextMenuId(Constants::M_CONTEXT)` on the factory.
+
+The editor half is new. `setEditorCreator([] { return new CMakeEditor; })` is
+**ignored on the Qt Quick path** - the factory's Quick branch builds a
+`QuickTextEditor` and never calls the creator - so everything `CMakeEditor`'s
+constructor does is lost, and what it does is teach F1 that `set` is a CMake
+command.
+
+Measured before anything was written:
+
+    CMakeLists.txt  widget  ->  command/set|set
+    CMakeLists.txt  quick   ->  <empty>
+
+**F1 over a CMake word would have answered nothing.**
+
+### A finding about C++ that is *not* claimed
+
+The same probe over a `.cpp` gave `<no callback>` for the widget and
+`<empty>` for the Qt Quick view. That is **inconclusive, not a defect**: the
+C++ provider goes off to the code model and answers later, and the probe did
+not wait. It is written here so nobody reads the numbers as a C++ gap. If
+someone wants to know, the probe needs a `QTRY` and a real project.
+
+### The fix, in three pieces
+
+1. **`TextViewport::contextHelpItem()`** - runs this view's hover handlers,
+   the way `TextEditorWidget::contextHelpItem()` runs its own. The Qt Quick
+   view already had a `HoverHandlerRunner` and the handlers in it; nothing
+   asked them for help.
+2. **`contextHelpItemIn(IEditor *, callback)`** - the seam over the two.
+3. **`TextEditorFactory::setContextHelpProvider()`** taking
+   `(IEditor *, callback)`, applied to whichever editor the factory builds.
+   CMake's provider moves there from the editor subclass, reads the keywords
+   from `CMakeToolManager` rather than holding a copy, and falls back through
+   the seam.
+
+`CMakeEditor` had nothing else in it, so the subclass and its `setEditorCreator`
+are gone.
+
+**The factory hook is the general answer**, not a CMake patch: any language
+that knows better than the hover handlers can now say so somewhere both views
+read. Python is the next one to move and it may well need it.
+
+### Controls
+
+- **AG**: the provider withheld from the Qt Quick path - red on the **quick**
+  row, green on the **widget** row.
+- The test asserts `command/set` specifically, not that *something* came back:
+  the fallback answers with the word under the cursor, so "an answer arrived"
+  would have passed without the language's help.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 648 passed, 0 failed (was 646) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CMakeProjectManager` | 1 | 71 passed, **1 failed** |
+
+The CMake failure is `CMakeToolsSettingsTest::testNarrowingToADeviceLeaves
+OtherDevicesToolsOut`, pre-existing. **Measured, not assumed** - this batch
+changed a file in that plugin, so the entry-58 method was run again: park the
+work, restore `src/` from `HEAD~1`, rebuild, re-run. Identical. That is the
+third time this test has been measured on a clean tree (entries 58, 77, 83).
+
+No `.qbs` change: no files added.
+
+### The move is not taken
+
+Following the rhythm of entries 79-82 - close the gaps in one batch, flip in
+the next. **The CMake flip is next**, and it is:
+
+    setUsesQuickEditor(true);      in CMakeEditorFactory
+    testWhichFactoriesAreQuick     one more id
+    testWhichLanguagesOpenIn...    the CMakeLists.txt row
+
+with the caller sweep entry 82 insisted on - `cmakebuildsystem.cpp` and
+`cmakeprojectnodes.cpp` open editors by `CMAKE_EDITOR_ID` and have not been
+read yet.
+
+### What is left
+
+1. **Flip CMake**, after that sweep.
+2. **Python** - the last of the four, and the one with a language server, a
+   code model and its own widget.
+3. Markdown - the toolbar-widget decision (entry 78).
+4. `createJsonEditor()`'s discarded editors (entry 80). Cosmetic.
+5. The whitespace drawing difference - declined.
+
+The printing decision (keep / drop / move) remains the owner's call.

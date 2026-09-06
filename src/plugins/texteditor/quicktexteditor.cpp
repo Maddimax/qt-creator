@@ -9269,6 +9269,64 @@ private slots:
                  qPrintable("the language's own entries are missing: " + texts.join(", ")));
     }
 
+    // F1 over a word. A language that knows better than the hover handlers do
+    // used to say so on a BaseTextEditor subclass, which only one of the two
+    // views is - so moving the language took its help away with it.
+    void testTheLanguagesContextHelpAnswersInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheLanguagesContextHelpAnswersInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("context-help");
+        QVERIFY(dir.isValid());
+        // A directory per view: CMakeLists.txt is matched by name.
+        const Utils::FilePath sub = dir.filePath(QString::fromLatin1(quick ? "q" : "w"));
+        QVERIFY(sub.ensureWritableDir());
+        const Utils::FilePath file = sub / QString("CMakeLists.txt");
+        QVERIFY(file.writeFileContents("project(x)\nset(A 1)\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        QCOMPARE(factory->id(), Utils::Id("CMakeProject.CMakeEditor"));
+        QVERIFY2(factory->contextHelpProvider(),
+                 "the CMake factory offers no context help, so a Qt Quick view has none");
+
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Inside "set" on the second line, which is a CMake command and so
+        // has a page of its own - the word under the caret alone would not
+        // tell the two views apart.
+        QTextCursor onSet(document->document());
+        onSet.setPosition(document->document()->findBlockByNumber(1).position() + 1);
+        TextEditor::setTextCursorOf(editor, onSet);
+
+        QStringList answered;
+        bool called = false;
+        editor->contextHelp([&answered, &called](const Core::HelpItem &item) {
+            called = true;
+            answered = item.helpIds();
+        });
+        QTRY_VERIFY2(called, "F1 was never answered at all");
+        QVERIFY2(answered.contains("command/set"),
+                 qPrintable("the language's own help is missing: " + answered.join(", ")));
+    }
+
     void testAWatcherHearsTheCaretMoveInEitherView()
     {
         Utils::TemporaryDirectory dir("caret-watcher");

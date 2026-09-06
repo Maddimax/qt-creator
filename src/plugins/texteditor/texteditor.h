@@ -838,6 +838,14 @@ public:
     void setUsesQuickEditor(bool on);
     bool usesQuickEditor() const;
 
+    // What F1 answers in this language, for a language that knows better than
+    // the hover handlers do. Given the editor rather than a widget, so that
+    // whichever view is built gets it.
+    using ContextHelpProvider
+        = std::function<void(Core::IEditor *, const Core::IContext::HelpCallback &)>;
+    void setContextHelpProvider(const ContextHelpProvider &provider);
+    ContextHelpProvider contextHelpProvider() const;
+
     void setCommentDefinition(Utils::CommentDefinition definition);
     // What a comment looks like in this language. A view that cannot derive
     // it from a highlighting definition - C++ has its own highlighter, so
@@ -1183,6 +1191,11 @@ TEXTEDITOR_EXPORT void addOptionalActionsIn(Core::IEditor *editor, uint optional
 // instead - see TextDocument::addToolBarAction().
 TEXTEDITOR_EXPORT void insertExtraToolBarActionIn(Core::IEditor *editor,
                                                   TextEditorWidget::Side side, QAction *action);
+
+// What F1 over \a editor's caret answers when the language has nothing more
+// specific to say: the view's own hover handlers.
+TEXTEDITOR_EXPORT void contextHelpItemIn(Core::IEditor *editor,
+                                         const Core::IContext::HelpCallback &callback);
 
 // One step of what Ctrl+U and Ctrl+Shift+U do in \a editor: grow the selection
 // to what encloses it, or give back the last step. Along the language's syntax

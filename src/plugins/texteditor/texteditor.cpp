@@ -10074,6 +10074,7 @@ public:
     TextEditorFactory::IndenterCreator m_indenterCreator;
     TextEditorFactory::SyntaxHighLighterCreator m_syntaxHighlighterCreator;
     CommentDefinition m_commentDefinition;
+    TextEditorFactory::ContextHelpProvider m_contextHelpProvider;
     QList<BaseHoverHandler *> m_hoverHandlers; // not owned
     Context m_editorContexts;
     TextEditorFactory::LinkFinder m_linkFinder;
@@ -10132,14 +10133,25 @@ void TextEditorFactory::setEditorCreator(const EditorCreator &creator)
 
         // Everything above configures the *document*, which is the same one
         // either view shows. Only what draws it differs.
+        const auto withLanguagesHelp = [this](Core::IEditor *editor) {
+            if (const ContextHelpProvider provider = d->m_contextHelpProvider) {
+                editor->setContextHelpProvider(
+                    [provider, editor](const Core::IContext::HelpCallback &callback) {
+                        provider(editor, callback);
+                    });
+            }
+            return editor;
+        };
+
         if (d->m_usesQuickEditor) {
             Context context(id());
             context.add(d->m_editorContexts);
-            return Internal::createQuickTextEditor(doc, context, d->m_optionalActionMask,
-                                                   d->m_contextMenuId);
+            return withLanguagesHelp(
+                Internal::createQuickTextEditor(doc, context, d->m_optionalActionMask,
+                                                d->m_contextMenuId));
         }
 
-        return d->createEditorHelper(doc);
+        return withLanguagesHelp(d->createEditorHelper(doc));
     });
 }
 
@@ -10437,6 +10449,20 @@ void setMarginSettingsIn(Core::IEditor *editor,
     }
     if (TextViewport * const view = Internal::viewportForEditor(editor))
         view->setMarginSettings(settings);
+}
+
+void contextHelpItemIn(Core::IEditor *editor, const Core::IContext::HelpCallback &callback)
+{
+    QTC_ASSERT(editor && callback, return);
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->contextHelpItem(callback);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        view->contextHelpItem(callback);
+        return;
+    }
+    callback({});
 }
 
 void insertExtraToolBarActionIn(Core::IEditor *editor, TextEditorWidget::Side side,
@@ -10951,6 +10977,16 @@ void TextEditorFactory::setUsesQuickEditor(bool on)
 bool TextEditorFactory::usesQuickEditor() const
 {
     return d->m_usesQuickEditor;
+}
+
+void TextEditorFactory::setContextHelpProvider(const ContextHelpProvider &provider)
+{
+    d->m_contextHelpProvider = provider;
+}
+
+TextEditorFactory::ContextHelpProvider TextEditorFactory::contextHelpProvider() const
+{
+    return d->m_contextHelpProvider;
 }
 
 void TextEditorFactory::setCommentDefinition(CommentDefinition definition)

@@ -46,53 +46,45 @@ namespace CMakeProjectManager::Internal {
 // CMakeEditor
 //
 
-class CMakeEditor final : public BaseTextEditor
+// What F1 answers over a CMake word. On the factory rather than on an editor
+// subclass, because only one of the two views is a BaseTextEditor and the
+// other would have been left with no answer at all.
+static void cmakeContextHelp(Core::IEditor *editor, const Core::IContext::HelpCallback &callback)
 {
-public:
-    CMakeEditor();
+    const CMakeKeywords keywords = CMakeToolManager::defaultProjectOrDefaultCMakeKeyWords();
+    const auto helpPrefix = [&keywords](const QString &word) {
+        if (keywords.includeStandardModules.contains(word))
+            return "module/";
+        if (keywords.functions.contains(word))
+            return "command/";
+        if (keywords.variables.contains(word))
+            return "variable/";
+        if (keywords.directoryProperties.contains(word))
+            return "prop_dir/";
+        if (keywords.targetProperties.contains(word))
+            return "prop_tgt/";
+        if (keywords.sourceProperties.contains(word))
+            return "prop_sf/";
+        if (keywords.testProperties.contains(word))
+            return "prop_test/";
+        if (keywords.properties.contains(word))
+            return "prop_gbl/";
+        if (keywords.policies.contains(word))
+            return "policy/";
+        if (keywords.environmentVariables.contains(word))
+            return "envvar/";
 
-private:
-    const CMakeKeywords m_keywords;
-};
+        return "unknown/";
+    };
 
-CMakeEditor::CMakeEditor()
-    : m_keywords(CMakeToolManager::defaultProjectOrDefaultCMakeKeyWords())
-{
-    setContextHelpProvider([this](const HelpCallback &callback) {
-        auto helpPrefix = [this](const QString &word) {
-            if (m_keywords.includeStandardModules.contains(word))
-                return "module/";
-            if (m_keywords.functions.contains(word))
-                return "command/";
-            if (m_keywords.variables.contains(word))
-                return "variable/";
-            if (m_keywords.directoryProperties.contains(word))
-                return "prop_dir/";
-            if (m_keywords.targetProperties.contains(word))
-                return "prop_tgt/";
-            if (m_keywords.sourceProperties.contains(word))
-                return "prop_sf/";
-            if (m_keywords.testProperties.contains(word))
-                return "prop_test/";
-            if (m_keywords.properties.contains(word))
-                return "prop_gbl/";
-            if (m_keywords.policies.contains(word))
-                return "policy/";
-            if (m_keywords.environmentVariables.contains(word))
-                return "envvar/";
+    const QString word = Text::wordUnderCursor(TextEditor::textCursorOf(editor));
+    const QString id = helpPrefix(word) + word;
+    if (id.startsWith("unknown/")) {
+        TextEditor::contextHelpItemIn(editor, callback);
+        return;
+    }
 
-            return "unknown/";
-        };
-
-        const QString word = Text::wordUnderCursor(editorWidget()->textCursor());
-        const QString id = helpPrefix(word) + word;
-        if (id.startsWith("unknown/")) {
-            editorWidget()->contextHelpItem(callback);
-            return;
-        }
-
-        callback({{id, word}, {}, {}, HelpItem::Unknown});
-    });
+    callback({{id, word}, {}, {}, HelpItem::Unknown});
 }
 
 //
@@ -519,11 +511,16 @@ public:
         addMimeType(Utils::Constants::CMAKE_MIMETYPE);
         addMimeType(Utils::Constants::CMAKE_PROJECT_MIMETYPE);
 
-        setEditorCreator([] { return new CMakeEditor; });
         setEditorWidgetCreator([] { return new CMakeEditorWidget; });
         setDocumentCreator([] { return new CMakeTextDocument; });
         setIndenterCreator(createCMakeIndenter);
         setUseGenericHighlighter(true);
+        setContextHelpProvider(&cmakeContextHelp);
+        // Named here as well as in CMakeEditorWidget::contextMenuEvent(): the
+        // widget editor passes its own id, a view that is not one is handed
+        // the factory's.
+        setContextMenuId(Constants::M_CONTEXT);
+
         setCommentDefinition(CommentDefinition::HashStyle);
         setCodeFoldingSupported(true);
 

@@ -528,6 +528,10 @@ public:
     // on a plain hover. The rule TextEditorWidget::viewportEvent() applies.
     bool hoverTooltipsAllowed(Qt::KeyboardModifiers modifiers) const;
 
+    // What F1 over the caret answers: this view's hover handlers, asked the
+    // way TextEditorWidget::contextHelpItem() asks its own.
+    void contextHelpItem(const std::function<void(const Core::HelpItem &)> &callback);
+
     // Redraw the lines the preprocessor left out. Public because the language
     // marks them long after the text last changed - when its highlighter
     // catches up - and whoever knows that has to be able to say so.
