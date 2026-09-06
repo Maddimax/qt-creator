@@ -947,10 +947,7 @@ public:
             // inside is on the document too - so an editor closed before the
             // highlighter finishes takes the pending fold with it.
             TextDocument * const doc = m_document.get();
-            const auto fold = [doc] {
-                if (displaySettings().autoFoldFirstComment())
-                    doc->foldLicenseHeader();
-            };
+            const auto fold = [doc] { doc->foldOnFirstOpen(); };
             if (!doc->singleShotAfterHighlightingDone(fold))
                 fold();
             return;

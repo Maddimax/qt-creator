@@ -3,6 +3,10 @@
 
 #include "qmljseditordocument.h"
 
+#include "qmljseditorsettings.h"
+
+#include <utils/mimeconstants.h>
+
 #include "qmljscompletionassist.h"
 #include "qmljsfindreferences.h"
 #include <texteditor/symbolrequests.h>
@@ -871,6 +875,37 @@ void QmlJSEditorDocument::updateCodeWarnings(QmlJS::Document::Ptr doc)
     setExtraSelections(TextEditor::TextEditorWidget::CodeWarningsSelection, selections);
 }
 
+void QmlJSEditorDocument::foldOnFirstOpen()
+{
+    TextDocument::foldOnFirstOpen();
+
+    using namespace Utils::Constants;
+    static const QStringList qmlTypes{QML_MIMETYPE, QBS_MIMETYPE, QMLTYPES_MIMETYPE, QMLUI_MIMETYPE};
+    if (Internal::settings().foldAuxData() && qmlTypes.contains(mimeType()))
+        foldAuxiliaryData();
+}
+
+void QmlJSEditorDocument::foldAuxiliaryData()
+{
+    QTextDocument * const doc = document();
+    auto * const documentLayout = qobject_cast<TextEditor::TextDocumentLayout *>(
+        doc->documentLayout());
+    QTC_ASSERT(documentLayout, return);
+
+    QTextBlock block = doc->lastBlock();
+    while (block.isValid() && block.isVisible()) {
+        if (TextEditor::TextBlockUserData::canFold(block) && block.next().isVisible()) {
+            if (block.text().trimmed().startsWith("/*##^##")) {
+                TextEditor::TextBlockUserData::doFoldOrUnfold(block, false);
+                documentLayout->requestUpdate();
+                documentLayout->emitDocumentSizeChanged();
+                break;
+            }
+        }
+        block = block.previous();
+    }
+}
+
 QList<QAction *> QmlJSEditorDocument::contextMenuActions(const QTextCursor &cursor)
 {
     // Nowhere in particular is not a place; and a parse that is out of date -
@@ -955,6 +990,48 @@ class QmlJSEditorDocumentTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The block the QML designer writes at the end of a file is folded when
+    // the file is opened fresh. That was the editor widget's restoreState()
+    // override, so a QML file open in anything else showed it unfolded.
+    void testTheDesignerBlockIsFoldedOnFirstOpen()
+    {
+        Utils::TemporaryDirectory dir("qmljs-fold-aux");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Fold.qml");
+        QVERIFY(file.writeFileContents(
+            "import QtQuick\nItem {\n    width: 10\n}\n"
+            "/*##^##\nDesigner {\n    D{i:0}\n}\n##^##*/\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+
+        const auto blockStartingTheAuxData = [document] {
+            for (QTextBlock block = document->document()->begin(); block.isValid();
+                 block = block.next()) {
+                if (block.text().trimmed().startsWith("/*##^##"))
+                    return block;
+            }
+            return QTextBlock();
+        };
+        const QTextBlock marker = blockStartingTheAuxData();
+        QVERIFY2(marker.isValid(), "the test file has no designer block in it");
+
+        // Folded means the block after it is hidden; the marker line itself
+        // stays visible, which is what a fold looks like.
+        QTRY_VERIFY2(!marker.next().isVisible(),
+                     "the designer block was left unfolded");
+        QVERIFY2(marker.isVisible(), "the line that opens the block was hidden too");
+
+        // Asked of the document, with no widget anywhere in the assertion -
+        // which is the point: this used to be a TextEditorWidget override.
+        QVERIFY2(TextEditor::TextBlockUserData::isFolded(marker),
+                 "the block is hidden but the document does not call it folded");
+    }
+
     // A right click in a QML file offers Refactoring, whose entries are the
     // quick fixes proposed at that place. They cannot live in an ActionManager
     // container, so the document offers them.

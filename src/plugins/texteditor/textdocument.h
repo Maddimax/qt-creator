@@ -161,6 +161,14 @@ public:
     // a foldable comment.
     void foldLicenseHeader();
 
+    // What this language folds when a file is opened with no remembered
+    // state. Every language folds the licence header where the setting asks
+    // for it; QML also folds the block the designer writes at the end.
+    //
+    // Called once the highlighter has run, because which markers begin a
+    // comment is the file's language and that is not known before.
+    virtual void foldOnFirstOpen();
+
     // Run \a f once the highlighter has caught up, or answer false if it
     // already has and the caller should just call it. What a file's comment
     // markers are comes from its language, and the language is not known until

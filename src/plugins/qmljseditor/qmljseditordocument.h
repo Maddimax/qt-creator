@@ -41,6 +41,14 @@ public:
     // asks for this; a view that is not one has no other way to get it.
     QList<QAction *> contextMenuActions(const QTextCursor &cursor) override;
 
+    // The licence header every language folds, and the block the QML designer
+    // writes at the end of a file.
+    void foldOnFirstOpen() override;
+
+    // Folds that block wherever it is. Public because the editor widget folds
+    // it again when restoring a state written before this was remembered.
+    void foldAuxiliaryData();
+
     // What this language proposes, which is a question about the file rather
     // than about the view showing it - and which is what a view that is not a
     // widget asks. Completion only: a quick fix still needs the widget it is

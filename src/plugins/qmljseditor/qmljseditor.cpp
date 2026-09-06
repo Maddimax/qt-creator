@@ -157,8 +157,10 @@ void QmlJSEditorWidget::restoreState(const QByteArray &state)
         int version = 0;
         QDataStream stream(state);
         stream >> version;
-        if (version < 1)
-            foldAuxiliaryData();
+        // A state written before this was remembered. An empty one goes
+        // through foldOnFirstOpen() on the document instead.
+        if (version < 1 && !state.isEmpty())
+            qmlJsEditorDocument()->foldAuxiliaryData();
     }
 
     TextEditorWidget::restoreState(state);
@@ -172,26 +174,6 @@ QModelIndex QmlJSEditorWidget::outlineModelIndex()
     return m_outlineModelIndex;
 }
 
-void QmlJSEditorWidget::foldAuxiliaryData()
-{
-    QTextDocument *doc = document();
-    auto documentLayout = qobject_cast<TextDocumentLayout*>(doc->documentLayout());
-    QTC_ASSERT(documentLayout, return);
-    QTextBlock block = doc->lastBlock();
-
-    while (block.isValid() && block.isVisible()) {
-        if (TextBlockUserData::canFold(block) && block.next().isVisible()) {
-            const QString trimmedText = block.text().trimmed();
-            if (trimmedText.startsWith("/*##^##")) {
-                TextBlockUserData::doFoldOrUnfold(block, false);
-                documentLayout->requestUpdate();
-                documentLayout->emitDocumentSizeChanged();
-                break;
-            }
-        }
-        block = block.previous();
-    }
-}
 
 void QmlJSEditorWidget::updateModificationChange(bool changed)
 {

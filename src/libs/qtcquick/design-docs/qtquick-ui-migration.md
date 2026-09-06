@@ -46863,3 +46863,84 @@ No `.qbs` change: no files added.
 
 Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
 and printing (entry 31, the owner's).
+
+## 2026-09-06 — What a language folds when a file is first opened (batch 118)
+
+The item entry 117 called small. It was, once the duplication it sat on top of
+was noticed.
+
+### The gap this closed
+
+Opening a file with no remembered state folds the licence header, and **both
+views had their own copy of that**:
+
+    // TextEditorWidget::restoreState
+    if (d->m_displaySettings.m_autoFoldFirstComment)
+        d->foldLicenseHeader();
+
+    // QuickTextEditor::restoreState
+    if (displaySettings().autoFoldFirstComment())
+        doc->foldLicenseHeader();
+
+Same rule, twice, and no way for a language to add to it. QML has one to add:
+the designer writes a `/*##^##` block at the end of a file and it is folded on
+open - which was `QmlJSEditorWidget::restoreState()`, so a QML file open in
+anything else showed it unfolded.
+
+`TextDocument::foldOnFirstOpen()` is virtual and holds the licence header rule
+once. Both views call it, inside the same "after the highlighter has run"
+wrapper they already had - which markers begin a comment is the file's
+language, and that is not known before.
+
+`QmlJSEditorDocument` overrides it, and `foldAuxiliaryData()` is the
+document's rather than the widget's.
+
+### One thing deliberately left alone
+
+`QmlJSEditorWidget::restoreState()` still folds the block for a **non-empty**
+state written before this was remembered - a version check on bytes only the
+widget's own state format knows. It calls the document's function now rather
+than having its own, and an empty state goes through `foldOnFirstOpen()`
+instead, so neither path folds twice.
+
+### Controls
+
+- **CX**: the QML override not folding - red at "the designer block was left
+  unfolded".
+- **CY**: `foldOnFirstOpen()` folding nothing - red at the **existing**
+  `testTheLicenceHeaderIsFoldedOnOpen`, which is what says the moved default is
+  the real path for every language rather than a copy left beside the old
+  ones.
+
+### The test asks what a fold is
+
+Not "the function ran": the block after the marker is hidden, the marker line
+itself is not, and the document calls the marker folded. A fold that hid the
+marker too would pass a weaker test and look wrong on screen.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 674 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 23 passed, 0 failed (was 22) |
+
+No `.qbs` change: no files added.
+
+### What is left, for QmlJS
+
+Two things, and neither is ordinary work:
+
+1. **The outline model index and `jumpToOutlineElement()`** - the
+   `ToolBarOutline` seam from entry 98. Worth knowing before starting:
+   C++'s own outline is "kept up to date and not yet drawn" in the Qt Quick
+   view, so this is incomplete for every language and not a QmlJS problem.
+2. **The context pane** - measured in entry 114: a floating widget placed by
+   `QPlainTextEdit` pixel geometry. Either `TextViewport` grows those queries
+   or the pane is rebuilt in QML. **A decision, and the last one QmlJS needs.**
+
+`updateUses()` stays with the view (entry 111).
+
+Unchanged elsewhere: the whitespace drawing difference (declined, entry 68)
+and printing (entry 31, the owner's).

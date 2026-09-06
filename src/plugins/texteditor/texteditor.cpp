@@ -3499,10 +3499,10 @@ bool TextEditorWidget::singleShotAfterHighlightingDone(std::function<void()> &&f
 void TextEditorWidget::restoreState(const QByteArray &state)
 {
     const auto callFoldLicenseHeader = [this] {
-        auto callFold = [this] {
-            if (d->m_displaySettings.m_autoFoldFirstComment)
-                d->foldLicenseHeader();
-        };
+        // What the language folds, which for most of them is the licence
+        // header and for QML is more than that.
+        TextDocument * const doc = textDocument();
+        auto callFold = [doc] { doc->foldOnFirstOpen(); };
 
         if (!singleShotAfterHighlightingDone(callFold))
             callFold();

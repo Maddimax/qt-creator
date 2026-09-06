@@ -3,6 +3,8 @@
 
 #include "textdocument.h"
 
+#include "displaysettings.h"
+
 #include <coreplugin/editormanager/ieditor.h>
 
 #include "bookmarkmanager.h"
@@ -836,6 +838,12 @@ static QTextBlock skipShebang(const QTextBlock &block)
         return block;
     const QTextBlock nextBlock2 = nextBlock1.next();
     return nextBlock2.isValid() && nextBlock2.text().startsWith('#') ? nextBlock2 : block;
+}
+
+void TextDocument::foldOnFirstOpen()
+{
+    if (displaySettings().autoFoldFirstComment())
+        foldLicenseHeader();
 }
 
 void TextDocument::foldLicenseHeader()
