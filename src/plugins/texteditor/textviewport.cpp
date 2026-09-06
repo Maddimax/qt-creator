@@ -2216,15 +2216,35 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
                                 || event->matches(QKeySequence::SelectStartOfBlock);
     if (toStartOfBlock || event->matches(QKeySequence::MoveToStartOfLine)
         || event->matches(QKeySequence::SelectStartOfLine)) {
+        // On a later row of a wrapped line, the line-wise Home means the start
+        // of *that row*, not the top of the whole line - which is what the
+        // move table below answers, through the layout that knows where the
+        // rows are. Only the line-wise keys: the block-wise ones mean the
+        // block whichever row the caret is on. The widget editor makes the
+        // same distinction in handleHomeKey()'s `block` argument, which this
+        // computed and then ignored.
+        bool onALaterRow = false;
+        if (!toStartOfBlock && m_wrapping) {
+            if (Utils::PlainTextDocumentLayout * const rows = movementLayout()) {
+                const QTextBlock block = cursor.block();
+                if (QTextLayout * const laid = rows->blockLayout(block)) {
+                    const QTextLine line
+                        = laid->lineForTextPosition(cursor.position() - block.position());
+                    onALaterRow = line.isValid() && line.lineNumber() != 0;
+                }
+            }
+        }
+        if (!onALaterRow) {
         // Every caret, not only the main one. The widget editor's
         // handleHomeKey() loops over its cursors, and a view that moves one
         // and drops the others makes several carets useless: they are there to
         // be typed into together, and moving is half of that.
-        Utils::MultiTextCursor carets = multiTextCursor();
-        for (QTextCursor &caret : carets)
-            moveToFirstCharacter(caret, mode);
-        setMultiTextCursor(carets);
-        return event->accept();
+            Utils::MultiTextCursor carets = multiTextCursor();
+            for (QTextCursor &caret : carets)
+                moveToFirstCharacter(caret, mode);
+            setMultiTextCursor(carets);
+            return event->accept();
+        }
     }
 
     if (event->key() == Qt::Key_PageUp || event->key() == Qt::Key_PageDown) {

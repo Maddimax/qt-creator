@@ -5943,6 +5943,73 @@ private slots:
         QTRY_VERIFY2(!peek->isVisible(), "the contents stayed up after the pointer left");
     }
 
+    // Home on a wrapped line means the start of the *row* the caret is on, and
+    // only on the first row of a line does it mean the first thing on that
+    // line. The widget editor makes the distinction with handleHomeKey()'s
+    // `block` argument; this view computed the same flag and then ignored it,
+    // so Home from the middle of a wrapped line jumped to the top of it.
+    //
+    // Measured against a real TextEditorWidget, which from position 200 of a
+    // wrapped line answers 174 for the line-wise Home and 4 for the block-wise
+    // one. The numbers themselves are not shared - the two views wrap at
+    // different widths - so what is asserted below is the shape.
+    void testHomeOnAWrappedLineGoesToTheRowNotTheLine()
+    {
+        TemporaryDirectory dir("qtc-viewport-wraphome");
+        const FilePath file = dir.filePath("wrapped.txt");
+        // Four spaces of indent, then far more words than fit on a row.
+        const QString content = QString("    ") + QString("word ").repeated(60).trimmed() + "\n";
+        QVERIFY(file.writeFileContents(content.toUtf8()));
+
+        ViewportFixture fixture(file, 300, 200);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        TextViewport * const viewport = fixture.viewport;
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+        QVERIFY(fixture.hasFocus());
+
+        // Per view rather than read from the display settings by a bare
+        // viewport, and the rows only appear once it has laid out again -
+        // without both of these there is no later row to be on and the test
+        // passes for the wrong reason.
+        viewport->setWrapping(true);
+        QTRY_VERIFY2(viewport->contentHeight() > 3 * viewport->lineHeight(),
+                     "the line did not wrap, so there is no second row");
+
+        const int inTheMiddle = 200;
+        const QRectF onItsRow = viewport->rectangleAt(inTheMiddle);
+        QVERIFY(!onItsRow.isNull());
+        // The first non-space of the line, which is where the block-wise Home
+        // goes and where the line-wise one must not.
+        const QRectF firstThing = viewport->rectangleAt(4);
+        QVERIFY2(!qFuzzyCompare(onItsRow.y() + 1, firstThing.y() + 1),
+                 "the caret is on the line's first row, so the two Homes cannot differ");
+
+        // Line-wise: the start of the row the caret is on.
+        viewport->setCursorPosition(inTheMiddle);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        const int afterLineHome = viewport->cursorPosition();
+        QVERIFY2(afterLineHome > 4 && afterLineHome < inTheMiddle,
+                 qPrintable(QString("the line-wise Home went to %1, not into the row")
+                                .arg(afterLineHome)));
+        QCOMPARE(viewport->rectangleAt(afterLineHome).y(), onItsRow.y());
+        QVERIFY2(viewport->rectangleAt(afterLineHome).x() < onItsRow.x(),
+                 "it did not go to the left of the row");
+
+        // Block-wise: the first thing on the whole line, from the same place.
+        viewport->setCursorPosition(inTheMiddle);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfBlock);
+        QCOMPARE(viewport->cursorPosition(), 4);
+
+        // And with nothing wrapped, the line-wise Home is the first thing on
+        // the line again - which is what it does for every unwrapped file.
+        viewport->setWrapping(false);
+        QTRY_VERIFY(viewport->contentHeight() < 3 * viewport->lineHeight());
+        viewport->setCursorPosition(inTheMiddle);
+        keyMove(fixture.view, QKeySequence::MoveToStartOfLine);
+        QCOMPARE(viewport->cursorPosition(), 4);
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()

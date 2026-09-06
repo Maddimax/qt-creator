@@ -49877,3 +49877,131 @@ behaviour was separated from the appearance it was an afternoon. The context
 pane may be the same - the geometry it needs exists (entry 124), and the
 question "QWidget popup or QML" may matter less than it looks if the pane is
 asked for its *contents* rather than moved wholesale.
+
+## 2026-09-07 — Home on a wrapped line, and a proposal withdrawn (batch 145)
+
+Entry 144 proposed QmlJS's context pane, "or nothing". **Checked it first, and
+it is the wrong thing to spend a batch on** - which is the third time a
+proposal at the end of an entry has needed checking before acting on it, and
+the first time the check changed the answer rather than finding the work
+already done.
+
+### Why the context pane is not the next batch
+
+Three facts, none of which entry 144 had:
+
+1. **`QuickToolBar` is pinned to `TextEditorWidget` in its signature** -
+   `apply()`, `isAvailable()` and `m_editorWidget` all take one. So it is a
+   genuine port, not a wiring change.
+2. **What it needs from the widget is nearly all document-level** -
+   `convertPosition`, `textCursor`, `document`, `tabSettings`. Only the
+   *placement* needs a view: `translatedLineRegion()` and `cursorRect()` mapped
+   through two levels of widget parent. That part is real work.
+3. **It is off by default, and QML does not open in this editor.**
+   `enableContextPane` has no `setDefaultValue`, so "Always show Qt Quick
+   Toolbar" is false out of the box, and entry 124's census has `Thing.qml` in
+   the *widget* column.
+
+So it is an opt-in feature, for a language that has not moved, whose port is a
+day's work on a 400-line QWidget toolbar. It blocks nothing. **Named as the
+last item because it was last on a list, not because it serves the goal** -
+and the goal is a C++ file. Withdrawn as a proposal; it belongs to whoever
+moves QmlJS, and this entry is the note they should read first.
+
+### The gap this batch closed instead
+
+Entry 133 found it and deferred it: `handleHomeKey(anchor, block)` takes a
+`block` flag that decides whether Home means the start of the **row** or the
+first thing on the **line**, and the Qt Quick view computed the same flag and
+never used it.
+
+Measured, from position 200 of a wrapped line in a real `TextEditorWidget`:
+
+```
+WHOME StartOfLine  -> 174     (the start of that row)
+WHOME StartOfBlock -> 4       (the first non-space of the line)
+QHOME StartOfLine  -> 4       <- both the same here
+QHOME StartOfBlock -> 4
+```
+
+**Home from the middle of a wrapped line jumped to the top of it.** With word
+wrap on - which is a preference people who read long lines turn on - the key
+that means "back to the start of what I am looking at" meant "back to the start
+of something three rows up".
+
+The fix is not to reimplement the rule: when the caret is on a later row, the
+line-wise Home now falls through to the shared move table, which already goes
+through `movementLayout()` - the layout that knows where the rows are. Only the
+line-wise keys; the block-wise ones mean the block whichever row the caret is
+on, exactly as the widget's `block` argument says.
+
+### The fixture, twice
+
+Entry 132's rule earned its keep again. The first two runs answered `4` for
+everything and looked like the fix had not worked. It had; the fixture was not
+wrapping:
+
+- `textWrapping` is a **display setting**, and a bare `ViewportFixture` does not
+  read it - `wrapping` is a per-view property that `CodeViewport.qml` sets.
+  `viewport->setWrapping(true)` is what turns it on.
+- And even then the rows only appear after the next layout, so the test waits
+  for `contentHeight()` to exceed three lines before believing there is a
+  second row.
+
+Both are asserted rather than assumed, and the reason is in the test.
+
+### The numbers are not shared
+
+174 against 199: the two editors wrap at different widths, so nothing here
+compares a position with the widget's. What is asserted is the **shape** - the
+caret ends up on the same row it started on, to the left of where it was, and
+not at the line's first non-space - with the widget's answers quoted in the
+comment as what the shape was taken from.
+
+### Controls
+
+- **FY**: the row never consulted - red at "the line-wise Home went to 4, not
+  into the row".
+- **FZ**: the row consulted for the block-wise Home as well - red at the
+  block-wise case, 0 rather than 4.
+
+Two clauses, two controls, and the second is the one that says the fix did not
+simply make both keys behave the same way.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 711 passed, 0 failed (was 710) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+1. **Middle-click paste** - a feature, needs a Linux run.
+2. **The `Cursor` attribute while composing** - unmeasurable here, entry 141.
+3. **`canInsertFromMimeData`** - nothing overrides it yet, entry 140.
+4. **The link press/release handshake** - a difference, not a defect.
+5. **QmlJS's context pane** - above. Belongs to moving QmlJS.
+6. **The whitespace drawing difference** - declined, entry 68.
+7. **Printing** - entry 31, and this branch exists to drop PrintSupport.
+8. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+**Nothing, and this time the list is the argument rather than an impression.**
+Every item above is one of: needs another machine (1, 2), has nothing to lose
+to yet (3), is a defensible difference (4), belongs to work nobody has asked
+for (5, 8), or has been declined or deferred by its owner (6, 7).
+
+The goal is met and guarded: a C++ file opens in `TextEditor::TextViewport`,
+everything `CppEditorFactory` configures reaches it, and the censuses fail if
+any of that changes. What was found by walking the two implementations
+side-by-side is exhausted - sixteen batches, fifteen closed gaps, four false
+positives caught before landing and two after.
+
+If work is still wanted, the honest options are **moving QmlJS** - which is a
+project of its own, with the context pane as its last item - or **a Linux run**
+to settle items 1 and 2. Neither is a batch of the kind this document has been
+doing.
