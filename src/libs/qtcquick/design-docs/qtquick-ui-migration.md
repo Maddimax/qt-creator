@@ -49180,3 +49180,110 @@ gutter had simply not been looked at.** The list of handlers is finite and now
 genuinely short - `dragEnterEvent`/`dropEvent`, `inputMethodEvent`,
 `changeEvent` and `event()` are what remain unread - so the honest next step is
 to finish reading them before saying that again.
+
+## 2026-09-07 — A gutter drag that stopped at the window (batch 139)
+
+Entry 138 listed two things left in the gutter. **One of them was already
+done**, and this batch closed the other.
+
+### The correction first
+
+Entry 138 said `updateFoldingHighlight()` - hovering the fold column lights up
+the scope the marker covers - was missing. It is not. `EditorGutter.qml` has a
+`foldColumn` with a `HoverHandler` calling `highlightScopeAt()` and
+`clearScopeHighlight()`, with a comment explaining that the widget does this
+whether or not `highlightBlocks` is on.
+
+The claim came from grepping `updateFoldingHighlight` in `textviewport.cpp` and
+finding nothing. **The Qt Quick side of a behaviour is often not in
+`textviewport.cpp` at all** - it is in the QML, under a different name. That is
+the third time a grep of the C++ has reported a gap the QML had already
+covered; the first two were caught before landing.
+
+### The gap this batch closed
+
+The line-number `MouseArea` from entry 138 had no auto-scroll. Press on a
+number, drag below the gutter, and the selection stopped at the last line on
+screen - so a selection could never be longer than the window. The widget runs
+`autoScrollTimer` for exactly this, and `CodeViewport.qml`'s text area has the
+same thing for a text drag.
+
+A `Timer` beside the number column, the same shape the text area uses.
+
+### The test could not wait for nothing to happen
+
+"It stops when the button comes up" is an absence, and the rule in this
+document is not to sleep on one. Asked of the timer instead:
+
+```cpp
+QObject * const ticker = gutter->findChild<QObject *>("gutterAutoScroll");
+QTRY_VERIFY2(!ticker->property("running").toBool(), ...);
+```
+
+A `Timer` is a `QObject` and not a `QQuickItem`, so the usual
+`findChild<QQuickItem *>` comes back null - which cost a run, and is worth
+knowing for the next test that looks for one.
+
+### A control that did not bite, and the line kept anyway
+
+**FI**: the timer's `scrollY +=` removed, leaving it to tick and extend only.
+The test still passed.
+
+The reason is that `extendLineSelection()` ends in `setTextCursor()`, which
+calls `ensureCursorVisible()` - so the view follows the caret by itself and the
+selection advances a line per tick regardless. The explicit scroll governs only
+**how fast** a far-out drag travels: up to five lines a tick instead of one.
+
+Tried to separate it deterministically - set `dragY`, invoke the timer's
+handler once, compare the distance travelled - and it does not work, because
+the same tick's `ensureCursorVisible()` snaps `scrollY` back to the caret and
+swallows the difference. Timing two drags with a clock is the only other way,
+and that is what this document forbids.
+
+**Kept, and said so in the code.** The previous two unbiting controls led to
+deleting a line (entries 135, 138) because the line did nothing; this one does
+something the reader would notice - without it a five-hundred-line drag crawls
+at a line every fifty milliseconds - and only the *rate* is unasserted. The
+rule is "a control that does not bite means the fix is unnecessary **or** the
+test is wrong **or** it is not the whole cause"; this is the second case, and
+the honest answer is a comment rather than a deletion.
+
+### Controls
+
+- **FG**: the drag never starts the timer - red at "the selection stopped at
+  the bottom of the window".
+- **FH**: `onReleased` no longer stopping it - red at "the drag went on
+  fetching lines after the button came up".
+- **FI**: above - did not bite, line kept with the reasoning in the source.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 700 passed, 0 failed (was 699) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+**The gutter is done.** Numbers, marks, fold markers, the fold-scope highlight,
+the hand cursor, mark dragging, the mark menu and now auto-scroll.
+
+1. **The collapsed-fold popup** - a feature, entry 137.
+2. **Middle-click paste** - a feature, unmeasurable on macOS.
+3. **`dragEnterEvent`/`dropEvent`, `inputMethodEvent`, `changeEvent`,
+   `event()`** - the handlers still unread, named in entry 138.
+4. **The link press/release handshake** - read, both answers defensible.
+5. **Home on a wrapped line** - entry 133.
+6. **QmlJS's context pane** - a UI decision, entry 114.
+7. **The whitespace drawing difference** - declined, entry 68.
+8. **Printing** - entry 31.
+9. **The four pinned factories**, and `forceOpenLinksInNextSplit`.
+
+### What I would do next
+
+Item 3, and read the QML as well as the C++ this time - which is the lesson at
+the top of this entry. `dropEvent` is the one to start with: dragging a file
+onto an editor, and dragging text between two of them, are gestures rather than
+conditions, and a gesture is what the last two seams have each been hiding.

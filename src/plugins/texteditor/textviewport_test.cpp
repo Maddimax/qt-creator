@@ -5572,6 +5572,89 @@ private slots:
         QCOMPARE(selected(), QString("alpha\nbeta\ngamma\n"));
     }
 
+    // A gutter drag that leaves the bottom is asking for lines that are not on
+    // screen, so the view has to go and get them - and keep going while the
+    // pointer stays out there. The widget editor runs a timer for exactly this
+    // and the Qt Quick gutter had none, so a selection could never be longer
+    // than the window.
+    void testDraggingPastTheGutterKeepsSelectingLines()
+    {
+        TemporaryDirectory dir("qtc-gutter-autoscroll");
+        const FilePath file = writeLines(dir, "many.txt", 200);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(500, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "CodeViewport {\n"
+                                     "    property string path\n"
+                                     "    width: 500; height: 200\n"
+                                     "    showLineNumbers: true\n"
+                                     "    source: CodeDocument { filePath: path }\n"
+                                     "}"),
+                          QUrl("qrc:/test/GutterScrollTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("codeViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        QQuickItem * const gutter = item->findChild<QQuickItem *>("codeGutter");
+        QVERIFY(gutter);
+        QTRY_VERIFY(gutter->width() > 0);
+
+        const int onScreen = viewport->visibleLineCount();
+        QVERIFY2(onScreen < 100, "the whole file is on screen, so there is nothing to scroll for");
+
+        // Line breaks reach here as either a paragraph separator or a newline
+        // depending on who built the string; count both rather than guess.
+        const auto selectedLines = [viewport] {
+            const QString text = viewport->selectedText();
+            return text.count(QChar::ParagraphSeparator) + text.count(QLatin1Char('\n'));
+        };
+        const auto inGutterAt = [&](qreal yInGutter) {
+            return view.contentItem()
+                ->mapFromItem(gutter, QPointF(gutter->width() - 2, yInGutter))
+                .toPoint();
+        };
+        QTextDocument * const text = viewport->textDocument()->document();
+        const auto onNumberOf = [&](int line) {
+            const QRectF row = viewport->rectangleAt(text->findBlockByNumber(line).position());
+            return inGutterAt(gutter->mapFromItem(viewport, QPointF(0, row.center().y())).y());
+        };
+
+        // Start on the first line and drag below the gutter's bottom edge.
+        QTest::mousePress(&view, Qt::LeftButton, {}, onNumberOf(0));
+        QTRY_COMPARE(selectedLines(), 1);
+        QTest::mouseMove(&view, inGutterAt(gutter->height() + 40));
+
+        // It keeps going while the pointer is out there: more lines than the
+        // window ever showed.
+        QTRY_VERIFY2(selectedLines() > onScreen,
+                     "the selection stopped at the bottom of the window");
+        QVERIFY2(viewport->scrollY() > 0, "the view never went to fetch the lines");
+
+        // And stops when the button comes up. Asked of the timer rather than
+        // by waiting to see whether the selection grows: a selection that has
+        // stopped growing is an absence, and there is no event to wait for.
+        // A Timer is a QObject and not a QQuickItem, so this cannot be the
+        // usual findChild<QQuickItem *>.
+        QObject * const ticker = gutter->findChild<QObject *>("gutterAutoScroll");
+        QVERIFY2(ticker, "the gutter has nothing that would keep the drag going");
+        QTest::mouseRelease(&view, Qt::LeftButton, {}, inGutterAt(gutter->height() + 40));
+        QTRY_VERIFY2(!ticker->property("running").toBool(),
+                     "the drag went on fetching lines after the button came up");
+    }
+
     // Sort Lines with nothing selected takes the run of lines around the
     // caret that share its indentation, and stops at one that does not.
     void testSortingTakesTheIndentedRunAroundTheCaret()

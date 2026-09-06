@@ -140,13 +140,53 @@ Item {
         height: root.height
         acceptedButtons: Qt.LeftButton
 
+        // Where the pointer was last seen, so the timer below can go on
+        // taking lines while nothing is moving.
+        property real dragY: 0
+
         function viewportY(y: real): real {
             return numberColumn.mapToItem(root.viewport, 0, y).y
         }
 
-        onPressed: (mouse) => root.viewport.beginLineSelection(numberColumn.viewportY(mouse.y))
+        onPressed: (mouse) => {
+            numberColumn.dragY = mouse.y
+            root.viewport.beginLineSelection(numberColumn.viewportY(mouse.y))
+        }
         onPositionChanged: (mouse) => {
+            numberColumn.dragY = mouse.y
             root.viewport.extendLineSelection(numberColumn.viewportY(mouse.y))
+            // Off the top or the bottom, the drag is asking for lines that are
+            // not on screen yet, so the view has to go and get them - and keep
+            // going while the pointer stays out there.
+            lineScroll.running = mouse.y < 0 || mouse.y > numberColumn.height
+        }
+        onReleased: lineScroll.stop()
+        onCanceled: lineScroll.stop()
+
+        Timer {
+            id: lineScroll
+
+            objectName: "gutterAutoScroll"
+            interval: 50
+            repeat: true
+
+            onTriggered: {
+                const past = numberColumn.dragY < 0
+                           ? numberColumn.dragY
+                           : numberColumn.dragY - numberColumn.height
+                // A line per tick, up to five the further out it is, which is
+                // what the text area does for the same gesture. Not what makes
+                // the drag advance at all - setTextCursor() brings the view
+                // along by itself - only how fast it travels when the pointer
+                // is a long way out, which is why no assertion below separates
+                // it. Taking it out makes a long drag crawl at a line every
+                // fifty milliseconds.
+                const lines = Math.min(5, 1 + Math.abs(past) / root.viewport.lineHeight)
+                root.viewport.scrollY += Math.sign(past) * root.viewport.lineHeight * lines
+                // extendLineSelection() clamps to what is laid out, so after
+                // the scroll this is the newly arrived first or last line.
+                root.viewport.extendLineSelection(numberColumn.viewportY(numberColumn.dragY))
+            }
         }
     }
 
