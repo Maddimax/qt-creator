@@ -889,14 +889,8 @@ public:
         // it can arrive after this row does, which childEvent() below answers.
         ToolBarOutline * const outline = findChild<ToolBarOutline *>();
 
-        auto bar = new QtcQuick::QuickWidget;
-        bar->quickWidget()->setInitialProperties(
-            {{"viewport", QVariant::fromValue(view)},
-             {"languageActions", QVariant::fromValue(&m_toolBarActions)},
-             {"outline", QVariant::fromValue(outline)},
-             {"choice", QVariant::fromValue(m_document->toolBarChoice())}});
-        bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
-        m_toolBar = bar;
+        m_toolBar = Internal::createQuickTextToolBar(view, &m_toolBarActions, outline,
+                                                     m_document->toolBarChoice());
         return m_toolBar;
     }
 
@@ -1361,6 +1355,21 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
     if (TextViewport * const view = viewportIn(widget))
         Utils::Aggregation::aggregate({widget, new QuickTextFind(view, widget)});
     return widget;
+}
+
+QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
+                                              QtcQuick::ActionModel *languageActions,
+                                              ToolBarOutline *outline,
+                                              ToolBarChoice *choice)
+{
+    auto * const bar = new QtcQuick::QuickWidget;
+    bar->quickWidget()->setInitialProperties(
+        {{"viewport", QVariant::fromValue(view)},
+         {"languageActions", QVariant::fromValue(languageActions)},
+         {"outline", QVariant::fromValue(outline)},
+         {"choice", QVariant::fromValue(choice)}});
+    bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
+    return bar;
 }
 
 TextViewport *viewportIn(QWidget *host)
@@ -9703,6 +9712,50 @@ private slots:
                      qPrintable("focusing the left pane gave: " + activeContexts().join(", ")));
         QVERIFY2(!activeContexts().contains(rightId.toString()),
                  "the right pane's context stayed live after focus left it");
+    }
+
+    // The row above the view, built for a host that is not the Qt Quick
+    // editor. An editor made of two panes wants the same row over its text
+    // pane, and should not have to know which QML file it lives in.
+    void testAToolBarCanBeBuiltWithoutAnEditor()
+    {
+        CodeBuffer source;
+        source.setText("alpha\nbeta\n");
+        const std::unique_ptr<QWidget> viewHost(
+            Internal::createQuickTextView(&source, nullptr));
+        QVERIFY(viewHost.get());
+        viewHost->resize(400, 300);
+        viewHost->show();
+        const QScopeGuard hideView([&viewHost] { viewHost->hide(); });
+        TextViewport *view = nullptr;
+        QTRY_VERIFY2(view = Internal::viewportIn(viewHost.get()),
+                     "the view never loaded, so there is nothing to put a row above");
+
+        // One action, the way a language offers one.
+        QAction bold("Bold");
+        QtcQuick::ActionModel actions;
+        actions.setActions({&bold});
+
+        // No outline and no choice: a caller may legitimately have neither.
+        const std::unique_ptr<QWidget> bar(
+            Internal::createQuickTextToolBar(view, &actions, nullptr, nullptr));
+        QVERIFY2(bar.get(), "no toolbar was built at all");
+        bar->resize(600, 40);
+        bar->show();
+        const QScopeGuard hideBar([&bar] { bar->hide(); });
+
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+        QQuickItem *drawn = nullptr;
+        QTRY_VERIFY2((drawn = itemNamed(quick->rootObject(), "languageToolBarButton")),
+                     "the row drew nothing for the action it was given");
+        QCOMPARE(drawn->property("text").toString(), QString("Bold"));
+
+        // And pressing it runs that action, so the row is wired to what it
+        // was handed rather than merely drawing its text.
+        QSignalSpy fired(&bold, &QAction::triggered);
+        QMetaObject::invokeMethod(drawn, "clicked");
+        QTRY_VERIFY2(!fired.isEmpty(), "the button drew but did nothing");
     }
 
     void testAViewBuiltWithoutAnEditorCanBeSearched()

@@ -17,6 +17,8 @@ namespace TextEditor {
 
 class CodeSource;
 class TextViewport;
+class ToolBarChoice;
+class ToolBarOutline;
 
 namespace Internal {
 
@@ -69,6 +71,18 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
 
 // The view inside a widget createQuickTextView() handed back.
 TextViewport *viewportIn(QWidget *host);
+
+// The row above a Qt Quick text view: where the caret is, what the file is
+// encoded as, the outline, and whatever the language put there. Takes what it
+// draws and nothing else - who keeps those up to date is the caller's, the
+// same split createQuickTextView() has.
+//
+// \a outline and \a choice may be null; a view with neither simply draws
+// neither.
+QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
+                                              QtcQuick::ActionModel *languageActions,
+                                              ToolBarOutline *outline,
+                                              ToolBarChoice *choice);
 
 // The Qt Quick code editor. What a plain text file opens in; a language whose
 // factory has not said setUsesQuickEditor() still opens in the widget one.

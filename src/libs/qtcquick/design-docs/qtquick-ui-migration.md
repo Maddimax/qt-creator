@@ -45125,3 +45125,100 @@ editor (entry 89), searched (entry 96), and given a context that follows focus
 Unchanged elsewhere: GLSL (entry 93's table, minus the correction above, plus
 the question about its empty outline combo), the whitespace difference
 (declined, entry 68), and printing (entry 31, the owner's).
+
+## 2026-09-06 — The tool bar row separated from the editor (batch 98)
+
+Entry 97 said Markdown's remaining item was the swap, that it was large, and
+that it should be planned rather than started at the end of a batch. The
+reason it is large is the tool bar: `MarkdownEditor::toolBar()` resolves,
+through `BaseTextEditor` and an `Aggregate`, to the **text widget's** tool
+bar, so swapping the text widget takes the tool bar with it.
+
+The obvious answer - give `MarkdownEditor` a `QToolBar` of its own - is wrong,
+and measuring said so: the row it would lose is not just seven buttons. Entry
+95's probe showed three more `QWidgetAction`s that are `TextEditorWidget`'s
+own, the encoding and line-ending labels, and there is the caret position and
+the outline besides. Rebuilding those is not a tool bar, it is a second one.
+
+So instead: **the Qt Quick editor already has that row**, and it was welded to
+the editor exactly as the view was before entry 89 separated it.
+
+### The gap this closed
+
+    QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
+                                                  QtcQuick::ActionModel *languageActions,
+                                                  ToolBarOutline *outline,
+                                                  ToolBarChoice *choice);
+
+`QuickTextEditor::toolBar()` was thirty lines that did two unrelated things.
+What it **listed** - four initial properties and a form URL - is the function
+above. What it **does** - installing the provider that asks the document for
+its actions, connecting `toolBarActionsChanged` so a language client's button
+can arrive later, and finding the `ToolBarOutline` the language parented to
+the editor - stays in the editor, which is the only thing that knows any of
+it.
+
+That is the standing rule about closures applied to a method: the four
+arguments are what the row draws; keeping them up to date is the caller's.
+
+`outline` and `choice` may both be null, which the test relies on - a caller
+with neither draws neither.
+
+### The test, and what its control proved
+
+`testAToolBarCanBeBuiltWithoutAnEditor` builds a view over a `CodeBuffer`,
+then a row over that view with a one-action model, and checks the button is
+drawn with the right text and that pressing it runs the action - so the row is
+wired to what it was handed rather than merely drawing its text.
+
+Control BI removed the form URL and reddened **both** the new test and the
+editor's own `testTheFormDrawsTheLanguagesToolBarActions`. As in entry 96,
+that pairing is the point: it says the editor's row now comes through the
+extracted function rather than a copy having been left behind.
+
+Run with the per-function filter from entry 89 - `-test TextEditor,<function>`
+- because a broken shared builder takes the whole test object down before it
+reaches a test declared late in it.
+
+### Controls
+
+- **BI**: the form URL never set - red twice, at "the row drew nothing for the
+  action it was given" and at the editor's own toolbar test.
+- **BJ**: the `languageActions` argument dropped on the floor and null passed
+  to the form - red at the same assertion, so the model argument is
+  load-bearing rather than decorative.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 664 passed, 0 failed (was 663) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left, for Markdown
+
+The swap, and it is now a smaller thing than entry 97 described. Every piece
+the text pane needs exists and is tested standing alone:
+
+| Piece | Since |
+| --- | --- |
+| a view built without an editor | entry 89 |
+| find in it | entry 96 |
+| a context that follows focus into it | entry 97 |
+| the tool bar row above it | this entry |
+
+What remains is `MarkdownEditor`'s own: it is a `BaseTextEditor`, and
+`BaseTextEditor` answers `toolBar()`, `editorWidget()`, `saveState()` and the
+rest through `TextEditorWidget::fromEditor()`. Swapping the pane means
+answering those itself instead - including the navigation history entry 96
+measured, which `QuickTextEditor` writes for itself and `MarkdownEditor` would
+have to as well.
+
+That is one batch now, not an open-ended one, and nothing in `TextEditor`
+blocks it.
+
+Unchanged elsewhere: GLSL (entry 93's table, with entry 97's correction to
+it, plus the question about its empty outline combo), the whitespace
+difference (declined, entry 68), and printing (entry 31, the owner's).
