@@ -2925,8 +2925,19 @@ Utils::CommentDefinition TextViewport::commentDefinition() const
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     if (!doc)
         return {};
+    if (m_commentDefinition.isValid()) {
+        Utils::CommentDefinition language = m_commentDefinition;
+        language.isAfterWhitespace
+            = doc->typingSettings().m_commentPosition != TypingSettingsData::StartOfLine;
+        return language;
+    }
     return HighlighterHelper::commentDefinitionFor(HighlighterHelper::definitionForDocument(doc),
                                                    doc->typingSettings());
+}
+
+void TextViewport::setCommentDefinition(const Utils::CommentDefinition &definition)
+{
+    m_commentDefinition = definition;
 }
 
 void TextViewport::unCommentSelection()

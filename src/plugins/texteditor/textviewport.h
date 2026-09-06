@@ -15,6 +15,7 @@
 
 #include <utils/id.h>
 #include <utils/multitextcursor.h>
+#include <utils/uncommentselection.h>
 #include <utils/link.h>
 
 #include <QAbstractItemModel>
@@ -858,6 +859,9 @@ public:
     void updateFunctionHint();
     bool canEdit() const;
     Utils::CommentDefinition commentDefinition() const;
+    // The language's own, where it has one. Left alone otherwise, so that a
+    // file highlighted by a generic definition keeps what that says.
+    void setCommentDefinition(const Utils::CommentDefinition &definition);
     // Grows the carets to whole lines where they have selected nothing, which
     // is what makes the line commands work without selecting first.
     void selectWholeLines();
@@ -1295,6 +1299,7 @@ private:
     // stops offering one gets the plain default back rather than keeping the
     // last language's.
     bool m_autoCompleterFromSource = false;
+    Utils::CommentDefinition m_commentDefinition;
     std::unique_ptr<IAssistProcessor> m_completionProcessor;
     // Kept, not just its words: a completion is applied by asking the item to
     // do it, and an item can do more than put its own text in.

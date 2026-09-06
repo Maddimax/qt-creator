@@ -10946,6 +10946,11 @@ void TextEditorFactory::setCommentDefinition(CommentDefinition definition)
     d->m_commentDefinition = definition;
 }
 
+Utils::CommentDefinition TextEditorFactory::commentDefinition() const
+{
+    return d->m_commentDefinition;
+}
+
 void TextEditorFactory::setDuplicatedSupported(bool on)
 {
     d->m_duplicatedSupported = on;

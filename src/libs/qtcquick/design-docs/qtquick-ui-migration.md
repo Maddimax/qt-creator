@@ -41645,3 +41645,115 @@ what the Qt Quick view actually consults is small, finite, and has a one-in-
 five hit rate so far. `setParenthesesMatchingEnabled` is the known one.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — The factory audit, finished: Ctrl+/ did nothing on C++ (batch 64)
+
+Entry 63 asked for the factory audit to be finished and predicted
+`setParenthesesMatchingEnabled` as the remaining gap. **That prediction was
+wrong, and the audit found a worse one it had not named.**
+
+### The audit, complete
+
+`TextEditorFactory` has twenty setters. Twelve are read by
+`createEditorHelper()`, which is the widget path and the list that matters:
+
+| Factory setting | Qt Quick view |
+| --- | --- |
+| `m_widgetCreator` | widget only, by design |
+| `m_editorCreator` | the creator itself |
+| `m_editorContexts` | read - `createQuickTextEditor()` |
+| `m_optionalActionMask` | read - passed to the editor |
+| `m_hoverHandlers` | read - `configureLanguageServices()` |
+| `m_autoCompleterCreator` | read - same place (entry 63 checked this twice) |
+| `m_codeFoldingSupported` | read since entry 63 |
+| `m_commentDefinition` | **was not read - this batch** |
+| `m_paranthesesMatchinEnabled` | not read, and correctly so - below |
+| `m_marksVisible` | not read, deliberate - entry 59 recorded it |
+| `m_duplicatedSupported` | not read; `QuickTextEditor` hardcodes `true` |
+| `m_useGenericHighlighter` | not read; the view highlights generically anyway |
+
+### The gap: a C++ file had no idea what a comment looks like
+
+`TextViewport::commentDefinition()` derived the answer from the file's
+*highlighting definition*. Measured across languages:
+
+    t.cpp    -> <none>      t.rs  -> //      t.sh   -> #
+    t.yaml   -> #           t.go  -> //      t.txt  -> <none>
+
+**C++ came back empty.** It is highlighted by `CppHighlighter`, not by a
+KSyntaxHighlighting definition, so there is nothing to derive from - and
+`CppEditorFactory::setCommentDefinition(CommentDefinition::CppStyle)` was the
+only thing that knew, and nobody read it.
+
+So **Ctrl+/ on a C++ file in the Qt Quick editor did nothing at all**, while
+`UnCommentSelection` sat enabled in the factory's optional-action mask. The
+silent-failure shape again: the command is offered, the command runs, nothing
+happens.
+
+The view now prefers the language's definition and keeps the derived one as
+the fallback - which is what every generically highlighted language relies on,
+and what the `.sh` half of the test guards.
+
+### The prediction that was wrong, and why it is worth writing down
+
+Entry 63 called `setParenthesesMatchingEnabled` "the known one". It was
+implemented - factory getter, view flag, gate in `updateParenthesesMatch()` -
+and **two existing tests went red**. One of them opens a `.json` file in the
+Qt Quick editor and expects bracket matching. `Editors.Json` never calls
+`setParenthesesMatchingEnabled`.
+
+That is the measurement that settles it: the Qt Quick view matches brackets
+from the highlighter's parenthesis data, which exists for **any** highlighted
+language. The widget's flag is a limitation of the widget, not a statement
+about the language. Making the Qt Quick view worse for parity's sake would
+have removed bracket matching from Rust, Go, YAML and JSON.
+
+**Parity is not the goal; the goal is that nothing a user could do stops
+working.** Three of the four unread settings are in that category - marks
+always visible, brackets always matched, generic highlighting always applied.
+The Qt Quick view does more, and more is fine. `m_commentDefinition` was the
+one where it did *less*, and that is the one that needed fixing.
+
+The whole parentheses change was reverted.
+
+### Controls
+
+- **P**: the language's comment definition not handed over - red at
+  `commented.startsWith("//")`, with the message "nothing was commented".
+- The test was **written before the fix and confirmed red against the
+  unmodified code**, which is the honest order for a defect claim.
+- The expected text is not a string this batch chose. The first attempt
+  asserted `"//int one = 1;"` and failed against `"// int one = 1;"`. Rather
+  than correct the guess, the test now opens the same file in the **widget**
+  editor, comments it there, and compares the two. It asserts the two views
+  agree, which is the actual claim.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 598 passed, 0 failed (was 597) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What is left
+
+`m_duplicatedSupported` is the last unread setting where the Qt Quick view
+does *more* rather than differently: `QuickTextEditor` hardcodes
+`setDuplicateSupported(true)`. Only `VcsBaseEditor`, `scxmleditor` and
+`designer/formeditor` set it false, and all three are widget editors, so it is
+latent. Left alone on the same reasoning as entry 59's latent pair, and
+recorded here so it need not be re-derived.
+
+**The factory audit is finished.** Twenty setters, all accounted for.
+
+**Suggested next: the document, the way this batch did the factory.**
+`TextDocument` and `TypingSettings` carry settings the widget reads directly -
+`m_commentPosition` turned up here as part of the comment definition, and
+there will be more. The same method applies: list what one view reads, check
+the other, and *measure* before believing either. Two of the last three
+batches found that the Qt Quick view was already right, so expect a low hit
+rate and do not force a fix to justify the look.
+
+The printing decision (keep / drop / move) remains the owner's call.

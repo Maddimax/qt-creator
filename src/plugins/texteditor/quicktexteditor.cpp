@@ -1130,6 +1130,13 @@ private:
             m_document->setCompletionAssistProvider(provider ? provider : &wordsInTheDocument);
         }
 
+        if (TextViewport * const view = viewport()) {
+            if (const Utils::CommentDefinition comment = factory->commentDefinition();
+                comment.isValid()) {
+                view->setCommentDefinition(comment);
+            }
+        }
+
         m_codeFoldingSupported = factory->codeFoldingSupported();
         if (QQuickItem * const form = quickForm())
             form->setProperty("showFoldMarkers", foldMarkersWanted());
@@ -8236,6 +8243,78 @@ private slots:
         QCOMPARE(quick->rootObject()->property("showFoldMarkers").toBool(), true);
         display.displayFoldingMarkers.setValue(false);
         QTRY_COMPARE(quick->rootObject()->property("showFoldMarkers").toBool(), false);
+    }
+
+    void testCommentingUsesTheLanguagesOwnMarkerInEitherView()
+    {
+        Utils::TemporaryDirectory dir("comment-marker");
+        QVERIFY(dir.isValid());
+
+        // C++ is the case that matters and the one that had none: it is
+        // highlighted by CppHighlighter rather than by a generic definition,
+        // so nothing derived from the highlighter can say what a comment
+        // looks like. The factory is the only thing that knows.
+        const Utils::FilePath cpp = dir.filePath("t.cpp");
+        QVERIFY(cpp.writeFileContents("int one = 1;\nint two = 2;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(cpp);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(cpp);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "the file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY(view);
+
+        QTextCursor firstLine(document->document());
+        firstLine.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        TextEditor::setTextCursorOf(editor, firstLine);
+        view->unCommentSelection();
+        const QString commented = document->document()->findBlockByNumber(0).text();
+        QVERIFY2(commented.startsWith("//"), qPrintable("nothing was commented: " + commented));
+        QVERIFY(commented.contains("int one = 1;"));
+
+        // And back off again, which is the same definition read a second time.
+        view->unCommentSelection();
+        QCOMPARE(document->document()->findBlockByNumber(0).text(), QString("int one = 1;"));
+
+        // The same text through the widget editor, which has always had the
+        // language's definition. Comparing the two is what says this is the
+        // C++ marker rather than merely *a* marker.
+        factory->setUsesQuickEditor(false);
+        const Utils::FilePath same = dir.filePath("w.cpp");
+        QVERIFY(same.writeFileContents("int one = 1;\nint two = 2;\n"));
+        Core::IEditor * const widgetEditor = Core::EditorManager::openEditor(same);
+        QVERIFY(widgetEditor);
+        const QScopeGuard closeWidget(
+            [widgetEditor] { Core::EditorManager::closeEditors({widgetEditor}, false); });
+        TextEditorWidget * const w = TextEditorWidget::fromEditor(widgetEditor);
+        QVERIFY2(w, "the comparison editor is not a widget one");
+        QTextCursor wFirst(w->document());
+        wFirst.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        w->setTextCursor(wFirst);
+        w->unCommentSelection();
+        QCOMPARE(w->document()->findBlockByNumber(0).text(), commented);
+
+        // A language whose marker comes from its highlighting definition
+        // still gets that one - the factory answer must not replace it.
+        const Utils::FilePath shell = dir.filePath("run.sh");
+        QVERIFY(shell.writeFileContents("echo one\n"));
+        Core::IEditor * const shellEditor = Core::EditorManager::openEditor(shell);
+        QVERIFY(shellEditor);
+        const QScopeGuard closeShell(
+            [shellEditor] { Core::EditorManager::closeEditors({shellEditor}, false); });
+        TextViewport * const shellView = Internal::viewportForEditor(shellEditor);
+        QVERIFY2(shellView, "the shell script did not open in the Qt Quick editor");
+        QCOMPARE(shellView->commentDefinition().singleLine, QString("#"));
     }
 
     void testAWatcherHearsTheCaretMoveInEitherView()

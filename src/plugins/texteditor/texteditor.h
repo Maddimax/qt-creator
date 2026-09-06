@@ -839,6 +839,10 @@ public:
     bool usesQuickEditor() const;
 
     void setCommentDefinition(Utils::CommentDefinition definition);
+    // What a comment looks like in this language. A view that cannot derive
+    // it from a highlighting definition - C++ has its own highlighter, so
+    // there is none - has nowhere else to ask.
+    Utils::CommentDefinition commentDefinition() const;
     void setDuplicatedSupported(bool on);
     void setMarksVisible(bool on);
     void setParenthesesMatchingEnabled(bool on);
