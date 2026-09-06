@@ -40464,3 +40464,109 @@ entries:
 
 **Entries 50 to 53 should be read with this one.** The migration is not
 finished; it was finished as far as anybody had thought to look.
+
+## 2026-09-06 (55) -- Triage begins: refactoring is not a gap, and the 42 is soft
+
+Entry 54 found 42 production paths that hold a `TextEditorWidget` pointer with
+no viewport fallback, and named `refactoringchanges.cpp` first for triage
+because refactoring is one of the five capabilities the standing warning lists
+and nobody had checked it. Checked.
+
+### Refactoring is already handled
+
+Its three sites, read rather than counted:
+
+    :50   m_editor = fromEditor(editor)   "Still worth finding the widget where
+                                           there is one: it is what moves the
+                                           caret to what the refactoring did."
+    :77   m_editor = fromEditor(editor)   beside isReadOnly(document), which is
+                                          asked of the document "so that a view
+                                          which is not that widget answers the
+                                          same way"
+    :458  m_editor = fromEditor(editor);  m_textDocument = m_editor
+                                            ? m_editor->textDocument()
+                                            : qobject_cast<TextDocument *>(...)
+
+and **every use of `m_editor` is null-guarded** - `cursor()` falls back to
+`textCursorOf()` over the document's editors, `apply()` guards, the accessor
+just returns it. Refactoring was adapted; entry 54's heuristic missed it
+because it looked for `viewportForEditor` within twelve lines, and the right
+answer here is falling back to the **document**, which is better than either
+view.
+
+**So the 42 is an upper bound, not a list of gaps.** Two of the 42 are still
+verified gaps (entry 54: Beautifier's "Disable Formatting for Selected Text"
+and Git's Instant Blame, both `if (!widget) return;` with nothing after). The
+rest need reading one at a time, and the first three read came off.
+
+### The one that looked like a gap, and is not measurable as one
+
+`RefactoringFile::apply()` ends with
+
+    if (m_editor && ensureCursorVisible)
+        m_editor->ensureCursorVisible();
+
+with no fallback - so on the face of it, a refactoring off-screen leaves a Qt
+Quick reader where they were. A seam was written, `refactoringchanges.cpp` was
+changed to use it, and a differential test was built round it.
+
+**The control did not bite**, and the probe said why:
+
+    caret set to line 300, view scrolled back to the top, then measured
+    before ensureCursorVisibleIn() was called at all:
+        widget  first visible line 280
+        quick   first visible line 280
+
+**Both views scroll to the caret on their own** - asynchronously in the Qt
+Quick one, which is why the test's own fixture guard ("the view is already
+near the caret, so this proves nothing") passed at the moment it ran and was
+stale a few event-loop turns later. The test could not tell the seam from its
+absence, because there was nothing for the seam to do.
+
+Reverted - seam, caller and test. An unbitten control on an unproven premise
+is the thing this file has been most consistent about not shipping.
+
+### A fixture that crashed, and what it was
+
+The first version of that test showed the widget editor's window. It crashed
+in `QCocoaCursor::createCursorData` through `QImage::toCGImage`, **four runs
+out of four**, after `initTestCase()` and before any row - while every
+pre-existing test in the class passed. Not showing the widget (a scroll bar
+needs a viewport size, not a window) made it stable, three runs of three.
+
+Written down because it cost a diagnosis: on this machine, a test that shows a
+`TextEditorWidget` window can take the process down in CoreGraphics, and the
+crash looks nothing like the test that caused it.
+
+### Negative controls
+
+- **A -- the seam skips the viewport**: **did not bite**, and that is the
+  result. It is what sent the probe after the premise, and the premise did not
+  survive.
+
+### Verification
+
+    -test TextEditor    589 passed, 0 failed, exit 0, 0 warnings
+    -test QuickUi       207 passed, 0 failed, 1 skipped, exit 0, 0 warnings
+
+**This batch changed no code**; the working tree is as it was. One file, and
+it is this one.
+
+### What this leaves
+
+Triage of the 42, three read and three retired:
+
+1. **Beautifier's disable-formatting and Git's Instant Blame** - verified gaps
+   in entry 54, both small, both reachable with `textCursorOf()` and
+   `lineColumnOf()`. **Do these next**, and note that both are the shape that
+   *can* be tested: they change the document, so a test can assert what
+   happened rather than where the view is looking.
+2. **The remaining ~37**, one at a time. `qmljseditor` and `qmldesigner` are
+   about QML files and will come off; FakeVim's mini-buffer is a widget by
+   construction.
+3. The printing decision, and CppEditor's locator race, as before.
+
+The lesson from this one: **the count in entry 54 was a search result, not a
+finding.** Three sites read, three retired. That does not make entry 54 wrong -
+two gaps in it are verified - but the number will shrink, and quoting 42 as if
+it were a defect list would be the same mistake in the other direction.
