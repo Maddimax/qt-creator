@@ -43982,3 +43982,101 @@ not when it was costed, and a cost recorded once and not rechecked has already
 misled this file twice - entries 69 and 76.
 
 The printing decision (keep / drop / move) remains the owner's call.
+
+## 2026-09-06 — Markdown re-measured: the blocker moved (batch 87)
+
+Entry 86 said to re-measure Markdown rather than re-read entry 78's cost,
+because `setEditorDecorator()` did not exist when that cost was written and
+entry 85 had since shown that a `QToolButton` with a menu is an action with a
+menu. **The cost is materially different, and entry 78's blocker is not the
+blocker.**
+
+### The tool bar is no longer the problem
+
+Entry 78 called `insertExtraToolBarWidget()` "the real blocker" and made
+moving Markdown turn on "whether the Qt Quick tool bar should hold a QWidget".
+Read again, every one of those widgets is made the same way:
+
+```cpp
+button = Command::createToolButtonWithShortcutToolTip(LINK_ACTION);
+button->setIcon(Utils::Icons::LINK_TOOLBAR.icon());
+```
+
+Nine of them - four markdown formatting buttons, swap-views, and the two
+visibility toggles - are **a registered command's action with a label and an
+icon**. Entry 85 converted Python's two of exactly this shape into actions,
+and entry 79 built the seam they go through. The same applies here.
+
+The two `toolBar()->insertAction(m_swapViewsAction, ...)` calls are positional
+inserts relative to those actions, and the document's `toolBarActions()` is an
+ordered list, so ordering survives.
+
+### What is actually left, in two pieces
+
+**1. Checkable tool bar actions are not drawn as checked.** Two of the nine
+toggle. `ActionModel` carries `CheckableRole` and `CheckedRole`, exposes them
+to QML as `actionCheckable`/`actionChecked`, and `ActionMenu.qml` - the
+right-click menu - uses both. The **tool bar** delegate in `EditorToolBar.qml`
+binds text, icon, enabled, visible, tooltip and menu, and not those two.
+
+Not closed here, and the reason is worth recording rather than glossing:
+`QtcButton.checkable` is `readonly property bool checkable: root.role ===
+QtcButton.Role.SmallList`, and only `SmallList` and `Tag` fill on checked. So
+drawing a checked tool bar button means either giving every language button
+the `SmallList` look or giving checkable ones a different role from the
+others - a visual decision - and binding `checked:` would also fight
+`QtcButton`'s own `root.checked = !root.checked` on click. **That is
+interaction design, and it cannot be verified by running a test**, which is
+the whole reason this file has trusted controls over reasoning. It belongs to
+whoever owns the look of the tool bar.
+
+**2. The preview pane, which is genuinely a widget.**
+
+```cpp
+m_splitter = new MiniSplitter;
+m_splitter->addWidget(m_textEditorWidget);
+m_splitter->addWidget(m_previewWidget);   // a MarkdownBrowser
+```
+
+`MarkdownEditor::widget()` is a splitter holding the text editor beside a
+`QTextBrowser`. Moving Markdown means that splitter holding the Qt Quick
+editor's `QQuickWidget` instead - which is composition, not a seam, and is
+where the `setVisible`/`isVisible`/`setSizePolicy` calls entry 78 listed
+actually live.
+
+**This is the blocker now**, and it is a smaller and much more concrete one
+than "should the tool bar hold widgets".
+
+### Nothing changed, and no control
+
+No code was written, so there is nothing a control could bite. The deliverable
+is the measurement, and it is the third time re-measuring a recorded cost has
+changed the answer - entries 69, 76 and now 78. **A cost in this file should
+be read as of its date, not as current.**
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 650 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+Run because the standing rules ask for them, not because anything could have
+moved.
+
+### What is left
+
+**There is no next step here that is not a decision or a design.** Every
+language anyone has asked about is either moved or measured:
+
+1. **Markdown** - two pieces above. The first is a tool bar design question;
+   the second is widget composition and is a real piece of work that does not
+   need any new seam.
+2. `createJsonEditor()`'s two discarded editors (entry 80). Cosmetic.
+3. The whitespace drawing difference (entry 68). Declined, with the reason.
+4. **Printing** - keep, drop or move. The owner's since entry 31.
+
+**What I would do next, if more work is wanted:** the Markdown preview pane
+(1b). It needs no new mechanism, it is the last thing standing between the
+widget text editor and being unused by any language in the tree, and unlike
+the tool bar question it can be finished and tested by whoever picks it up.
