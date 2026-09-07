@@ -50898,3 +50898,150 @@ the pane view-agnostic, **`QmlJSOutline` (the tool bar one, entry 98) and
 the same call**, one for the row and one for the tree, each keeping its own
 copy. Whether that wants to be one object asked twice is a design question
 rather than a gap, and neither view is worse for it today.
+
+## 2026-09-07 — A tool bar row the language does not want (batch 153)
+
+Entry 152 named the last structural item:
+
+> **`toolBar()` returning null.** `FormWindowEditor` and `ScxmlTextEditor` both
+> override it to hide the editor tool bar row, and that is a property of the
+> language, not of the editor.
+
+Done, and one sentence of entry 152 was wrong; see below.
+
+### The gap
+
+```cpp
+QWidget *toolBar() override { return nullptr; }   // ScxmlTextEditor
+QWidget *FormWindowEditor::toolBar() { return nullptr; }
+```
+
+Both say the same thing: *this text view sits inside another editor's UI and
+the editor around it draws the bar.* Both say it from a `BaseTextEditor`
+subclass, which the Qt Quick path never builds - so either language in that
+view would have **drawn a tool bar row the widget view does not have**, inside
+a designer that already has one.
+
+It is `TextEditorFactory::setToolBarVisible(false)` now, read by
+`BaseTextEditor::toolBar()` through a flag the factory pushes at creation - the
+way `setMarksVisible` reaches the widget - and by `QuickTextEditor::toolBar()`
+through the factory it already holds for `duplicate()`.
+
+### The compile error worth writing down
+
+The first version asked `d->m_origin->m_toolBarVisible` in
+`BaseTextEditor::toolBar()`, because `m_origin` is how `duplicate()` reaches
+the factory:
+
+```
+texteditor.cpp:9210: error: member access into incomplete type 'TextEditorFactoryPrivate'
+```
+
+`BaseTextEditor`'s methods are defined 700 lines *above* the factory private.
+`duplicate()` gets away with it because it is defined below. **A pointer being
+available is not the same as it being usable where you are**; pushing the value
+at creation is both the fix and what every other factory flag already does.
+
+### What entry 152 got wrong
+
+> One setter empties `ScxmlTextEditor` completely.
+
+Written without opening the file. It does not. What is left, measured:
+
+| | After this batch |
+| --- | --- |
+| `ScxmlTextEditor` | `finalizeInitialization()` and `open()` |
+| `FormWindowEditor` | `contents()` and `formWindowFile()` |
+
+Both constructors are gone: they only added two contexts each, one of which
+`createEditorHelper()` already adds from the factory id, and the other of which
+`addEditorContext()` takes. That part did work.
+
+**And a second thing the note missed.** Both plugins hold their editor *as
+that type* - `ScxmlEditorStack::m_editors` is a `QList<ScxmlTextEditor *>`,
+Designer's `EditorData::formWindowEditor` is a `FormWindowEditor *`, and
+`activeEditor()` returns one. So `setEditorCreator()` is not the only thing
+keeping these classes alive; the plugins' own bookkeeping is. **The pin is not
+one thing, and the estimate that said it was came from reading the class
+declaration and not its users.**
+
+### The one that is not a refactor
+
+`ScxmlTextEditor::open()` looked like it should merge into
+`ScxmlEditorDocument::open()`, which already does nearly the same work - the
+`reloadRequested` signal exists only so the document can ask the editor to do
+something the document could do itself. Compared line by line, the two differ
+in two ways: an empty path is success in one and an error in the other, and
+only the editor's calls `syncXmlFromDesignWidget()`. Merging them is a
+behaviour change to SCXML's reload path, in a plugin with no tests. **Left
+alone deliberately, and written down so the next reader does not have to
+compare them again.**
+
+### Dead, and left alone
+
+`FormWindowEditor::contents()` - a `Q_PROPERTY` marked "For uic code model
+support" - has no caller and no property lookup anywhere in the tree. It is
+`DESIGNER_EXPORT`, so the reader may be out of tree. Recorded, not removed.
+
+### Controls
+
+- **LA**: `QuickTextEditor::toolBar()` stops asking the factory - red on the
+  **quick row only**.
+- **LB**: `BaseTextEditor::toolBar()` stops asking - red on the **widget row
+  only**.
+- **LC**: both made to return null always - red on the *other* assertion, the
+  one saying an ordinary editor does have a row. Without it the test would
+  pass on a view that never draws a bar at all. (It also takes 13 other
+  `TextEditor` tests with it, which is what a tool bar row being load-bearing
+  looks like.)
+
+Three controls for three claims: each relay, and the half that says the
+setting is what makes the difference.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 719 passed, 0 failed (was 717) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 30 passed, 0 failed |
+| `-test Core` | 0 | 222 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+| | |
+| --- | --- |
+| `abortAssist` on a caret move (EmacsKeys) | when the popup closes, not whether |
+| `activateWindow()` leaving a debugger tooltip | cosmetic |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box |
+| `canInsertFromMimeData` | a hook nothing overrides yet |
+| The link press/release handshake | two defensible answers |
+| QmlJS's context pane | a UI decision, open since entry 114 |
+| The whitespace drawing difference; printing | declined (entry 68) and the owner's (entry 31) |
+| `forceOpenLinksInNextSplit` | a dead preference |
+| Designer and SCXML | **restated below** - not "two pinned factories" |
+
+The last row is the one that changed. It is not "two factories are pinned by a
+cast". It is: *two plugins embed a text editor in a designer they own, and hold
+it by its own type to do so.* Nothing about that is a Qt Quick gap - it is
+what an embedded text view looks like - and neither language is one anybody
+has asked to move.
+
+### What I would do next
+
+**Nothing on this list, and I would stop calling the last row work.** Three
+batches running have ended by taking a row off it, and the rows that are left
+are a Linux machine (two items), a design decision (two), a declined change,
+an owner's call, a dead preference, and two plugins whose text views are not
+meant to be standalone editors.
+
+If work is still wanted, the one thing this batch would point at is *the thing
+it just made possible and nobody uses*: `setToolBarVisible()` is now a factory
+property, and the only two callers turn it off. **Whether the Qt Quick view's
+tool bar row is right for every language that does have one is untested** -
+entry 124's census covers what a factory *configures*, not what the row ends
+up showing. A census of "what is in the tool bar row, per moved language, in
+both views" is the same shape as the four that already exist, and it is the
+only place left where the two views could differ without a test noticing.

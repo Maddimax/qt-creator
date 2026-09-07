@@ -9,18 +9,7 @@ namespace Designer {
 
 using namespace Internal;
 
-FormWindowEditor::FormWindowEditor()
-{
-    addContext(Designer::Constants::K_DESIGNER_XML_EDITOR_ID);
-    addContext(Designer::Constants::C_DESIGNER_XML_EDITOR);
-}
-
 FormWindowEditor::~FormWindowEditor() = default;
-
-QWidget *FormWindowEditor::toolBar()
-{
-    return nullptr;
-}
 
 QString FormWindowEditor::contents() const
 {

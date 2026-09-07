@@ -506,6 +506,8 @@ public:
     BaseTextEditorPrivate() = default;
 
     TextEditorFactoryPrivate *m_origin = nullptr;
+    // Whether this editor draws a tool bar row of its own; the factory says.
+    bool m_toolBarVisible = true;
     QByteArray m_savedNavigationState;
 };
 
@@ -9419,6 +9421,8 @@ IDocument *BaseTextEditor::document() const
 
 QWidget *BaseTextEditor::toolBar()
 {
+    if (!d->m_toolBarVisible)
+        return nullptr;
     return editorWidget()->toolBarWidget();
 }
 
@@ -10172,6 +10176,7 @@ public:
     bool m_codeFoldingSupported = false;
     bool m_paranthesesMatchinEnabled = false;
     bool m_marksVisible = true;
+    bool m_toolBarVisible = true;
 };
 
 } /// namespace Internal
@@ -11127,6 +11132,16 @@ void TextEditorFactory::setCodeFoldingSupported(bool on)
     d->m_codeFoldingSupported = on;
 }
 
+void TextEditorFactory::setToolBarVisible(bool on)
+{
+    d->m_toolBarVisible = on;
+}
+
+bool TextEditorFactory::toolBarVisible() const
+{
+    return d->m_toolBarVisible;
+}
+
 bool TextEditorFactory::codeFoldingSupported() const
 {
     return d->m_codeFoldingSupported;
@@ -11153,6 +11168,7 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
     for (const Id context : m_editorContexts)
         editor->addContext(context);
     editor->d->m_origin = this;
+    editor->d->m_toolBarVisible = m_toolBarVisible;
 
     editor->m_widget = widget;
 

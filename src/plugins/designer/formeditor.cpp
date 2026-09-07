@@ -113,11 +113,13 @@ public:
     FormWindowEditorFactory()
     {
         setId(K_DESIGNER_XML_EDITOR_ID);
+        addEditorContext(Designer::Constants::C_DESIGNER_XML_EDITOR);
         setEditorCreator([]() { return new FormWindowEditor; });
         setEditorWidgetCreator([]() { return new Internal::DesignerXmlEditorWidget; });
         setUseGenericHighlighter(true);
         setDuplicatedSupported(false);
         setMarksVisible(false);
+        setToolBarVisible(false);
     }
 
     FormWindowEditor *create(QDesignerFormWindowInterface *form)

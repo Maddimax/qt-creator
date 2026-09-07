@@ -23,10 +23,7 @@ class DESIGNER_EXPORT FormWindowEditor : public TextEditor::BaseTextEditor
     Q_OBJECT
 
 public:
-    FormWindowEditor();
     ~FormWindowEditor() override;
-
-    QWidget *toolBar() override;
 
     // For uic code model support
     QString contents() const;

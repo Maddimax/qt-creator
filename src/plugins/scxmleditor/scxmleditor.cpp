@@ -120,10 +120,12 @@ public:
     ScxmlTextEditorFactory()
     {
         setId(ScxmlEditor::Constants::K_SCXML_EDITOR_ID);
+        addEditorContext(ScxmlEditor::Constants::C_SCXML_EDITOR);
         setEditorCreator([] { return new ScxmlTextEditor; });
         setEditorWidgetCreator([] { return new ScxmlTextEditorWidget; });
         setUseGenericHighlighter(true);
         setDuplicatedSupported(false);
+        setToolBarVisible(false);
     }
 
     ScxmlTextEditor *create(ScxmlEditor::Common::MainWidget *designWidget)

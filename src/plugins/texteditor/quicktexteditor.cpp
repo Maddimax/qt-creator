@@ -890,6 +890,10 @@ public:
     // each time would drop whatever the previous one was showing.
     QWidget *toolBar() final
     {
+        // The language says it has no row of its own, because its text view
+        // sits inside another editor's UI.
+        if (m_factory && !m_factory->toolBarVisible())
+            return nullptr;
         if (m_toolBar)
             return m_toolBar;
         TextViewport * const view = viewport();
@@ -12413,6 +12417,54 @@ private slots:
         askAbout(12); // gamma
         QTRY_COMPARE(other.asked, 3);
         QCOMPARE(mine.asked, 2);
+    }
+
+    // A text view embedded in another editor's UI - Designer's form source,
+    // SCXML's source pane - has no tool bar row of its own, because the editor
+    // around it draws one. Saying so was a BaseTextEditor override returning
+    // null, which is a class the Qt Quick path never builds, so that view
+    // would have drawn a row the widget view does not.
+    void testAFactoryCanSayItsLanguageHasNoToolBarRow_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFactoryCanSayItsLanguageHasNoToolBarRow()
+    {
+        QFETCH(bool, quick);
+
+        class BarFactory final : public TextEditorFactory
+        {
+        public:
+            BarFactory(bool quick, bool bar)
+            {
+                setId("QuickEditorToolBarVisibleTest");
+                setDisplayName("Quick Editor Tool Bar Visible Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorToolBarVisibleTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+                setToolBarVisible(bar);
+            }
+        };
+
+        // The default first, so that the assertion below is about the setting
+        // rather than about this view having no row to begin with.
+        BarFactory withBar(quick, true);
+        QCOMPARE(withBar.toolBarVisible(), true);
+        const std::unique_ptr<Core::IEditor> loud(withBar.createEditor());
+        QVERIFY2(loud.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(loud.get()) != nullptr, quick);
+        QVERIFY2(loud->toolBar(), "an ordinary editor has no toolbar row at all");
+
+        BarFactory withoutBar(quick, false);
+        QCOMPARE(withoutBar.toolBarVisible(), false);
+        const std::unique_ptr<Core::IEditor> quiet(withoutBar.createEditor());
+        QVERIFY2(quiet.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(quiet.get()) != nullptr, quick);
+        QVERIFY2(!quiet->toolBar(),
+                 "the editor drew a toolbar row for a language that said it has none");
     }
 
     // Whether a file belongs in Design mode is a property of the file, so both

@@ -15,12 +15,6 @@ using namespace Utils;
 
 namespace ScxmlEditor {
 
-ScxmlTextEditor::ScxmlTextEditor()
-{
-    addContext(ScxmlEditor::Constants::K_SCXML_EDITOR_ID);
-    addContext(ScxmlEditor::Constants::C_SCXML_EDITOR);
-}
-
 void ScxmlTextEditor::finalizeInitialization()
 {
     // Revert to saved/load externally modified files.

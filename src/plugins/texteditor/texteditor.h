@@ -876,6 +876,12 @@ public:
     // Whether the language has anything to fold. A view uses it to decide
     // whether the fold column is worth its width.
     bool codeFoldingSupported() const;
+    // Whether this editor has a tool bar row of its own. False for a text
+    // view embedded in another editor's UI, which draws its own bar. It is a
+    // property of the language rather than of the editor, so that a view
+    // which is not a widget can be told the same thing.
+    void setToolBarVisible(bool on);
+    bool toolBarVisible() const;
 
 private:
     friend class BaseTextEditor;

@@ -13,15 +13,8 @@ class ScxmlTextEditor : public TextEditor::BaseTextEditor
     Q_OBJECT
 
 public:
-    ScxmlTextEditor();
-
     void finalizeInitialization() override;
     bool open(QString *errorString, const Utils::FilePath &filePath);
-
-    QWidget *toolBar() override
-    {
-        return nullptr;
-    }
 };
 
 } // namespace ScxmlEditor
