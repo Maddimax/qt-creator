@@ -3,8 +3,18 @@
 
 #pragma once
 
+#include <QtGlobal>
+
+QT_BEGIN_NAMESPACE
+class QObject;
+QT_END_NAMESPACE
+
 namespace QmlJSEditor::Internal {
 
 void setupQmlJsOutline();
+
+#ifdef WITH_TESTS
+QObject *createQmlJSOutlineTest();
+#endif
 
 } // namespace QmlJSEditor::Internal

@@ -1,7 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
-#include "qmljseditor.h"
+#include "qmljseditordocument.h"
 #include "qmljseditortr.h"
 #include "qmljsoutline.h"
 #include "qmljsoutlinetreeview.h"
@@ -9,15 +9,26 @@
 
 #include <coreplugin/find/itemviewfind.h>
 #include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
 
 #include <texteditor/ioutlinewidget.h>
+#include <texteditor/texteditor.h>
 
 #include <utils/qtcassert.h>
+#include <utils/textutils.h>
 
 #include <QAction>
 #include <QSortFilterProxyModel>
 #include <QTextBlock>
 #include <QVBoxLayout>
+
+#ifdef WITH_TESTS
+#include <coreplugin/editormanager/editormanager.h>
+#include <utils/temporarydirectory.h>
+#include <QScopeGuard>
+#include <QTest>
+#include <QTreeView>
+#endif
 
 using namespace QmlJS;
 
@@ -125,9 +136,7 @@ void QmlJSOutlineFilterModel::setSorted(bool sorted)
 class QmlJSOutlineWidget final : public TextEditor::IOutlineWidget
 {
 public:
-    QmlJSOutlineWidget();
-
-    void setEditor(QmlJSEditorWidget *editor);
+    QmlJSOutlineWidget(Core::IEditor *editor, QmlJSEditorDocument *document);
 
     // IOutlineWidget
     QList<QAction*> filterMenuActions() const final;
@@ -138,17 +147,21 @@ public:
     QVariantMap settings() const final;
 
 private:
-    void updateSelectionInTree(const QModelIndex &index);
+    void updateSelectionInTree();
     void updateSelectionInText(const QItemSelection &selection);
     void updateTextCursor(const QModelIndex &index);
     void focusEditor();
     void setShowBindings(bool showBindings);
     bool syncCursor();
+    bool editorHasFocus() const;
 
 private:
+    // The editor, not the widget: what this needs from the view is where the
+    // caret is and how to move it, and both views answer that.
+    Core::IEditor * const m_editor;
+    QmlJSEditorDocument * const m_document;
     QmlJSOutlineTreeView *m_treeView = nullptr;
     QmlJSOutlineFilterModel m_filterModel;
-    QmlJSEditorWidget *m_editor = nullptr;
 
     QAction *m_showBindingsAction = nullptr;
 
@@ -157,21 +170,19 @@ private:
     bool m_sorted = false;
 };
 
-QmlJSOutlineWidget::QmlJSOutlineWidget()
-    : m_treeView(new QmlJSOutlineTreeView(this))
+QmlJSOutlineWidget::QmlJSOutlineWidget(Core::IEditor *editor, QmlJSEditorDocument *document)
+    : m_editor(editor)
+    , m_document(document)
+    , m_treeView(new QmlJSOutlineTreeView(this))
 {
     m_filterModel.setFilterBindings(false);
+    m_filterModel.setSourceModel(m_document->outlineModel());
 
     m_treeView->setModel(&m_filterModel);
     m_treeView->setSortingEnabled(true);
+    m_treeView->expandAll();
 
     setFocusProxy(m_treeView);
-
-    auto layout = new QVBoxLayout;
-
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-    layout->addWidget(Core::ItemViewFind::createSearchableWrapper(m_treeView));
 
     m_showBindingsAction = new QAction(this);
     m_showBindingsAction->setText(Tr::tr("Show All Bindings"));
@@ -179,41 +190,38 @@ QmlJSOutlineWidget::QmlJSOutlineWidget()
     m_showBindingsAction->setChecked(true);
     connect(m_showBindingsAction, &QAction::toggled, this, &QmlJSOutlineWidget::setShowBindings);
 
-    setLayout(layout);
-}
-
-void QmlJSOutlineWidget::setEditor(QmlJSEditorWidget *editor)
-{
-    m_editor = editor;
-
-    m_filterModel.setSourceModel(m_editor->qmlJsEditorDocument()->outlineModel());
-    m_treeView->expandAll();
-    connect(m_editor->qmlJsEditorDocument()->outlineModel(), &QAbstractItemModel::modelAboutToBeReset, m_treeView, [this] {
+    // A reset drops every index the selection model holds, and letting it
+    // report that as the reader changing the selection would move the caret.
+    connect(m_document->outlineModel(), &QAbstractItemModel::modelAboutToBeReset, m_treeView, [this] {
         if (m_treeView->selectionModel())
             m_treeView->selectionModel()->blockSignals(true);
     });
-    connect(m_editor->qmlJsEditorDocument()->outlineModel(), &QAbstractItemModel::modelReset, m_treeView, [this] {
+    connect(m_document->outlineModel(), &QAbstractItemModel::modelReset, m_treeView, [this] {
         if (m_treeView->selectionModel())
             m_treeView->selectionModel()->blockSignals(false);
     });
 
     connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &QmlJSOutlineWidget::updateSelectionInText);
-
     connect(m_treeView, &QAbstractItemView::activated,
             this, &QmlJSOutlineWidget::focusEditor);
 
-    connect(m_editor, &QmlJSEditorWidget::outlineModelIndexChanged,
+    // Where the caret is, asked of the editor rather than of a widget, and
+    // again when the parse the model is built from is replaced.
+    connect(m_editor, &Core::IEditor::cursorPositionChanged,
             this, &QmlJSOutlineWidget::updateSelectionInTree);
-    connect(m_editor->qmlJsEditorDocument()->outlineModel(),
-            &QmlOutlineModel::updated,
-            this,
-            [treeView = QPointer(m_treeView), editor = QPointer(m_editor)]() {
-                if (treeView)
-                    treeView->expandAll();
-                if (editor)
-                    editor->updateOutlineIndexNow();
-            });
+    connect(m_document->outlineModel(), &QmlOutlineModel::updated, this, [this] {
+        m_treeView->expandAll();
+        updateSelectionInTree();
+    });
+
+    auto layout = new QVBoxLayout;
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(Core::ItemViewFind::createSearchableWrapper(m_treeView));
+    setLayout(layout);
+
+    updateSelectionInTree();
 }
 
 QList<QAction*> QmlJSOutlineWidget::filterMenuActions() const
@@ -224,7 +232,7 @@ QList<QAction*> QmlJSOutlineWidget::filterMenuActions() const
 void QmlJSOutlineWidget::setCursorSynchronization(bool syncWithCursor)
 {
     m_enableCursorSync = syncWithCursor;
-    m_editor->updateOutlineIndexNow();
+    updateSelectionInTree();
 }
 
 void QmlJSOutlineWidget::setSorted(bool sorted)
@@ -248,14 +256,23 @@ QVariantMap QmlJSOutlineWidget::settings() const
     };
 }
 
-void QmlJSOutlineWidget::updateSelectionInTree(const QModelIndex &index)
+void QmlJSOutlineWidget::updateSelectionInTree()
 {
     if (!syncCursor())
+        return;
+    const QmlJS::Document::Ptr parsed = m_document->outlineModel()->document();
+    if (!parsed)
+        return;
+    // The model is built from a parse that is older than the text, so the
+    // element it would name is the wrong one. QmlOutlineModel::updated brings
+    // this back when the new parse lands.
+    if (parsed->editorRevision() != m_document->document()->revision())
         return;
 
     m_blockCursorSync = true;
 
-    QModelIndex baseIndex = index;
+    const int caret = TextEditor::textCursorOf(m_editor).position();
+    QModelIndex baseIndex = m_document->outlineModel()->indexForPosition(caret);
     QModelIndex filterIndex = m_filterModel.mapFromSource(baseIndex);
     while (baseIndex.isValid() && !filterIndex.isValid()) { // Search for ancestor index actually shown
         baseIndex = baseIndex.parent();
@@ -282,29 +299,30 @@ void QmlJSOutlineWidget::updateSelectionInText(const QItemSelection &selection)
 void QmlJSOutlineWidget::updateTextCursor(const QModelIndex &index)
 {
     const auto update = [this](const QModelIndex &index) {
-        if (!m_editor->isOutlineCursorChangesBlocked()) {
-            QModelIndex sourceIndex = m_filterModel.mapToSource(index);
+        // The reader is typing in the editor, so the tree is following the
+        // caret rather than leading it.
+        if (editorHasFocus())
+            return;
 
-            SourceLocation location
-                    = m_editor->qmlJsEditorDocument()->outlineModel()->sourceLocation(sourceIndex);
+        const QModelIndex sourceIndex = m_filterModel.mapToSource(index);
+        const SourceLocation location
+            = m_document->outlineModel()->sourceLocation(sourceIndex);
+        if (!location.isValid())
+            return;
 
-            if (!location.isValid())
-                return;
+        const QTextBlock lastBlock = m_document->document()->lastBlock();
+        const uint textLength = lastBlock.position() + lastBlock.length();
+        if (location.offset >= textLength)
+            return;
 
-            const QTextBlock lastBlock = m_editor->document()->lastBlock();
-            const uint textLength = lastBlock.position() + lastBlock.length();
-            if (location.offset >= textLength)
-                return;
+        Core::EditorManager::cutForwardNavigationHistory();
+        Core::EditorManager::addCurrentPositionToNavigationHistory();
 
-            Core::EditorManager::cutForwardNavigationHistory();
-            Core::EditorManager::addCurrentPositionToNavigationHistory();
-
-            QTextCursor textCursor = m_editor->textCursor();
-
-            textCursor.setPosition(location.offset);
-            m_editor->setTextCursor(textCursor);
-            m_editor->centerCursor();
-        }
+        // IEditor counts the line from one and the column from zero.
+        const Utils::Text::Position position
+            = Utils::Text::Position::fromPositionInDocument(m_document->document(),
+                                                            int(location.offset));
+        m_editor->gotoLine(position.line, position.column, true);
     };
     m_blockCursorSync = true;
     update(index);
@@ -313,14 +331,21 @@ void QmlJSOutlineWidget::updateTextCursor(const QModelIndex &index)
 
 void QmlJSOutlineWidget::focusEditor()
 {
-    m_editor->setFocus();
+    if (QWidget * const view = m_editor->widget())
+        view->setFocus();
+}
+
+bool QmlJSOutlineWidget::editorHasFocus() const
+{
+    const QWidget * const view = m_editor->widget();
+    return view && view->hasFocus();
 }
 
 void QmlJSOutlineWidget::setShowBindings(bool showBindings)
 {
     m_filterModel.setFilterBindings(!showBindings);
     m_treeView->expandAll();
-    m_editor->updateOutlineIndexNow();
+    updateSelectionInTree();
 }
 
 bool QmlJSOutlineWidget::syncCursor()
@@ -333,10 +358,8 @@ class QmlJSOutlineWidgetFactory final : public TextEditor::IOutlineWidgetFactory
 public:
     bool supportsEditor(Core::IEditor *editor) const final
     {
-        // This pane drives the editor widget rather than the document, so it
-        // is the widget view's. CppOutlineWidget asks the document instead;
-        // giving this one the same seams is part of moving QmlJS.
-        return qobject_cast<QmlJSEditorWidget *>(editor->widget()) != nullptr;
+        // The document says it is QML; which view is showing it does not.
+        return qobject_cast<QmlJSEditorDocument *>(editor->document()) != nullptr;
     }
 
     bool supportsSorting() const final
@@ -346,13 +369,9 @@ public:
 
     TextEditor::IOutlineWidget *createWidget(Core::IEditor *editor) final
     {
-        auto * const qmlJSEditor = qobject_cast<QmlJSEditorWidget *>(editor->widget());
-        QTC_ASSERT(qmlJSEditor, return nullptr);
-
-        auto widget = new QmlJSOutlineWidget;
-        widget->setEditor(qmlJSEditor);
-
-        return widget;
+        const auto document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QTC_ASSERT(document, return nullptr);
+        return new QmlJSOutlineWidget(editor, document);
     }
 };
 
@@ -361,4 +380,121 @@ void setupQmlJsOutline()
     static QmlJSOutlineWidgetFactory theQmlJSOutlineWidgetFactory;
 }
 
+#ifdef WITH_TESTS
+
+// The outline pane follows the caret and moves it, and both are things any
+// view of a document can do. It asked whether the editor was a QmlJSEditor, a
+// class the Qt Quick path never builds, so a QML file in that view got no
+// outline pane at all.
+class QmlJSOutlineTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheOutlinePaneFollowsTheCaretInAnyView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheOutlinePaneFollowsTheCaretInAnyView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-outline-pane");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Outline.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\n"
+                                       "Item {\n"
+                                       "    Rectangle { id: box }\n"
+                                       "    Text { id: label }\n"
+                                       "}\n"));
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a QML file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        // Shown, because filling the outline model is work the document puts
+        // off until a view says somebody is looking.
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+
+        QmlJSOutlineWidgetFactory factory;
+        QVERIFY2(factory.supportsEditor(editor),
+                 "the outline does not offer itself for a QML file in this view");
+
+        const std::unique_ptr<TextEditor::IOutlineWidget> outline(factory.createWidget(editor));
+        QVERIFY2(outline.get(), "the outline built nothing");
+        outline->setCursorSynchronization(true);
+
+        auto * const tree = outline->findChild<QTreeView *>();
+        QVERIFY(tree && tree->model());
+        QTRY_VERIFY2(tree->model()->rowCount() > 0,
+                     "the outline never listed anything in the file");
+
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        const QString text = document->plainText();
+
+        // Into the Rectangle, and the pane has to say so.
+        const auto caretAt = [editor, document, &text](const char *needle) {
+            const int offset = text.indexOf(QLatin1String(needle));
+            const Utils::Text::Position at
+                = Utils::Text::Position::fromPositionInDocument(document->document(), offset);
+            editor->gotoLine(at.line, at.column);
+        };
+        caretAt("Rectangle");
+        QTRY_COMPARE(tree->currentIndex().data().toString(), QString("Rectangle"));
+
+        // And back, so that what is asserted is the pane following rather than
+        // one row happening to be current.
+        caretAt("Text {");
+        QTRY_COMPARE(tree->currentIndex().data().toString(), QString("Text"));
+
+        // The other direction: choosing a row moves the caret, which is the
+        // half of the outline a reader actually uses. Found by what it says,
+        // because which row it is is not what this is about.
+        QModelIndex boxRow;
+        const auto findRow = [tree, &boxRow](const QModelIndex &parent, const auto &self) -> void {
+            for (int row = 0; row < tree->model()->rowCount(parent); ++row) {
+                const QModelIndex candidate = tree->model()->index(row, 0, parent);
+                if (candidate.data().toString() == "Rectangle")
+                    boxRow = candidate;
+                else
+                    self(candidate, self);
+            }
+        };
+        findRow({}, findRow);
+        QVERIFY2(boxRow.isValid(), "the outline lists no Rectangle");
+
+        const int wasLine = editor->currentLine();
+        tree->selectionModel()->select(boxRow, QItemSelectionModel::ClearAndSelect);
+        QTRY_COMPARE(editor->currentLine(), 3);
+        QVERIFY2(wasLine != 3, "the caret was already there, so this asserts nothing");
+    }
+};
+
+QObject *createQmlJSOutlineTest()
+{
+    return new QmlJSOutlineTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace QmlJSEditor::Internal
+
+#ifdef WITH_TESTS
+#include "qmljsoutline.moc"
+#endif

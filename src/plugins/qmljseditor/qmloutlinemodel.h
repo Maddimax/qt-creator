@@ -62,6 +62,9 @@ public:
 
     QmlJS::AST::Node *nodeForIndex(const QModelIndex &index) const;
     QmlJS::SourceLocation sourceLocation(const QModelIndex &index) const;
+    // The innermost element covering \a offset, which is what both the tool
+    // bar row and the outline pane name.
+    QModelIndex indexForPosition(int offset, const QModelIndex &root = {}) const;
     QmlJS::AST::UiQualifiedId *idNode(const QModelIndex &index) const;
     QIcon icon(const QModelIndex &index) const;
 

@@ -168,7 +168,7 @@ void QmlJSEditorWidget::restoreState(const QByteArray &state)
 QModelIndex QmlJSEditorWidget::outlineModelIndex()
 {
     if (!m_outlineModelIndex.isValid()) {
-        m_outlineModelIndex = indexForPosition(position());
+        m_outlineModelIndex = qmlJsEditorDocument()->outlineModel()->indexForPosition(position());
     }
     return m_outlineModelIndex;
 }
@@ -178,11 +178,6 @@ void QmlJSEditorWidget::updateModificationChange(bool changed)
 {
     if (!changed && m_modelManager)
         m_modelManager->fileChangedOnDisk(textDocument()->filePath());
-}
-
-bool QmlJSEditorWidget::isOutlineCursorChangesBlocked()
-{
-    return hasFocus();
 }
 
 void QmlJSEditorWidget::jumpToOutlineElement(int /*index*/)
@@ -218,9 +213,7 @@ void QmlJSEditorWidget::updateOutlineIndexNow()
     }
 
     m_outlineModelIndex = QModelIndex(); // invalidate
-    QModelIndex comboIndex = outlineModelIndex();
-    emit outlineModelIndexChanged(m_outlineModelIndex);
-
+    const QModelIndex comboIndex = outlineModelIndex();
     if (comboIndex.isValid()) {
         QSignalBlocker blocker(m_outlineCombo);
         m_outlineCombo->setCurrentIndex(comboIndex);
@@ -1033,30 +1026,6 @@ void QmlJSEditorWidget::semanticInfoUpdated(const SemanticInfo &semanticInfo)
     updateUses();
 }
 
-QModelIndex QmlJSEditorWidget::indexForPosition(unsigned cursorPosition, const QModelIndex &rootIndex) const
-{
-    QModelIndex lastIndex = rootIndex;
-
-    Internal::QmlOutlineModel *model = qmlJsEditorDocument()->outlineModel();
-    const int rowCount = model->rowCount(rootIndex);
-    for (int i = 0; i < rowCount; ++i) {
-        QModelIndex childIndex = model->index(i, 0, rootIndex);
-        SourceLocation location = model->sourceLocation(childIndex);
-
-        if ((cursorPosition >= location.offset)
-              && (cursorPosition <= location.offset + location.length)) {
-            lastIndex = childIndex;
-            break;
-        }
-    }
-
-    if (lastIndex != rootIndex) {
-        // recurse
-        lastIndex = indexForPosition(cursorPosition, lastIndex);
-    }
-    return lastIndex;
-}
-
 bool QmlJSEditorWidget::hideContextPane()
 {
     bool b = (m_contextPane) && m_contextPane->widget()->isVisible();
@@ -1128,7 +1097,8 @@ public:
     {
         if (!m_document->outlineModel()->document())
             return;
-        const QModelIndex index = indexAt(TextEditor::textCursorOf(m_editor).position(), {});
+        const QModelIndex index = m_document->outlineModel()->indexForPosition(
+            TextEditor::textCursorOf(m_editor).position());
         if (index == m_current)
             return;
         m_current = index;
@@ -1136,24 +1106,6 @@ public:
     }
 
 private:
-    // The innermost element covering \a position, which is what the row names.
-    QModelIndex indexAt(int position, const QModelIndex &root) const
-    {
-        Internal::QmlOutlineModel * const model = m_document->outlineModel();
-        QModelIndex last = root;
-        const int rows = model->rowCount(root);
-        for (int row = 0; row < rows; ++row) {
-            const QModelIndex child = model->index(row, 0, root);
-            const SourceLocation location = model->sourceLocation(child);
-            if (position >= int(location.offset)
-                && position <= int(location.offset + location.length)) {
-                last = child;
-                break;
-            }
-        }
-        return last == root ? root : indexAt(position, last);
-    }
-
     Core::IEditor * const m_editor;
     QmlJSEditorDocument * const m_document;
     QModelIndex m_current;

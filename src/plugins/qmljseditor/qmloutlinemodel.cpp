@@ -662,6 +662,21 @@ SourceLocation QmlOutlineModel::sourceLocation(const QModelIndex &index) const
     return location;
 }
 
+QModelIndex QmlOutlineModel::indexForPosition(int offset, const QModelIndex &root) const
+{
+    QModelIndex last = root;
+    const int rows = rowCount(root);
+    for (int row = 0; row < rows; ++row) {
+        const QModelIndex child = index(row, 0, root);
+        const SourceLocation location = sourceLocation(child);
+        if (offset >= int(location.offset) && offset <= int(location.offset + location.length)) {
+            last = child;
+            break;
+        }
+    }
+    return last == root ? root : indexForPosition(offset, last);
+}
+
 AST::UiQualifiedId *QmlOutlineModel::idNode(const QModelIndex &index) const
 {
     QTC_ASSERT(index.isValid() && (index.model() == this), return nullptr);

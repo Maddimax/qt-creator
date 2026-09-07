@@ -63,7 +63,6 @@ public:
 
     QModelIndex outlineModelIndex();
     void updateOutlineIndexNow();
-    bool isOutlineCursorChangesBlocked();
 
     void inspectElementUnderCursor() const;
 
@@ -72,7 +71,6 @@ public:
     void showContextPane();
 
 signals:
-    void outlineModelIndexChanged(const QModelIndex &index);
     void selectedElementsChanged(QList<QmlJS::AST::UiObjectMember*> offsets,
                                  const QString &wordAtCursor);
 private:
@@ -103,7 +101,6 @@ private:
     void setSelectedElements();
     QString wordUnderCursor() const;
 
-    QModelIndex indexForPosition(unsigned cursorPosition, const QModelIndex &rootIndex = QModelIndex()) const;
     bool hideContextPane();
 
     QTimer m_updateUsesTimer; // to wait for multiple text cursor position changes

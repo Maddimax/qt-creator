@@ -50757,3 +50757,144 @@ work is the shape this batch used: **take the next pin apart.**
 At the end of those, `setEditorCreator()` has no caller in the tree that is not
 a test - which was entry 125's proposal, and is the last structural thing
 keeping any language on the widget path.
+
+## 2026-09-07 — The outline pane, off the widget (batch 152)
+
+Entry 151 found this by accident - the compiler refused to build without a
+class it was deleting - and named it first on the list of what to do next:
+
+> **QmlJS's outline pane**, because it is a live difference rather than a
+> structural one, and `CppOutlineWidget` is the worked example.
+
+Done. The sidebar outline now works for a QML file in either view.
+
+### The gap, stated
+
+```cpp
+bool supportsEditor(Core::IEditor *editor) const final
+{
+    return bool(qobject_cast<QmlJSEditor*>(editor));   // before entry 151
+}
+```
+
+Nothing else in the tree named `QmlJSEditor`, so the pane simply reported
+"nothing to show" for a QML file in the Qt Quick view - no error, no empty
+pane, the sidebar item just does not offer itself. Entry 151 moved the gate to
+`qobject_cast<QmlJSEditorWidget *>(editor->widget())`, which was honest but
+still the widget's.
+
+### What it actually wanted the widget for
+
+Five things, and the interesting part is that four of them were *already
+answered elsewhere for the Qt Quick view* - by the tool bar outline that entry
+98 built:
+
+| The pane asked the widget | Where it asks now |
+| --- | --- |
+| `qmlJsEditorDocument()->outlineModel()` | the document, directly |
+| `outlineModelIndexChanged` | `Core::IEditor::cursorPositionChanged` |
+| `updateOutlineIndexNow()` | its own `updateSelectionInTree()` |
+| `isOutlineCursorChangesBlocked()` | `editor->widget()->hasFocus()` |
+| `textCursor()`/`setTextCursor()`/`centerCursor()` | `IEditor::gotoLine(line, column, true)` |
+| `setFocus()` | `editor->widget()->setFocus()` |
+
+`gotoLine`'s third argument is the centring the widget did by hand, and
+`Utils::Text::Position::fromPositionInDocument()` turns the outline's byte
+offset into the line and column `IEditor` counts in. This is
+`CppOutlineWidget`'s shape, line for line.
+
+### The algorithm that was written three times
+
+"The innermost outline element covering this offset" existed as
+`QmlJSEditorWidget::indexForPosition()` (recursive, `unsigned`) and again as
+`QmlJSOutline::indexAt()` (recursive, `int`), and the pane would have been a
+third. It is `QmlOutlineModel::indexForPosition()` now, on the model both views
+already share, and all three callers use it.
+
+**Worth naming as a symptom**: a copy of a helper appearing in the Qt Quick
+port is a sign the thing it computes belongs to the model, not to a view. The
+first copy was written when there was only one view and nobody could tell.
+
+### The staleness guard, made causal
+
+The widget's version, on finding the model older than the text, started a
+500 ms timer and looked again. The pane returns instead, because
+`QmlOutlineModel::updated` fires when the new parse lands and this is connected
+to it. Same behaviour, no clock:
+
+```cpp
+if (parsed->editorRevision() != m_document->document()->revision())
+    return;   // QmlOutlineModel::updated brings this back
+```
+
+### What the test expected, and what the outline says
+
+The first run failed on both rows with `"Rectangle" != "box"`: I had assumed the
+QML outline names an element by its `id`. It names it by its type. **Both rows
+failed identically, which is what said the port was right and the expectation
+was wrong** - a difference between the views would have failed one row only.
+Cheap, and the reason to run both rows from the start.
+
+### Controls
+
+- **KA**: `supportsEditor()` back to the widget cast - red on the **quick row
+  only**, green on the widget row. That is the gap this batch closed, in one
+  line of output.
+- **KB**: the `cursorPositionChanged` connection dropped - red on both rows,
+  at the first "the pane names where the caret is" (`"" != "Rectangle"`).
+- **KC**: `gotoLine()` dropped from `updateTextCursor()` - red on both rows at
+  the other direction (`currentLine() == 4`, not 3). The two halves of the
+  outline are separate claims and each has its own control.
+
+### Dead by consequence
+
+`QmlJSEditorWidget::outlineModelIndexChanged` had one listener in the tree and
+it was this pane; `isOutlineCursorChangesBlocked()` had one caller and it was
+this pane. Both are gone. `updateOutlineIndexNow()` stays - the widget's own
+tool bar combo still uses it.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 717 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 30 passed, 0 failed (was 26) |
+| `-test Core` | 0 | 222 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+| | |
+| --- | --- |
+| `abortAssist` on a caret move (EmacsKeys) | when the popup closes, not whether |
+| `activateWindow()` leaving a debugger tooltip | cosmetic |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box |
+| `canInsertFromMimeData` | a hook nothing overrides yet |
+| The link press/release handshake | two defensible answers |
+| QmlJS's context pane | a UI decision, open since entry 114 |
+| The whitespace drawing difference; printing | declined (entry 68) and the owner's (entry 31) |
+| Two pinned factories; `forceOpenLinksInNextSplit` | Designer and SCXML still override `toolBar()`; and a dead preference |
+
+Entry 151's new row is gone. Nothing was added to the list this time, which
+has not happened since entry 148.
+
+### What I would do next
+
+Entry 151's second item, unchanged and now the only structural one left:
+**`toolBar()` returning null.** `FormWindowEditor` and `ScxmlTextEditor` both
+override it to hide the editor tool bar row, and that is a property of the
+language, not of the editor - `TextEditorFactory` has nowhere to say it. A
+`setToolBarVisible(false)` empties `ScxmlTextEditor` completely and leaves
+`FormWindowEditor` holding only `contents()` and `formWindowFile()`, both
+conveniences over `FormWindowFile` that can move to it.
+
+After that, every `setEditorCreator()` call in the tree is a test's.
+
+There is also a smaller thing this batch walked past and did not take: with
+the pane view-agnostic, **`QmlJSOutline` (the tool bar one, entry 98) and
+`QmlJSOutlineWidget` now compute the same current index from the same model by
+the same call**, one for the row and one for the tree, each keeping its own
+copy. Whether that wants to be one object asked twice is a design question
+rather than a gap, and neither view is worse for it today.
