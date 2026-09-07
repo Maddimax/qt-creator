@@ -52411,3 +52411,75 @@ No `.qbs` change: no files added.
 - Workaround for kit-having macOS machines until layer 2 is fixed upstream:
   run the kit-requiring CppEditor classes with `TMPDIR` on a symlink-free
   path.
+
+## 2026-09-07 — The locator test waits on the data its matcher reads (batch 166)
+
+The migration itself has no open step (entries 33 and 164); the one loose end
+actionable on this machine was entry 165's last line: `LocatorFilterTest`,
+"unmeasured standalone". Measured now, and it was not the rare flake the
+whole-suite sighting suggested.
+
+### The rate, then the mechanism
+
+Standalone at HEAD, today: **7 of 7 runs red**, one to four rows each, always
+`'!results.isEmpty()' returned FALSE`, the failing rows varying run to run.
+Five standalone runs preserved from earlier in the branch (both views, older
+HEAD, macOS 26.5.1) were 15/0 - the rate moved from ~0 to every-run somewhere
+between; the OS update to 26.6.2 and the tree both moved in that window and
+the axis was not isolated, because the fix is the same either way: the race
+was always there, the scheduler just started losing it.
+
+The mechanism, measured in the code rather than guessed: `parseFiles()` waits
+for the parse to reach the **global snapshot** (the wait an earlier batch
+added), but the matchers read **`CppLocatorData`** - fed by the *same* parse
+through a *separate queued delivery* of `documentUpdated`. The snapshot wait
+reads the snapshot mutex-direct, so it returns as soon as the worker has
+inserted the document, possibly before the queued delivery lands;
+`LocatorMatcher::runBlocking()` then queries a cache the file has not
+reached. `filterAllFiles()` force-flushes *pending* documents under its
+mutex, so the only gap is the undelivered event - presence, not staleness.
+
+### The fix
+
+`CppLocatorFilterTestCase` now waits, after parsing, for `CppLocatorData` to
+contain the file (`locatorDataContains()` via `filterAllFiles()`). The wait
+is causal and bounded: the parse future finishing means `documentUpdated`
+was already posted, so the delivery is guaranteed to arrive while the wait
+pumps - no wall clock is load-bearing.
+
+### Controls
+
+- **XA - the wait gates on real data and can fail**: armed with a path no
+  parse produces (`filePath + "-control-xa"`), eleven rows go red on the wait
+  itself; the four green rows are `CppCurrentDocumentFilterTestCase`, which
+  is not gated and reads a different source.
+- **Rate**: fix off 7/7 runs red; fix on **8/8 runs 15 passed, 0 failed,
+  exit 0**. Against an every-run base rate, eight greens is decisive - this
+  is what "measure rates, not verdicts" buys.
+
+### What this does not claim
+
+The one whole-suite sighting (pre-OS-update, `CppFunctionsFilter-ObjC`,
+*size 6 vs 3*) is a different shape: non-empty results carrying three
+leftover `file1.cpp` entries beside `file1.mm`'s three - a garbage-collection
+leftover from whole-suite order, the category this document already records
+as unusable for comparison. The presence-wait does not address it and it is
+not claimed fixed.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 730 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test CppEditor,LocatorFilterTest` ×8 | 0 | 15 passed, 0 failed each |
+
+No `.qbs` change: no files added.
+
+### Where this leaves the plan
+
+Same as entry 164 wrote and entry 165 confirmed: no migration step remains.
+The remainder is the Linux run, the owners' items, QmlDesigner's own
+migration, and upstream's split-brain snapshot. The suites this branch
+gates on are now clean standalone on this machine, kit or no kit, with the
+one TMPDIR caveat entry 165 documents.

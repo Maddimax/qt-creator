@@ -3,6 +3,7 @@
 
 #include "cpplocatorfilter_test.h"
 
+#include "cpplocatordata.h"
 #include "cpptoolstestcase.h"
 
 #include <coreplugin/editormanager/editormanager.h>
@@ -27,6 +28,19 @@ static FilePath dataDir(const QString &subdir)
     return FilePath::fromUserInput(SRCDIR "/../../../tests/cpplocators/" + subdir);
 }
 
+static bool locatorDataContains(const FilePath &filePath)
+{
+    bool found = false;
+    CppModelManager::locatorData()->filterAllFiles([&](const IndexItem::Ptr &item) {
+        if (item->filePath() == filePath) {
+            found = true;
+            return IndexItem::Break;
+        }
+        return IndexItem::Continue;
+    });
+    return found;
+}
+
 class CppLocatorFilterTestCase : public CppEditor::Tests::TestCase
 {
 public:
@@ -40,6 +54,10 @@ public:
         QVERIFY(garbageCollectGlobalSnapshot());
 
         QVERIFY(parseFiles({filePath}));
+        // The parse reaching the snapshot (what parseFiles waits for) and it
+        // reaching CppLocatorData are separate queued deliveries; the matchers
+        // read the latter.
+        QTRY_VERIFY(locatorDataContains(filePath));
         const LocatorFilterEntries entries = LocatorMatcher::runBlocking(matchers, searchText);
         QVERIFY(garbageCollectGlobalSnapshot());
         const ResultDataList results = ResultData::fromFilterEntryList(entries);
