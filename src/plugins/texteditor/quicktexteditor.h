@@ -38,6 +38,8 @@ Core::IEditor *editorForViewport(TextViewport *view);
 // factory hands over is what the language says up front; this is what it
 // turns out to support once a server has answered.
 void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
+void setOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
+uint optionalActionsIn(Core::IEditor *editor);
 
 // A Qt Quick view of a document a TextEditorFactory has already built and
 // configured: the language's own TextDocument, carrying its indenter, its

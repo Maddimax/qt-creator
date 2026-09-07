@@ -620,9 +620,9 @@ public:
         command(Constants::INDENT, &TextViewport::indent);
         command(Constants::UNINDENT, &TextViewport::unindent);
         command(Constants::AUTO_INDENT_SELECTION, &TextViewport::autoIndent,
-                OptionalActions::Format);
+                OptionalActions::AutoIndentSelection);
         command(Constants::AUTO_FORMAT_SELECTION, &TextViewport::autoFormat,
-                OptionalActions::Format);
+                OptionalActions::AutoFormatSelection);
 
         command(Core::Constants::ZOOM_IN, &TextViewport::increaseFontZoom);
         command(Core::Constants::ZOOM_OUT, &TextViewport::decreaseFontZoom);
@@ -1486,6 +1486,23 @@ void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
         return;
     if (auto * const gate = editor->findChild<OptionalActionGate *>())
         gate->addOptionalActions(optionalActions);
+}
+
+void setOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
+{
+    if (!editor)
+        return;
+    if (auto * const gate = editor->findChild<OptionalActionGate *>())
+        gate->setOptionalActions(optionalActions);
+}
+
+uint optionalActionsIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return OptionalActions::None;
+    if (auto * const gate = editor->findChild<OptionalActionGate *>())
+        return gate->optionalActions();
+    return OptionalActions::None;
 }
 
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,

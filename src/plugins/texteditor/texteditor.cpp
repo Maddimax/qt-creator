@@ -4531,10 +4531,10 @@ void TextEditorWidgetPrivate::updateOptionalActions()
     m_openCallHierarchyAction->setEnabled(m_optionalActionMask & CallHierarchy);
     m_openTypeHierarchyAction->setEnabled(m_optionalActionMask & TypeHierarchy);
 
-    bool formatEnabled = (m_optionalActionMask & OptionalActions::Format)
-                         && !q->isReadOnly();
-    m_autoIndentAction->setEnabled(formatEnabled);
-    m_autoFormatAction->setEnabled(formatEnabled);
+    // A bit each, because a language can offer one and not the other.
+    const bool writable = !q->isReadOnly();
+    m_autoIndentAction->setEnabled((m_optionalActionMask & AutoIndentSelection) && writable);
+    m_autoFormatAction->setEnabled((m_optionalActionMask & AutoFormatSelection) && writable);
 }
 
 void TextEditorWidgetPrivate::updateRedoAction()
@@ -10599,6 +10599,26 @@ void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
         return;
     }
     Internal::addOptionalActionsIn(editor, optionalActions);
+}
+
+void setOptionalActionsIn(Core::IEditor *editor, uint optionalActions)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setOptionalActions(optionalActions);
+        return;
+    }
+    Internal::setOptionalActionsIn(editor, optionalActions);
+}
+
+uint optionalActionsIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return OptionalActions::None;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->optionalActions();
+    return Internal::optionalActionsIn(editor);
 }
 
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)

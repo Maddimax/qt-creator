@@ -89,7 +89,7 @@ class TypingSettingsData;
 namespace OptionalActions {
 enum Mask {
     None = 0,
-    Format = 1,
+    AutoIndentSelection = 1,
     UnCommentSelection = 2,
     UnCollapseAll = 4,
     FollowSymbolUnderCursor = 8,
@@ -99,6 +99,12 @@ enum Mask {
     FindUsage = 128,
     CallHierarchy = 256,
     TypeHierarchy = 512,
+    AutoFormatSelection = 1024,
+    // Both ways of laying text out, which is what a language offering both
+    // says. One that offers only one names the bit it means: QML's builtin
+    // formatter indents and does not format, and qmlformat the other way
+    // round, so which of the two applies is not a property of the language.
+    Format = AutoIndentSelection | AutoFormatSelection,
 };
 } // namespace OptionalActions
 
@@ -1208,6 +1214,15 @@ TEXTEDITOR_EXPORT void setMarginSettingsIn(Core::IEditor *editor,
 // what the language can answer before anything has run; a language server
 // widens it once it has said what it supports.
 TEXTEDITOR_EXPORT void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
+
+// Replace what \a editor's view offers, for a language whose answer can narrow
+// as well as grow - which of Auto-indent and Auto-format applies to a QML file
+// is a setting the reader can change while it is open.
+TEXTEDITOR_EXPORT void setOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
+
+// What \a editor's view currently offers, which is the factory's mask as the
+// language has since narrowed or widened it.
+TEXTEDITOR_EXPORT uint optionalActionsIn(Core::IEditor *editor);
 
 // Put \a action in \a editor's toolbar, on \a side where the view has sides.
 // The widget editor keeps its own list and places it; a view that is not one

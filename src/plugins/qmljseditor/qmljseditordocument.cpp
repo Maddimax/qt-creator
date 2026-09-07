@@ -12,6 +12,7 @@
 #include <texteditor/symbolrequests.h>
 
 #include <texteditor/texteditor.h>
+#include <texteditor/icodestylepreferences.h>
 
 #include <texteditor/fontsettings.h>
 
@@ -57,6 +58,7 @@
 #include <qmljs/parser/qmljsast_p.h>
 #include <qmljs/qmljsmodelmanagerinterface.h>
 #include <qmljstools/qmljsindenter.h>
+#include <qmljstools/qmljssettings.h>
 #include <qmljstools/qmljsqtstylecodeformatter.h>
 
 #include <texteditor/refactoringchanges.h>
@@ -1010,6 +1012,95 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // The builtin formatter indents and does not format; qmlformat formats and
+    // does not indent. Which of the two commands applies was decided by the
+    // editor widget every time its context menu opened, so it reached neither
+    // the menu bar nor a view that is not a widget.
+    void testTheLayoutCommandsFollowTheFormatter_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheLayoutCommandsFollowTheFormatter()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-formatter");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Formatted.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem {}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        // A setting this puts back: the next test reads whatever it chose.
+        QmlJSTools::QmlJSCodeStylePreferences * const style
+            = QmlJSTools::globalQmlJSCodeStyle();
+        QVERIFY(style);
+        // Set on whichever preference is in effect, not on the global one: the
+        // global delegates, and currentCodeStyleSettings() - which is what the
+        // editor reads - follows the delegate rather than the global's own
+        // value. Setting the global here changed nothing the editor could see.
+        TextEditor::ICodeStylePreferences * const inEffect = style->currentPreferences();
+        QVERIFY(inEffect);
+        const QVariant was = inEffect->value();
+        const QScopeGuard restoreStyle([inEffect, was] { inEffect->setValue(was); });
+
+        const auto useFormatter = [style, inEffect](
+                                      QmlJSTools::QmlJSCodeStyleSettings::Formatter formatter) {
+            QmlJSTools::QmlJSCodeStyleSettings settings = style->currentCodeStyleSettings();
+            settings.formatter = formatter;
+            QVariant value;
+            value.setValue(settings);
+            inEffect->setValue(value);
+        };
+        useFormatter(QmlJSTools::QmlJSCodeStyleSettings::Builtin);
+        QCOMPARE(style->currentCodeStyleSettings().formatter,
+                 QmlJSTools::QmlJSCodeStyleSettings::Builtin);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        // The action registered in this editor's own context, not the proxy
+        // ActionManager hands out: the proxy follows whichever context is
+        // current, which in a test is nobody's.
+        // The mask the editor carries, not the action ActionManager hands out:
+        // Auto-indent and Auto-format are registered once in the shared text
+        // editor context, so their QAction is the same object for every
+        // editor and says only what the last one to update it wanted. Which
+        // bits the editor holds is what this change sets; that those bits
+        // reach the two commands is testEveryOptionalActionBitReachesItsCommands.
+        const auto offers = [editor](uint bit) {
+            return bool(TextEditor::optionalActionsIn(editor) & bit);
+        };
+
+        // The builtin one indents and does not format.
+        QTRY_VERIFY2(offers(TextEditor::OptionalActions::AutoIndentSelection),
+                     "the builtin formatter did not offer Auto-indent");
+        QVERIFY2(!offers(TextEditor::OptionalActions::AutoFormatSelection),
+                 "the builtin formatter offered Auto-format, which it cannot do");
+        // The rest of what the factory asked for is untouched by the narrowing.
+        QVERIFY2(offers(TextEditor::OptionalActions::FindUsage),
+                 "narrowing the laying-out commands took Find Usages with it");
+
+        // And changing the setting while the file is open swaps them, which a
+        // factory mask set once could not do.
+        useFormatter(QmlJSTools::QmlJSCodeStyleSettings::QmlFormat);
+        QTRY_VERIFY2(offers(TextEditor::OptionalActions::AutoFormatSelection),
+                     "qmlformat did not offer Auto-format");
+        QVERIFY2(!offers(TextEditor::OptionalActions::AutoIndentSelection),
+                 "qmlformat offered Auto-indent, which it cannot do");
+    }
+
     // Two things the code model has to be told about an open QML file. The
     // editor widget told it, so neither happened for a view that is not one.
     void testOpeningAQmlFileTellsTheCodeModel_data()

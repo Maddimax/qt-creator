@@ -51683,3 +51683,145 @@ probably right, but it changes a user-visible menu, so it is a proposal rather
 than a batch.
 
 Item 1 still needs a person.
+
+## 2026-09-07 — One bit for two commands (batch 159)
+
+Entry 158 left item 2 of moving QmlJS as a proposal, not a batch, and gave two
+options for it. **Both were wrong, and the reason is one line of the enum.**
+
+### What the walk actually found
+
+`QmlJSEditorWidget::contextMenuEvent()` decided, every time the menu opened,
+which of Auto-indent and Auto-format applies:
+
+```cpp
+const bool formatWithBuiltin = ...formatter == Builtin;
+if (action->objectName() == AUTO_INDENT_SELECTION) action->setEnabled(formatWithBuiltin);
+if (action->objectName() == AUTO_FORMAT_SELECTION) action->setEnabled(!formatWithBuiltin);
+```
+
+Entry 158 read that as needing a per-cursor seam and proposed either giving the
+document a say over the language's menu entries or merging the two commands.
+Neither is it. **The optional-action mask has one bit, `OptionalActions::Format`,
+governing both commands** - in the widget (`updateOptionalActions()`) and in the
+Qt Quick view (both `command(...)` registrations gated on it). QmlJS is the one
+language for which they are not a pair: the builtin formatter indents and does
+not format, qmlformat the other way round. So it could not say what it meant,
+and narrowed the menu by hand instead.
+
+The bit is two bits now:
+
+```cpp
+AutoIndentSelection = 1,
+AutoFormatSelection = 1024,
+Format = AutoIndentSelection | AutoFormatSelection,
+```
+
+`Format` stays as the compound, so all eight factories that set it are
+unchanged and mean what they always did. QmlJS sets the one the code style
+calls for, and sets it again when the reader changes the setting -
+`setOptionalActionsIn()`, which narrows where `addOptionalActionsIn()` could
+only grow.
+
+**No user-visible change and no new seam shape**: the enablement is the same,
+computed once per setting change instead of once per menu-open, and it now
+reaches the menu bar and the Qt Quick view as well as the right-click menu.
+That is better than both of entry 158's options and it should have been found
+by reading the enum rather than by reasoning about the call site.
+
+### The test took four attempts, and each failure was a fact
+
+This is the batch's real content. Every one was a wrong assumption about
+someone else's code, and each cost one build-and-run to settle:
+
+1. **`ActionManager::command(id)->action()` is the proxy**, which follows
+   whichever context is current - nobody's, in a test. Switched to
+   `actionForContext()`, which is what the existing mask test uses.
+2. **`actionForContext()` does not help either**, and the probe that says so is
+   worth keeping:
+
+   ```
+   PROBE ctx=Text Editor cmd=TextEditor.AutoIndentSelection action=0x607000293050
+   PROBE ctx=QmlJSEditor.QMLJSEditor cmd=TextEditor.AutoIndentSelection action=0x0
+   ```
+
+   **Auto-indent and Auto-format are registered once, in the shared
+   `C_TEXTEDITOR` context** - the same `QAction *` for every text editor in the
+   process. Per-editor enablement is not observable through ActionManager for
+   these two at all. So the test asks the editor for its *mask*, which is what
+   this change sets; that the mask reaches the commands is entry 33's
+   `testEveryOptionalActionBitReachesItsCommands`, and saying which test proves
+   which half is the honest way to split it.
+3. **`setCodeStyleSettings()` on the global preference changes nothing the
+   editor sees.** `own=0 current=1` from the probe: the global *delegates*, and
+   `currentCodeStyleSettings()` - what both the old code and the new read -
+   follows the delegate. The test sets `currentPreferences()->setValue()` now.
+4. And before all that, `Utils::Id` does not convert from `const char *`.
+
+Four assumptions, four measurements. The pattern across the last three batches
+is the same and worth naming: **when a test fails identically in both rows, it
+is the test.** A real view difference fails one row. That has now been true
+five times.
+
+### One addition, symmetric with what was there
+
+`optionalActionsIn(Core::IEditor *)`, beside `setOptionalActionsIn()`. Added
+because there was no way to read the mask from outside and the alternative was
+asserting through an action shared by every editor in the process.
+
+### Controls
+
+- **RA**: the decorator stops narrowing - red on both rows, and its message is
+  the old behaviour word for word: *"the builtin formatter offered Auto-format,
+  which it cannot do"*.
+- **RB**: narrowed once at open and never again - red on both rows at the
+  setting change. The connection is what a factory mask set once could not do.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 727 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 36 passed, 0 failed (was 34) |
+| `-test CppEditor` | 6 | 1668 passed, **6 failed** - see below |
+
+No `.qbs` change: no files added.
+
+`CppEditor` was run because the bit is shared, and it fails. **The failures are
+not this batch's**, checked rather than assumed: with the batch's sources
+replaced by the ones before it and the same three classes run again,
+`MoveClassToOwnFileTest` fails 4 and `SynchronizeMemberFunctionOrderTest` fails
+1 either way. `LocatorFilterTest` failed 4 times without the change and 2 with
+it, which makes it **flaky rather than either**. All three are quick fix and
+locator tests and none of them reads an optional-action mask.
+
+Worth the two extra builds: the bit's numeric value changed (`Format` is 1025
+now, not 1), and "no caller stores it" was a grep rather than a run.
+
+### What moving QmlJS still needs
+
+One item.
+
+**The context pane.** `showContextPane()`, `updateContextPane()`,
+`showTextMarker()`, `hideContextPane()`, the `wheelEvent`, `resizeEvent` and
+`scrollContentsBy` overrides that exist only to keep it in place, and the
+`SHOW_QT_QUICK_HELPER` line still left in `contextMenuEvent()` - which asks
+`m_contextPane->isAvailable(this, ...)` and is the last thing in that function
+that needs a widget.
+
+Then `setUsesQuickEditor(true)` and the `Thing.qml` row in
+`testWhichLanguagesOpenInTheQuickEditor` in the same commit.
+
+### What I would do next
+
+**Nothing, without the decision entry 114 asked for.** It has been open for
+forty-five batches: the context pane is a floating `QWidget` positioned against
+`QPlainTextEdit` geometry, and the question is whether it stays a QWidget popup
+behind a view-agnostic interface or is rebuilt in QML. Entry 124 measured that
+the geometry is not the obstacle - `TextViewport` has `cursorRectangle()` and
+`rectangleAt(int)`. What is left is a person choosing.
+
+Everything else in this document is done. If the answer is "QWidget behind an
+interface", that is a batch and I would take it; if it is "rebuild in QML", it
+is a design job first.

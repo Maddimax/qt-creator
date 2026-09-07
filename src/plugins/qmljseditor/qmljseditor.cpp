@@ -868,11 +868,6 @@ void QmlJSEditorWidget::contextMenuEvent(QContextMenuEvent *e)
 
     if (ActionContainer *mcontext = ActionManager::actionContainer(Constants::M_CONTEXT)) {
         QMenu *contextMenu = mcontext->menu();
-        // builtin can do auto-indent but can't do auto-format, while qmlls/qmlformat can do
-        // auto-format but no auto-indent.
-        const bool formatWithBuiltin
-            = QmlJSTools::globalQmlJSCodeStyle()->currentCodeStyleSettings().formatter
-              == QmlJSTools::QmlJSCodeStyleSettings::Builtin;
         const QList<QAction *> actions = contextMenu->actions();
         for (QAction *action : actions) {
             menu->addAction(action);
@@ -884,10 +879,6 @@ void QmlJSEditorWidget::contextMenuEvent(QContextMenuEvent *e)
                             qmlJsEditorDocument()->semanticInfo().declaringMemberNoProperties(position()));
                 action->setEnabled(enabled);
             }
-            if (action->objectName() == TextEditor::Constants::AUTO_INDENT_SELECTION)
-                action->setEnabled(formatWithBuiltin);
-            if (action->objectName() == TextEditor::Constants::AUTO_FORMAT_SELECTION)
-                action->setEnabled(!formatWithBuiltin);
         }
     }
 
@@ -988,6 +979,37 @@ QString QmlJSEditorWidget::foldReplacementText(const QTextBlock &block) const
     return TextEditorWidget::foldReplacementText(block);
 }
 
+
+// What a QML file offers whichever formatter is configured. The two laying-out
+// commands are not in here: which of them applies is the code style's answer
+// and followTheFormatter() adds the one that does.
+constexpr uint qmlJSFixedOptionalActions = OptionalActions::UnCommentSelection
+                                           | OptionalActions::UnCollapseAll
+                                           | OptionalActions::FollowSymbolUnderCursor
+                                           | OptionalActions::RenameSymbol
+                                           | OptionalActions::FindUsage;
+
+// Which of Auto-indent and Auto-format a QML file offers. The builtin
+// formatter indents and does not format; qmlformat formats and does not
+// indent - so this is the code style's answer, not the language's, and it
+// changes while a file is open. The editor widget narrowed the two commands
+// by hand every time its context menu opened, which reached neither the menu
+// bar nor a view that is not a widget.
+static void followTheFormatter(Core::IEditor *editor)
+{
+    const auto apply = [editor] {
+        const bool builtin = QmlJSTools::globalQmlJSCodeStyle()->currentCodeStyleSettings().formatter
+                             == QmlJSTools::QmlJSCodeStyleSettings::Builtin;
+        TextEditor::setOptionalActionsIn(editor,
+                                         qmlJSFixedOptionalActions
+                                             | (builtin ? OptionalActions::AutoIndentSelection
+                                                        : OptionalActions::AutoFormatSelection));
+    };
+    QObject::connect(QmlJSTools::globalQmlJSCodeStyle(),
+                     &TextEditor::ICodeStylePreferences::currentValueChanged, editor,
+                     [apply] { apply(); });
+    apply();
+}
 
 // Every other place the id under the caret appears, drawn in the occurrences
 // colour. The editor widget kept this on itself, so a QML file in a view that
@@ -1150,8 +1172,10 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
         auto * const qmlDocument = qobject_cast<QmlJSEditorDocument *>(editor->document());
         // Which other ids in the file are this one. Not below the relay check:
         // both views draw these, through setViewSelections().
-        if (qmlDocument)
+        if (qmlDocument) {
             new QmlJSUses(editor, qmlDocument);
+            followTheFormatter(editor);
+        }
 
         TextEditor::SymbolRequests * const requests
             = TextEditor::symbolRequestsForEditor(editor);
@@ -1199,12 +1223,9 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
     // menu and nothing of its language's.
     setContextMenuId(Constants::M_CONTEXT);
 
-    setOptionalActionMask(OptionalActions::Format
-                            | OptionalActions::UnCommentSelection
-                            | OptionalActions::UnCollapseAll
-                            | OptionalActions::FollowSymbolUnderCursor
-                            | OptionalActions::RenameSymbol
-                            | OptionalActions::FindUsage);
+    // Both laying-out commands up front; followTheFormatter() narrows to the
+    // one the code style calls for once there is an editor to narrow.
+    setOptionalActionMask(OptionalActions::Format | qmlJSFixedOptionalActions);
 }
 
 static void decorateDocument(TextEditor::TextDocument *document)
