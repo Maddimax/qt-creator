@@ -12,6 +12,8 @@
 
 #include <texteditor/ioutlinewidget.h>
 
+#include <utils/qtcassert.h>
+
 #include <QAction>
 #include <QSortFilterProxyModel>
 #include <QTextBlock>
@@ -331,7 +333,10 @@ class QmlJSOutlineWidgetFactory final : public TextEditor::IOutlineWidgetFactory
 public:
     bool supportsEditor(Core::IEditor *editor) const final
     {
-        return bool(qobject_cast<QmlJSEditor*>(editor));
+        // This pane drives the editor widget rather than the document, so it
+        // is the widget view's. CppOutlineWidget asks the document instead;
+        // giving this one the same seams is part of moving QmlJS.
+        return qobject_cast<QmlJSEditorWidget *>(editor->widget()) != nullptr;
     }
 
     bool supportsSorting() const final
@@ -341,12 +346,10 @@ public:
 
     TextEditor::IOutlineWidget *createWidget(Core::IEditor *editor) final
     {
+        auto * const qmlJSEditor = qobject_cast<QmlJSEditorWidget *>(editor->widget());
+        QTC_ASSERT(qmlJSEditor, return nullptr);
+
         auto widget = new QmlJSOutlineWidget;
-
-        auto qmlJSEditable = qobject_cast<const QmlJSEditor*>(editor);
-        auto qmlJSEditor = qobject_cast<QmlJSEditorWidget*>(qmlJSEditable->widget());
-        Q_ASSERT(qmlJSEditor);
-
         widget->setEditor(qmlJSEditor);
 
         return widget;

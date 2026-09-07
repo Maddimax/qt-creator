@@ -3,6 +3,8 @@
 
 #include "ieditor.h"
 
+#include "../idocument.h"
+
 /*!
     \class Core::IEditor
     \inheaderfile coreplugin/editormanager/ieditor.h
@@ -112,14 +114,6 @@ namespace Core {
 */
 
 /*!
-    \fn bool IEditor::isDesignModePreferred() const
-
-    Returns whether the document should be opened in the Design mode by
-    default. This requires design mode to support that document type. The
-    default implementation returns \c false.
-*/
-
-/*!
     Creates an IEditor.
 
     Implementations must create a corresponding document, or share an existing
@@ -128,6 +122,21 @@ namespace Core {
 IEditor::IEditor()
     : m_duplicateSupported(false)
 {}
+
+/*!
+    Returns whether the document should be opened in the Design mode by
+    default. This requires design mode to support that document type.
+
+    The default implementation asks the document, so that a view which is not
+    a widget gives the same answer for the same file.
+
+    \sa IDocument::isDesignModePreferred()
+*/
+bool IEditor::isDesignModePreferred() const
+{
+    IDocument * const doc = document();
+    return doc && doc->isDesignModePreferred();
+}
 
 /*!
     Returns whether duplication is supported, for example when the user splits

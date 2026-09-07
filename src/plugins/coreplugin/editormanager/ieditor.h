@@ -44,7 +44,7 @@ public:
 
     virtual QWidget *toolBar() = 0;
 
-    virtual bool isDesignModePreferred() const { return false; }
+    virtual bool isDesignModePreferred() const;
 
 signals:
     void editorDuplicated(IEditor *duplicate);

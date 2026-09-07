@@ -12414,6 +12414,72 @@ private slots:
         QTRY_COMPARE(other.asked, 3);
         QCOMPARE(mine.asked, 2);
     }
+
+    // Whether a file belongs in Design mode is a property of the file, so both
+    // views have to give the editor manager the same answer for it. The three
+    // editors in the tree that said yes said it from a BaseTextEditor
+    // subclass, which is a class the Quick path never builds - so a .ui, a
+    // .scxml or a .qml opened in this view would have stayed in Edit mode.
+    void testEitherViewPrefersDesignModeForTheSameDocument_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testEitherViewPrefersDesignModeForTheSameDocument()
+    {
+        QFETCH(bool, quick);
+
+        class DesignDoc final : public TextDocument
+        {
+        public:
+            using TextDocument::TextDocument;
+            bool isDesignModePreferred() const override { return true; }
+        };
+
+        class DesignFactory final : public TextEditorFactory
+        {
+        public:
+            explicit DesignFactory(bool quick)
+            {
+                setId("QuickEditorDesignModeTest");
+                setDisplayName("Quick Editor Design Mode Test");
+                setDocumentCreator([] { return new DesignDoc("QuickEditorDesignModeTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        DesignFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(editor.get()) != nullptr, quick);
+        QVERIFY2(editor->isDesignModePreferred(),
+                 "the editor does not pass on that its document belongs in Design mode");
+
+        // The other half of the same question, so that an editor answering
+        // yes to everything would fail here: the default document does not
+        // ask for Design mode and neither view may invent it.
+        class PlainFactory final : public TextEditorFactory
+        {
+        public:
+            explicit PlainFactory(bool quick)
+            {
+                setId("QuickEditorEditModeTest");
+                setDisplayName("Quick Editor Edit Mode Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorEditModeTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        PlainFactory plain(quick);
+        const std::unique_ptr<Core::IEditor> plainEditor(plain.createEditor());
+        QVERIFY2(plainEditor.get(), "the factory built nothing");
+        QVERIFY2(!plainEditor->isDesignModePreferred(),
+                 "an editor over an ordinary document asked for Design mode");
+    }
 };
 
 QObject *createQuickTextEditorTest()

@@ -120,17 +120,6 @@ private:
 };
 
 
-class QMLJSEDITOR_EXPORT QmlJSEditor : public TextEditor::BaseTextEditor
-{
-    Q_OBJECT
-
-public:
-    QmlJSEditor();
-
-    QmlJSEditorDocument *qmlJSDocument() const;
-    bool isDesignModePreferred() const override;
-};
-
 class QMLJSEDITOR_EXPORT QmlJSEditorFactory : public TextEditor::TextEditorFactory
 {
 public:

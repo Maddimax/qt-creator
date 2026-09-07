@@ -93,6 +93,10 @@ public:
     virtual bool shouldAutoSave() const;
     virtual bool isModified() const;
     virtual bool isSaveAsAllowed() const;
+    // Whether this kind of file belongs in Design mode. It is a property of
+    // the file, not of the view showing it, so that a view which is not a
+    // widget answers the same.
+    virtual bool isDesignModePreferred() const;
     virtual bool isSaveAsNeeded() const;
     bool isSuspendAllowed() const;
     void setSuspendAllowed(bool value);

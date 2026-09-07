@@ -22,11 +22,6 @@ public:
     {
         return nullptr;
     }
-
-    bool isDesignModePreferred() const override
-    {
-        return true;
-    }
 };
 
 } // namespace ScxmlEditor

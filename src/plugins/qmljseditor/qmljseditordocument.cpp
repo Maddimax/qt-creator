@@ -995,6 +995,54 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // Whether a QML file belongs in Design mode is the document's answer, so
+    // both views give the editor manager the same one. It used to come from a
+    // BaseTextEditor subclass, which the Qt Quick path never builds.
+    void testEitherQmlViewPrefersDesignMode_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testEitherQmlViewPrefersDesignMode()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-design-mode");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Design.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem {}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+
+        // The document's other reason to say yes is "we are in Design mode
+        // already", so the answer below is only about the flag if we are not.
+        QVERIFY(Core::ModeManager::currentModeId() != Core::Constants::MODE_DESIGN);
+        QVERIFY2(!editor->isDesignModePreferred(),
+                 "a QML file asked for Design mode before anything asked for it");
+
+        // Set after opening, because opening an editor whose document wants
+        // Design mode switches the mode, which is not what this is about.
+        document->setIsDesignModePreferred(true);
+        QVERIFY2(editor->isDesignModePreferred(),
+                 "the editor does not pass on that its document belongs in Design mode");
+    }
+
     void testAQuickQmlEditorIsGivenAnOutline()
     {
         Utils::TemporaryDirectory dir("qmljs-outline");
@@ -1338,7 +1386,9 @@ void QmlJSEditorDocument::setIsDesignModePreferred(bool value)
 
 bool QmlJSEditorDocument::isDesignModePreferred() const
 {
-    return d->m_isDesignModePreferred;
+    // Stay in design mode if we are there.
+    return d->m_isDesignModePreferred
+           || Core::ModeManager::currentModeId() == Core::Constants::MODE_DESIGN;
 }
 
 void QmlJSEditorDocument::setDiagnosticRanges(const QVector<QTextLayout::FormatRange> &ranges)

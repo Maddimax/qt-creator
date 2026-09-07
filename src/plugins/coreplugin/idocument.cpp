@@ -508,6 +508,19 @@ bool IDocument::isSaveAsAllowed() const
 }
 
 /*!
+    Returns whether this document should be opened in the Design mode by
+    default. This requires design mode to support that document type.
+
+    The default implementation returns \c false.
+
+    \sa IEditor::isDesignModePreferred()
+*/
+bool IDocument::isDesignModePreferred() const
+{
+    return false;
+}
+
+/*!
     Returns whether saving the document requires choosing a file name via
     "Save As" first.
 

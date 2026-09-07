@@ -58,7 +58,7 @@ public:
         Core::IEditor *editor) const override;
 
     void setIsDesignModePreferred(bool value);
-    bool isDesignModePreferred() const;
+    bool isDesignModePreferred() const override;
 
     void setSourcesWithCapabilities(const LanguageServerProtocol::ServerCapabilities &cap);
 

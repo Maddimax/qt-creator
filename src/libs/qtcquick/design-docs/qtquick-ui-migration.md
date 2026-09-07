@@ -50565,3 +50565,195 @@ any are left.
 
 If that comes back empty, the seam-by-seam work really is done, and what
 remains is the QmlJS move and a Linux run.
+
+## 2026-09-07 — The last distribution, and the class it emptied (batch 151)
+
+Entry 150 named the last question it could think of:
+
+> **`connect(` where the sender is reached through an editor** - grouped by
+> the *signal*, not the type. [...] If that comes back empty, the seam-by-seam
+> work really is done.
+
+Ran it. **It comes back empty**, and this entry says so with the distribution
+rather than with a list of names.
+
+### The distribution
+
+Every signal name the widget editor's hierarchy declares - `TextEditorWidget`,
+`PlainTextEdit`, `QPlainTextEdit`, `QAbstractScrollArea`, `QFrame`, `QWidget`,
+`QObject`, `QTextDocument` - is 33 names. Grepping the tree outside
+`texteditor/` and `utils/plaintextedit/` for `&Type::<one of those>` gives 970
+references in 28 signals:
+
+```
+ 422 changed                 BaseAspect, AspectContainer, IDocument, QAction ...
+ 152 textChanged             QLineEdit 65, FancyLineEdit 19, QPlainTextEdit 11 ...
+ 116 destroyed               QObject 95, and 20 named types
+ 107 currentIndexChanged     QComboBox 90 ...
+  47 selectionChanged        QItemSelectionModel 28, IEditor 1, EmacsKeysState 1 ...
+  37 customContextMenuRequested
+  35 cursorPositionChanged   IEditor 14, PlainTextEdit 10, TextViewport 1 ...
+   7 undoAvailable / redoAvailable
+   5 resized                 TextEditorWidget 3
+   4 requestUsages / requestRename
+   3 updateRequest           PlainTextEdit 3
+   ... 17 more, all in single figures
+```
+
+Plus 127 `SIGNAL()`-macro connects tree-wide, of which the ones naming a
+hierarchy signal are all in qbs's bundled qtscript or in `qmlpuppet`.
+
+**The rows that matter are the small ones**, and reading each one's senders:
+
+| Row | Where the sender came from |
+| --- | --- |
+| `cursorPositionChanged`, `IEditor` 14 | the seam, used by everyone who was ported |
+| `cursorPositionChanged`, `PlainTextEdit` 10 | nine are `this` inside a widget editor; the tenth is FakeVim's `m_editor` |
+| `SuggestionHost::cursorPositionChanged` | Copilot, through the view-agnostic host |
+| `Editor::cursorPositionChanged` | FakeVim's own alias for its widget |
+| `updateRequest` 3 | Core's find minimap and DiffEditor's inline view, over a widget each made |
+| `resized`, `TextEditorWidget` 3 | FakeVim twice, and its mini-buffer |
+| `undoAvailable`/`redoAvailable` | QmlDesigner's `DesignDocument`, over the text editor it owns |
+| `customContextMenuRequested` 37 | tree views, tab bars, line edits - `editorview.cpp`'s is the tab bar |
+| `tooltipOverrideRequested` | the debugger, on the **document** |
+| `documentContentsChanged` | Lua's `TextEditorRegistry` and the language client, both document-level |
+
+Nothing is left where a plugin listens to a text widget it got out of an
+editor. FakeVim is the only one that does, and it is widget-bound by design.
+
+So: **the seam-by-seam work is done**, on the terms entry 150 set for saying
+it.
+
+### What the batch closed anyway
+
+The distribution came back empty; the pinned factories did not. Entry 125's
+table says each is "blocked on callers that cast", and entry 125's own proposal
+was to *"delete `setEditorCreator()`'s remaining reason to exist"*. Nobody had
+measured what was left of those reasons since. Measured now, and one had shrunk
+to a single virtual:
+
+```cpp
+class QMLJSEDITOR_EXPORT QmlJSEditor : public TextEditor::BaseTextEditor
+{
+    QmlJSEditor();                               // empty, with a comment saying so
+    QmlJSEditorDocument *qmlJSDocument() const;  // one caller
+    bool isDesignModePreferred() const override; // that caller
+};
+```
+
+`isDesignModePreferred()` was an `IEditor` virtual, so **only a custom
+`BaseTextEditor` subclass could answer it - which needs `setEditorCreator()`,
+which is the pin.** Three editors in the tree override it, and all three
+answer from the file:
+
+| | The answer |
+| --- | --- |
+| `FormWindowEditor` | constant true - it is a `.ui` |
+| `ScxmlTextEditor` | constant true - it is a `.scxml` |
+| `QmlJSEditor` | `qmlJSDocument()->isDesignModePreferred()`, already document state, or "we are in Design mode already", which is global |
+
+**Not one of them depends on the view.** So the virtual belongs on `IDocument`,
+with `IEditor::isDesignModePreferred()` asking its document - the same move as
+entry 149's `selectTo()` and entry 150's `selectionChanged()`, and the third
+batch running where the missing piece was a `Core::IEditor` seam the code was
+already asking for.
+
+With the three answers moved down, `QmlJSEditor` is an empty class. It is gone,
+and with it `QmlJSEditorFactory`'s `setEditorCreator()`. **QmlJS's factory is
+no longer pinned** - moving the language is now the deliberate
+`setUsesQuickEditor()` act it is for every other language, not a refactor
+first. Designer's and SCXML's keep their `toolBar()` overrides and stay.
+
+### What the compiler found that a grep had hidden
+
+Deleting `QmlJSEditor` did not compile:
+
+```
+qmljsoutline.cpp:334: error: unexpected namespace name 'QmlJSEditor'
+    return bool(qobject_cast<QmlJSEditor*>(editor));
+```
+
+`QmlJSOutlineWidgetFactory::supportsEditor()` - **the sidebar outline pane** -
+decided whether it had anything to show by casting the editor to that class.
+So a QML file in the Qt Quick view gets no outline pane at all. `CppEditor`'s
+equivalent was made to ask the document two batches after entry 98; QmlJS's was
+not, and nothing had looked because nothing named the widget type.
+
+It is not fixed here: `QmlJSOutlineWidget` drives the widget through
+`outlineModelIndexChanged`, `isOutlineCursorChangesBlocked()`,
+`updateOutlineIndexNow()` and four cursor calls, which is the same port
+`CppOutlineWidget` had and is a batch of its own. What changed is that the gate
+now names the real requirement - `qobject_cast<QmlJSEditorWidget *>(editor->widget())` -
+with a comment saying whose job the rest is, and its `Q_ASSERT` is a
+`QTC_ASSERT`.
+
+**The method note is the grep.** I had run `grep -rn "QmlJSEditor\b" src` and
+piped it through `head -20`; the two real callers were at rank 21 and 22,
+behind twenty lines of `CMakeLists.txt` and setting keys. *Truncating a census
+and reading the head is how a census lies* - the last three batches all found
+their gap in a tail. The compiler caught this one, which is luck, not method.
+
+### What this fixes today
+
+Nothing user-visible from the seam itself, and that is worth being exact
+about: none of the three languages is Quick yet. What it fixes is the
+*view-dependent* answer - a `.ui`, a `.scxml` or a `.qml` in the Qt Quick view
+would have stayed in Edit mode where the widget view switched to Design. The
+outline finding above is a live difference for QML, and is now written down
+rather than hidden behind a type name.
+
+### Controls
+
+- **JA**: `IEditor::isDesignModePreferred()` back to `{ return false; }` - red
+  on all four rows of the two new tests, each naming the seam.
+- **JB**: the same made to return `true` unconditionally - red on the *plain
+  document* half of both tests, so the negative half is not decoration. It
+  also takes 43 other `TextEditor` tests down with it, because every editor
+  then demands Design mode on open and no view lays out - which is its own
+  evidence that this virtual is load-bearing.
+
+Two tests, each with a widget row and a Quick row, because the whole claim is
+that the two agree.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 717 passed, 0 failed (was 715) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 26 passed, 0 failed (was 24) |
+| `-test Core` | 0 | 222 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it
+
+| | |
+| --- | --- |
+| **QmlJS's sidebar outline pane** | **new** - needs `CppOutlineWidget`'s port |
+| `abortAssist` on a caret move (EmacsKeys) | when the popup closes, not whether |
+| `activateWindow()` leaving a debugger tooltip | cosmetic |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box |
+| `canInsertFromMimeData` | a hook nothing overrides yet |
+| The link press/release handshake | two defensible answers |
+| QmlJS's context pane | a UI decision, open since entry 114 |
+| The whitespace drawing difference; printing | declined (entry 68) and the owner's (entry 31) |
+| **Two** pinned factories; `forceOpenLinksInNextSplit` | Designer and SCXML still override `toolBar()`; and a dead preference |
+
+### What I would do next
+
+The distribution is empty and I have no seventh direction to walk, so the next
+work is the shape this batch used: **take the next pin apart.**
+
+1. **QmlJS's outline pane**, because it is a live difference rather than a
+   structural one, and `CppOutlineWidget` is the worked example.
+2. **`toolBar()` returning null.** Designer's and SCXML's overrides are both
+   that, and it is a factory property - "this language has no toolbar row" -
+   not an editor one; `TextEditorFactory` has nowhere to say it. One setter
+   empties `ScxmlTextEditor` the way this batch emptied `QmlJSEditor`.
+   `FormWindowEditor` would still hold `contents()` and `formWindowFile()`,
+   which are conveniences over its own document and can move too.
+
+At the end of those, `setEditorCreator()` has no caller in the tree that is not
+a test - which was entry 125's proposal, and is the last structural thing
+keeping any language on the widget path.

@@ -40,7 +40,6 @@
 #include <coreplugin/designmode.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
-#include <coreplugin/modemanager.h>
 
 #include <extensionsystem/pluginmanager.h>
 
@@ -1085,28 +1084,6 @@ QString QmlJSEditorWidget::foldReplacementText(const QTextBlock &block) const
 
 
 //
-// QmlJSEditor
-//
-
-QmlJSEditor::QmlJSEditor()
-{
-    // The factory adds the language context for either view.
-}
-
-QmlJSEditorDocument *QmlJSEditor::qmlJSDocument() const
-{
-    return qobject_cast<QmlJSEditorDocument *>(document());
-}
-
-bool QmlJSEditor::isDesignModePreferred() const
-{
-
-    // stay in design mode if we are there
-    const Id mode = ModeManager::currentModeId();
-    return qmlJSDocument()->isDesignModePreferred() || mode == Core::Constants::MODE_DESIGN;
-}
-
-//
 // QmlJSEditorFactory
 //
 
@@ -1199,11 +1176,9 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
 
     setDocumentCreator([this]() { return new QmlJSEditorDocument(id()); });
     setEditorWidgetCreator([]() { return new QmlJSEditorWidget; });
-    setEditorCreator([]() { return new QmlJSEditor; });
-    // The language this editor is for, on the factory rather than on the
-    // BaseTextEditor subclass above - the Qt Quick path does not use that
-    // creator, and without this context the QML model manager leaves the
-    // document out of its working copy and parses the file on disk instead.
+    // The language this editor is for. Without this context the QML model
+    // manager leaves the document out of its working copy and parses the file
+    // on disk instead.
     addEditorContext(ProjectExplorer::Constants::QMLJS_LANGUAGE_ID);
     // A view that is not a widget asks through a relay rather than by being
     // asked itself. Same shape as C++: the editor gets its own FindReferences

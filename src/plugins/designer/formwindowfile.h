@@ -32,6 +32,7 @@ public:
     bool shouldAutoSave() const override;
     bool isModified() const override;
     bool isSaveAsAllowed() const override;
+    bool isDesignModePreferred() const override { return true; }
     Utils::Result<> reload(ReloadFlag flag, ChangeType type) override;
     QString fallbackSaveAsFileName() const override;
     // Internal

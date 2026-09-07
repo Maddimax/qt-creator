@@ -32,10 +32,5 @@ FormWindowFile *FormWindowEditor::formWindowFile() const
     return qobject_cast<FormWindowFile *>(textDocument());
 }
 
-bool FormWindowEditor::isDesignModePreferred() const
-{
-    return true;
-}
-
 } // namespace Designer
 

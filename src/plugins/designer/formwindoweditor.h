@@ -27,7 +27,6 @@ public:
     ~FormWindowEditor() override;
 
     QWidget *toolBar() override;
-    bool isDesignModePreferred() const override;
 
     // For uic code model support
     QString contents() const;
