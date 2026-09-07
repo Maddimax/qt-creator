@@ -51452,3 +51452,124 @@ would notice:
    Measured twice; it needs a person, not a batch.
 
 Each of those is somebody's call to make. The gap-closing is finished.
+
+## 2026-09-07 — Moving QmlJS, first piece: the ids that light up (batch 157)
+
+Entry 156 said the gap-closing list was finished and named what is left:
+
+> 1. **Move QmlJS.** [...] It is a project, not a batch.
+
+A project has a first piece, and the standing rule says which one: *close the
+gaps before flipping the switch*. So this batch does for QmlJS what entry 124
+did for C++ - walk what the editor **widget** does and find what has nowhere to
+go on the Qt Quick side - and closes the first thing that walk found.
+
+### The walk
+
+`QmlJSEditorWidget` has 24 members and overrides. Against the Qt Quick side:
+
+| What the widget does | Where it is on the Qt Quick side |
+| --- | --- |
+| `outlineModelIndex()`, `updateOutlineIndexNow()`, `jumpToOutlineElement()` | `QmlJSOutline`, the `ToolBarOutline` seam (entry 98) |
+| `findUsages()`, `renameSymbolUnderCursor()` | the `SymbolRequests` relay in the decorator |
+| `restoreState()` folds | `QuickTextEditor::restoreState` v3 (entry 143) |
+| `foldReplacementText()` | the fold seam (entry 144) |
+| `semanticInfoUpdated()` → `triggerPendingUpdates()` | the show handling in `QuickTextEditor` |
+| `contextMenuEvent()` | `setContextMenuId` and `TextDocument::contextMenuActions()` |
+| **`updateUses()`** | **nowhere** |
+| `showContextPane()` and its four helpers | the open UI decision, entry 114 |
+
+**`updateUses()` is the one.** It lights every other place the id under the
+caret appears, and it did it with
+`setExtraSelections(CodeSemanticsSelection, ...)` **straight onto the widget**.
+CppEditor and the language client both use `TextEditor::setViewSelections()`,
+which serves either view; QmlJS was the only caller in the tree still writing
+to the widget. A QML file in the Qt Quick view had the caret in an id and
+nothing else lit up.
+
+### The fix
+
+`QmlJSUses`, beside `QmlJSOutline`, parented to the editor and made by the
+factory's decorator - **above** the `if (!requests) return;` that makes the
+rest of that decorator the Qt Quick view's, because this half is both views'.
+It takes the caret from `IEditor::cursorPositionChanged`, the locations from
+the document's semantic info, the colour from the document's font settings,
+and writes through `setViewSelections()`.
+
+The widget's copy is gone with it - `updateUses()`, `wordUnderCursor()`, the
+`applyFontSettings()` override that existed only to re-run it, and the timer.
+Same shape as entry 152's outline pane, and the same reason: two copies is how
+batch 155's duplicate happened.
+
+### Controls
+
+- **PA**: the decorator stops making one - red on **both** rows. The widget row
+  going red is what says its own copy really is gone rather than still quietly
+  doing the work.
+- **PB**: `setViewSelections()`'s `TextViewport` branch made a no-op - red on
+  the **Qt Quick row only**. That is the seam being what serves that view.
+- **PC**: the word under the caret replaced by a constant - red on the *first*
+  assertion, the one saying nothing is lit before the caret is on an id. The
+  negative guard bites too.
+
+### Two process notes, both about `git checkout`
+
+- **`git checkout -- <file>` reverting a control also reverts the batch's own
+  work in that file.** I did it twice today. The second time the plugin then
+  failed to compile, the build stopped, and the suite ran against a **stale
+  binary** whose result I nearly read as a control biting. The tell was the
+  `error:` line above the test output, which I only saw because the build log
+  and the test log were in the same file.
+- **Put a control in a different file from the change where you can.** PB lives
+  in `texteditor.cpp` and reverting it could not touch the QmlJS work.
+
+### The test, and what it nearly failed to measure
+
+`testTheIdUnderTheCaretLightsUpItsOtherUses`, both views, over a file with
+`box` three times and `other` once. The first run said 0 in both views and I
+went looking for the bug in the code; it was in the test. `caretAt("id: box")`
+put the caret one character into **`id`**, and the word under it was `id`.
+Placing it inside the identifier is what the widget's `wordUnderCursor()` was
+always doing, and reading that function is what said so. **The test being wrong
+in both rows identically is the same signal as entry 152's** - a real view
+difference fails one row.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 727 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 32 passed, 0 failed (was 30) |
+
+No `.qbs` change: no files added.
+
+### What moving QmlJS still needs
+
+From the walk above, in the order they would have to land:
+
+1. **The context pane** - `showContextPane()`, `updateContextPane()`,
+   `showTextMarker()`, `hideContextPane()`, and the `wheelEvent`,
+   `resizeEvent` and `scrollContentsBy` overrides that only exist to move it.
+   That is the open UI decision from entry 114 and the largest piece by far.
+2. **`contextMenuEvent()`** - it builds a Refactoring submenu from the quick
+   fix processor and enables Auto-indent or Auto-format depending on which
+   formatter the code style says. The submenu has a seam
+   (`TextDocument::contextMenuActions()`); the *enabling* does not, and it is
+   done per menu-open rather than per editor, so the optional-action mask is
+   not where it goes.
+3. **`m_modelManager->activateScan()`, `updateModificationChange()`** - two
+   lines each, on the widget today, and both are document-level facts.
+4. **`selectedElementsChanged`** and `inspectElementUnderCursor()` - read but
+   not yet traced to their listeners.
+
+Then `setUsesQuickEditor(true)` on `QmlJSEditorFactory`, and the row in
+`testWhichLanguagesOpenInTheQuickEditor` for `Thing.qml` changes in the same
+commit.
+
+### What I would do next
+
+**Item 3**, because it is small, measurable and needs nobody's decision: two
+document-level facts sitting on a widget. Then item 4, which is a grep. Item 2
+needs a seam designed and item 1 needs a person, so they are the last two and
+in that order.

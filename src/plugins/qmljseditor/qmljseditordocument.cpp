@@ -995,6 +995,84 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // Every other place the id under the caret appears, lit in the occurrences
+    // colour. QmlJSEditorWidget wrote these straight onto itself, so a QML
+    // file in a view that is not a widget lit up nothing at all.
+    void testTheIdUnderTheCaretLightsUpItsOtherUses_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheIdUnderTheCaretLightsUpItsOtherUses()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-uses");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Uses.qml");
+        // "box" three times: its declaration and two references. "other" once,
+        // so that moving the caret has somewhere to go that is not the same.
+        QVERIFY(file.writeFileContents(
+            "import QtQuick\n"
+            "Item {\n"
+            "    Rectangle { id: box }\n"
+            "    Rectangle { id: other; width: box.width; height: box.height }\n"
+            "}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(!document->isSemanticInfoOutdated()
+                         && !document->semanticInfo().document.isNull(),
+                     "the QML file was never parsed");
+
+        const QString text = document->plainText();
+        // Inside the word rather than at either edge, because what is under
+        // the caret at a boundary is the word before it.
+        const auto caretIn = [editor, document, &text](const QString &word) {
+            const int offset = text.indexOf(word);
+            QVERIFY(offset >= 0);
+            QTextCursor cursor(document->document());
+            cursor.setPosition(offset + 1);
+            TextEditor::setTextCursorOf(editor, cursor);
+        };
+        const auto lit = [editor] {
+            return TextEditor::viewSelections(
+                       editor, TextEditor::TextEditorWidget::CodeSemanticsSelection)
+                .size();
+        };
+
+        // Nothing is under the caret yet that is an id.
+        QVERIFY2(lit() == 0, "something was lit before the caret was on an id");
+
+        // Into "box": its own declaration plus the two references.
+        caretIn("box");
+        QTRY_COMPARE(lit(), 3);
+
+        // And onto "other", which appears once - so this asserts the set
+        // followed the caret rather than one count happening to be right.
+        caretIn("other");
+        QTRY_COMPARE(lit(), 1);
+    }
+
     // Whether a QML file belongs in Design mode is the document's answer, so
     // both views give the editor manager the same one. It used to come from a
     // BaseTextEditor subclass, which the Qt Quick path never builds.

@@ -112,12 +112,6 @@ QmlJSEditorWidget::QmlJSEditorWidget()
 
 void QmlJSEditorWidget::finalizeInitialization()
 {
-    m_updateUsesTimer.setInterval(UPDATE_USES_DEFAULT_INTERVAL);
-    m_updateUsesTimer.setSingleShot(true);
-    connect(&m_updateUsesTimer, &QTimer::timeout, this, &QmlJSEditorWidget::updateUses);
-    connect(this, &PlainTextEdit::cursorPositionChanged,
-            &m_updateUsesTimer, QOverload<>::of(&QTimer::start));
-
     m_updateOutlineIndexTimer.setInterval(UPDATE_OUTLINE_INTERVAL);
     m_updateOutlineIndexTimer.setSingleShot(true);
     connect(&m_updateOutlineIndexTimer, &QTimer::timeout,
@@ -270,34 +264,6 @@ void QmlJSEditorWidget::showTextMarker()
     updateContextPane();
 }
 
-void QmlJSEditorWidget::updateUses()
-{
-    if (qmlJsEditorDocument()->isSemanticInfoOutdated()) // will be updated when info is updated
-        return;
-
-    QList<QTextEdit::ExtraSelection> selections;
-
-    // code model may present the locations not in a document order
-    const QList<SourceLocation> locations = Utils::sorted(
-                qmlJsEditorDocument()->semanticInfo().idLocations.value(wordUnderCursor()),
-                [](const SourceLocation &lhs, const SourceLocation &rhs) {
-        return lhs.begin() < rhs.begin();
-    });
-    for (const SourceLocation &loc : locations) {
-        if (! loc.isValid())
-            continue;
-
-        QTextEdit::ExtraSelection sel;
-        sel.format = textDocument()->fontSettings().toTextCharFormat(C_OCCURRENCES);
-        sel.cursor = textCursor();
-        sel.cursor.setPosition(loc.begin());
-        sel.cursor.setPosition(loc.end(), QTextCursor::KeepAnchor);
-        selections.append(sel);
-    }
-
-    setExtraSelections(CodeSemanticsSelection, selections);
-}
-
 class SelectedElement: protected Visitor
 {
     unsigned m_cursorPositionStart = 0;
@@ -425,27 +391,6 @@ void QmlJSEditorWidget::setSelectedElements()
     wordAtCursor = tc.selectedText();
 
     emit selectedElementsChanged(offsets, wordAtCursor);
-}
-
-void QmlJSEditorWidget::applyFontSettings()
-{
-    TextEditorWidget::applyFontSettings();
-    QTC_ASSERT(qmlJsEditorDocument(), return);
-    if (!qmlJsEditorDocument()->isSemanticInfoOutdated())
-        updateUses();
-}
-
-QString QmlJSEditorWidget::wordUnderCursor() const
-{
-    QTextCursor tc = textCursor();
-    const QChar ch = document()->characterAt(tc.position() - 1);
-    // make sure that we're not at the start of the next word.
-    if (ch.isLetterOrNumber() || ch == QLatin1Char('_'))
-        tc.movePosition(QTextCursor::Left);
-    tc.movePosition(QTextCursor::StartOfWord);
-    tc.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-    const QString word = tc.selectedText();
-    return word;
 }
 
 void QmlJSEditorWidget::createToolBar()
@@ -1022,8 +967,6 @@ void QmlJSEditorWidget::semanticInfoUpdated(const SemanticInfo &semanticInfo)
             m_contextPaneTimer.start(); //update text marker
         }
     }
-
-    updateUses();
 }
 
 bool QmlJSEditorWidget::hideContextPane()
@@ -1051,6 +994,80 @@ QString QmlJSEditorWidget::foldReplacementText(const QTextBlock &block) const
     return TextEditorWidget::foldReplacementText(block);
 }
 
+
+// Every other place the id under the caret appears, drawn in the occurrences
+// colour. The editor widget kept this on itself, so a QML file in a view that
+// is not one had the caret in an id and nothing else lit up.
+class QmlJSUses final : public QObject
+{
+public:
+    QmlJSUses(Core::IEditor *editor, QmlJSEditorDocument *document)
+        : QObject(editor)
+        , m_editor(editor)
+        , m_document(document)
+    {
+        m_timer.setInterval(UPDATE_USES_DEFAULT_INTERVAL);
+        m_timer.setSingleShot(true);
+        connect(&m_timer, &QTimer::timeout, this, &QmlJSUses::update);
+        // On a timer, because holding a cursor key walks over a word one
+        // character at a time and each step would ask the model again.
+        connect(editor, &Core::IEditor::cursorPositionChanged,
+                &m_timer, QOverload<>::of(&QTimer::start));
+        // A new parse replaces the locations these are read from, and the
+        // colour they are drawn in is a setting the reader can change.
+        connect(document, &QmlJSEditorDocument::semanticInfoUpdated,
+                this, &QmlJSUses::update);
+        connect(document, &TextEditor::TextDocument::fontSettingsChanged,
+                this, &QmlJSUses::update);
+    }
+
+private:
+    void update()
+    {
+        // The parse this reads is being replaced; semanticInfoUpdated brings
+        // us back when the new one lands.
+        if (m_document->isSemanticInfoOutdated())
+            return;
+
+        const QTextCharFormat format
+            = m_document->fontSettings().toTextCharFormat(TextEditor::C_OCCURRENCES);
+        // The code model does not hand these out in document order.
+        const QList<SourceLocation> locations = Utils::sorted(
+            m_document->semanticInfo().idLocations.value(wordUnderCaret()),
+            [](const SourceLocation &lhs, const SourceLocation &rhs) {
+                return lhs.begin() < rhs.begin();
+            });
+
+        QList<TextEditor::TextDocument::ExtraSelection> selections;
+        for (const SourceLocation &location : locations) {
+            if (!location.isValid())
+                continue;
+            QTextCursor cursor(m_document->document());
+            cursor.setPosition(location.begin());
+            cursor.setPosition(location.end(), QTextCursor::KeepAnchor);
+            selections.append({cursor, format});
+        }
+        TextEditor::setViewSelections(m_editor,
+                                      TextEditor::TextEditorWidget::CodeSemanticsSelection,
+                                      selections);
+    }
+
+    QString wordUnderCaret() const
+    {
+        QTextCursor cursor = TextEditor::textCursorOf(m_editor);
+        const QChar ch = m_document->document()->characterAt(cursor.position() - 1);
+        // Make sure we are not at the start of the next word.
+        if (ch.isLetterOrNumber() || ch == QLatin1Char('_'))
+            cursor.movePosition(QTextCursor::Left);
+        cursor.movePosition(QTextCursor::StartOfWord);
+        cursor.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
+        return cursor.selectedText();
+    }
+
+    Core::IEditor * const m_editor;
+    QmlJSEditorDocument * const m_document;
+    QTimer m_timer;
+};
 
 //
 // QmlJSEditorFactory
@@ -1136,9 +1153,15 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
     // asked itself. Same shape as C++: the editor gets its own FindReferences
     // and the two questions are answered by the free functions above.
     setEditorDecorator([](Core::IEditor *editor) {
+        auto * const qmlDocument = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        // Which other ids in the file are this one. Not below the relay check:
+        // both views draw these, through setViewSelections().
+        if (qmlDocument)
+            new QmlJSUses(editor, qmlDocument);
+
         TextEditor::SymbolRequests * const requests
             = TextEditor::symbolRequestsForEditor(editor);
-        // No relay means a widget editor, which owns all of this itself.
+        // No relay means a widget editor, which owns the rest of this itself.
         if (!requests)
             return;
 

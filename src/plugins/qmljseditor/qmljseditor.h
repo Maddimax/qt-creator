@@ -80,7 +80,6 @@ private:
     void updateContextPane();
     void showTextMarker();
 
-    void updateUses();
 
     void semanticInfoUpdated(const QmlJSTools::SemanticInfo &semanticInfo);
 
@@ -92,18 +91,15 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void scrollContentsBy(int dx, int dy) override;
-    void applyFontSettings() override;
     void createToolBar();
     void updateOutline(QWidget *newOutline);
     QString foldReplacementText(const QTextBlock &block) const override;
 
 private:
     void setSelectedElements();
-    QString wordUnderCursor() const;
 
     bool hideContextPane();
 
-    QTimer m_updateUsesTimer; // to wait for multiple text cursor position changes
     QTimer m_updateOutlineIndexTimer;
     QTimer m_contextPaneTimer;
     Utils::TreeViewComboBox *m_outlineCombo = nullptr;
