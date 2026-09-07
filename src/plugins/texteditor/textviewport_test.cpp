@@ -8426,13 +8426,18 @@ private slots:
         buffer.setSnippetGroup(group);
         const std::unique_ptr<AutoCompleter> offered(buffer.createAutoCompleter());
         QVERIFY2(offered, "the C++ group offered no completer");
-        QVERIFY2(viewport->autoCompleter() != plain,
+        // The language completer is alive while the plain one is replaced, so
+        // these two pointers cannot coincide; the freed plain one's address
+        // can be handed out again, so it must not be compared with later.
+        AutoCompleter * const languages = viewport->autoCompleter();
+        QVERIFY2(languages != plain,
                  "the view kept its plain completer after the source offered one");
 
-        // And a source that stops being a snippet gets the plain one back,
+        // And a source that stops being a snippet gets a plain one back,
         // rather than keeping the last language's.
         buffer.setSnippetGroup({});
-        QVERIFY2(viewport->autoCompleter() != plain, "the completer was not replaced at all");
+        QVERIFY2(viewport->autoCompleter() != languages,
+                 "the view kept the language's completer after the group was cleared");
         QVERIFY2(!buffer.createAutoCompleter(), "a group-less buffer offered a completer");
     }
 

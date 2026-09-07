@@ -52537,3 +52537,92 @@ split-brain snapshot, the GC leftover in whole-suite order). The honest
 proposal: stop the nightly batches, or thin them to an occasional re-measure
 of this table; a nightly batch with no gap to close would be invented work,
 which the standing instruction forbids.
+
+## 2026-09-08 — A fresh toolchain calls two bluffs (batch 168)
+
+Not a planned batch: the owner asked for the build directory to be deleted
+and rebuilt from scratch (the macOS update moved AppleClang 16 to 21) and for
+Qt 6.11.1 to become 6.11.2. The build lives in
+`builds/Qt-6.11.2-macos-x86_64-arm64/Debug` now; the deleted 6.11.1 path
+holds a fresh control build (kept - see below); `Release/` and the qbs build
+were left untouched and carry the same stale-compiler hazard until they are
+next wiped.
+
+The from-scratch build found three things the incremental builds and the
+`-noload QmlDesigner` suites had been structurally unable to see.
+
+### 1. QmlDesigner and EffectComposer stopped compiling weeks ago
+
+`d3fbf81aac3` removed the `QmlJSEditor` `BaseTextEditor` subclass (its one
+override moved onto the document) and dropped the factory's
+`setEditorCreator()` line, falling back to the default
+(`new BaseTextEditor`, texteditor.cpp). Two other factories still built the
+class: `bindingeditorwidget.cpp` and `effectcodeeditorwidget.cpp`. Nobody
+noticed because the suites never load those plugins and ninja never rebuilt
+them. Fixed the same way the QmlJS factory was: the lines are gone, the
+default creator serves. **A `-noload`ed plugin is invisible to every gate
+this document runs; only a from-scratch build compiles it.**
+
+### 2. The QuickUi tree test crashed - and the first attribution was wrong
+
+`testAReorderableTreeMovesARowThroughItsModel` SIGSEGVed the suite, 0 totals,
+every run. The stack ends in Qt: `QSortFilterProxyModelPrivate::
+proxy_to_source()` on a dead mapping, under `QQuickTreeView`'s delegate
+paths. First attribution - written into working notes and since **retracted**
+- was "Qt 6.11.2 regression": the stack is all Qt frames and 6.11.1 had been
+green for weeks. Three experiments unwound it:
+
+1. `reuseItems: false` at the crash site moved the entry path (released-item
+   restore → fresh incubation) and the crash stayed - a mitigation that does
+   not bite is reverted, not shipped.
+2. A minimal repro - TreeView over a QSortFilterProxyModel over a list model
+   doing a canonical `beginMoveRows()` move - is green on both Qt versions.
+3. The same binary on swapped frameworks (`DYLD_FRAMEWORK_PATH` to 6.11.1):
+   still crashes. Then the clean control, predicted in advance: a full
+   rebuild against 6.11.1 headers and libs with the new compiler - crashes
+   identically. The crash follows the *binary*, not the Qt version.
+
+The actual defect is the test model's: its `dropMimeData()` wrapped
+`TreeModel::takeItem()` and `TreeItem::insertChild()` - which announce
+themselves as a remove (`treemodel.cpp:1251`) and an insert
+(`treemodel.cpp:681`) - inside `beginMoveRows()`/`endMoveRows()`. Three
+nested signal pairs for one change; every proxy downstream desyncs; whether
+the dangling mapping then faults is heap-layout luck. The old binary was
+lucky for weeks. The fix deletes the move wrapper and lets take+insert
+announce the change. `Amends 5d9a3f88b60...`.
+
+### 3. The completer test compared against a freed pointer
+
+`testASnippetTakesTheCompleterItsGroupOffers` failed once on the new binary:
+`viewport->autoCompleter() != plain` after the snippet group was cleared.
+Production (textviewport.cpp) installs a **fresh** plain completer there and
+never re-installs the old one, so equality can only mean the freed pointer's
+address was handed out again. The assertion now compares against the
+*language* completer, which provably coexists with its replacement during
+the swap; the freed one's address is not compared with. 1/1 red on the
+6.11.2 build, 0/1 on the 6.11.1 control build - coincidence-shaped, as an
+address-reuse bug is. `Amends 99991c0c5b0...`.
+
+### Controls and verification
+
+- Tree crash, fix off: **5/5 SIGSEGV** across two Qt library versions and
+  two full build flavors; fix on: QuickUi 207/0/1, exit 0, **3/3**.
+- Completer, fix off: red on the 6.11.2 build; fix on: TextEditor 730/0,
+  exit 0, **2/2**.
+- The 6.11.1 control build ran with the *unfixed* tests (its objects predate
+  the fixes - checked by mtime): QuickUi crash reproduced as predicted,
+  which is what buried the "Qt regression" story.
+- Gate remainder on the new toolchain: FollowSymbolTest 154/0, FakeVim
+  266/0/10, QmlJSEditor 44/0, LocatorFilterTest 15/0, all exit 0.
+
+### For next time
+
+- **"Green for weeks" is not evidence of correctness when what kept it green
+  was heap layout.** Both defects were real all along; the fresh toolchain
+  only changed the dice.
+- **A stack made of Qt frames does not attribute the bug to Qt.** The state
+  Qt crashed on was set up by our signaling. The measured axis was only ever
+  "old binary green, new binary red" - and that names neither Qt nor the
+  compiler until a rebuild against the old Qt separates them.
+- The 6.11.1 Debug build is kept beside the 6.11.2 one for exactly that kind
+  of A/B; it costs disk, and the next environment surprise costs an evening.
