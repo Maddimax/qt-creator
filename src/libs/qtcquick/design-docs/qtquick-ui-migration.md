@@ -50224,3 +50224,102 @@ a marker being placed, or a session being restored.
 That is the next grep, and after it the family is exhausted: those three are
 the whole of the public API by which another plugin turns an `IEditor` into a
 widget-editor type.
+
+## 2026-09-07 — The caller census, finished (batch 148)
+
+Entry 147 predicted that one more grep would exhaust the family of ways another
+plugin turns an `IEditor` into a widget-editor type. It did, and the batch
+found **no gap** - which is the result, so here is the whole census with its
+evidence rather than a claim.
+
+### The four ways to pin a feature to the widget
+
+| Pattern | Callers outside this plugin | Live gap |
+| --- | --- | --- |
+| `TextEditorWidget::fromEditor()` / `qobject_cast<TextEditorWidget *>` | 41 files | **one**, closed in entry 146 (EmacsKeys C-j) |
+| `BaseTextEditor::currentTextEditor()` | 7 | **one**, closed in entry 147 (Run Test Under Cursor) |
+| `BaseTextEditor::openedTextEditors()` / `textEditorsForDocument()` / `textEditorsForFilePath()` | 2, both inside CppEditor's widget paths | none |
+| `qobject_cast<QPlainTextEdit *>(editor->widget())`, and event filters on it | 5, all a plugin's own widgets or FakeVim's adapter | none |
+
+And the fifth, which is not a cast at all and was the one worth checking:
+
+| **`connect(widget, &TextEditorWidget::…)`** | 19 sites | none |
+
+The one that mattered there is `LanguageClientManager::editorOpened()`, which
+answers Follow Symbol, Follow Symbol to Type, Find Usages, Rename Symbol and
+Open Call Hierarchy for every language a server serves - clangd included. It
+has a full second branch on `TextEditor::symbolRequestsForEditor()`, with all
+five relays, the caret tracking **and** `activateEditor()`/
+`autoSetupLanguageServer()` at the end. Read to the last line, because a branch
+that answers four of five questions and forgets to start the server would look
+right and leave C++ without clangd.
+
+The rest are a plugin's own editors: the ACP chat input, DiffEditor's
+side-by-side view, QML Designer's text pane, FakeVim's mini-buffer. Each
+subclasses `TextEditorWidget` deliberately; none of them is a file the reader
+opens.
+
+### Named while passing through
+
+`QmlEngine::gotoLocation()` opens a "JS Source for …" editor with
+`C_QMLJSEDITOR_ID` and makes it read-only through
+`qobject_cast<QPlainTextEdit *>(editor->widget())`. QmlJS opens in the widget
+editor, so it works today and it is one more site for whoever moves QmlJS -
+beside the context pane of entry 145.
+
+### The goal, verified rather than remembered
+
+Four guards run on today's tree, not from memory:
+
+| | Exit |
+| --- | --- |
+| `testWhichFactoriesAreQuick` | 0 |
+| `testWhichLanguagesOpenInTheQuickEditor` | 0 |
+| `testEveryQuickLanguageGetsWhatItsFactoryConfigures` | 0 |
+| `testAQuickCppEditorHasEverythingTheFactoryConfigures` | 0 |
+
+A C++ file opens in `TextEditor::TextViewport`; everything `CppEditorFactory`
+configures reaches it; the eleven moved languages each get what their factory
+configures; and the two censuses of *which* factories and languages are Quick
+still match what is written down.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 711 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No code changed, so there is nothing to control. Saying that plainly is the
+point: entries 146 and 147 each closed a dead feature found by a grep, and the
+value of this one is that the same greps now come back empty and the table
+above says which greps they were.
+
+### Where this leaves it
+
+Every remaining item, with why it is not a batch:
+
+| | |
+| --- | --- |
+| `abortAssist` on a caret move (EmacsKeys) | a difference in *when* the completion popup closes, not whether |
+| `activateWindow()` leaving a debugger tooltip | cosmetic focus restoration |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box; `supportsSelection()` is false on macOS and the widget's preedit caret is drawn where a test cannot see it |
+| `canInsertFromMimeData` | a hook nothing overrides yet |
+| The link press/release handshake | two defensible answers |
+| QmlJS's context pane, and `QmlEngine::gotoLocation` | belong to moving QmlJS |
+| The whitespace drawing difference; printing | declined (entry 68) and the owner's (entry 31) |
+| The four pinned factories; `forceOpenLinksInNextSplit` | blocked on callers that cast, and a dead preference |
+
+### What I would do next
+
+**Nothing of this kind, and now the enumeration is the argument.** Twenty-four
+batches have walked the two implementations against each other from five
+directions - the event handlers, the commands, the preferences, what a factory
+configures, and who reaches past the editor for a widget - and each of those is
+now a test that fails when its answer changes.
+
+If work is still wanted, the two that would repay it are **moving QmlJS** -
+which has three known sites waiting for it and is a project rather than a
+batch - and **a Linux run**, which would settle the only two items that are
+unmeasurable here rather than undecided. Everything else on the list is a
+decision for whoever owns the text editor, not a gap for a test to find.
