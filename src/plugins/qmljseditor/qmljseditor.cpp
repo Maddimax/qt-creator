@@ -152,17 +152,6 @@ void QmlJSEditorWidget::finalizeInitialization()
     connect(&m_updateOutlineIndexTimer, &QTimer::timeout,
             this, &QmlJSEditorWidget::updateOutlineIndexNow);
 
-    m_contextPane = QuickToolBar::instance();
-
-    m_contextPaneTimer.setInterval(UPDATE_OUTLINE_INTERVAL);
-    m_contextPaneTimer.setSingleShot(true);
-    connect(&m_contextPaneTimer, &QTimer::timeout, this, &QmlJSEditorWidget::updateContextPane);
-    if (m_contextPane) {
-        connect(this, &QmlJSEditorWidget::cursorPositionChanged,
-                &m_contextPaneTimer, QOverload<>::of(&QTimer::start));
-        connect(m_contextPane, &QuickToolBar::closed, this, &QmlJSEditorWidget::showTextMarker);
-    }
-
     connect(qmlJsEditorDocument(), &QmlJSEditorDocument::semanticInfoUpdated,
             this, &QmlJSEditorWidget::semanticInfoUpdated);
 
@@ -235,185 +224,6 @@ void QmlJSEditorWidget::updateOutlineIndexNow()
         QSignalBlocker blocker(m_outlineCombo);
         m_outlineCombo->setCurrentIndex(comboIndex);
     }
-}
-
-void QmlJSEditorWidget::updateContextPane()
-{
-    const SemanticInfo info = qmlJsEditorDocument()->semanticInfo();
-    if (m_contextPane && document() && info.isValid()
-            && document()->revision() == info.document->editorRevision())
-    {
-        Node *oldNode = info.declaringMemberNoProperties(m_oldCursorPosition);
-        Node *newNode = info.declaringMemberNoProperties(position());
-        if (oldNode != newNode && m_oldCursorPosition != -1)
-            m_contextPane->apply(editorOfWidget(this), info.document, nullptr, newNode, false);
-
-        if (QuickToolBar::isAvailable(info.document, newNode) &&
-            !m_contextPane->widget()->isVisible()) {
-            RefactorMarkers markers;
-            if (UiObjectMember *m = newNode->uiObjectMemberCast()) {
-                const int start = qualifiedTypeNameId(m)->identifierToken.begin();
-                for (UiQualifiedId *q = qualifiedTypeNameId(m); q; q = q->next) {
-                    if (! q->next) {
-                        const int end = q->identifierToken.end();
-                        if (position() >= start && position() <= end) {
-                            RefactorMarker marker;
-                            QTextCursor tc(document());
-                            tc.setPosition(end);
-                            marker.cursor = tc;
-                            marker.tooltip = Tr::tr("Show Qt Quick ToolBar");
-                            marker.type = QT_QUICK_TOOLBAR_MARKER_ID;
-                            marker.callback = [this](Core::IEditor *) {
-                                showContextPane();
-                            };
-                            markers.append(marker);
-                        }
-                    }
-                }
-            }
-            setRefactorMarkers(markers, QT_QUICK_TOOLBAR_MARKER_ID);
-        } else if (oldNode != newNode) {
-            clearRefactorMarkers(QT_QUICK_TOOLBAR_MARKER_ID);
-        }
-        m_oldCursorPosition = position();
-
-        setSelectedElements();
-    }
-}
-
-void QmlJSEditorWidget::showTextMarker()
-{
-    m_oldCursorPosition = -1;
-    updateContextPane();
-}
-
-class SelectedElement: protected Visitor
-{
-    unsigned m_cursorPositionStart = 0;
-    unsigned m_cursorPositionEnd = 0;
-    QList<UiObjectMember *> m_selectedMembers;
-
-public:
-    QList<UiObjectMember *> operator()(const Document::Ptr &doc, unsigned startPosition, unsigned endPosition)
-    {
-        m_cursorPositionStart = startPosition;
-        m_cursorPositionEnd = endPosition;
-        m_selectedMembers.clear();
-        Node::accept(doc->qmlProgram(), this);
-        return m_selectedMembers;
-    }
-
-protected:
-
-    bool isSelectable(UiObjectMember *member) const
-    {
-        UiQualifiedId *id = qualifiedTypeNameId(member);
-        if (id) {
-            QStringView name = id->name;
-            if (!name.isEmpty() && name.at(0).isUpper())
-                return true;
-        }
-
-        return false;
-    }
-
-    inline bool isIdBinding(UiObjectMember *member) const
-    {
-        if (auto script = cast<const UiScriptBinding *>(member)) {
-            if (!script->qualifiedId || script->qualifiedId->name.isEmpty()
-                || script->qualifiedId->next) {
-                return false;
-            }
-
-            QStringView propertyName = script->qualifiedId->name;
-
-            if (propertyName == QLatin1String("id"))
-                return true;
-        }
-
-        return false;
-    }
-
-    inline bool containsCursor(unsigned begin, unsigned end)
-    {
-        return m_cursorPositionStart >= begin && m_cursorPositionEnd <= end;
-    }
-
-    inline bool intersectsCursor(unsigned begin, unsigned end)
-    {
-        return (m_cursorPositionEnd >= begin && m_cursorPositionStart <= end);
-    }
-
-    inline bool isRangeSelected() const
-    {
-        return (m_cursorPositionStart != m_cursorPositionEnd);
-    }
-
-    void postVisit(Node *ast) override
-    {
-        if (!isRangeSelected() && !m_selectedMembers.isEmpty())
-            return; // nothing to do, we already have the results.
-
-        if (UiObjectMember *member = ast->uiObjectMemberCast()) {
-            unsigned begin = member->firstSourceLocation().begin();
-            unsigned end = member->lastSourceLocation().end();
-
-            if ((isRangeSelected() && intersectsCursor(begin, end))
-            || (!isRangeSelected() && containsCursor(begin, end)))
-            {
-                if (initializerOfObject(member) && isSelectable(member)) {
-                    m_selectedMembers << member;
-                    // move start towards end; this facilitates multiselection so that root is usually ignored.
-                    m_cursorPositionStart = qMin(end, m_cursorPositionEnd);
-                }
-            }
-        }
-    }
-
-    void throwRecursionDepthError() override
-    {
-        qWarning("Warning: Hit maximum recursion depth visiting AST in SelectedElement");
-    }
-};
-
-void QmlJSEditorWidget::setSelectedElements()
-{
-    static const QMetaMethod selectedChangedSignal =
-            QMetaMethod::fromSignal(&QmlJSEditorWidget::selectedElementsChanged);
-    if (!isSignalConnected(selectedChangedSignal))
-        return;
-
-    QTextCursor tc = textCursor();
-    QString wordAtCursor;
-    QList<UiObjectMember *> offsets;
-
-    unsigned startPos;
-    unsigned endPos;
-
-    if (tc.hasSelection()) {
-        startPos = tc.selectionStart();
-        endPos = tc.selectionEnd();
-    } else {
-        tc.movePosition(QTextCursor::StartOfWord);
-        tc.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
-
-        startPos = textCursor().position();
-        endPos = textCursor().position();
-    }
-
-    if (qmlJsEditorDocument()->semanticInfo().isValid()) {
-        SelectedElement selectedMembers;
-        const QList<UiObjectMember *> members
-            = selectedMembers(qmlJsEditorDocument()->semanticInfo().document, startPos, endPos);
-        if (!members.isEmpty()) {
-            for (UiObjectMember *m : members) {
-                offsets << m;
-            }
-        }
-    }
-    wordAtCursor = tc.selectedText();
-
-    emit selectedElementsChanged(offsets, wordAtCursor);
 }
 
 void QmlJSEditorWidget::createToolBar()
@@ -843,20 +653,6 @@ void QmlJSEditorWidget::renameSymbolUnderCursor()
     renameQmlJSSymbol(textDocument(), textCursor(), m_findReferences);
 }
 
-void QmlJSEditorWidget::showContextPane()
-{
-    const SemanticInfo info = qmlJsEditorDocument()->semanticInfo();
-    if (m_contextPane && info.isValid()) {
-        Node *newNode = info.declaringMemberNoProperties(position());
-        ScopeChain scopeChain = info.scopeChain(info.rangePath(position()));
-        m_contextPane->apply(editorOfWidget(this), info.document,
-                             &scopeChain,
-                             newNode, false, true);
-        m_oldCursorPosition = position();
-        clearRefactorMarkers(QT_QUICK_TOOLBAR_MARKER_ID);
-    }
-}
-
 void QmlJSEditorWidget::contextMenuEvent(QContextMenuEvent *e)
 {
     QPointer<QMenu> menu(new QMenu(this));
@@ -921,50 +717,6 @@ void QmlJSEditorWidget::contextMenuEvent(QContextMenuEvent *e)
     delete menu;
 }
 
-bool QmlJSEditorWidget::event(QEvent *e)
-{
-    switch (e->type()) {
-    case QEvent::ShortcutOverride:
-        if (static_cast<QKeyEvent*>(e)->key() == Qt::Key_Escape && m_contextPane) {
-            if (hideContextPane()) {
-                e->accept();
-                return true;
-            }
-        }
-        break;
-    default:
-        break;
-    }
-
-    return TextEditorWidget::event(e);
-}
-
-
-void QmlJSEditorWidget::wheelEvent(QWheelEvent *event)
-{
-    bool visible = false;
-    if (m_contextPane && m_contextPane->widget()->isVisible())
-        visible = true;
-
-    TextEditorWidget::wheelEvent(event);
-
-    if (visible)
-        m_contextPane->apply(editorOfWidget(this), qmlJsEditorDocument()->semanticInfo().document, nullptr,
-                             qmlJsEditorDocument()->semanticInfo().declaringMemberNoProperties(m_oldCursorPosition),
-                             false, true);
-}
-
-void QmlJSEditorWidget::resizeEvent(QResizeEvent *event)
-{
-    TextEditorWidget::resizeEvent(event);
-    hideContextPane();
-}
-
- void QmlJSEditorWidget::scrollContentsBy(int dx, int dy)
- {
-     TextEditorWidget::scrollContentsBy(dx, dy);
-     hideContextPane();
- }
 
 QmlJSEditorDocument *QmlJSEditorWidget::qmlJsEditorDocument() const
 {
@@ -978,22 +730,6 @@ void QmlJSEditorWidget::semanticInfoUpdated(const SemanticInfo &semanticInfo)
         textDocument()->triggerPendingUpdates();
     }
 
-    if (m_contextPane) {
-        Node *newNode = semanticInfo.declaringMemberNoProperties(position());
-        if (newNode) {
-            m_contextPane->apply(editorOfWidget(this), semanticInfo.document, nullptr, newNode, true);
-            m_contextPaneTimer.start(); //update text marker
-        }
-    }
-}
-
-bool QmlJSEditorWidget::hideContextPane()
-{
-    bool b = (m_contextPane) && m_contextPane->widget()->isVisible();
-    if (b)
-        m_contextPane->apply(editorOfWidget(this), qmlJsEditorDocument()->semanticInfo().document,
-                             nullptr, nullptr, false);
-    return b;
 }
 
 QString QmlJSEditorWidget::foldReplacementText(const QTextBlock &block) const
@@ -1021,6 +757,174 @@ constexpr uint qmlJSFixedOptionalActions = OptionalActions::UnCommentSelection
                                            | OptionalActions::FollowSymbolUnderCursor
                                            | OptionalActions::RenameSymbol
                                            | OptionalActions::FindUsage;
+
+// The Qt Quick Toolbar over the element the caret is in, driven from the
+// editor rather than from the widget, so that a view which is not one gets
+// the pane, the marker that offers it, and the caret-following - all of which
+// lived on QmlJSEditorWidget and reached nothing else.
+class QmlJSContextPane final : public QObject
+{
+public:
+    QmlJSContextPane(Core::IEditor *editor, QmlJSEditorDocument *document)
+        : QObject(editor)
+        , m_editor(editor)
+        , m_document(document)
+    {
+        setObjectName("QmlJSContextPane");
+
+        m_updateTimer.setInterval(UPDATE_OUTLINE_INTERVAL);
+        m_updateTimer.setSingleShot(true);
+        connect(&m_updateTimer, &QTimer::timeout, this, &QmlJSContextPane::update);
+        connect(editor, &Core::IEditor::cursorPositionChanged,
+                &m_updateTimer, QOverload<>::of(&QTimer::start));
+        connect(document, &QmlJSEditorDocument::semanticInfoUpdated,
+                this, &QmlJSContextPane::applyOnParse);
+        connect(QuickToolBar::instance(), &QuickToolBar::closed,
+                this, &QmlJSContextPane::backToMarker);
+
+        // The widget editor hid the pane on a scroll or a resize and chased it
+        // on a wheel. One rule instead of three: while the pane is visible, it
+        // follows the text it stands beside, and puts itself away when that
+        // text leaves the screen. A window move needs nothing - the pane is a
+        // child of the editor's parent and moves with it.
+        m_followTimer.setInterval(150);
+        connect(&m_followTimer, &QTimer::timeout, this, &QmlJSContextPane::follow);
+
+        m_editor->widget()->installEventFilter(this);
+    }
+
+    // What the marker and the Show Qt Quick Toolbar action run.
+    void showPane()
+    {
+        const QmlJSTools::SemanticInfo info = m_document->semanticInfo();
+        if (!info.isValid())
+            return;
+        Node * const node = info.declaringMemberNoProperties(caret());
+        ScopeChain scopeChain = info.scopeChain(info.rangePath(caret()));
+        QuickToolBar::instance()->apply(m_editor, info.document, &scopeChain, node, false, true);
+        m_lastCaret = caret();
+        TextEditor::setRefactorMarkersIn(m_editor, QT_QUICK_TOOLBAR_MARKER_ID, {});
+        m_followTimer.start();
+    }
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (event->type() == QEvent::ShortcutOverride
+            && static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape && hidePane()) {
+            event->accept();
+            return true;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    int caret() const { return TextEditor::textCursorOf(m_editor).position(); }
+
+    void applyOnParse(const QmlJSTools::SemanticInfo &info)
+    {
+        if (Node * const node = info.declaringMemberNoProperties(caret())) {
+            QuickToolBar::instance()->apply(m_editor, info.document, nullptr, node, true);
+            m_updateTimer.start(); // update the marker
+            m_followTimer.start();
+        }
+    }
+
+    void update()
+    {
+        const QmlJSTools::SemanticInfo info = m_document->semanticInfo();
+        if (!info.isValid()
+            || m_document->document()->revision() != info.document->editorRevision()) {
+            return;
+        }
+
+        Node * const oldNode = info.declaringMemberNoProperties(m_lastCaret);
+        Node * const newNode = info.declaringMemberNoProperties(caret());
+        if (oldNode != newNode && m_lastCaret != -1) {
+            QuickToolBar::instance()->apply(m_editor, info.document, nullptr, newNode, false);
+            m_followTimer.start();
+        }
+
+        if (QuickToolBar::isAvailable(info.document, newNode)
+            && !QuickToolBar::instance()->widget()->isVisible()) {
+            TextEditor::RefactorMarkers markers;
+            if (UiObjectMember * const member = newNode->uiObjectMemberCast()) {
+                const int start = qualifiedTypeNameId(member)->identifierToken.begin();
+                for (UiQualifiedId *q = qualifiedTypeNameId(member); q; q = q->next) {
+                    if (!q->next) {
+                        const int end = q->identifierToken.end();
+                        if (caret() >= start && caret() <= end) {
+                            TextEditor::RefactorMarker marker;
+                            QTextCursor cursor(m_document->document());
+                            cursor.setPosition(end);
+                            marker.cursor = cursor;
+                            marker.tooltip = Tr::tr("Show Qt Quick ToolBar");
+                            marker.type = QT_QUICK_TOOLBAR_MARKER_ID;
+                            marker.callback = [this](Core::IEditor *) { showPane(); };
+                            markers.append(marker);
+                        }
+                    }
+                }
+            }
+            TextEditor::setRefactorMarkersIn(m_editor, QT_QUICK_TOOLBAR_MARKER_ID, markers);
+        } else if (oldNode != newNode) {
+            TextEditor::setRefactorMarkersIn(m_editor, QT_QUICK_TOOLBAR_MARKER_ID, {});
+        }
+        m_lastCaret = caret();
+    }
+
+    // The pane closed, so the way back to it is the marker again.
+    void backToMarker()
+    {
+        m_lastCaret = -1;
+        update();
+    }
+
+    bool hidePane()
+    {
+        QuickToolBar * const bar = QuickToolBar::instance();
+        const bool visible = bar->widget()->isVisible();
+        if (visible)
+            bar->apply(m_editor, m_document->semanticInfo().document, nullptr, nullptr, false);
+        return visible;
+    }
+
+    void follow()
+    {
+        QuickToolBar * const bar = QuickToolBar::instance();
+        if (!bar->widget()->isVisible()) {
+            m_followTimer.stop();
+            m_lastElementRect = QRect();
+            return;
+        }
+        // Off screen is view-shaped: the Qt Quick view answers nothing for a
+        // position it has not laid out, while the widget answers from the
+        // whole document layout - a rect well outside itself. Both mean the
+        // text left the screen, which is when the widget editor hid the pane.
+        const QRect at = TextEditor::globalRectForPositionIn(m_editor, m_lastCaret);
+        const QRect viewGlobal(m_editor->widget()->mapToGlobal(QPoint(0, 0)),
+                               m_editor->widget()->size());
+        if (at.isEmpty() || !at.intersects(viewGlobal)) {
+            hidePane();
+            return;
+        }
+        if (at == m_lastElementRect)
+            return;
+        m_lastElementRect = at;
+        const QmlJSTools::SemanticInfo info = m_document->semanticInfo();
+        if (!info.isValid())
+            return;
+        bar->apply(m_editor, info.document, nullptr,
+                   info.declaringMemberNoProperties(m_lastCaret), false, true);
+    }
+
+    Core::IEditor * const m_editor;
+    QmlJSEditorDocument * const m_document;
+    QTimer m_updateTimer;
+    QTimer m_followTimer;
+    QRect m_lastElementRect;
+    int m_lastCaret = -1;
+};
 
 // Which of Auto-indent and Auto-format a QML file offers. The builtin
 // formatter indents and does not format; qmlformat formats and does not
@@ -1207,6 +1111,7 @@ QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
         // both views draw these, through setViewSelections().
         if (qmlDocument) {
             new QmlJSUses(editor, qmlDocument);
+            new QmlJSContextPane(editor, qmlDocument);
             followTheFormatter(editor);
         }
 
@@ -1277,8 +1182,12 @@ void inspectElement()
 
 void showContextPane()
 {
-    if (auto editor = qobject_cast<QmlJSEditorWidget*>(EditorManager::currentEditor()->widget()))
-        editor->showContextPane();
+    Core::IEditor * const editor = EditorManager::currentEditor();
+    QObject * const pane = editor ? editor->findChild<QObject *>(
+                               QLatin1String("QmlJSContextPane"), Qt::FindDirectChildrenOnly)
+                                  : nullptr;
+    if (pane)
+        static_cast<QmlJSContextPane *>(pane)->showPane();
 }
 
 void setupQmlJSEditor()

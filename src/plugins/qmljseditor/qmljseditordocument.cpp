@@ -4,6 +4,7 @@
 #include "qmljseditordocument.h"
 #include "qmljseditor.h"
 #include "quicktoolbar.h"
+#include <qmleditorwidgets/contextpanewidget.h>
 
 #include "qmljseditorsettings.h"
 
@@ -32,6 +33,7 @@
 #include <QScopeGuard>
 
 #include <QSignalSpy>
+#include <QWheelEvent>
 #include <QTest>
 #endif
 
@@ -1014,6 +1016,155 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // The pane driven the way a reader drives it: the caret wanders into an
+    // element, the marker offers the pane, moving between elements shows it,
+    // the window moving underneath does not shake it off, and Escape puts it
+    // away. All of that lived on QmlJSEditorWidget, so in the Qt Quick view
+    // none of it happened at all.
+    void testTheContextPaneFollowsTheCaretInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheContextPaneFollowsTheCaretInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        const bool paneWasEnabled = Internal::settings().enableContextPane();
+        const bool paneWasPinned = Internal::settings().pinContextPane();
+        Internal::settings().enableContextPane.setValue(true);
+        const QScopeGuard restoreSetting([paneWasEnabled, paneWasPinned] {
+            Internal::settings().enableContextPane.setValue(paneWasEnabled);
+            Internal::settings().pinContextPane.setValue(paneWasPinned);
+        });
+
+        Utils::TemporaryDirectory dir("qmljs-pane-follows");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Follows.qml");
+        QString source = "import QtQuick\n"
+                         "Item {\n"
+                         "    property int filler\n"
+                         "    Rectangle { id: box; width: 10; height: 10 }\n";
+        for (int i = 0; i < 80; ++i)
+            source += QString("    property int filler%1\n").arg(i);
+        source += "}\n";
+        QVERIFY(file.writeFileContents(source.toUtf8()));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        editor->widget()->resize(500, 400);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(!document->isSemanticInfoOutdated()
+                         && !document->semanticInfo().document.isNull(),
+                     "the QML file was never parsed");
+
+        QuickToolBar * const bar = QuickToolBar::instance();
+        QWidget * const pane = bar->widget();
+        const QScopeGuard putAway([pane] {
+            // The pane's own Show Always action was checked by running with
+            // the setting on. Left checked, the next setOptions(false) is a
+            // state change, and a state change fires onDisable() - which
+            // hides the pane whoever just activated it.
+            if (auto * const contextPane = qobject_cast<QmlEditorWidgets::ContextPaneWidget *>(pane))
+                contextPane->setOptions(false, false);
+            pane->hide();
+            pane->setParent(nullptr);
+        });
+
+        const QString text = document->plainText();
+        // gotoLine rather than a raw cursor set: it also scrolls the caret
+        // into view, which the comeback below needs after scrolling away.
+        const auto caretIn = [editor, &text](const QString &word) {
+            const int offset = text.indexOf(word) + 1;
+            QVERIFY(offset >= 1);
+            const int line = int(text.left(offset).count(QLatin1Char('\n'))) + 1;
+            const int column = offset - int(text.lastIndexOf(QLatin1Char('\n'), offset - 1)) - 1;
+            editor->gotoLine(line, column, true);
+        };
+        const Utils::Id markerId("QtQuickToolbarMarkerId");
+
+        // Into the Rectangle: the pane is not up yet, so the caret loop offers
+        // it with a refactor marker instead.
+        caretIn("Rectangle");
+        QTRY_VERIFY2(!document->refactorMarkers(markerId).isEmpty(),
+                     "the caret sat in a Rectangle and no marker offered the pane");
+
+        // Off to another element and back: crossing elements is what makes the
+        // loop show the pane itself when the setting is on.
+        caretIn("filler");
+        QTRY_VERIFY2(document->refactorMarkers(markerId).isEmpty(),
+                     "the marker survived the caret leaving the element");
+        caretIn("Rectangle");
+        QWidget * const paneParent = editor->widget()->parentWidget();
+        QVERIFY(paneParent);
+        QTRY_VERIFY2(pane->isVisibleTo(paneParent),
+                     "crossing back into the Rectangle never showed the pane");
+
+        const int inRectangle = text.indexOf("Rectangle") + 1;
+        const auto anchored = [&]() -> bool {
+            const QRect elementGlobal
+                = TextEditor::globalRectForPositionIn(editor, inRectangle);
+            if (elementGlobal.isEmpty())
+                return false;
+            const int elementTop = paneParent->mapFromGlobal(elementGlobal.topLeft()).y();
+            return qAbs(pane->y() - elementTop) <= pane->height() + 20;
+        };
+        QTRY_VERIFY2(anchored(), "the pane is not anchored to the element that opened it");
+
+        // Scrolled far enough that the element leaves the screen, the pane
+        // puts itself away - the widget editor hid it on any scroll at all.
+        QWidget *wheelTarget = nullptr;
+        const QList<QWidget *> children = editor->widget()->findChildren<QWidget *>();
+        for (QWidget * const child : children) {
+            if (child->inherits("QQuickWidget")) {
+                wheelTarget = child;
+                break;
+            }
+        }
+        if (TextEditor::TextEditorWidget * const w
+            = TextEditor::TextEditorWidget::fromEditor(editor)) {
+            wheelTarget = w->viewport();
+        }
+        QVERIFY(wheelTarget);
+        const QPointF center(wheelTarget->width() / 2.0, wheelTarget->height() / 2.0);
+        QWheelEvent scrollFarDown(center, wheelTarget->mapToGlobal(center), QPoint(),
+                                  QPoint(0, -120 * 12), Qt::NoButton, Qt::NoModifier,
+                                  Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(wheelTarget, &scrollFarDown);
+        QTRY_VERIFY2(!pane->isVisibleTo(paneParent),
+                     "the element scrolled off screen and the pane stayed");
+
+        // Back to the element, and the Show Qt Quick Toolbar action brings the
+        // pane back - the action used to reach its editor by casting the
+        // current editor's widget, which a view that is not one never passed.
+        caretIn("Rectangle");
+        Internal::showContextPane();
+        QTRY_VERIFY2(pane->isVisibleTo(paneParent), "the pane did not come back");
+        QTRY_VERIFY2(anchored(), "the pane came back somewhere else");
+
+        // And Escape puts it away.
+        QKeyEvent escape(QEvent::ShortcutOverride, Qt::Key_Escape, Qt::NoModifier);
+        QCoreApplication::sendEvent(editor->widget(), &escape);
+        QTRY_VERIFY2(!pane->isVisibleTo(paneParent), "Escape did not put the pane away");
+    }
+
     // The context pane itself, floated over the element it edits. It took a
     // TextEditorWidget for geometry only, so this force-applies it over a
     // Rectangle in either view and asks where it landed. Forced, because the

@@ -66,16 +66,10 @@ public:
 
     void findUsages() override;
     void renameSymbolUnderCursor() override;
-    void showContextPane();
 
-signals:
-    void selectedElementsChanged(QList<QmlJS::AST::UiObjectMember*> offsets,
-                                 const QString &wordAtCursor);
 private:
 
     void jumpToOutlineElement(int index);
-    void updateContextPane();
-    void showTextMarker();
 
 
     void semanticInfoUpdated(const QmlJSTools::SemanticInfo &semanticInfo);
@@ -84,26 +78,17 @@ private:
 
 protected:
     void contextMenuEvent(QContextMenuEvent *e) override;
-    bool event(QEvent *e) override;
-    void wheelEvent(QWheelEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override;
-    void scrollContentsBy(int dx, int dy) override;
     void createToolBar();
     void updateOutline(QWidget *newOutline);
     QString foldReplacementText(const QTextBlock &block) const override;
 
 private:
-    void setSelectedElements();
 
-    bool hideContextPane();
 
     QTimer m_updateOutlineIndexTimer;
-    QTimer m_contextPaneTimer;
     Utils::TreeViewComboBox *m_outlineCombo = nullptr;
     QModelIndex m_outlineModelIndex;
 
-    QuickToolBar *m_contextPane = nullptr;
-    int m_oldCursorPosition = -1;
 
     FindReferences *m_findReferences;
 };

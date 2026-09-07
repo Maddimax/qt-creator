@@ -52131,3 +52131,95 @@ the one design point is that the widget also still drives the pane (its own
 `updateContextPane()` path stays until D, or moves with C the way the outline
 pane's driving did in entry 152 - the second is less code and one behaviour,
 and is what I would do).
+
+## 2026-09-07 — The pane driven from the editor (batch 163)
+
+Batch C. `QmlJSContextPane`, a decorator object of `QmlJSUses`'s shape, now
+drives the context pane for either view: the caret loop and its 500 ms timer,
+the Show Qt Quick Toolbar refactor marker (through `setRefactorMarkersIn()`),
+the re-apply when a parse lands, the way back to the marker when the pane
+closes, Escape to put it away (an event filter on the editor's widget), and
+the Show Qt Quick Toolbar action - which reached its editor by
+`qobject_cast<QmlJSEditorWidget *>(currentEditor()->widget())` and so did
+nothing in the Qt Quick view.
+
+`QmlJSEditorWidget` loses `updateContextPane()`, `showTextMarker()`,
+`hideContextPane()`, `showContextPane()`, the `wheelEvent`, `resizeEvent`,
+`scrollContentsBy` and `event()` overrides that existed only for the pane, the
+pane timer and members - and `setSelectedElements()` with its
+`selectedElementsChanged` signal and `SelectedElement` visitor, which entry 158
+measured as connected to nothing: the loop was its only caller, so the whole
+chain goes.
+
+### Scroll, resize and wheel became one rule
+
+The widget hid the pane on any scroll or resize and chased it on a wheel.
+The decorator polls at 150 ms *while the pane is visible*: still on screen,
+the pane follows the text; off screen, it puts itself away. No per-view scroll
+plumbing - the seam answers where the text is, and that is all the rule needs.
+
+**Two of my claims about this died by measurement, one per control run:**
+
+- *"Following also covers the window being moved."* It does not need to: the
+  pane is a **child of the editor's parent and moves with the window for
+  free**. Control WB (follower disabled) passed the window-move phase because
+  both the pane's position and the element's, in parent coordinates, are
+  invariant under a window move. The phase tested nothing and is gone; the
+  claim is corrected above.
+- *"Off screen means the seam answers nothing."* View-shaped: the Qt Quick
+  view answers nothing for a row it has not laid out, but **the widget answers
+  any position from the whole document layout** - a rect far outside itself,
+  never empty. Off screen is `empty || !intersects(the editor's own rect)`,
+  and the widget row of the scroll phase is what said so.
+
+### Two more fixture facts, both worth keeping
+
+- **The pane's Show Always action remembers being checked.** Running once with
+  `enableContextPane` on leaves the action checked; a later forced show with
+  the setting off calls `setOptions(false)`, the un-check is a state change,
+  and `onDisable(false)` hides the pane that was just activated - and writes
+  both settings. A test that flips the setting must restore the *action*
+  (`setOptions(false, false)`) as well as the setting, or the next test's
+  forced show hides itself. Found because this batch's new test ran before
+  batch 162's and turned it red.
+- **A raw cursor set does not scroll the Qt Quick view.** `gotoLine()` does,
+  in both views, and is what the test uses to bring the element back.
+
+### Controls
+
+- **WA**: the decorator never created - red on both rows at the first marker
+  assertion.
+- **WB**: the follower notices but never acts - red on both rows at "scrolled
+  off screen and the pane stayed" (after the phase itself was fixed; its first
+  version could not fail, above).
+- **WC**: Escape ignored - red on both rows at "Escape did not put the pane
+  away".
+
+Three controls, three phases of one reader-shaped test:
+marker → cross-elements shows → anchored → scroll-off hides → the action
+brings it back → Escape puts it away. All of it in both views.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 729 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 42 passed, 0 failed (was 40) |
+
+No `.qbs` change: no files added.
+
+### What moving QmlJS still needs
+
+**Batch D and nothing else**: `setUsesQuickEditor(true)` on
+`QmlJSEditorFactory`, with the `Thing.qml` row of
+`testWhichLanguagesOpenInTheQuickEditor` flipping in the same commit - and the
+walk of entry 157 re-run first to confirm nothing on `QmlJSEditorWidget` is
+left that a `.qml` file in the Qt Quick view would miss. The widget class that
+remains is the outline combo, folds restore, the fold replacement text, and
+`contextMenuEvent` - all of which have Qt Quick answers already
+(entries 98, 143, 144, and `contextMenuActions()`).
+
+### What I would do next
+
+**Batch D**, starting with that re-walk rather than with the flip.
