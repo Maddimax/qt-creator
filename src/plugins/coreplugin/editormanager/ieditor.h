@@ -36,6 +36,11 @@ public:
     // view where selecting means nothing.
     virtual QString selectedText() const { return {}; }
     virtual void gotoLine(int line, int column = 0, bool centerLine = true) { Q_UNUSED(line) Q_UNUSED(column) Q_UNUSED(centerLine) }
+    // Extend the selection from where the caret is to \a line and \a column,
+    // in the same one-based line and zero-based column gotoLine() takes. The
+    // search results pane asks for this so that a match stands out instead of
+    // leaving a caret at its start; an editor that cannot select leaves it be.
+    virtual void selectTo(int line, int column) { Q_UNUSED(line) Q_UNUSED(column) }
 
     virtual QWidget *toolBar() = 0;
 

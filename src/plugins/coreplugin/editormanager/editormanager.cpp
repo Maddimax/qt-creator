@@ -3831,14 +3831,13 @@ void EditorManager::openEditorAtSearchResult(const SearchResultItem &item,
     IEditor *editor = openEditorAt(
         {FilePath::fromUserInput(path.first()), range.begin.line, range.begin.column},
         editorId, flags, newEditor);
-    // Select the match, so it stands out instead of leaving just a caret at its start.
-    if (editor) {
-        if (auto textEdit = Aggregation::query<Utils::PlainTextEdit>(editor->widget())) {
-            const QTextCursor cursor = range.toTextCursor(textEdit->document());
-            if (cursor.hasSelection())
-                textEdit->setTextCursor(cursor);
-        }
-    }
+    // Select the match, so it stands out instead of leaving just a caret at
+    // its start. Asked of the editor rather than of a text widget inside it:
+    // openEditorAt() above has already put the caret at the start of the
+    // range, and an editor that is not built from a QPlainTextEdit has one
+    // just the same.
+    if (editor)
+        editor->selectTo(range.end.line, range.end.column);
 }
 
 /*!

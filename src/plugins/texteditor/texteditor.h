@@ -154,6 +154,7 @@ public:
     int currentLine() const override;
     int currentColumn() const override;
     void gotoLine(int line, int column = 0, bool centerLine = true) override;
+    void selectTo(int line, int column) override;
 
     /*! Returns the amount of visible columns (in characters) in the editor */
     int columnCount() const;

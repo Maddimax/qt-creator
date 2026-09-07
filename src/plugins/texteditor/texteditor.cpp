@@ -9530,6 +9530,18 @@ void BaseTextEditor::gotoLine(int line, int column, bool centerLine)
     editorWidget()->gotoLine(line, column, centerLine);
 }
 
+void BaseTextEditor::selectTo(int line, int column)
+{
+    TextEditorWidget * const widget = editorWidget();
+    QTC_ASSERT(widget, return);
+    const int position = Utils::Text::positionInText(widget->document(), line, column);
+    if (position < 0)
+        return;
+    QTextCursor cursor = widget->textCursor();
+    cursor.setPosition(position, QTextCursor::KeepAnchor);
+    widget->setTextCursor(cursor);
+}
+
 int BaseTextEditor::columnCount() const
 {
     return editorWidget()->columnCount();

@@ -79,6 +79,7 @@
 #include <utils/algorithm.h>
 #include <utils/theme/theme.h>
 #include <utils/mimeutils.h>
+#include <utils/searchresultitem.h>
 #include <utils/guitest.h>
 #include <utils/infobar.h>
 #include <utils/minimizableinfobars.h>
@@ -955,6 +956,20 @@ public:
 
     // What every jump into a file goes through: a search result, a compiler
     // message, go-to-definition, the locator.
+    void selectTo(int line, int column) final
+    {
+        TextViewport * const view = viewport();
+        QTextDocument * const text = m_document ? m_document->document() : nullptr;
+        if (!view || !text)
+            return;
+        const int position = Utils::Text::positionInText(text, line, column);
+        if (position < 0)
+            return;
+        QTextCursor cursor = view->textCursor();
+        cursor.setPosition(position, QTextCursor::KeepAnchor);
+        view->setTextCursor(cursor);
+    }
+
     void gotoLine(int line, int column, bool centerLine) final
     {
         if (TextViewport * const view = viewport()) {
@@ -10851,6 +10866,48 @@ private slots:
 
         editor->restoreState(state);
         QTRY_COMPARE(view->scrollX(), was);
+    }
+
+    void testASearchResultOpensWithTheMatchSelected_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Clicking a hit in the Search Results pane - Find in Files, Find Usages,
+    // a grep - opens the file and *selects the match*, so it stands out
+    // instead of leaving a caret at its start. The editor manager does that by
+    // asking the editor's widget for a Utils::PlainTextEdit, which a Qt Quick
+    // editor has none of, so every hit in a C++ file arrived unselected.
+    void testASearchResultOpensWithTheMatchSelected()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("search-result-selection");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("hit.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\nint needle = 2;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        // "needle" on the second line, at column four, six characters long.
+        Utils::SearchResultItem item;
+        item.setFilePath(file);
+        item.setLineText("int needle = 2;");
+        item.setMainRange(2, 4, 6);
+
+        Core::EditorManager::openEditorAtSearchResult(item);
+        Core::IEditor * const editor = Core::EditorManager::currentEditor();
+        QVERIFY(editor);
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        QTRY_COMPARE(TextEditor::textCursorOf(editor).selectedText(), QString("needle"));
     }
 
     void testFoldsSurviveASaveAndRestore_data()

@@ -50323,3 +50323,124 @@ which has three known sites waiting for it and is a project rather than a
 batch - and **a Linux run**, which would settle the only two items that are
 unmeasurable here rather than undecided. Everything else on the list is a
 decision for whoever owns the text editor, not a gap for a test to find.
+
+## 2026-09-07 — A search hit that arrived unselected (batch 149)
+
+Entry 148 closed the caller census - the ways a plugin turns an `IEditor` into
+a widget-editor type - and found nothing left. It listed five patterns. **There
+was a sixth**, and it was not in another plugin: it was in Core.
+
+### The pattern entry 148 missed
+
+`Aggregation::query<T>()`. Entry 146 grepped `query<TextEditorWidget>`; nobody
+grepped it for the *other* types an editor's widget aggregates:
+
+```
+   8 query<Core::IFindSupport>      the find bar - the Quick view aggregates one
+   2 query<Utils::PlainTextEdit>    <- here
+   1 query<QPlainTextEdit>
+   1 query<QTextEdit>
+```
+
+Three of those four are FakeVim, which has its own adapter. The fourth is
+`EditorManager::openEditorAtSearchResult()`.
+
+### The gap
+
+```cpp
+// Select the match, so it stands out instead of leaving just a caret at its start.
+if (auto textEdit = Aggregation::query<Utils::PlainTextEdit>(editor->widget())) {
+    const QTextCursor cursor = range.toTextCursor(textEdit->document());
+    if (cursor.hasSelection())
+        textEdit->setTextCursor(cursor);
+}
+```
+
+**Every hit in the Search Results pane** - Find in Files, Find Usages,
+References, a grep - opens the file and selects the match. A Qt Quick editor
+has no `Utils::PlainTextEdit` in its widget, so on a C++ file the match arrived
+**unselected**: a bare caret at its start, which is exactly what the comment
+above the code says it is there to avoid.
+
+Measured, both editors, same file and same range: the widget row selects
+`needle`, the quick row selected nothing.
+
+### The fix is a Core-level seam, because Core cannot ask TextEditor
+
+`TextEditor::setTextCursorOf()` is what every other caller uses, and Core is
+*below* TextEditor and cannot call it. So the seam goes on `Core::IEditor`,
+beside the one it already has for this shape:
+
+```cpp
+virtual void gotoLine(int line, int column = 0, bool centerLine = true);
+virtual void selectTo(int line, int column);
+```
+
+Same one-based line and zero-based column, and the same default: an editor that
+cannot do it does nothing. `openEditorAt()` has already put the caret at the
+start of the range, so the manager only asks for the other end.
+
+`BaseTextEditor` and `QuickTextEditor` implement it; every other editor keeps
+today's behaviour, which for a Designer form or a diff view is no selection
+either way.
+
+### Controls
+
+- **GE**: the manager not asking - red on **both** rows, which is what says the
+  widget row was going through the new seam and not through the old
+  aggregation.
+- **GF**: `QuickTextEditor::selectTo()` doing nothing - red on the quick row.
+- **GG**: `BaseTextEditor::selectTo()` doing nothing - red on the widget row.
+
+Three sites, three controls. GE is the one that matters: without it the
+widget row could have been passing on the code the fix replaced.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 713 passed, 0 failed (was 711) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Core` | 0 | 222 passed, 0 failed |
+
+Core is here because the change is in it. No `.qbs` change: no files added.
+
+### What entry 148 got wrong
+
+Its table was of *how a caller names a widget type* - three casts, an
+assumption, a signal. `Aggregation::query<T>` is a fourth way to name one, and
+the census asked it about a single `T`. **A census is only as complete as the
+question, and "who casts to `TextEditorWidget`" is a narrower question than
+"who reaches into the editor for something only a widget editor has".**
+
+Two entries in a row have now ended "nothing left" and been wrong within one
+batch. The pattern in both: the enumeration was of things I had already thought
+of. What found this one was reading the *distribution* of an unrelated grep -
+the `query<>` counts above - rather than looking for a name I already suspected.
+
+### Where this leaves it
+
+Unchanged from entry 148 except that `Aggregation::query<T>` is now walked for
+every `T` it is used with:
+
+| `T` | |
+| --- | --- |
+| `IFindSupport` | the Quick view aggregates one - entry's `QuickTextFind` |
+| `IComboEntry`, `LocatorWidget`, `VcsBaseEditorWidget` | not text editors |
+| `PlainTextEdit`, `QPlainTextEdit`, `QTextEdit` | FakeVim's adapter, and this batch |
+
+The remaining list is entry 148's, unchanged: two items need a Linux box, one
+is a hook nothing overrides, two are defensible differences, and the rest
+belong to moving QmlJS or to whoever owns the editor.
+
+### What I would do next
+
+I have said "nothing left" twice and been wrong twice, so: **not that.**
+
+What has actually worked twice running is looking at a *distribution* rather
+than a name - counting what a grep returns and reading the tail. The next one
+in that family is `editor->widget()`: every use outside the editor that owns
+it, grouped by what it does with the result. Most will be `setFocus()` and
+`window()`, and the tail is where something reaches for a type. That is one
+grep, and it is the last shape of "reaching into an editor" that has not been
+counted.
