@@ -50115,3 +50115,112 @@ produces, and it is invisible to every test that only exercises the widget.
 
 That is a bigger and better artefact than another hand-read, and it is the one
 thing on this list that would have caught today's gap without anybody looking.
+
+## 2026-09-07 — Run Test Under Cursor did nothing (batch 147)
+
+Entry 146 proposed a behavioural census: trigger every command over a C++ file
+in the Qt Quick editor and require each to change something. **Examined, and it
+would be noise.** Most commands legitimately do nothing without a project, a
+debugger or a language server, and a census that cannot tell "did nothing
+because a null widget" from "did nothing because there is nothing to do" is the
+VCS-factory census of entry 125 again: *a census is only useful where the list
+is short and deliberate.*
+
+What entry 146's method *did* justify was one more grep. Entry 146 asked who
+wants a `TextEditorWidget`; this one asks who wants a **`BaseTextEditor`**:
+
+```cpp
+BaseTextEditor *BaseTextEditor::currentTextEditor()
+{
+    return qobject_cast<BaseTextEditor *>(EditorManager::currentEditor());
+}
+```
+
+Null for a Qt Quick editor, and seven callers outside this plugin.
+
+| Caller | |
+| --- | --- |
+| `debugger/disassembleragent`, `debugger/debuggertooltipmanager` | the debugger's own editors, and one `activateWindow()` on leaving a tooltip |
+| `fakevimplugin`, `lua/luaplugin`, `cppcodemodelinspectordialog`, `gitplugin` | widget paths with a Quick path beside them, or tools that want a widget |
+| **`autotest/autotestplugin`** | **the gap** |
+
+### The gap
+
+```cpp
+void AutotestPluginPrivate::onRunUnderCursorTriggered(TestRunMode mode)
+{
+    TextEditor::BaseTextEditor *currentEditor = BaseTextEditor::currentTextEditor();
+    QTC_ASSERT(currentEditor && currentEditor->textDocument(), return);
+```
+
+**Run Test Under Cursor - and Debug Test Under Cursor - tripped the assertion
+and returned on any C++ file**, because C++ opens in the Qt Quick editor. Not
+degraded: nothing at all, with an assert in the log.
+
+What the function needs from the editor is three things, and every one has an
+editor-agnostic answer: `currentLine()` and `currentColumn()` are `IEditor`
+virtuals, the file path is the document's, and the word under the caret is
+`TextEditor::textCursorOf(editor)`. Pulled into a named
+`cursorContextOf(IEditor *)` so that the part that was pinned is the part a
+test can hold.
+
+### The test is about the preamble, and says so
+
+The rest of the function needs a parsed C++ snapshot and a test framework's
+tree, so an end-to-end assertion would need a project. The gap was never
+there - it was in the four lines that ask the editor where the reader is - so
+the test asks `cursorContextOf()` for the file, the line, the column and the
+word, in both editors over the same file, and requires the same answer.
+
+The widget row is what says the fixture is right, and it caught the column
+being one-based where `gotoLine()` takes it zero-based.
+
+### Controls
+
+- **GC**: `cursorContextOf()` requiring a `BaseTextEditor` again - red on the
+  **quick** row at "the editor was not asked at all". The gap, reproduced.
+- **GD**: the word under the caret not taken - red on **both** rows, which is
+  what says the widget row was not passing for some other reason.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 711 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test AutoTest` | 5 | 29 passed, **5 failed**, 2 skipped |
+
+**The AutoTest failures are not this batch's.** They are
+`AutotestUnitTests::testCodeParser*`, which open qbs projects and need a
+configured kit; they fail identically with this file reverted to HEAD and
+rebuilt. Measured rather than assumed, which entry 127 is the reason for.
+
+### Where this leaves it
+
+1. **`abortAssist` on a caret move** - EmacsKeys, entry 146, a timing
+   difference.
+2. **`activateWindow()` when a debugger tooltip is left** - the last
+   `currentTextEditor()` caller that touches a text editor rather than its own.
+   Cosmetic: it restores focus to the editor, and a Qt Quick editor simply does
+   not get it back. Named rather than done.
+3. **Middle-click paste**, **the IME `Cursor` attribute** - need a Linux box.
+4. **`canInsertFromMimeData`** - nothing overrides it yet.
+5. **The link press/release handshake** - a difference, not a defect.
+6. **QmlJS's context pane** - belongs to moving QmlJS.
+7. **The whitespace drawing difference**, **printing**, **the four pinned
+   factories**, **`forceOpenLinksInNextSplit`** - declined, deferred or
+   blocked.
+
+### What I would do next
+
+Two greps have now each found a dead feature: `TextEditorWidget::fromEditor`
+(entry 146) and `BaseTextEditor::currentTextEditor` (this one). **The third of
+that family is `BaseTextEditor::openedTextEditors()`** - "every text editor
+that is open" - which by the same `qobject_cast` returns a list with every Qt
+Quick editor missing from it. Anything iterating open editors to apply
+something is a candidate, and that is the shape of a preference being applied,
+a marker being placed, or a session being restored.
+
+That is the next grep, and after it the family is exhausted: those three are
+the whole of the public API by which another plugin turns an `IEditor` into a
+widget-editor type.

@@ -53,6 +53,10 @@
 #include <projectexplorer/target.h>
 
 #include <texteditor/textdocument.h>
+#ifdef WITH_TESTS
+#include <utils/temporarydirectory.h>
+#include <QtTest>
+#endif
 #include <texteditor/texteditor.h>
 
 #include <utils/algorithm.h>
@@ -315,22 +319,52 @@ static QList<ITestConfiguration *> testItemsToTestConfigurations(const QList<ITe
     return configs;
 }
 
+// What Run Test Under Cursor needs to know about where the reader is.
+struct CursorContext
+{
+    Utils::FilePath filePath;
+    int line = 0;
+    int column = 0;
+    QString word;
+};
+
+// Where the caret is and what word it is on, asked of the editor rather than
+// of a TextEditorWidget. This used to start with currentTextEditor(), which is
+// a qobject_cast to BaseTextEditor and comes back null for the Qt Quick
+// editor - so on a C++ file, which opens in that one, Run Test Under Cursor
+// tripped a QTC_ASSERT and did nothing at all.
+std::optional<CursorContext> cursorContextOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return {};
+    auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    if (!document)
+        return {};
+
+    QTextCursor cursor = TextEditor::textCursorOf(editor);
+    if (cursor.isNull())
+        return {};
+    cursor.select(QTextCursor::WordUnderCursor);
+
+    return CursorContext{document->filePath(), editor->currentLine(), editor->currentColumn(),
+                         cursor.selectedText()};
+}
+
 void AutotestPluginPrivate::onRunUnderCursorTriggered(TestRunMode mode)
 {
-    TextEditor::BaseTextEditor *currentEditor = TextEditor::BaseTextEditor::currentTextEditor();
-    QTC_ASSERT(currentEditor && currentEditor->textDocument(), return);
-    const int line = currentEditor->currentLine();
-    const FilePath filePath = currentEditor->textDocument()->filePath();
+    const std::optional<CursorContext> where
+        = cursorContextOf(Core::EditorManager::currentEditor());
+    QTC_ASSERT(where, return);
+    const int line = where->line;
+    const FilePath filePath = where->filePath;
 
     const CPlusPlus::Snapshot snapshot = CppEditor::CppModelManager::snapshot();
     const CPlusPlus::Document::Ptr doc = snapshot.document(filePath);
     if (doc.isNull()) // not part of C++ snapshot
         return;
 
-    CPlusPlus::Scope *scope = doc->scopeAt(line, currentEditor->currentColumn());
-    QTextCursor cursor = currentEditor->editorWidget()->textCursor();
-    cursor.select(QTextCursor::WordUnderCursor);
-    const QString text = cursor.selectedText();
+    CPlusPlus::Scope *scope = doc->scopeAt(line, where->column);
+    const QString text = where->word;
 
     while (scope && scope->asBlock())
         scope = scope->enclosingScope();
@@ -387,7 +421,7 @@ void AutotestPluginPrivate::onRunUnderCursorTriggered(TestRunMode mode)
     });
 
     if (filteredItems.isEmpty() && testsItems.size() > 1) {
-        CPlusPlus::Scope *scope = doc->scopeAt(line, currentEditor->currentColumn());
+        CPlusPlus::Scope *scope = doc->scopeAt(line, where->column);
         if (scope->asClass()) {
             const QList<const CPlusPlus::Name *> fullName
                     = CPlusPlus::LookupContext::fullyQualifiedName(scope);
@@ -533,6 +567,10 @@ bool ChoicePair::matches(const RunConfiguration *rc) const
 
 // AutotestPlugin
 
+#ifdef WITH_TESTS
+QObject *createRunUnderCursorTest();
+#endif
+
 class AutotestPlugin final : public ExtensionSystem::IPlugin
 {
     Q_OBJECT
@@ -573,6 +611,7 @@ public:
         addTestCreator(createTestResultModelTest);
         addTestCreator(Internal::createRunConfigurationSelectionTest);
         addTestCreator(createTestResultsTreeStateTest);
+        addTestCreator(Internal::createRunUnderCursorTest);
 #endif
     }
 
@@ -628,6 +667,72 @@ public:
         return SynchronousShutdown;
     }
 };
+
+#ifdef WITH_TESTS
+
+// Run Test Under Cursor asked for a BaseTextEditor, which is a qobject_cast
+// that comes back null for the Qt Quick editor - so on a C++ file, which opens
+// in that one, the command tripped a QTC_ASSERT and did nothing. What it
+// actually needs is where the caret is and what word it is on, and both views
+// answer that.
+class RunUnderCursorTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheCursorIsFoundInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheCursorIsFoundInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("autotest-under-cursor");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("cursor.cpp");
+        QVERIFY(file.writeFileContents("void alpha() {}\nvoid beta() {}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        // On "beta", the second line's function name. gotoLine() takes a
+        // one-based line and a zero-based column.
+        editor->gotoLine(2, 6);
+        QCOMPARE(TextEditor::textCursorOf(editor).positionInBlock(), 6);
+
+        const std::optional<CursorContext> where = cursorContextOf(editor);
+        QVERIFY2(where, "the editor was not asked at all");
+        QCOMPARE(where->filePath, file);
+        QCOMPARE(where->line, 2);
+        QCOMPARE(where->word, QString("beta"));
+        // The column is one-based here, the way currentColumn() answers it.
+        QCOMPARE(where->column, 7);
+
+        // And nothing at all when there is no editor, which is the case the
+        // assertion in the caller is there for.
+        QVERIFY2(!cursorContextOf(nullptr), "a null editor produced a context");
+    }
+};
+
+QObject *createRunUnderCursorTest()
+{
+    return new RunUnderCursorTest;
+}
+
+#endif // WITH_TESTS
 
 } // Autotest::Internal
 
