@@ -1505,6 +1505,27 @@ uint optionalActionsIn(Core::IEditor *editor)
     return OptionalActions::None;
 }
 
+// Item coordinates from the viewport, turned global through the item itself -
+// the QQuickWidget's position inside its window is the item's business to know.
+static QRect globallyFrom(TextViewport *view, const QRectF &rect)
+{
+    if (!view || rect.isEmpty())
+        return {};
+    return QRect(view->mapToGlobal(rect.topLeft()).toPoint(), rect.size().toSize());
+}
+
+QRect globalRectForPositionIn(Core::IEditor *editor, int position)
+{
+    TextViewport * const view = viewportForEditor(editor);
+    return view ? globallyFrom(view, view->rectangleAt(position)) : QRect();
+}
+
+QRect globalRectForBlocksIn(Core::IEditor *editor, int firstBlock, int lastBlock)
+{
+    TextViewport * const view = viewportForEditor(editor);
+    return view ? globallyFrom(view, view->rectangleForBlocks(firstBlock, lastBlock)) : QRect();
+}
+
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
                                            QtcQuick::ActionModel *contextActions)
 {
@@ -12449,6 +12470,77 @@ private slots:
         askAbout(12); // gamma
         QTRY_COMPARE(other.asked, 3);
         QCOMPARE(mine.asked, 2);
+    }
+
+    // Where the text is drawn, asked of the editor: the one question the Qt
+    // Quick context pane work still needed a TextEditorWidget for. Global
+    // coordinates, because a popup floating over the editor is what asks.
+    void testWhereTheTextIsDrawnIsAskableInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testWhereTheTextIsDrawnIsAskableInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-geometry");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("geometry.py");
+        //                                 0123456789012345678901
+        QVERIFY(file.writeFileContents("alpha bravo\ncharlie\ndelta\n"));
+
+        // A language whose factory drives both views, opened through the
+        // editor manager: an editor shown as a window of its own and deleted
+        // behind the manager's back leaves the find toolbar holding its view.
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(viewportForEditor(editor) != nullptr, quick);
+
+        // Laid out, because only what is laid out has a place on screen.
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+        if (quick) {
+            TextViewport * const view = viewportForEditor(editor);
+            QTRY_VERIFY(view->visibleLineCount() > 2);
+        }
+
+        // Qualified: this test lives in Internal, whose own half of the seam
+        // answers for the Qt Quick view only. The public one picks the view.
+        const QRect alpha = TextEditor::globalRectForPositionIn(editor, 0);
+        QVERIFY2(!alpha.isEmpty(), "the view cannot say where its first character is");
+
+        // Later on the same line is to the right of it, on the same row.
+        const QRect bravo = TextEditor::globalRectForPositionIn(editor, 6);
+        QVERIFY2(bravo.left() > alpha.left(), "'bravo' is not drawn right of 'alpha'");
+        QCOMPARE(bravo.top(), alpha.top());
+
+        // The next line is below it.
+        const QRect charlie = TextEditor::globalRectForPositionIn(editor, 12);
+        QVERIFY2(charlie.top() > alpha.top(), "'charlie' is not drawn below 'alpha'");
+
+        // The first two blocks as one rectangle: it covers both their rows and
+        // not the third's, which is what says the range means the range.
+        const QRect firstTwo = TextEditor::globalRectForBlocksIn(editor, 0, 1);
+        QVERIFY2(!firstTwo.isEmpty(), "the view cannot say where its first two lines are");
+        QVERIFY2(firstTwo.intersects(alpha), "the block rect misses the first line");
+        QVERIFY2(firstTwo.intersects(charlie), "the block rect misses the second line");
+        const QRect delta = TextEditor::globalRectForPositionIn(editor, 20);
+        QVERIFY2(!delta.isEmpty(), "the view cannot say where its third line is");
+        QVERIFY2(!firstTwo.intersects(delta),
+                 "a rect for the first two blocks reaches into the third");
     }
 
     // An action that carries a menu is a button that opens it, in either row.

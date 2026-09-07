@@ -10621,6 +10621,29 @@ uint optionalActionsIn(Core::IEditor *editor)
     return Internal::optionalActionsIn(editor);
 }
 
+QRect globalRectForPositionIn(Core::IEditor *editor, int position)
+{
+    if (!editor)
+        return {};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->cursorRect(position); // the int overload answers globally
+    return Internal::globalRectForPositionIn(editor, position);
+}
+
+QRect globalRectForBlocksIn(Core::IEditor *editor, int firstBlock, int lastBlock)
+{
+    if (!editor)
+        return {};
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        QRect rect = widget->translatedLineRegion(firstBlock, lastBlock).boundingRect();
+        if (rect.isEmpty())
+            return {};
+        rect.moveTo(widget->viewport()->mapToGlobal(rect.topLeft()));
+        return rect;
+    }
+    return Internal::globalRectForBlocksIn(editor, firstBlock, lastBlock);
+}
+
 void setRefactorMarkersIn(Core::IEditor *editor, Utils::Id type, const RefactorMarkers &markers)
 {
     if (!editor)

@@ -582,6 +582,13 @@ public:
     // -1 only when nothing is laid out at all.
     Q_INVOKABLE QRectF rectangleAt(int position) const;
     Q_INVOKABLE int positionAt(qreal x, qreal y) const;
+    // The rows drawn for blocks \a firstBlock to \a lastBlock, zero-based and
+    // inclusive, as one bounding rectangle in item coordinates. Only what is
+    // laid out can be answered, so the rect covers the visible rows of the
+    // range and is empty when none of it is on screen - the widget editor's
+    // translatedLineRegion() answers for any block because it owns the whole
+    // document layout, and this view deliberately does not.
+    QRectF rectangleForBlocks(int firstBlock, int lastBlock) const;
 
     // Folds or unfolds what \a lineNumber starts, counting from one the way
     // visibleLine() reports it. Does nothing for a line that starts no fold,

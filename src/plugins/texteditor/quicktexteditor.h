@@ -40,6 +40,8 @@ Core::IEditor *editorForViewport(TextViewport *view);
 void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
 void setOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
 uint optionalActionsIn(Core::IEditor *editor);
+QRect globalRectForPositionIn(Core::IEditor *editor, int position);
+QRect globalRectForBlocksIn(Core::IEditor *editor, int firstBlock, int lastBlock);
 
 // A Qt Quick view of a document a TextEditorFactory has already built and
 // configured: the language's own TextDocument, carrying its indenter, its

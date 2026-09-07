@@ -1224,6 +1224,16 @@ TEXTEDITOR_EXPORT void setOptionalActionsIn(Core::IEditor *editor, uint optional
 // language has since narrowed or widened it.
 TEXTEDITOR_EXPORT uint optionalActionsIn(Core::IEditor *editor);
 
+// Where \a editor draws the text at document \a position, in global screen
+// coordinates - which is what a popup floating over the editor positions
+// itself against. Empty where the view has not laid the position out.
+TEXTEDITOR_EXPORT QRect globalRectForPositionIn(Core::IEditor *editor, int position);
+
+// The same for every row drawn for blocks \a firstBlock to \a lastBlock,
+// zero-based and inclusive, as one bounding rectangle.
+TEXTEDITOR_EXPORT QRect globalRectForBlocksIn(Core::IEditor *editor,
+                                              int firstBlock, int lastBlock);
+
 // Put \a action in \a editor's toolbar, on \a side where the view has sides.
 // The widget editor keeps its own list and places it; a view that is not one
 // builds its toolbar from what the document carries, so the action goes there

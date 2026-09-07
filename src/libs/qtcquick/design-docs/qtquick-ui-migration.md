@@ -51929,3 +51929,111 @@ the four lines above.
 **Ask.** One question, and it now has a measured answer attached: *the context
 pane needs four lines of geometry; do we give it a seam and keep the QWidget,
 or rebuild it in QML?* If the answer is the seam, that is the last batch.
+
+## 2026-09-07 — Where the text is drawn, asked of the editor (batch 161)
+
+Entry 160 ended on the one decision left. Asked directly, the question was
+declined and the batch instruction re-issued - which is an answer: proceed
+with the path this document recommended. So the pane stays a QWidget, and this
+is **Batch A** of taking its four geometry lines off `TextEditorWidget`.
+
+### Entry 160's estimate, corrected before it was relied on
+
+"The measurement says (1) is small" - it is not one batch, and measuring the
+coordinate spaces is what said so:
+
+- `TextEditorWidget::cursorRect(int)` answers in **global screen** coordinates
+  (it maps through the viewport itself); `translatedLineRegion()` answers in
+  **viewport** coordinates; `TextViewport::rectangleAt()` answers in **item**
+  coordinates. Three spaces for what entry 160 wrote up as one seam.
+- `TextViewport` had geometry for a *position* only - nothing for a range at
+  all. The widget answers ranges from the document layout it owns; this view
+  deliberately owns no such thing.
+- The pane's driving code (`semanticInfoUpdated`, two timers) is the widget's,
+  so a converted pane still needs Batch C before the Qt Quick view shows it.
+
+The decomposition, of which this batch is the first:
+
+| | |
+| --- | --- |
+| **A (this)** | `TextViewport::rectangleForBlocks()`, and `globalRectForPositionIn()` / `globalRectForBlocksIn()` over both views |
+| B | `QuickToolBar` takes `Core::IEditor *`; the four geometry lines use the seam |
+| C | the driving code into the factory decorator, like `QmlJSUses` |
+| D | `setUsesQuickEditor(true)`, and the `Thing.qml` census row in the same commit |
+
+### What landed
+
+`TextViewport::rectangleForBlocks(first, last)` - the union of the laid-out
+rows of those blocks, matched by the line's own gutter number because folding
+pushes it ahead of the row index. And the seam, in global coordinates because
+a popup floating over the editor is what asks:
+
+- widget: `cursorRect(int)` as it stands; `translatedLineRegion()` mapped
+  through the viewport.
+- Qt Quick: `rectangleAt()` / `rectangleForBlocks()` mapped through the item.
+
+### A name-resolution footgun, found by the widget row failing
+
+The first run failed only on the widget row, and the probe showed
+`cursorRect(0)` answering fine. The test lives in `namespace
+TextEditor::Internal` - and so does the *Qt Quick half* of the seam, so the
+test's unqualified call resolved to the half that answers `{}` for a widget
+editor. **The public seam and its view-specific half share a name, and inside
+`Internal` the wrong one wins silently.** Qualified in the test; recorded here
+because the next caller inside `Internal` will hit the same thing.
+
+### Two crashed suite runs, and what they were
+
+After the fix above, two whole-suite runs died - an ASan SEGV in
+`PlainTextEdit::isReadOnly()` under the find toolbar, over an editor that no
+longer existed - and a third hung for 300 s in `CodeAssistTests`'s cleanup.
+Three different failure points, and the notes already say whole-suite class
+order is not stable and cannot compare two states. Two more facts measured
+today:
+
+- **macOS updated overnight** (26.5.1 to 26.6.2 in the QTest config lines),
+  which moves every focus- and window-order-sensitive test.
+- The first version of this batch's test **showed a factory-made widget editor
+  as a top-level window and destroyed it by `unique_ptr`** - a pattern no
+  other showing test uses. `CurrentDocumentFind` latches onto whatever gains
+  focus, and an editor deleted behind the editor manager's back leaves the
+  find toolbar holding its view. That is exactly the crash's stack, so the
+  test was rewritten onto the managed pattern - a real file, `openEditor()`,
+  `closeEditors()` - like every test that shows one.
+
+Cause not proven (the order shuffles, the OS moved), but after the rewrite:
+the class standalone 315/0, and three whole-suite runs 729/0 exit 0. The
+per-class run is the valid unit the notes prescribe; the whole-suite greens
+are the required check, not the comparison.
+
+### Controls
+
+- **TA**: the Qt Quick position branch answers `{}` - red on the quick row
+  only, at the first assertion.
+- **TB**: the widget blocks branch answers `{}` - red on the widget row only,
+  at the blocks assertion.
+- **TC**: `rectangleForBlocks()` treats the last block as exclusive - red on
+  the quick row at "the block rect misses the second line". The range meaning
+  the range is its own claim.
+
+Three controls: one per view branch, one for the range logic.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor,QuickTextEditorTest` | 0 | 315 passed, 0 failed |
+| `-test TextEditor` (×3) | 0 | 729 passed, 0 failed (was 727) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What I would do next
+
+**Batch B.** `QuickToolBar::apply()` takes `Core::IEditor *`; its thirteen
+document calls go through the document; the four geometry lines become two
+seam calls, with the pane mapping global to its parent's space via
+`mapFromGlobal()` - which works whichever view it floats over. `isAvailable()`
+is already off the widget (entry 160), so after B the class's header no longer
+names `TextEditorWidget`, and C is a decorator object of the same shape as
+`QmlJSUses`.

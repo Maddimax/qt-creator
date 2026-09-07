@@ -1151,6 +1151,23 @@ TextViewport::Located TextViewport::locate(int position) const
     return {};
 }
 
+QRectF TextViewport::rectangleForBlocks(int firstBlock, int lastBlock) const
+{
+    QRectF united;
+    for (const Line &line : m_lines) {
+        // The gutter number, which folding can push ahead of the row index -
+        // so ask the line what it is called rather than counting rows.
+        const int block = line.lineNumber - 1;
+        if (block < firstBlock || block > lastBlock)
+            continue;
+        const QTextLine textLine = line.layout->lineAt(0);
+        if (!textLine.isValid())
+            continue;
+        united |= textLine.naturalTextRect().translated(line.at);
+    }
+    return united;
+}
+
 QRectF TextViewport::rectangleAt(int position) const
 {
     const Located found = locate(position);
