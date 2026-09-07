@@ -28,6 +28,7 @@
 #include <QMenu>
 #include <QScopeGuard>
 
+#include <QSignalSpy>
 #include <QTest>
 #endif
 
@@ -776,6 +777,20 @@ QmlJSEditorDocument::QmlJSEditorDocument(Utils::Id id)
     resetSyntaxHighlighter([] { return new QmlJSHighlighter(); });
     setSupportedEncodings({TextEncoding::Utf8}); // qml files are defined to be utf-8
     setIndenter(createQmlJsIndenter(document()));
+
+    // Two things the code model needs to know about a QML file being open.
+    // The editor widget did both, so neither happened for a view that is not
+    // one: imports went unscanned, and the model kept the copy it had of a
+    // file the reader had saved or reverted.
+    if (QmlJS::ModelManagerInterface * const models
+        = QmlJS::ModelManagerInterface::instance()) {
+        models->activateScan();
+        connect(document(), &QTextDocument::modificationChanged, this,
+                [this, models](bool modified) {
+                    if (!modified)
+                        models->fileChangedOnDisk(filePath());
+                });
+    }
 }
 
 
@@ -995,6 +1010,76 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // Two things the code model has to be told about an open QML file. The
+    // editor widget told it, so neither happened for a view that is not one.
+    void testOpeningAQmlFileTellsTheCodeModel_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testOpeningAQmlFileTellsTheCodeModel()
+    {
+        QFETCH(bool, quick);
+
+        QmlJS::ModelManagerInterface * const models = QmlJS::ModelManagerInterface::instance();
+        QVERIFY2(models, "no QML model manager to tell");
+
+        Utils::TemporaryDirectory dir("qmljs-model-told");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Told.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem {}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        // Imports are scanned from now on. activateScan() is what turns that
+        // on and it had exactly one caller in the tree, in the editor widget.
+        QVERIFY2(models->shouldScanImports(),
+                 "opening a QML file did not turn import scanning on");
+
+        // And a save tells the model the file on disk is new. Asserted through
+        // the model's own copy: it holds the text it last read, so after a
+        // save with different text the two agree only if it was told.
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY(!document->isSemanticInfoOutdated());
+
+        // The model says when it has re-read a file from disk, which is the
+        // half of this that a working copy cannot show.
+        QSignalSpy reread(models, &QmlJS::ModelManagerInterface::documentChangedOnDisk);
+
+        // Typed rather than set: setPlainText() leaves the document unmodified,
+        // and an unmodified document has no save for the model to be told about.
+        QTextCursor cursor(document->document());
+        cursor.movePosition(QTextCursor::End);
+        cursor.insertText("// told\n");
+        QVERIFY2(document->document()->isModified(),
+                 "the document did not become modified, so the save below is a no-op");
+        QVERIFY(document->save(file));
+        QVERIFY(!document->document()->isModified());
+
+        // Re-read from disk, which is what fileChangedOnDisk() asks for and
+        // what it emits when it is done. The working copy is no use here: it
+        // is built from the open documents' text and would hold the new
+        // wording whether the model was told or not.
+        QTRY_VERIFY2(!reread.isEmpty(), "the code model never re-read the saved file");
+        const auto reparsed = reread.first().first().value<QmlJS::Document::Ptr>();
+        QVERIFY(reparsed);
+        QCOMPARE(reparsed->fileName(), file);
+    }
+
     // Every other place the id under the caret appears, lit in the occurrences
     // colour. QmlJSEditorWidget wrote these straight onto itself, so a QML
     // file in a view that is not a widget lit up nothing at all.

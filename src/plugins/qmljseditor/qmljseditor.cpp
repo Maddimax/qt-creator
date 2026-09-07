@@ -117,10 +117,7 @@ void QmlJSEditorWidget::finalizeInitialization()
     connect(&m_updateOutlineIndexTimer, &QTimer::timeout,
             this, &QmlJSEditorWidget::updateOutlineIndexNow);
 
-    m_modelManager = ModelManagerInterface::instance();
     m_contextPane = QuickToolBar::instance();
-
-    m_modelManager->activateScan();
 
     m_contextPaneTimer.setInterval(UPDATE_OUTLINE_INTERVAL);
     m_contextPaneTimer.setSingleShot(true);
@@ -130,9 +127,6 @@ void QmlJSEditorWidget::finalizeInitialization()
                 &m_contextPaneTimer, QOverload<>::of(&QTimer::start));
         connect(m_contextPane, &QuickToolBar::closed, this, &QmlJSEditorWidget::showTextMarker);
     }
-
-    connect(this->document(), &QTextDocument::modificationChanged,
-            this, &QmlJSEditorWidget::updateModificationChange);
 
     connect(qmlJsEditorDocument(), &QmlJSEditorDocument::semanticInfoUpdated,
             this, &QmlJSEditorWidget::semanticInfoUpdated);
@@ -167,12 +161,6 @@ QModelIndex QmlJSEditorWidget::outlineModelIndex()
     return m_outlineModelIndex;
 }
 
-
-void QmlJSEditorWidget::updateModificationChange(bool changed)
-{
-    if (!changed && m_modelManager)
-        m_modelManager->fileChangedOnDisk(textDocument()->filePath());
-}
 
 void QmlJSEditorWidget::jumpToOutlineElement(int /*index*/)
 {
@@ -564,12 +552,17 @@ static QString inspectCppComponent(const CppComponentValue *cppValue)
     return result;
 }
 
-void QmlJSEditorWidget::inspectElementUnderCursor() const
+// The QML type under the caret, dumped into a read-only editor of its own.
+// Asked of the editor rather than of a widget: what it needs is where the
+// caret is and what the document's parse says is there, and both views answer.
+static void inspectElementIn(Core::IEditor *editor)
 {
-    const QTextCursor cursor = textCursor();
+    auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+    if (!document)
+        return;
 
-    const unsigned cursorPosition = cursor.position();
-    const SemanticInfo semanticInfo = qmlJsEditorDocument()->semanticInfo();
+    const unsigned cursorPosition = TextEditor::textCursorOf(editor).position();
+    const SemanticInfo semanticInfo = document->semanticInfo();
     if (!semanticInfo.isValid())
         return;
 
@@ -593,16 +586,17 @@ void QmlJSEditorWidget::inspectElementUnderCursor() const
     if (!outputEditor)
         return;
 
-    auto widget = qobject_cast<TextEditor::TextEditorWidget *>(outputEditor->widget());
-    if (!widget)
+    // The output is its own document, so it is configured as one - the view
+    // that opened for it does not come into it.
+    auto * const outputDocument = qobject_cast<TextEditor::TextDocument *>(
+        outputEditor->document());
+    if (!outputDocument)
         return;
 
-    widget->setReadOnly(true);
-    widget->textDocument()->setTemporary(true);
-    widget->textDocument()->resetSyntaxHighlighter([] { return new QmlJSHighlighter(); });
-
-    const QString buf = inspectCppComponent(cppValue);
-    widget->textDocument()->setPlainText(buf);
+    outputDocument->setTemporary(true);
+    outputDocument->resetSyntaxHighlighter([] { return new QmlJSHighlighter(); });
+    outputDocument->setPlainText(inspectCppComponent(cppValue));
+    TextEditor::setReadOnlyIn(outputEditor, true);
 }
 
 // Where the name under the cursor comes from: an import, a property, an id or
@@ -1223,8 +1217,8 @@ namespace Internal {
 
 void inspectElement()
 {
-    if (auto widget = qobject_cast<QmlJSEditorWidget *>(EditorManager::currentEditor()->widget()))
-        widget->inspectElementUnderCursor();
+    if (Core::IEditor * const editor = EditorManager::currentEditor())
+        inspectElementIn(editor);
 }
 
 void showContextPane()

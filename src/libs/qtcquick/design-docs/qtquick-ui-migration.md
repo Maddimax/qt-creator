@@ -51573,3 +51573,113 @@ commit.
 document-level facts sitting on a widget. Then item 4, which is a grep. Item 2
 needs a seam designed and item 1 needs a person, so they are the last two and
 in that order.
+
+## 2026-09-07 — Two facts the code model was told by a widget (batch 158)
+
+Entry 157's items 3 and 4, which it called "small, measurable and needs nobody's
+decision" and "a grep". Both were. One of them was also a live gap in the code
+model, which is worse than the tool bar ones this document has been closing.
+
+### Item 3: what only the widget told the code model
+
+Two lines in `QmlJSEditorWidget`, both about the *file*, neither about the view:
+
+| | What it does | What its absence costs |
+| --- | --- | --- |
+| `m_modelManager->activateScan()` | turns import scanning on | **one caller in the whole tree.** Without it the QML model never scans import paths, so nothing resolves against `QtQuick` |
+| `updateModificationChange()` | `fileChangedOnDisk()` when the document stops being modified | the model keeps the copy it had of a file the reader has just saved |
+
+Both are on `QmlJSEditorDocument` now, which the factory makes for either view.
+
+**`activateScan()` having exactly one caller is the finding.** A QML file in
+the Qt Quick view never turned import scanning on, and every completion and
+type lookup against an imported module was answered from an unscanned model.
+That is not a difference in how something is drawn.
+
+### Item 4: the grep answered itself
+
+- `inspectElementUnderCursor()` - reached through
+  `qobject_cast<QmlJSEditorWidget *>(currentEditor()->widget())`, which is the
+  pinning pattern entry 148 catalogued. Inspect API for Element Under Cursor
+  would have done nothing at all in the Qt Quick view. It takes the caret and
+  the document's parse, so it is `inspectElementIn(Core::IEditor *)` now. Its
+  output half wrote through `qobject_cast<TextEditorWidget *>(outputEditor->widget())`
+  as well; that is the output *document* and `setReadOnlyIn()` now.
+- `selectedElementsChanged` - **dead.** Emitted, guarded by
+  `isSignalConnected()`, and connected by nobody anywhere in the tree, so
+  `setSelectedElements()` returns immediately every time. Recorded rather than
+  removed: it is on an exported class and the guard means it costs nothing.
+  Same shape as `setDiffSignGlyphs()` in entry 65.
+
+### Three wrong assumptions, all caught by measuring
+
+This batch's tests were wrong three times before they were right, and every
+correction came from running something rather than thinking harder:
+
+1. **`scannedPaths()` after opening: 0.** I meant to assert import scanning
+   through it. With no project there are no import paths, so it says nothing.
+   Probed before asserting, which is the only reason it did not become a test
+   that passes for the wrong reason.
+2. **`setPlainText()` leaves the document unmodified**, so the save it was
+   meant to set up was a no-op. Typing through a cursor is what marks it.
+3. **The working copy is not an observable of `fileChangedOnDisk()`.** It is
+   built from the *open documents' text*, so it holds the new wording whether
+   the model was told or not. **Control QB did not bite, and that is how I
+   found out** - the first version of that assertion passed with the fix
+   removed. `documentChangedOnDisk` is the signal the call actually emits, and
+   the second QB bites.
+
+The plan's rule - *a control that does not bite means the fix is unnecessary or
+the test is wrong* - paid for itself here. It was the test, twice.
+
+### One small addition to QmlJS
+
+`ModelManagerInterface::shouldScanImports()`, a const getter beside the
+`activateScan()` that sets it. Added because there was no way to see the state
+from outside and the alternative was an assertion that could not fail.
+
+### Controls
+
+- **QA**: `activateScan()` removed from the document - red on both rows.
+- **QB**: the `fileChangedOnDisk()` connection removed - red on both rows,
+  *after* the assertion was corrected. The first QB is written up above.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 727 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 34 passed, 0 failed (was 32) |
+
+No `.qbs` change: no files added.
+
+### What moving QmlJS still needs
+
+Entry 157's list, minus items 3 and 4:
+
+1. **The context pane** - `showContextPane()` and its four helpers, plus the
+   `wheelEvent`, `resizeEvent` and `scrollContentsBy` overrides that exist only
+   to move it. Entry 114's UI decision, and the largest piece.
+2. **`contextMenuEvent()`** - the Refactoring submenu has a seam
+   (`TextDocument::contextMenuActions()`); enabling Auto-indent or Auto-format
+   by which formatter the code style names does not, and it is decided per
+   menu-open rather than per editor.
+
+Then `setUsesQuickEditor(true)` and the `Thing.qml` row in
+`testWhichLanguagesOpenInTheQuickEditor` in the same commit.
+
+### What I would do next
+
+**Item 2**, and design the seam rather than special-case it. What
+`contextMenuEvent()` does with `AUTO_INDENT_SELECTION` and
+`AUTO_FORMAT_SELECTION` is decide, at the moment the menu opens, which of two
+commands applies. `TextDocument::contextMenuActions(cursor)` already returns
+what a right click should offer *for this document at this place*; what it
+cannot do is *disable* an entry the language's `M_CONTEXT` container owns.
+Either the document gets a say over those, or the two commands stop being a
+pair and become one that asks the code style. The second is smaller and
+probably right, but it changes a user-visible menu, so it is a proposal rather
+than a batch.
+
+Item 1 still needs a person.

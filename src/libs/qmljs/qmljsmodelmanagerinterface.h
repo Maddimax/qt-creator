@@ -126,6 +126,9 @@ public:
     void removeFromScannedPaths(const PathsAndLanguages &pathsAndLanguages);
 
     void activateScan();
+    // Whether activateScan() has been called: the import paths are scanned
+    // from then on, and nothing turns it off again.
+    bool shouldScanImports() const;
     void updateSourceFiles(const Utils::FilePaths &files, bool emitDocumentOnDiskChanged);
     void fileChangedOnDisk(const Utils::FilePath &path);
     void removeFiles(const Utils::FilePaths &files);

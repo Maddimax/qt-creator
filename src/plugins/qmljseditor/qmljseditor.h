@@ -64,8 +64,6 @@ public:
     QModelIndex outlineModelIndex();
     void updateOutlineIndexNow();
 
-    void inspectElementUnderCursor() const;
-
     void findUsages() override;
     void renameSymbolUnderCursor() override;
     void showContextPane();
@@ -74,7 +72,6 @@ signals:
     void selectedElementsChanged(QList<QmlJS::AST::UiObjectMember*> offsets,
                                  const QString &wordAtCursor);
 private:
-    void updateModificationChange(bool);
 
     void jumpToOutlineElement(int index);
     void updateContextPane();
@@ -104,7 +101,6 @@ private:
     QTimer m_contextPaneTimer;
     Utils::TreeViewComboBox *m_outlineCombo = nullptr;
     QModelIndex m_outlineModelIndex;
-    QmlJS::ModelManagerInterface *m_modelManager = nullptr;
 
     QuickToolBar *m_contextPane = nullptr;
     int m_oldCursorPosition = -1;

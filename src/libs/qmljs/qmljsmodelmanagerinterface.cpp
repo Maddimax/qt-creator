@@ -238,6 +238,11 @@ FilePath ModelManagerInterface::qmlformatForBinPath(const FilePath &binPath, con
     return binPath.pathAppended("qmlformat").withExecutableSuffix();
 }
 
+bool ModelManagerInterface::shouldScanImports() const
+{
+    return m_syncedData.readLocked()->m_shouldScanImports;
+}
+
 void ModelManagerInterface::activateScan()
 {
     const bool shouldScan = m_syncedData.update([](SyncedData &sd) {
