@@ -52317,3 +52317,97 @@ views. What remains anywhere:
 Nothing in this document - it is done twice over now, for C++ since entry 33
 and for QmlJS today. If the branch wants more, it is the Linux run, and after
 that the list above belongs to its owners.
+
+## 2026-09-07 — Six CppEditor failures attributed: one file under two spellings (batch 165)
+
+Entry 164's sweep left six CppEditor failures unattributed:
+`MoveClassToOwnFileTest` ×4, `SynchronizeMemberFunctionOrderTest` ×1, and a
+`LocatorFilterTest` flake. This batch answers the question the sweep raised -
+branch or upstream, and if branch, which commit.
+
+**Verdict: upstream, environment-conditional.** Not one of the 1296 branch
+commits is involved. The trigger is macOS's `/var -> /private/var` symlink
+under `$TMPDIR` plus a kit with a valid Qt; a kit-less checkout `QSKIP`s these
+classes, which is why no CI and no sweep before a kit existed here ever saw
+them red.
+
+### The measurement chain
+
+1. Standalone, stock `$TMPDIR`: `MoveClassToOwnFileTest` 7/4 - the four
+   `applicable` rows, the ones that reach `perform()`. Failure shape: the
+   `#include "theclass.h"` inserted **twice**, and a `ass TheClass {` remnant
+   where the class was removed - a ChangeSet applied at stale offsets.
+   `SynchronizeMemberFunctionOrderTest` 5/1, twice, same row both times
+   ("different impl locations").
+2. `QTC_WIDGET_CPP_EDITOR=1`: identical. But this experiment was **void for
+   this code path**, not exonerating: `fc89b0480d9` had already made
+   `lookupSymbol()` pass a null widget into its `CursorInEditor`
+   unconditionally, so the flag flips a variable the code no longer reads.
+3. Instrumented `finish()` and the apply loop: `finish()` runs **once**; the
+   per-file apply loop hits the header **twice**. The two map keys:
+   `/var/folders/.../theheader.h` and `/private/var/folders/.../theheader.h`.
+   Every follow-symbol answer comes back `/private`-spelled; every asking
+   symbol is `/var`-spelled (the editor opened it that way; project indexing
+   canonicalizes).
+4. The merge-base call shape restored - widget passed back into the
+   `CursorInEditor`, widget editors via the env flag: **byte-identical
+   failure**, same `/private` targets. No branch commit changed the answers.
+5. Stock HEAD, `TMPDIR` pointing at a symlink-free directory: **11/0 and
+   6/0**. The whole failure is the symlink.
+
+### The mechanism, two layers
+
+**Layer 1 - corruption (fixed this batch).** Both quick fixes key a per-file
+map by path string (`perFileState`, `defLocations`) and compare follow-symbol
+answers with `==`. A same-file answer under the other spelling fails the
+same-declaration early-out and creates a second map entry - two
+`CppRefactoringFile`s over one open `TextDocument`, each applying its own
+ChangeSet: the include directive twice, the second removal at offsets the
+first edit invalidated; in the synchronize fix, declarations reordered as if
+they were out-of-line definitions. Fixed by keying by file identity and
+comparing with `FilePath::isSameFile()` (exact-string fast path kept), in
+`moveclasstoownfile.cpp` and `synchronizememberfunctionorder.cpp`.
+
+**Layer 2 - the missing definitions (upstream, recorded).** With the header
+parsed under both spellings, whether follow symbol finds a definition at all
+varies per run: three instrumented `complex` runs missed the `thesource.cpp`
+definitions, the `main.cpp` one, and both, in different combinations, while
+the symlink-free runs missed none (measured). The guess - marked as such - is
+that the two parses are two parallel symbol worlds and which one a lookup
+binds against is an iteration-order lottery. A quick fix cannot conjure a
+definition the model will not report, so `complex` stays 10/1 and "different
+impl locations" 5/1 on a symlinked `$TMPDIR` even with layer 1 fixed.
+
+### Controls
+
+The tests themselves, with measured base rates: fix off (= plain HEAD) is
+7/4 across three differently-shaped runs and 5/1 twice; fix on is 10/1 and
+5/1 at stock `$TMPDIR` (layer 2's residue) and **11/0, 6/0 twice each** at a
+symlink-free one. The environment cross-check (fix off, symlink-free, green)
+says the fix targets the actual cause rather than papering over something
+else.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 730 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### What this leaves
+
+- **Layer 2** is the code model double-parsing one physical file; it belongs
+  upstream, not to this branch.
+- Four more `== link.targetFilePath` string comparisons exist
+  (`cpptoolsreuse.cpp:285`, `clangdfindreferences.cpp:435`,
+  `texteditor.cpp:7608`, `textviewport.cpp:1555`); worst case there is a
+  same-file target opening as a second editor, not corruption. Left alone -
+  no red test, no blind fix.
+- `LocatorFilterTest` failed only inside a whole-suite run, which this
+  document already records as unusable for comparison; unmeasured standalone,
+  left as a flake.
+- Workaround for kit-having macOS machines until layer 2 is fixed upstream:
+  run the kit-requiring CppEditor classes with `TMPDIR` on a symlink-free
+  path.

@@ -59,8 +59,23 @@ private:
     struct State {
         using Ptr = std::shared_ptr<State>;
 
+        // The code model can name one file under two spellings (a project
+        // indexed through a symlink, the editor opened through the other
+        // side), so the per-file map has to be keyed by file identity, not
+        // by string.
+        FilePath fileKeyFor(const FilePath &filePath) const
+        {
+            if (currentFile && currentFile->filePath().isSameFile(filePath))
+                return currentFile->filePath();
+            for (auto it = defLocations.cbegin(); it != defLocations.cend(); ++it) {
+                if (it.key().isSameFile(filePath))
+                    return it.key();
+            }
+            return filePath;
+        }
+
         void insertSorted(Symbol *decl, const Link &link) {
-            DefLocations &dl = defLocations[link.targetFilePath];
+            DefLocations &dl = defLocations[fileKeyFor(link.targetFilePath)];
             DefLocation newElem{decl, link};
             const auto cmp = [](const DefLocation &elem, const DefLocation &value) {
                 if (elem.defLoc.target.line < value.defLoc.target.line)
@@ -111,7 +126,7 @@ private:
 
                 if (!link.hasValidTarget())
                     return;
-                if (decl->filePath() == link.targetFilePath) {
+                if (decl->filePath().isSameFile(link.targetFilePath)) {
                     const int linkPos = link.target.toPositionInDocument(doc);
                     if (linkPos == declPos)
                         return;

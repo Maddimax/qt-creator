@@ -221,9 +221,22 @@ private:
             finish(m_state);
     }
 
+    // The code model can name one file under two spellings (a project indexed
+    // through a symlink, the editor opened through the other side), so the
+    // per-file map has to be keyed by file identity, not by string.
+    static FilePath fileKeyFor(const FilePath &filePath, const State::Ptr &state)
+    {
+        for (auto it = state->perFileState.cbegin(); it != state->perFileState.cend(); ++it) {
+            if (it.key().isSameFile(filePath))
+                return it.key();
+        }
+        return filePath;
+    }
+
     static CppRefactoringFilePtr getRefactoringFile(const FilePath &filePath, const State::Ptr &state)
     {
-        CppRefactoringFilePtr &refactoringFile = state->perFileState[filePath].refactoringFile;
+        CppRefactoringFilePtr &refactoringFile
+            = state->perFileState[fileKeyFor(filePath, state)].refactoringFile;
         if (!refactoringFile)
             refactoringFile = state->factory.cppFile(filePath);
         return refactoringFile;
@@ -256,13 +269,13 @@ private:
             } finishedChecker(state);
             if (!link.hasValidTarget())
                 return;
-            if (symbol->filePath() == link.targetFilePath) {
+            if (symbol->filePath().isSameFile(link.targetFilePath)) {
                 const int linkPos = link.target.toPositionInDocument(doc);
                 if (linkPos == symbolPos)
                     return;
             }
-            const CppRefactoringFilePtr refactoringFile
-                = getRefactoringFile(link.targetFilePath, state);
+            const FilePath targetFile = fileKeyFor(link.targetFilePath, state);
+            const CppRefactoringFilePtr refactoringFile = getRefactoringFile(targetFile, state);
             const QList<AST *> astPath = ASTPath(
                 refactoringFile->cppDocument())(link.target.line, link.target.column);
             const bool isTemplate = symbol->asTemplate();
@@ -278,7 +291,7 @@ private:
                         if (next != astPath.rend() && (*next)->asTemplateDeclaration())
                             it = next;
                     }
-                    state->perFileState[link.targetFilePath].insertSorted(*it);
+                    state->perFileState[targetFile].insertSorted(*it);
                     if (symbol->asForwardClassDeclaration()) {
                         if (const auto classSpec = (*(it - 1))->asClassSpecifier();
                             classSpec && classSpec->symbol) {
