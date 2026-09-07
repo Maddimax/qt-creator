@@ -50444,3 +50444,124 @@ it, grouped by what it does with the result. Most will be `setFocus()` and
 `window()`, and the tail is where something reaches for a type. That is one
 grep, and it is the last shape of "reaching into an editor" that has not been
 counted.
+
+## 2026-09-07 — A selection nobody heard about (batch 150)
+
+Entry 149 proposed counting `editor->widget()` uses and reading the tail rather
+than looking for a name already suspected. Did that. The distribution:
+
+```
+  28 )                              passed straight on
+  14                                assigned to a local
+   6 ->setFocus()
+   5 ->show()
+   3 ->findChildren<TextEditorWidget *>()      <- DiffEditor's own panes
+   2 ->findChild<QQuickWidget *>()             <- already Quick-aware
+   ...
+```
+
+`findChildren<TextEditorWidget *>` is a **seventh** way to name a widget-editor
+type, and entry 148's table did not have it either. All six uses are
+DiffEditor's, over its own two-pane view. Clean.
+
+The tail held something better: `emacskeys/emacskeysstate.cpp`. Entry 146
+walked `emacskeysplugin.cpp` and never opened the file beside it.
+
+### The gap
+
+```cpp
+// A selection changing without the caret moving has no editor-level signal
+// of its own. The widget's is kept where there is one, so that view goes
+// on behaving exactly as it did.
+if (auto * const edit = qobject_cast<PlainTextEdit *>(editor->widget())) {
+    connect(edit, &PlainTextEdit::selectionChanged, this, ...);
+```
+
+**The comment is the bug report.** `EmacsKeysState` gives up the Emacs mark
+when somebody other than EmacsKeys touches the view, and it learns that from
+three signals: the caret moved, the text changed, the selection changed. The
+first two are `IEditor`'s and `IDocument`'s and reach any view. The third was
+a `PlainTextEdit`'s, so in a Qt Quick editor **a selection that changed without
+the caret moving went unnoticed and the mark outlived it.**
+
+`IEditor` has `cursorPositionChanged`, with a comment saying exactly why it is
+on the editor - *"so that a view which is not one can be followed too"*. It had
+no sibling for the other half of where the reader is. It has one now, relayed
+by `BaseTextEditor` from `PlainTextEdit::selectionChanged` and by
+`QuickTextEditor` from `TextViewport::selectionChanged`, and EmacsKeys asks the
+editor.
+
+Second batch running where the missing piece was a **`Core::IEditor` seam that
+an existing comment had already asked for** - entry 149's `selectTo()` was the
+other. Both were one signal or one virtual beside something of the same shape
+that was already there.
+
+### The guard that was wrong
+
+The test first asserted `cursorPositionChanged` did **not** fire, to show this
+really is a caret-less selection change. The widget row failed on it: a
+`PlainTextEdit` emits that signal for any change to its cursor, an anchor-only
+one included, so its count says nothing about whether the caret moved.
+
+Replaced by the thing that does say so and was already asserted - the position
+is 9 before and after - with the reason written where the guard used to be, so
+the next person does not add it back.
+
+### Controls
+
+- **GH**: `QuickTextEditor` not relaying - red on the quick row.
+- **GI**: `BaseTextEditor` not relaying - red on the widget row.
+
+Two relays, two controls. The signal being *declared* is not enough and neither
+row would have caught the other's relay going missing.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 715 passed, 0 failed (was 713) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Core` | 0 | 222 passed, 0 failed |
+| `-test EmacsKeys` | 0 | 5 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What this says about the last three entries
+
+Entries 148, 149 and 150 have each ended with a census I believed was complete,
+and 149 and 150 each found something the previous one had not covered:
+
+| Entry | Believed complete | What the next one found |
+| --- | --- | --- |
+| 148 | five ways to name a widget type | `Aggregation::query<T>` for other `T` |
+| 149 | six ways | `findChildren<TextEditorWidget *>`, and a file beside one already read |
+
+The rule that keeps holding: **the census is only as complete as the question,
+and a question phrased as a list of names cannot find the name that is not on
+it.** What has found the last two is counting an unrelated grep's output and
+reading the rows nobody expected - `query<>` by type, `widget()` by what
+follows it.
+
+So the honest form of "nothing left" is not a list of patterns. It is: *here is
+a distribution, here is its tail, and the tail is accounted for.*
+
+### Where this leaves it
+
+The list is entry 148's, minus nothing and plus nothing:
+
+two items need a Linux box, one is a hook nothing overrides, two are defensible
+differences, and the rest belong to moving QmlJS or to whoever owns the editor.
+
+### What I would do next
+
+One more distribution, and it is the last one I can think of that is not a name
+I already suspect: **`connect(` where the sender is reached through an editor**
+- grouped by the *signal*, not the type. Entry 148 counted
+`&TextEditorWidget::` and found the language client's branch complete; what it
+could not see is a plugin connecting to a signal on something it fetched out of
+the editor two steps earlier. Grouping every `connect` in the tree by its
+signal name and reading the ones that belong to a text widget would say whether
+any are left.
+
+If that comes back empty, the seam-by-seam work really is done, and what
+remains is the QmlJS move and a Linux run.

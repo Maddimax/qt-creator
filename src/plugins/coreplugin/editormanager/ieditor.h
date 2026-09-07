@@ -52,6 +52,10 @@ signals:
     // asks the editor rather than the widget, so that a view which is not one
     // can be followed too.
     void cursorPositionChanged();
+    // And when what is selected changed, which is not the same thing: a
+    // selection can grow backwards over a word the caret is already at the end
+    // of. Whoever follows one asks the editor for the same reason.
+    void selectionChanged();
 
 private:
     bool m_duplicateSupported;

@@ -342,6 +342,10 @@ public:
             // listens to the editor rather than to a widget.
             connect(view, &TextViewport::cursorPositionChanged,
                     this, &Core::IEditor::cursorPositionChanged);
+            // And the other half: a selection can change without the caret
+            // moving, so following the caret alone misses it.
+            connect(view, &TextViewport::selectionChanged,
+                    this, &Core::IEditor::selectionChanged);
             connect(view, &TextViewport::cursorPositionChanged,
                     m_jumps, &JumpRecorder::caretMoved);
         }
@@ -10866,6 +10870,64 @@ private slots:
 
         editor->restoreState(state);
         QTRY_COMPARE(view->scrollX(), was);
+    }
+
+    void testTheEditorSaysWhenTheSelectionChanges_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // A selection can change without the caret moving - something selects the
+    // word the caret is already at the end of - and whoever is following the
+    // editor has to hear about it. IEditor said when the caret moved and
+    // nothing else, so anyone who wanted the other half reached for the
+    // widget's own signal and got nothing in this view.
+    void testTheEditorSaysWhenTheSelectionChanges()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("editor-selection-signal");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("selected.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        // The caret at the end of "alpha", with nothing selected.
+        editor->gotoLine(1, 9);
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), 9);
+        QVERIFY(TextEditor::textCursorOf(editor).selectedText().isEmpty());
+
+        QSignalSpy selection(editor, &Core::IEditor::selectionChanged);
+
+        // Select back over "alpha" without moving the caret: the anchor moves
+        // and the position does not, which is the case that has no signal of
+        // its own.
+        QTextCursor selecting = TextEditor::textCursorOf(editor);
+        selecting.setPosition(4);
+        selecting.setPosition(9, QTextCursor::KeepAnchor);
+        TextEditor::setTextCursorOf(editor, selecting);
+
+        QCOMPARE(TextEditor::textCursorOf(editor).selectedText(), QString("alpha"));
+        QCOMPARE(TextEditor::textCursorOf(editor).position(), 9);
+        QTRY_VERIFY2(selection.count() > 0, "the editor never said the selection changed");
+
+        // Note what is *not* asserted here: that cursorPositionChanged did not
+        // fire. A widget editor emits it for any change to its cursor, an
+        // anchor-only one included, so its count says nothing about whether
+        // the caret moved. What says so is the position above, which is 9
+        // before and after.
     }
 
     void testASearchResultOpensWithTheMatchSelected_data()

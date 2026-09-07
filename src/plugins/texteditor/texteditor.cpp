@@ -11176,6 +11176,10 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
                      });
     QObject::connect(textEditorWidget, &TextEditorWidget::cursorPositionChanged,
                      editor, &IEditor::cursorPositionChanged);
+    // The other half of where the reader is: a selection can change without
+    // the caret moving, and PlainTextEdit is the only thing that says so.
+    QObject::connect(textEditorWidget, &Utils::PlainTextEdit::selectionChanged,
+                     editor, &IEditor::selectionChanged);
     QObject::connect(
         textEditorWidget,
         &TextEditorWidget::saveCurrentStateForNavigationHistory,

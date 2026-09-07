@@ -35,13 +35,14 @@ EmacsKeysState::EmacsKeysState(Core::IEditor *editor):
         connect(document, &Core::IDocument::contentsChanged,
                 this, &EmacsKeysState::textChanged);
     }
-    // A selection changing without the caret moving has no editor-level signal
-    // of its own. The widget's is kept where there is one, so that view goes
-    // on behaving exactly as it did.
-    if (auto * const edit = qobject_cast<PlainTextEdit *>(editor->widget())) {
-        connect(edit, &PlainTextEdit::selectionChanged,
-                this, &EmacsKeysState::selectionChanged);
-    }
+    // A selection can change without the caret moving - something selects the
+    // word the caret is already at the end of - and the mark has to be given
+    // up then too. Asked of the editor, which says so whichever view it is:
+    // this used to reach for a PlainTextEdit inside the widget, and a Qt Quick
+    // editor has none, so on a C++ file the mark outlived a selection it
+    // should not have.
+    connect(editor, &Core::IEditor::selectionChanged,
+            this, &EmacsKeysState::selectionChanged);
 }
 
 EmacsKeysState::~EmacsKeysState() = default;
