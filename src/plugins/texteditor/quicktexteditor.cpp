@@ -1614,6 +1614,20 @@ private:
 // textviewport_test.cpp, which walks the tree the same way.
 // Every item drawn under \a root with that name, top to bottom. itemNamed()
 // answers the first one, which is no use for a column of them.
+// How often \a action is in \a toolBar's row: an action inserted directly is
+// an entry of its own, and one wrapped in a QToolButton is that button's
+// default action.
+static int timesDrawnIn(QToolBar *toolBar, QAction *action)
+{
+    int drawn = 0;
+    for (QAction * const entry : toolBar->actions()) {
+        auto * const button = qobject_cast<QToolButton *>(toolBar->widgetForAction(entry));
+        if (entry == action || (button && button->defaultAction() == action))
+            ++drawn;
+    }
+    return drawn;
+}
+
 static QList<QQuickItem *> itemsNamed(QQuickItem *root, const QString &name)
 {
     QList<QQuickItem *> found;
@@ -12488,6 +12502,75 @@ private slots:
         }
     }
 
+    // The same count over a real language rather than a made-up factory, which
+    // is where the two channels met: MinimizableInfoBars handed the widget
+    // toolbar a QToolButton wrapping its action, and the document offered the
+    // same action for a view that draws actions - which the widget row draws
+    // too. So a C++ file had the way back from a minimized info bar in its
+    // toolbar twice, one entry per channel, both backed by the same QAction.
+    void testACppFilesToolBarRowDrawsEachActionOnce_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testACppFilesToolBarRowDrawsEachActionOnce()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("cpp-toolbar-once");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int main() {}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(viewportForEditor(editor) != nullptr, quick);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        // The file is in no project, so the way back from the "not part of any
+        // project" bar is there to be drawn. Without this the count below
+        // would be over a list that does not contain the interesting one.
+        const QList<QAction *> ways = document->minimizableInfoBars()->showInfoBarActions();
+        QCOMPARE(ways.size(), 1);
+        QVERIFY2(document->toolBarActions().contains(ways.first()),
+                 "the document does not offer the way back from a minimized bar");
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "a C++ file has no toolbar row at all");
+
+        if (quick) {
+            auto * const view = bar->findChild<QQuickWidget *>();
+            QVERIFY(view);
+            QTRY_VERIFY(view->rootObject());
+            // One button per action: the Qt Quick row builds from the same
+            // list, so drawing one twice would show up here as well.
+            QList<QQuickItem *> drawn;
+            QTRY_VERIFY2((drawn = itemsNamed(view->rootObject(), "languageToolBarButton")).size()
+                             == document->toolBarActions().size(),
+                         "the Qt Quick row does not draw one button per action");
+        } else {
+            // What the row holds, not what is parented to it: QToolBar keeps
+            // the button of an action it has removed, so findChildren() counts
+            // a row that was rebuilt as one that drew everything twice.
+            auto * const toolBar = bar->findChild<QToolBar *>();
+            QVERIFY(toolBar);
+            for (QAction * const action : document->toolBarActions())
+                QCOMPARE(timesDrawnIn(toolBar, action), 1);
+        }
+    }
+
     // A census of the tool bar row: what a language puts there, counted in
     // each view. Both views take the language's part of the row from
     // TextDocument::toolBarActions() - the widget row inserts each as an
@@ -12551,16 +12634,10 @@ private slots:
                              == offered.size(),
                          "the Qt Quick row does not draw one button per language action");
         } else {
-            // Backed by the action either way: an action inserted into the
-            // QToolBar and a QToolButton wrapping one both report it as their
-            // default action, so counting those says how often the row drew it.
-            const QList<QToolButton *> buttons = bar->findChildren<QToolButton *>();
-            for (QAction * const action : offered) {
-                const int drawn = Utils::count(buttons, [action](QToolButton *button) {
-                    return button->defaultAction() == action;
-                });
-                QCOMPARE(drawn, 1);
-            }
+            auto * const toolBar = bar->findChild<QToolBar *>();
+            QVERIFY(toolBar);
+            for (QAction * const action : offered)
+                QCOMPARE(timesDrawnIn(toolBar, action), 1);
         }
     }
 

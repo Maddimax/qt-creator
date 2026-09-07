@@ -11216,11 +11216,6 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
         textEditorWidget->setupGenericHighlighter();
     textEditorWidget->finalizeInitialization();
 
-    // Toolbar: Actions to show minimized info bars
-    document->minimizableInfoBars()->createShowInfoBarActions([textEditorWidget](QWidget *w) {
-        return textEditorWidget->insertExtraToolBarWidget(TextEditorWidget::Left, w);
-    });
-
     editor->finalizeInitialization();
     return editor;
 }

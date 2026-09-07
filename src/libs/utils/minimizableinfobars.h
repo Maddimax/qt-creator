@@ -11,8 +11,6 @@
 #include <QHash>
 #include <QObject>
 
-#include <functional>
-
 QT_BEGIN_NAMESPACE
 class QAction;
 QT_END_NAMESPACE
@@ -22,21 +20,15 @@ namespace Utils {
 class QTCREATOR_UTILS_EXPORT MinimizableInfoBars : public QObject
 {
 public:
-    using ActionCreator = std::function<QAction *(QWidget *widget)>;
-
-public:
     explicit MinimizableInfoBars(InfoBar &infoBar);
 
     void setSettingsGroup(const Key &settingsGroup);
     void setPossibleInfoBarEntries(const QList<InfoBarEntry> &entries);
     void updateEntry(const InfoBarEntry &entry);
 
-    void createShowInfoBarActions(const ActionCreator &actionCreator) const;
-
-    // The same buttons as actions, for a view that draws from actions
-    // rather than taking widgets. createShowInfoBarActions() wraps these
-    // in a QToolButton for the widget toolbar; the action is the content
-    // either way.
+    // The way back from a minimized bar, one action per possible entry, each
+    // carrying its own visibility. Both views put them in their tool bar
+    // through the document, so there is one way in and nobody draws two.
     QList<QAction *> showInfoBarActions() const;
 
     void setInfoVisible(const Id &id, bool visible);

@@ -51195,3 +51195,140 @@ instrument `TextEditorWidgetPrivate::updateDocumentToolBarActions()` and
 `insertExtraToolBarWidget()` to log every insertion with the action pointer,
 open one C++ file, and read which two call sites carry the same pointer. That
 is ten minutes and it beats the day of theories I spent here.
+
+## 2026-09-07 — The duplicate, found in one run (batch 155)
+
+Entry 154 measured a defect it could not explain and said exactly how to
+proceed:
+
+> instrument `updateDocumentToolBarActions()` and `insertExtraToolBarWidget()`
+> to log every insertion with the action pointer, open one C++ file, and read
+> which two call sites carry the same pointer. That is ten minutes and it beats
+> the day of theories I spent here.
+
+It was ten minutes. **Do this first next time.**
+
+### The trace
+
+Three `qWarning`s, one C++ file opened in the widget view, and the answer is
+two lines apart:
+
+```
+PROBE update add     action=0x60200213c810 ''                 <- the document channel
+PROBE insertWidget   w=0x604001574110  defaultAction=0x60200213c810   <- createShowInfoBarActions()
+...
+PROBE   action=0x60200213c810 widget=0x604000050790 default=0x60200213c810
+PROBE   action=0x602002151ef0 widget=0x604001574110 default=0x60200213c810
+```
+
+Two entries in the row, two different wrapper actions, **the same
+`QAction *`** behind both. `MinimizableInfoBars::createShowInfoBarActions()`
+wrapped it in a `QToolButton` for the widget tool bar, and
+`TextDocument::toolBarActions()` offered the same action for a view that draws
+actions - which the widget row draws too, since entry 117 taught it to. The
+way back from a minimized info bar was in a C++ file's tool bar twice.
+
+The Qt Quick row was right all along; the widget row acquired the defect when
+the second channel was added *for* the Qt Quick row.
+
+### The fix
+
+The widget-only channel goes. Both views take these actions from the document
+now, which is one way in and no way to draw two.
+`createShowInfoBarActions()` had no other caller and is deleted with it, along
+with the `ActionCreator` alias it existed for.
+
+### Two things entry 154 reported that were wrong
+
+Both corrected by this trace, and worth the correction because both were
+written as findings:
+
+- **"`#` is doubled the same way."** It is not. The second `#Additional P` in
+  entry 154's probe was my label falling back to the *widget's* tool tip:
+  `m_preprocessorButton` has no default action, so the label logic printed
+  "Additional Preprocessor Directives" for it and I read two rows with similar
+  text as one action twice. The preprocessor action is drawn once.
+- **"My fix did not work, so the cause is elsewhere."** The fix - this fix -
+  does work. What failed last time was the *measurement*: see below.
+
+### The measure that was wrong, and the control that caught it
+
+The guard counted `bar->findChildren<QToolButton *>()` and matched
+`defaultAction()`. That still said 2 after the fix. It is not what the row
+holds: **`QToolBar::removeAction()` keeps the button it made**, so a row that
+was built, torn down and rebuilt - which is exactly what
+`updateDocumentToolBarActions()` does on every `toolBarActionsChanged` - leaves
+a stale hidden button behind for every action, and `findChildren` counts it.
+
+Counting `QToolBar::actions()` instead, resolving each through
+`widgetForAction()`, is what "drawn in the row" means. That is `timesDrawnIn()`
+now, and both guards use it.
+
+**This is why control NA matters more than the green run.** A measure that was
+wrong in one direction could as easily be wrong in the other - blind instead of
+double-counting - so the question is not "does it pass" but "does putting the
+bug back make it fail". It does, on the widget row only.
+
+### Controls
+
+- **NA**: the widget-only channel put back, byte for byte - red on
+  `testACppFilesToolBarRowDrawsEachActionOnce(widget)` and nothing else. This
+  is the one that proves the corrected measure still sees the defect.
+- **NB**: the remaining channel stops carrying the actions - red on five
+  tests, including entry 122's `testTheFormOffersTheWayBackFromAMinimizedInfoBar`,
+  which is the Qt Quick row's own guard. One channel, load-bearing for both.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 725 passed, 0 failed (was 723) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Core` | 0 | 222 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### What is still true and not fixed
+
+`setPossibleInfoBarEntries()` does not tell anyone the actions now exist. A
+document that sets its entries *after* its editor is built gets no button in
+either row until something else changes the list. **Both views have this
+hole equally**, so it is not a migration gap and not this batch's - but it is
+why entry 154's synthetic test disagreed with the real C++ file, and it is
+worth a signal one day.
+
+### Where this leaves it
+
+| | |
+| --- | --- |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box |
+| QmlJS's context pane | a UI decision, open since entry 114 |
+| The whitespace drawing difference; printing | declined (entry 68) and the owner's (entry 31) |
+| `abortAssist`; `activateWindow()`; `canInsertFromMimeData`; the link handshake | small, decided or undecidable |
+| Designer and SCXML | embedded text views, not standalone editors |
+| An info bar entry set after its editor | both views alike; a signal would close it |
+
+Entry 154's new row is gone.
+
+### The method note, and it is the only one that mattered today
+
+Entry 154 spent a batch on four hypotheses, three wrong, and ended by writing
+down the ten-minute instrumentation it should have started with. This batch ran
+that instrumentation first and had the answer before doing anything else -
+including the answer to *"was my last fix right?"*, which was yes, and which no
+amount of further reasoning would have settled.
+
+`~/.claude/method.md` already says **instrument, don't hypothesise**. Two
+consecutive batches are now a worked example of both sides of it: what it costs
+to skip, and what it costs to do. One day, ten minutes.
+
+### What I would do next
+
+Nothing on the list is a Qt Quick gap. The one thing with a measurement behind
+it is the row above - `setPossibleInfoBarEntries()` telling nobody - and it is
+half an hour: a signal on `MinimizableInfoBars`, relayed by `TextDocument` as
+`toolBarActionsChanged`, and the synthetic half of
+`testTheToolBarRowDrawsEachLanguageActionOnce` stops needing a second action to
+provoke the refresh. It closes a hole both views share rather than a difference
+between them, which is a different kind of work than this document has been
+doing - and a sign that the migration's own list is finished.

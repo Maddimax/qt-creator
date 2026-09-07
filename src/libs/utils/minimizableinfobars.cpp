@@ -69,21 +69,6 @@ Key MinimizableInfoBars::settingsKey(const Id &id) const
     return m_settingsGroup + '/' + SETTINGS_PREFIX + id.name();
 }
 
-void MinimizableInfoBars::createShowInfoBarActions(const ActionCreator &actionCreator) const
-{
-    QTC_ASSERT(actionCreator, return );
-
-    for (QAction *action : m_actions) {
-        auto *button = new QToolButton();
-        button->setDefaultAction(action);
-        QAction *toolbarAction = actionCreator(button);
-        connect(action, &QAction::changed, toolbarAction, [action, toolbarAction] {
-            toolbarAction->setVisible(action->isVisible());
-        });
-        toolbarAction->setVisible(action->isVisible());
-    }
-}
-
 QList<QAction *> MinimizableInfoBars::showInfoBarActions() const
 {
     return m_actions.values();
