@@ -102,6 +102,7 @@
 #include <QHBoxLayout>
 #include <QTest>
 #include <QToolBar>
+#include <QToolButton>
 #endif
 
 #include <memory>
@@ -12417,6 +12418,150 @@ private slots:
         askAbout(12); // gamma
         QTRY_COMPARE(other.asked, 3);
         QCOMPARE(mine.asked, 2);
+    }
+
+    // An action that carries a menu is a button that opens it, in either row.
+    // The widget row builds a QToolButton for the action and a QToolButton
+    // opens a menu only on click-and-hold unless told otherwise, so a click
+    // triggered the action instead - which for one of these does nothing at
+    // all, because opening the menu is the whole point of it.
+    void testAMenuCarryingToolBarActionOpensItInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAMenuCarryingToolBarActionOpensItInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        class MenuActionFactory final : public TextEditorFactory
+        {
+        public:
+            explicit MenuActionFactory(bool quick)
+            {
+                setId("QuickEditorToolBarMenuTest");
+                setDisplayName("Quick Editor Tool Bar Menu Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorToolBarMenuTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        MenuActionFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(editor.get()) != nullptr, quick);
+
+        auto * const withMenu = new QAction("Analyze", editor->document());
+        auto * const menu = new QMenu;
+        const QScopeGuard dropMenu([menu] { delete menu; });
+        menu->addAction("Tidy");
+        withMenu->setMenu(menu);
+        insertExtraToolBarActionIn(editor.get(), TextEditorWidget::Left, withMenu);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+
+        if (quick) {
+            auto * const view = bar->findChild<QQuickWidget *>();
+            QVERIFY(view);
+            QTRY_VERIFY(view->rootObject());
+            QQuickItem *drawn = nullptr;
+            QTRY_VERIFY2((drawn = itemNamed(view->rootObject(), "languageToolBarButton")),
+                         "the row drew nothing for the action");
+            // The row asks the action for its menu and draws one of its own
+            // over it; having one is what says a click will open it.
+            QVERIFY2(drawn->property("actionMenu").value<QObject *>(),
+                     "the row drew a button that does not know the action has a menu");
+        } else {
+            QToolButton *drawn = nullptr;
+            const QList<QToolButton *> buttons = bar->findChildren<QToolButton *>();
+            for (QToolButton * const button : buttons) {
+                if (button->defaultAction() == withMenu)
+                    drawn = button;
+            }
+            QVERIFY2(drawn, "the row drew nothing for the action");
+            QVERIFY2(drawn->popupMode() != QToolButton::DelayedPopup,
+                     "a click on the button triggers the action instead of opening its menu");
+        }
+    }
+
+    // A census of the tool bar row: what a language puts there, counted in
+    // each view. Both views take the language's part of the row from
+    // TextDocument::toolBarActions() - the widget row inserts each as an
+    // action, the Qt Quick row draws a button per row of the model - so each
+    // action has to be drawn exactly once, and the count has to match.
+    void testTheToolBarRowDrawsEachLanguageActionOnce_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheToolBarRowDrawsEachLanguageActionOnce()
+    {
+        QFETCH(bool, quick);
+
+        class CensusFactory final : public TextEditorFactory
+        {
+        public:
+            explicit CensusFactory(bool quick)
+            {
+                setId("QuickEditorToolBarCensus");
+                setDisplayName("Quick Editor Tool Bar Census");
+                setDocumentCreator([] { return new TextDocument("QuickEditorToolBarCensus"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        CensusFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(viewportForEditor(editor.get()) != nullptr, quick);
+
+        // The two ways a language reaches the row: an entry it can minimize,
+        // and an action put on the document by something that is not the
+        // document - a language client does the second.
+        const Utils::Id entryId("QuickEditorToolBarCensusEntry");
+        Utils::MinimizableInfoBars * const bars = document->minimizableInfoBars();
+        bars->setSettingsGroup("QuickEditorToolBarCensus");
+        bars->setPossibleInfoBarEntries({Utils::InfoBarEntry(entryId, "Census entry")});
+        auto * const added = new QAction("Census", document);
+        document->addToolBarAction(added);
+
+        const QList<QAction *> offered = document->toolBarActions();
+        QCOMPARE(offered.size(), 2);
+
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+
+        if (quick) {
+            auto * const view = bar->findChild<QQuickWidget *>();
+            QVERIFY(view);
+            QTRY_VERIFY(view->rootObject());
+            // One button per action the document offers, found by name rather
+            // than by text: the info bar's action carries an icon and no text.
+            QList<QQuickItem *> drawn;
+            QTRY_VERIFY2((drawn = itemsNamed(view->rootObject(), "languageToolBarButton")).size()
+                             == offered.size(),
+                         "the Qt Quick row does not draw one button per language action");
+        } else {
+            // Backed by the action either way: an action inserted into the
+            // QToolBar and a QToolButton wrapping one both report it as their
+            // default action, so counting those says how often the row drew it.
+            const QList<QToolButton *> buttons = bar->findChildren<QToolButton *>();
+            for (QAction * const action : offered) {
+                const int drawn = Utils::count(buttons, [action](QToolButton *button) {
+                    return button->defaultAction() == action;
+                });
+                QCOMPARE(drawn, 1);
+            }
+        }
     }
 
     // A text view embedded in another editor's UI - Designer's form source,

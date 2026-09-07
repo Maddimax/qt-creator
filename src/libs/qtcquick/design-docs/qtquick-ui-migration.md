@@ -51045,3 +51045,153 @@ entry 124's census covers what a factory *configures*, not what the row ends
 up showing. A census of "what is in the tool bar row, per moved language, in
 both views" is the same shape as the four that already exist, and it is the
 only place left where the two views could differ without a test noticing.
+
+## 2026-09-07 — The census that could not be written, and what it found anyway (batch 154)
+
+Entry 153 proposed the last thing it could see:
+
+> A census of "what is in the tool bar row, per moved language, in both views"
+> is the same shape as the four that already exist.
+
+**It is not the same shape, and it cannot be written as an equality.** That is
+the first finding. The second is a live defect the attempt surfaced, measured
+but not fixed - and saying which is which is the point of this entry.
+
+### Why the census as proposed does not exist
+
+Two reasons, both found by writing it and running it:
+
+1. **The two rows draw the same contribution differently on purpose.** The
+   widget row is a `QToolBar` of icon buttons with tool tips; the Qt Quick row
+   is `EditorToolBar.qml`'s `Repeater` of labelled `QtcButton`s. ClangTools'
+   entry is an icon with the tool tip "Analyze File..." in one and a button
+   *labelled* "Analyze File..." in the other. Asserting the rows match would
+   assert something false.
+2. **A contribution reaches them by two channels by design.**
+   `insertExtraToolBarActionIn()` puts the action on the *widget's* own list
+   for a widget editor and on the *document* for a view that is not one. So
+   `TextDocument::toolBarActions()` - the obvious cross-view measure, and the
+   one I used - is only the Qt Quick view's channel.
+
+The first version of the census compared `toolBarActions()` across views and
+reported four differences. **All four were the census being wrong**, and it
+took three measurements to establish that:
+
+| Reported | What it actually was |
+| --- | --- |
+| `main.cpp`: quick has "Analyze File...", widget does not | ClangTools writes both branches by hand; the widget one is a `QToolButton`, invisible to `toolBarActions()` |
+| `script.py`, `vcpkg.json`: quick has buttons, widget has none | the same, through `insertExtraToolBarActionIn()` |
+| `notes.txt`: asked for the widget view, got the Qt Quick one | `preferredFactoryFor()` answers `Core.PlainTextEditor` while `openEditor()` picks `QuickTextEditorFactory`, which claims `text/plain` directly (entry 122). Plain text has **no widget view reachable by flipping that factory's flag** - worth knowing, several tests use that pattern |
+
+I checked the first three were not my census reading too early by running it
+with the two views **opened in the opposite order**. Byte-identical output.
+That is what said "not a race" without a single sleep.
+
+### Two hypotheses, two measurements, two negatives
+
+Written down because each looked certain and each was wrong:
+
+- **"The widget row draws the info bar action twice, once per channel."**
+  Tested with a synthetic factory: drawn once. (It is twice for a *real* C++
+  file - see below - and the synthetic case missed it because the entries were
+  set after the editor was built.)
+- **"A menu-carrying action is `DelayedPopup` in the widget row, so a click
+  triggers instead of opening the menu."** `QToolBar` does not leave it at
+  `DelayedPopup`; both rows open the menu. The comment in `pythoneditor.cpp`
+  claiming the two behave alike is correct, and now has a test saying so.
+
+### What the census did find, measured and not fixed
+
+A C++ file in the **widget** view has entries in its tool bar row twice. The
+probe, over `m_toolBar->actions()` with each entry resolved to its backing
+`QAction`:
+
+```
+QComboBox[-]  clangd[doc]  <b>Warning</b>...[doc+bar]  #[doc]
+              <b>Warning</b>...[doc+bar]  QToolButton[-]  ParseContextWidget[-]
+              QWidget[-]  QToolButton[-] x3
+```
+
+The same `QAction *` for the way back from a minimized info bar appears at
+positions 3 and 5. A second probe over `QToolButton::defaultAction()` shows
+`#` doubled the same way. **Both copies resolve to the same pointer**, so this
+is one action drawn twice, not two actions that look alike.
+
+**I did not fix it.** I tried: dropping
+`MinimizableInfoBars::createShowInfoBarActions()` (the widget-only channel) and
+giving the class a signal so the row is told when the actions appear. The
+duplicate survived, and the synthetic case got *worse*. So the second copy
+comes from a path I have not identified, and shipping a fix I cannot explain
+would be worse than shipping the measurement. Reverted.
+
+**What the next batch should start from**, rather than from my guess: the row
+above, the two probes that produced it, and the fact that `#` and the info bar
+action double while `clangd` - which reaches the row only through
+`addToolBarAction()` - does not. Whatever the second channel is, `clangd` is
+not on it.
+
+### What landed
+
+Two guards, each with a widget row and a Qt Quick row:
+
+- `testTheToolBarRowDrawsEachLanguageActionOnce` - every action the document
+  offers is drawn exactly once. It passes today for a synthetic factory and is
+  what would have caught the C++ duplicate had it existed there.
+- `testAMenuCarryingToolBarActionOpensItInEitherView` - an action carrying a
+  menu is a button that opens it in either row.
+
+### Controls
+
+- **MA**: the document stops offering the info bar's way back - red on both
+  rows of the count test.
+- **MB**: `insertExtraToolBarActionIn()`'s widget branch made a no-op - red on
+  the **widget row only** of the menu test.
+- **MC**: its document branch made a no-op - red on the **Qt Quick row only**.
+
+Three controls, three rows, one each.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 723 passed, 0 failed (was 719) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+No `.qbs` change: no files added.
+
+### The method note
+
+Four hypotheses this batch, three of them wrong, and the one that was right I
+could not act on. What kept it honest was cheap: **the opposite-order rerun**
+for the race, the **pointer identity** in the probe output for the duplicate,
+and reverting a fix that did not do what I said it would. The rule the plan
+already has - *the first answer a sweep gives is wrong* - held for the fourth
+batch running, and this time the sweep was one I proposed myself.
+
+The corollary is new and worth keeping: **a census can only assert what both
+sides answer the same way.** Entry 124's four censuses work because "which
+factory", "which language" and "what a factory configures" are single-valued.
+"What the row shows" is two rendering decisions over two channels, and no
+assertion over it is both true and useful.
+
+### Where this leaves it
+
+Unchanged from entry 153, plus one row:
+
+| | |
+| --- | --- |
+| **A C++ file's widget tool bar draws two entries twice** | **new** - measured above, cause not found |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box |
+| QmlJS's context pane | a UI decision, open since entry 114 |
+| The whitespace drawing difference; printing | declined (entry 68) and the owner's (entry 31) |
+| `abortAssist`; `activateWindow()`; `canInsertFromMimeData`; the link handshake | small, decided or undecidable |
+| Designer and SCXML | embedded text views, not standalone editors |
+
+### What I would do next
+
+**The duplicate**, because it is the only measured defect on the list and it
+is in the view most people are still using. Start from the probe output above:
+instrument `TextEditorWidgetPrivate::updateDocumentToolBarActions()` and
+`insertExtraToolBarWidget()` to log every insertion with the action pointer,
+open one C++ file, and read which two call sites carry the same pointer. That
+is ten minutes and it beats the day of theories I spent here.
