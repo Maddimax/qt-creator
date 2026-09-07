@@ -27,7 +27,10 @@ public:
     static QuickToolBar *instance();
 
     void apply(TextEditor::TextEditorWidget *widget, QmlJS::Document::Ptr document, const QmlJS::ScopeChain *scopeChain, QmlJS::AST::Node *node, bool update, bool force = false);
-    bool isAvailable(TextEditor::TextEditorWidget *widget, QmlJS::Document::Ptr document, QmlJS::AST::Node *node);
+    // Whether the pane has anything to show for \a node. A property of the
+    // element and nothing else - it took an editor widget and never looked at
+    // it, which is why asking was a widget's privilege.
+    static bool isAvailable(QmlJS::Document::Ptr document, QmlJS::AST::Node *node);
     void setProperty(const QString &propertyName, const QVariant &value);
     void removeProperty(const QString &propertyName);
     void setEnabled(bool);

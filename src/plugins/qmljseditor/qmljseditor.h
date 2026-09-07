@@ -109,6 +109,10 @@ private:
 };
 
 
+// Whether the Qt Quick helper has anything to show for the element the caret
+// is in, asked of the editor rather than of a widget.
+QMLJSEDITOR_EXPORT bool quickHelperIsAvailableIn(Core::IEditor *editor);
+
 class QMLJSEDITOR_EXPORT QmlJSEditorFactory : public TextEditor::TextEditorFactory
 {
 public:

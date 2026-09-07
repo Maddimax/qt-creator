@@ -51825,3 +51825,107 @@ the geometry is not the obstacle - `TextViewport` has `cursorRectangle()` and
 Everything else in this document is done. If the answer is "QWidget behind an
 interface", that is a batch and I would take it; if it is "rebuild in QML", it
 is a design job first.
+
+## 2026-09-07 — The last item, measured instead of repeated (batch 160)
+
+Entry 159 said one item was left and it needed a decision:
+
+> the context pane is a floating `QWidget` positioned against `QPlainTextEdit`
+> geometry, and the question is whether it stays a QWidget popup behind a
+> view-agnostic interface or is rebuilt in QML.
+
+That sentence has been passed forward since entry 114 - **forty-six batches** -
+and no one had walked the class since. Walked it. The decision is real but it
+is much smaller than the sentence, and one piece of the item needed no
+decision at all.
+
+### What `QuickToolBar` actually needs from a `TextEditorWidget`
+
+Every use of `m_editorWidget` in the file, grouped:
+
+| | Uses | Needs a view? |
+| --- | --- | --- |
+| `convertPosition()`, `textCursor()`, `document()`, `textDocument()->tabSettings()`, `changeSet.apply(document())` | 13 | **no** - all document |
+| `translatedLineRegion()`, and `mapToParent(viewport()->mapToParent(cursorRect(tc)))` ×3 | 4 lines, all inside `apply()` | yes |
+
+**So the open decision is four lines of geometry in one function**, not a
+400-line widget. And entry 124 already measured that `TextViewport` answers the
+same questions - `cursorRectangle()` and `rectangleAt(int)` - so what those four
+lines want is a seam of the shape *"where does this editor draw line N / the
+caret, in the coordinates of the widget the editor manager placed"*.
+
+Writing that down is most of this batch's value. The next person to look does
+not have to open the file.
+
+### The piece that needed no decision
+
+```cpp
+bool QuickToolBar::isAvailable(TextEditor::TextEditorWidget *, Document::Ptr document, Node *node)
+```
+
+**The parameter has no name because the function never reads it.** Whether the
+Qt Quick helper has anything to show is a property of the element under the
+caret and nothing else. That unused parameter was the whole reason the question
+belonged to a widget - and it was the last thing in
+`QmlJSEditorWidget::contextMenuEvent()` that needed one.
+
+It is `isAvailable(document, node)` now, with
+`quickHelperIsAvailableIn(Core::IEditor *)` above it for anyone who has an
+editor rather than a document and a position. The context menu asks the second
+form's inner half; a Qt Quick view can ask either.
+
+### Controls
+
+- **SA**: the caret replaced by position 0 - red on both rows at "not offered
+  inside a Rectangle". The answer follows the caret.
+- **SB**: `isAvailable()` made to return true for everything - red on both rows
+  at the *Item* assertion. Without SB that half would pass on a pane that
+  claims every element, which is what "an assertion that cannot fail" looks
+  like here.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 727 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 38 passed, 0 failed (was 36) |
+
+No `.qbs` change: no files added.
+
+### What moving QmlJS needs now
+
+One thing, and it is now stated precisely enough to cost an afternoon rather
+than a design phase:
+
+**`QuickToolBar::apply()` positions its popup with four lines of widget
+geometry.** Everything else in the class is document work that a
+`Core::IEditor *` covers. Two shapes would do it:
+
+1. **A geometry seam** - `rectForPositionIn(editor, position)` and
+   `rectForLinesIn(editor, first, last)`, both in `editor->widget()`
+   coordinates, implemented over `cursorRect()` for the widget and
+   `cursorRectangle()`/`rectangleAt()` for `TextViewport`. The pane stays a
+   QWidget popup and stops caring which view it floats over. This is the
+   "QWidget behind an interface" answer and it is a batch.
+2. **Rebuild the pane in QML**, which needs no seam and no
+   `TextEditorWidget`, but is a design job and a much larger one.
+
+**The measurement says (1) is small.** I would take it, but it is still the
+choice entry 114 asked for and it is not mine to make - option 2 makes option
+1's seam dead code, so doing 1 first is only free if the answer is 1.
+
+### Everything else in this document is done
+
+Sixty batches. The goal - a C++ file opens in `TextEditor::TextViewport` - has
+held since entry 33 with four censuses guarding it, and eight sweeps are now
+tests that fail when their answer changes. The remaining list is two items
+needing a Linux box, one declined with a reason, one that is the owner's, one
+dead preference, two plugins whose text panes are not meant to be editors, and
+the four lines above.
+
+### What I would do next
+
+**Ask.** One question, and it now has a measured answer attached: *the context
+pane needs four lines of geometry; do we give it a seam and keep the QWidget,
+or rebuild it in QML?* If the answer is the seam, that is the last batch.

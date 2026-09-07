@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "qmljseditordocument.h"
+#include "qmljseditor.h"
 
 #include "qmljseditorsettings.h"
 
@@ -1012,6 +1013,70 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // Whether the Qt Quick helper is offered for the element the caret is in.
+    // The context menu asked QuickToolBar::isAvailable() through the editor
+    // widget, and that function took a widget it never read - so the question
+    // was a widget's to ask for no reason.
+    void testTheQuickHelperIsOfferedForTheSameElementInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheQuickHelperIsOfferedForTheSameElementInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-quick-helper");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Helper.qml");
+        // Rectangle is one of the nine the pane knows; Item is not.
+        QVERIFY(file.writeFileContents("import QtQuick\n"
+                                       "Item {\n"
+                                       "    Rectangle { id: box }\n"
+                                       "}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(!document->isSemanticInfoOutdated()
+                         && !document->semanticInfo().document.isNull(),
+                     "the QML file was never parsed");
+
+        const QString text = document->plainText();
+        const auto caretIn = [editor, document, &text](const QString &word) {
+            const int offset = text.indexOf(word);
+            QVERIFY(offset >= 0);
+            QTextCursor cursor(document->document());
+            cursor.setPosition(offset + 1);
+            TextEditor::setTextCursorOf(editor, cursor);
+        };
+
+        // Inside the Rectangle, which the pane has something to show for.
+        caretIn("Rectangle");
+        QVERIFY2(QmlJSEditor::quickHelperIsAvailableIn(editor),
+                 "the helper is not offered inside a Rectangle");
+
+        // And inside the Item, which it does not - so this says the answer
+        // follows the element rather than being yes wherever the file is QML.
+        caretIn("Item {");
+        QVERIFY2(!QmlJSEditor::quickHelperIsAvailableIn(editor),
+                 "the helper is offered inside an Item, which the pane cannot show");
+    }
+
     // The builtin formatter indents and does not format; qmlformat formats and
     // does not indent. Which of the two commands applies was decided by the
     // editor widget every time its context menu opened, so it reached neither

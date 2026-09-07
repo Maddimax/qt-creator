@@ -97,6 +97,27 @@ using namespace TextEditor;
 using namespace Utils;
 
 namespace QmlJSEditor {
+
+// Whether the Qt Quick helper has anything to show for the element covering
+// \a position. The document's parse and a position in it, and nothing else -
+// QuickToolBar::isAvailable() took an editor widget and never read it, which
+// is the only reason asking used to be a widget's privilege.
+static bool quickHelperIsAvailableAt(QmlJSEditorDocument *document, int position)
+{
+    if (!document)
+        return false;
+    const QmlJSTools::SemanticInfo info = document->semanticInfo();
+    return QuickToolBar::isAvailable(info.document,
+                                     info.declaringMemberNoProperties(position));
+}
+
+bool quickHelperIsAvailableIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return false;
+    return quickHelperIsAvailableAt(qobject_cast<QmlJSEditorDocument *>(editor->document()),
+                                    TextEditor::textCursorOf(editor).position());
+}
 //
 // QmlJSEditorWidget
 //
@@ -213,7 +234,7 @@ void QmlJSEditorWidget::updateContextPane()
         if (oldNode != newNode && m_oldCursorPosition != -1)
             m_contextPane->apply(this, info.document, nullptr, newNode, false);
 
-        if (m_contextPane->isAvailable(this, info.document, newNode) &&
+        if (QuickToolBar::isAvailable(info.document, newNode) &&
             !m_contextPane->widget()->isVisible()) {
             RefactorMarkers markers;
             if (UiObjectMember *m = newNode->uiObjectMemberCast()) {
@@ -874,10 +895,8 @@ void QmlJSEditorWidget::contextMenuEvent(QContextMenuEvent *e)
             if (action->objectName() == QLatin1String(Constants::M_REFACTORING_MENU_INSERTION_POINT))
                 menu->addMenu(refactoringMenu);
             if (action->objectName() == QLatin1String(Constants::SHOW_QT_QUICK_HELPER)) {
-                bool enabled = m_contextPane->isAvailable(
-                            this, qmlJsEditorDocument()->semanticInfo().document,
-                            qmlJsEditorDocument()->semanticInfo().declaringMemberNoProperties(position()));
-                action->setEnabled(enabled);
+                action->setEnabled(
+                    quickHelperIsAvailableAt(qmlJsEditorDocument(), position()));
             }
         }
     }
