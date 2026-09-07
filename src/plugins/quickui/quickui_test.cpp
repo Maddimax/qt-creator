@@ -7322,10 +7322,11 @@ public:
             return false;
         if (row == from || row == from + 1)
             return false;
-        beginMoveRows({}, from, from, {}, row);
+        // takeItem() and insertChild() announce themselves as a remove and an
+        // insert; wrapping them in begin/endMoveRows() nests three signal
+        // pairs for one change, and every proxy downstream desyncs on that.
         Utils::TreeItem *item = takeItem(rootItem()->childAt(from));
         rootItem()->insertChild(row > from ? row - 1 : row, item);
-        endMoveRows();
         return true;
     }
 };
