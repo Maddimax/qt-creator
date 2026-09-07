@@ -152,9 +152,6 @@ EffectCodeEditorFactory::EffectCodeEditorFactory()
 
     setDocumentCreator([]() { return new EffectDocument; });
     setEditorWidgetCreator([]() { return new EffectCodeEditorWidget; });
-    setEditorCreator([]() {
-        return new QmlJSEditor::QmlJSEditor;
-    });
     setAutoCompleterCreator([]() { return new QmlJSEditor::AutoCompleter; });
     setCommentDefinition(Utils::CommentDefinition::CppStyle);
     setParenthesesMatchingEnabled(true);

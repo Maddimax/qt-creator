@@ -145,7 +145,6 @@ BindingEditorFactory::BindingEditorFactory()
 
     setDocumentCreator([]() { return new BindingDocument; });
     setEditorWidgetCreator([]() { return new BindingEditorWidget; });
-    setEditorCreator([]() { return new QmlJSEditor::QmlJSEditor; });
     setAutoCompleterCreator([]() { return new QmlJSEditor::AutoCompleter; });
     setCommentDefinition(Utils::CommentDefinition::CppStyle);
     setParenthesesMatchingEnabled(true);
