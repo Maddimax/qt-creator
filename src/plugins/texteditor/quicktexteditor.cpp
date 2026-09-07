@@ -12502,6 +12502,79 @@ private slots:
         }
     }
 
+    // A document says which bars it can minimize when it likes, and for a
+    // language that decides late the tool bar row is already built. Neither
+    // view re-reads the list on its own, so without being told the way back
+    // never appears - and minimizing the bar is a one-way door in both.
+    void testAnInfoBarEntrySetAfterTheRowReachesIt_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAnInfoBarEntrySetAfterTheRowReachesIt()
+    {
+        QFETCH(bool, quick);
+
+        class LateFactory final : public TextEditorFactory
+        {
+        public:
+            explicit LateFactory(bool quick)
+            {
+                setId("QuickEditorLateInfoBarTest");
+                setDisplayName("Quick Editor Late Info Bar Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorLateInfoBarTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        LateFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QCOMPARE(viewportForEditor(editor.get()) != nullptr, quick);
+
+        // Built first, which is the whole point: a row that is made after the
+        // entries exist reads them itself and says nothing about being told.
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        QToolBar *toolBar = nullptr;
+        QQuickItem *root = nullptr;
+        if (quick) {
+            auto * const view = bar->findChild<QQuickWidget *>();
+            QVERIFY(view);
+            QTRY_VERIFY(view->rootObject());
+            root = view->rootObject();
+            QVERIFY2(itemsNamed(root, "languageToolBarButton").isEmpty(),
+                     "the row already drew a language button with nothing to draw");
+        } else {
+            toolBar = bar->findChild<QToolBar *>();
+            QVERIFY(toolBar);
+        }
+        QVERIFY2(document->toolBarActions().isEmpty(),
+                 "the document offers something before anything was set on it");
+
+        const Utils::Id entryId("QuickEditorLateInfoBarEntry");
+        Utils::MinimizableInfoBars * const bars = document->minimizableInfoBars();
+        bars->setSettingsGroup("QuickEditorLateInfoBarTest");
+        bars->setPossibleInfoBarEntries({Utils::InfoBarEntry(entryId, "Set after the row")});
+
+        const QList<QAction *> ways = bars->showInfoBarActions();
+        QCOMPARE(ways.size(), 1);
+        QVERIFY2(document->toolBarActions().contains(ways.first()),
+                 "the document does not offer the way back it just gained");
+
+        if (quick) {
+            QTRY_VERIFY2(itemsNamed(root, "languageToolBarButton").size() == 1,
+                         "the Qt Quick row never drew the way back it was told about");
+        } else {
+            QTRY_COMPARE(timesDrawnIn(toolBar, ways.first()), 1);
+        }
+    }
+
     // The same count over a real language rather than a made-up factory, which
     // is where the two channels met: MinimizableInfoBars handed the widget
     // toolbar a QToolButton wrapping its action, and the document offered the

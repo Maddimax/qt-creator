@@ -306,6 +306,12 @@ TextDocument::TextDocument(Id id)
     if (id.isValid())
         setId(id);
 
+    // A document says which bars it can minimize after it is built, so a view
+    // that has already asked for its toolbar actions would never learn the
+    // ways back exist. Both views ask again on this.
+    connect(minimizableInfoBars(), &Utils::MinimizableInfoBars::showInfoBarActionsChanged,
+            this, &TextDocument::toolBarActionsChanged);
+
     setSuspendAllowed(true);
 }
 

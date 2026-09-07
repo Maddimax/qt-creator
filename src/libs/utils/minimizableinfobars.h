@@ -19,6 +19,8 @@ namespace Utils {
 
 class QTCREATOR_UTILS_EXPORT MinimizableInfoBars : public QObject
 {
+    Q_OBJECT
+
 public:
     explicit MinimizableInfoBars(InfoBar &infoBar);
 
@@ -33,6 +35,12 @@ public:
 
     void setInfoVisible(const Id &id, bool visible);
     bool isShownInInfoBar(const Id &id) const;
+
+signals:
+    // The entries a caller says are possible arrive after a view may already
+    // have asked what belongs in its tool bar, so whoever draws them has to be
+    // told they now exist.
+    void showInfoBarActionsChanged();
 
 private:
     void createActions();

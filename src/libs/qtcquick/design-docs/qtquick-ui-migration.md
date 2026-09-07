@@ -51332,3 +51332,123 @@ half an hour: a signal on `MinimizableInfoBars`, relayed by `TextDocument` as
 provoke the refresh. It closes a hole both views share rather than a difference
 between them, which is a different kind of work than this document has been
 doing - and a sign that the migration's own list is finished.
+
+## 2026-09-07 — Told, rather than asked at the wrong moment (batch 156)
+
+Entry 155's last row, and the last thing on the list with a measurement behind
+it:
+
+> `setPossibleInfoBarEntries()` does not tell anyone the actions now exist. A
+> document that sets its entries *after* its editor is built gets no button in
+> either row until something else changes the list. **Both views have this hole
+> equally**, so it is not a migration gap [...] but it is worth a signal one day.
+
+Today. `MinimizableInfoBars` emits `showInfoBarActionsChanged()` when it builds
+its actions, `TextDocument` relays it as `toolBarActionsChanged`, and both rows
+already ask again on that.
+
+### Why it is worth writing down, given it is not a view difference
+
+Because of what it does to the *other* tests. Entry 154's synthetic guard and
+entry 155's real C++ one disagreed for a batch, and the reason was this hole:
+`CppEditorDocument` sets its entries in its constructor, before any view asks,
+so the real file was fine; a test that set them afterwards had to add a second
+action to provoke the refresh, and that second action is what made the widget
+row look correct when it was not. **A test that has to poke the code to see the
+thing it is testing is measuring the poke.** Removing the need for it is worth
+the signal on its own.
+
+### What the fix is
+
+Three lines, and the shape is the one this document has used since entry 149 -
+the thing that knows puts it on a signal, the document relays it, and neither
+view is asked to poll:
+
+```cpp
+// MinimizableInfoBars::createActions()
+emit showInfoBarActionsChanged();
+
+// TextDocument::TextDocument()
+connect(minimizableInfoBars(), &Utils::MinimizableInfoBars::showInfoBarActionsChanged,
+        this, &TextDocument::toolBarActionsChanged);
+```
+
+`MinimizableInfoBars` was a `QObject` without `Q_OBJECT`, which is why it had
+no signals to begin with and why the widget path grew a callback -
+`createShowInfoBarActions(ActionCreator)` - instead. That callback went in
+entry 155; this is the other half of the same knot.
+
+### The test, and what makes it bite
+
+`testAnInfoBarEntrySetAfterTheRowReachesIt`, over both views. **The tool bar
+row is built before the entries exist** - that is the whole point, and a test
+that built it afterwards would pass on a row that simply read the list itself.
+It asserts the row draws nothing first, then sets one entry, then asserts the
+row draws it exactly once.
+
+### Controls
+
+- **OA**: `createActions()` stops emitting - red on **both rows**. That is also
+  the measurement saying the hole was real in the Qt Quick view too, which
+  entry 155 asserted without testing.
+- **OB**: the signal is emitted but `TextDocument` does not relay it - red on
+  both rows again. Two halves of one chain, each load-bearing.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 727 passed, 0 failed (was 725) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test Core` | 0 | 222 passed, 0 failed |
+
+No `.qbs` change: no files added.
+
+### Where this leaves it — and it is the end of the list
+
+| | Why it is not a batch |
+| --- | --- |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box; `supportsSelection()` is false on macOS |
+| QmlJS's context pane | a UI decision, open since entry 114 |
+| The whitespace drawing difference | declined with a reason, entry 68 |
+| Printing | the owner's call, open since entry 31 |
+| `abortAssist` on a caret move; `activateWindow()` on a debugger tooltip | *when*, not *whether*; and cosmetic focus |
+| `canInsertFromMimeData` | a hook nothing in the tree overrides |
+| The link press/release handshake | two defensible answers, read and compared |
+| `forceOpenLinksInNextSplit` | a dead preference |
+| Designer and SCXML | embedded text views, not standalone editors |
+
+**Nothing on that list is a Qt Quick gap.** Two need hardware I do not have,
+two need somebody to decide, one was declined, one is dead, one is a pair of
+plugins whose text panes are not meant to be editors, and the rest are
+differences small enough that naming them is the whole of the work.
+
+The goal at the top of this document - *a C++ file opens in
+`TextEditor::TextViewport`* - has been true since entry 33 and has four
+censuses saying so. Thirty-two batches since then have been hardening, and the
+last five each closed something a census or a distribution found. This one had
+to reach outside the migration - into a hole both views share - to find work at
+all.
+
+### What I would do next
+
+**Say it is done, and stop looking for gaps this way.** Every direction that
+found something is now a test: the event handlers, the commands, the
+preferences, what a factory configures, who reaches past the editor for a
+widget, the caller census, the connect distribution, and the tool bar row.
+Eight sweeps, all green, and the last three batches found their work in the
+tail of a sweep rather than in the sweep itself.
+
+If work is still wanted it is not of this kind. In rough order of what a reader
+would notice:
+
+1. **Move QmlJS.** The only language left with a plugin's worth of behaviour
+   and the one with three sites already waiting (entries 114, 152). It is a
+   project, not a batch, and the outline pane going view-agnostic in entry 152
+   was the last piece that had to land first.
+2. **A Linux run**, which settles the two unmeasurable rows rather than leaving
+   them undecided.
+3. **The context pane decision** - QWidget popup behind an interface, or QML.
+   Measured twice; it needs a person, not a batch.
+
+Each of those is somebody's call to make. The gap-closing is finished.

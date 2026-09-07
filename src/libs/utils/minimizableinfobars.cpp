@@ -61,6 +61,7 @@ void MinimizableInfoBars::createActions()
         action->setVisible(!showInInfoBar(id));
         m_actions.insert(id, action);
     }
+    emit showInfoBarActionsChanged();
 }
 
 Key MinimizableInfoBars::settingsKey(const Id &id) const
