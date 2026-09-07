@@ -52483,3 +52483,57 @@ The remainder is the Linux run, the owners' items, QmlDesigner's own
 migration, and upstream's split-brain snapshot. The suites this branch
 gates on are now clean standalone on this machine, kit or no kit, with the
 one TMPDIR caveat entry 165 documents.
+
+## 2026-09-07 — The OS moved, so the gates were re-measured (batch 167)
+
+No migration step remains (entries 164-166), so this batch is a measurement,
+not a port: **macOS updated today between 06:26 and 19:38** - the morning
+whole-suite log's Config line says 26.5.1, the evening runs say 26.6.2 - and
+this document's own method says an environment that moved re-opens every
+timing question. The scheduler change is what took `LocatorFilterTest` from
+0-in-5 to 7-of-7 (entry 166); the question was what else it took.
+
+### Entry 166's undetermined axis, sharpened
+
+Entry 166 left "OS or tree" unresolved for the rate jump. The 06:26
+whole-suite run (26.5.1) had `testLocatorFilter(CppFunctionsFilter)` **pass**
+on a tree whose only later movement before the 7/7 measurement was entry
+165's commit - two quick fixes and this document, nothing `LocatorFilterTest`
+reads. To the precision one whole-suite sighting allows: **the OS moved the
+rate, not the tree.**
+
+### The sweep, standalone, all on 26.6.2
+
+| Class / suite | Exit | Result |
+| --- | --- | --- |
+| `-test CppEditor,FollowSymbolTest` | 0 | 154 passed, 0 failed |
+| `-test FakeVim` | 0 | 266 passed, 0 failed, 10 skipped |
+| `-test QmlJSEditor` | 0 | 44 passed, 0 failed |
+| `-test TextEditor` | 0 | 730 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+
+Every number matches its last recorded state. `FollowSymbolTest` is the class
+this document watches (both warning gates live there and in FakeVim's Quick
+class); both gates ran and neither tripped. The stock-TMPDIR residuals of
+entry 165 (`complex` 10/1, `different impl locations` 5/1) are unchanged and
+remain upstream's.
+
+No code changed, so no negative control applies; the sweep is the
+deliverable. Also checked rather than assumed: entry 165-era context said
+"`FollowSymbolTest` hangs standalone, 4/4" - that was the 2026-09-05 state,
+and the entries that followed it fixed the `linkOpened` half, the
+virtual-function chooser, and the 1298-second polish loop. The class has been
+154/0 since, and still is on the new OS. A loose end re-read from an old
+entry is not a loose end; the trail after it has to be walked to its end
+before it earns a batch.
+
+### Where this leaves the nightly loop
+
+Nothing this loop can reach is left. What remains needs a Linux box
+(middle-click paste, the IME `Cursor` attribute), an owner's decision
+(printing, whitespace drawing, the toolbar-popup presentation question),
+QmlDesigner's team (Design mode over a Quick editor), or upstream (the
+split-brain snapshot, the GC leftover in whole-suite order). The honest
+proposal: stop the nightly batches, or thin them to an occasional re-measure
+of this table; a nightly batch with no gap to close would be invented work,
+which the standing instruction forbids.
