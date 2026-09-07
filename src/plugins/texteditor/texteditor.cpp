@@ -9899,9 +9899,9 @@ std::unique_ptr<AssistInterface> TextEditorWidget::createAssistInterface(AssistK
     return std::make_unique<AssistInterface>(textCursor(), d->m_document->filePath(), reason);
 }
 
-QString TextEditorWidget::foldReplacementText(const QTextBlock &) const
+QString TextEditorWidget::foldReplacementText(const QTextBlock &block) const
 {
-    return QLatin1String("...");
+    return textDocument()->foldReplacementText(block);
 }
 
 QByteArray BaseTextEditor::saveState() const

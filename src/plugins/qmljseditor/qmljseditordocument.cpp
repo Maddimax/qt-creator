@@ -61,6 +61,7 @@
 
 #include <qmljs/parser/qmljsast_p.h>
 #include <qmljs/qmljsmodelmanagerinterface.h>
+#include <qmljs/qmljsutils.h>
 #include <qmljstools/qmljsindenter.h>
 #include <qmljstools/qmljssettings.h>
 #include <qmljstools/qmljsqtstylecodeformatter.h>
@@ -908,6 +909,22 @@ void QmlJSEditorDocument::foldOnFirstOpen()
         foldAuxiliaryData();
 }
 
+QString QmlJSEditorDocument::foldReplacementText(const QTextBlock &block) const
+{
+    const int curlyIndex = block.text().indexOf(QLatin1Char('{'));
+
+    if (curlyIndex != -1 && semanticInfo().isValid()) {
+        const int pos = block.position() + curlyIndex;
+        QmlJS::AST::Node * const node = semanticInfo().rangeAt(pos);
+
+        const QString objectId = QmlJS::idOfObject(node);
+        if (!objectId.isEmpty())
+            return QLatin1String("id: ") + objectId + QLatin1String("...");
+    }
+
+    return TextDocument::foldReplacementText(block);
+}
+
 void QmlJSEditorDocument::foldAuxiliaryData()
 {
     QTextDocument * const doc = document();
@@ -1016,6 +1033,58 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // What a folded QML object says for itself: its id, which the widget
+    // answered from a virtual on itself - a class the Qt Quick path never
+    // builds, so a fold there said "..." where the widget said "id: box...".
+    void testAFoldedObjectIsLabelledWithItsIdInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFoldedObjectIsLabelledWithItsIdInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-fold-label");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Folded.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\n"
+                                       "Item {\n"
+                                       "    id: box\n"
+                                       "    width: 10\n"
+                                       "}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(!document->isSemanticInfoOutdated()
+                         && !document->semanticInfo().document.isNull(),
+                     "the QML file was never parsed");
+
+        // The document's answer for the Item's opening line, which is what
+        // either view stands in for the folded text.
+        const QTextBlock itemLine = document->document()->findBlockByNumber(1);
+        QVERIFY(itemLine.isValid());
+        const QString label = document->foldReplacementText(itemLine);
+        QVERIFY2(label.contains("id: box"),
+                 qPrintable(QString("a folded object does not name its id: '%1'").arg(label)));
+
+    }
+
     // The pane driven the way a reader drives it: the caret wanders into an
     // element, the marker offers the pane, moving between elements shows it,
     // the window moving underneath does not shake it off, and Escape puts it

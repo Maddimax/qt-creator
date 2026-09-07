@@ -5471,6 +5471,7 @@ private slots:
         // Moving a language is a deliberate act; moving one should change this
         // line in the same commit.
         QStringList expected{QString(QUICK_TEXT_EDITOR_ID), QString("CppEditor.C++Editor"),
+                             QString("QmlJSEditor.QMLJSEditor"),
                              QString("Editors.Json"), QString("Qt4.proFileEditor"),
                              QString("CMakeProject.CMakeEditor"),
                              QString("PythonEditor.PythonEditor"),
@@ -5515,7 +5516,10 @@ private slots:
             {"script.py", true},
             // Its text pane is the Qt Quick view now; its preview is not.
             {"README.md", true},
-            {"Thing.qml", false},
+            // Moved last of all: the outline pane, the uses, the code model
+            // facts, the design-mode answer and the context pane each went
+            // first, and each has a test that runs over both views.
+            {"Thing.qml", true},
             {"project.pro", true},
             {"CMakeLists.txt", true},
             // Moved. DevContainerPlugin used to decorate this file through a
@@ -5573,6 +5577,7 @@ private slots:
         // decided by the mime type, which is half of what is checked below.
         const QHash<QString, QString> sampleFor{
             {"CppEditor.C++Editor", "main.cpp"},
+            {"QmlJSEditor.QMLJSEditor", "Thing.qml"},
             {"Editors.Json", "settings.json"},
             {"Qt4.proFileEditor", "project.pro"},
             {"CMakeProject.CMakeEditor", "CMakeLists.txt"},
@@ -12541,6 +12546,73 @@ private slots:
         QVERIFY2(!delta.isEmpty(), "the view cannot say where its third line is");
         QVERIFY2(!firstTwo.intersects(delta),
                  "a rect for the first two blocks reaches into the third");
+    }
+
+    // What a folded row stands in for its text is the document's answer - QML
+    // labels a folded object with its id - and the row the view lays out has
+    // to carry it. It carried a hard-coded "..." instead, so every language's
+    // folds said the same thing in this view.
+    void testAFoldedRowCarriesTheDocumentsReplacement()
+    {
+        class LabellingDocument final : public TextDocument
+        {
+        public:
+            using TextDocument::TextDocument;
+            QString foldReplacementText(const QTextBlock &block) const override
+            {
+                return QString("line %1 folded").arg(block.blockNumber());
+            }
+        };
+
+        class LabellingFactory final : public TextEditorFactory
+        {
+        public:
+            LabellingFactory()
+            {
+                setId("QuickEditorFoldLabelTest");
+                setDisplayName("Quick Editor Fold Label Test");
+                setDocumentCreator([] { return new LabellingDocument("QuickEditorFoldLabelTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setCodeFoldingSupported(true);
+                setUsesQuickEditor(true);
+            }
+        };
+
+        LabellingFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        document->setPlainText("one {\n    two\n    three\n}\n");
+        // A fold exists where the folding indent deepens, and the highlighter
+        // that would say so is the language's - this document is nobody's, so
+        // it says so itself.
+        QTextBlock block = document->document()->firstBlock();
+        for (int indent : {0, 1, 1, 0, 0}) {
+            TextBlockUserData::setFoldingIndent(block, indent);
+            block = block.next();
+        }
+
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([&editor] { editor->widget()->hide(); });
+        TextViewport * const view = viewportForEditor(editor.get());
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 2);
+
+        view->toggleFold(1);
+        const auto foldedRow = [view]() -> QVariantMap {
+            for (int i = 0; i < view->visibleLineCount(); ++i) {
+                const QVariantMap row = view->visibleLine(i);
+                if (row.value("folded").toBool())
+                    return row;
+            }
+            return {};
+        };
+        QTRY_VERIFY2(!foldedRow().isEmpty(), "nothing folded");
+        QVERIFY2(foldedRow().value("foldReplacement").toString().contains("line 0 folded"),
+                 qPrintable(QString("the folded row does not carry the document's answer: '%1'")
+                                .arg(foldedRow().value("foldReplacement").toString())));
     }
 
     // An action that carries a menu is a button that opens it, in either row.

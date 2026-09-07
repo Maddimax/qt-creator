@@ -6284,8 +6284,8 @@ void TextViewport::updatePolish()
             QTextBlock lastHidden = next;
             while (lastHidden.next().isValid() && !lastHidden.next().isVisible())
                 lastHidden = lastHidden.next();
-            blockLine.foldReplacement
-                = TextBlockUserData::foldReplacementText(QString("..."), next, lastHidden);
+            blockLine.foldReplacement = TextBlockUserData::foldReplacementText(
+                doc->foldReplacementText(block), next, lastHidden);
         }
         // The marks on this line - errors, warnings, breakpoints. The highest
         // priority one wins the slot, which is what the widget gutter does

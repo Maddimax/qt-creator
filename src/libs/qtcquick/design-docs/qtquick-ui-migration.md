@@ -52223,3 +52223,97 @@ remains is the outline combo, folds restore, the fold replacement text, and
 ### What I would do next
 
 **Batch D**, starting with that re-walk rather than with the flip.
+
+## 2026-09-07 — QmlJS opens in the Qt Quick editor (batch 164)
+
+Batch D. A `.qml` file opens in `TextEditor::TextViewport` now, and the three
+censuses say so instead of saying the opposite. Entries 151 through 163 were
+the twelve pieces this flip stood on; the walk that preceded it - re-running
+entry 157's over what was left of `QmlJSEditorWidget` - found exactly one gap
+still open, and closing it is the batch's code beyond the flip itself.
+
+### The gap the walk found: what a folded object says
+
+`QmlJSEditorWidget::foldReplacementText()` labelled a folded object with its
+id - `id: box...` - from a virtual on the *widget*, while the Qt Quick view
+hard-coded `"..."` for every language. The answer is the language's, so it is
+the *document's* now: `TextDocument::foldReplacementText()` (default `"..."`),
+the widget's virtual delegating to it, the viewport asking it, and QmlJS's
+override moved onto `QmlJSEditorDocument`. Two tests: the document names the
+id in either view, and a folded viewport row carries whatever its document
+answers - the second in the TextEditor suite, because a QQuickItem is not a
+QObject child of anything a QmlJS test can search.
+
+### The flip, and where it deliberately is not
+
+`setUsesQuickEditor(true)` in `QmlJSEditorFactory`'s **default constructor
+only**. Two factories derive from this one and call the Id constructor -
+QmlDesigner's `QtQuickDesignerFactory` and Qbs's `QbsEditorFactory` - and both
+build `QmlJSEditorWidget` subclasses of their own. They keep them.
+
+### What the flip is known not to cover, written down rather than hidden
+
+- **QmlDesigner.** Its text integration (`BaseTextEditModifier`,
+  `performComponentFromObjectDef`) casts the editor's widget to
+  `QmlJSEditorWidget`. Every suite in this document runs `-noload QmlDesigner`,
+  and its own factory keeps the widget - but Design mode round-tripping over a
+  *Qt Quick* QML editor is untested and unported. That is QmlDesigner's
+  migration, not this one's.
+- **A widget-saved editor state.** `QmlJSEditorWidget::restoreState()` folds
+  auxiliary data for pre-versioned states; a state saved by the widget view
+  does not restore into the Qt Quick view's format. One cosmetic loss per
+  file, once, on first open in the new view.
+- **The widget-path tests stay widget-path.** The quick fix and indenter suites
+  drive the widget pipeline by casting the opened editor, so their fixtures now
+  pin `setUsesQuickEditor(false)` around opening, with the previous value
+  restored. They test what they always tested.
+
+### Controls
+
+- **XA**: QmlJS's fold answer disabled - red on both rows of the id test, with
+  the message showing the old symptom: `'...'`.
+- **XB**: the viewport hard-codes `"..."` again - red on the wiring test only,
+  same symptom.
+- **XC**: the flip reverted - **all three censuses red**:
+  `testWhichFactoriesAreQuick` (list sizes differ),
+  `testWhichLanguagesOpenInTheQuickEditor` ("Thing.qml opened in the widget
+  editor"), and `testEveryQuickLanguageGetsWhatItsFactoryConfigures`. Moving a
+  language is a deliberate act three tests co-sign, which is what entry 124
+  built them for.
+
+Also caught while landing: the configures-census refused the flip until a
+`.qml` sample row was added - *"moved to the Qt Quick editor with no file here
+to check it with"* - and the fold wiring test folded nothing until the test's
+document declared its own folding indents, because folding data belongs to a
+language's highlighter and the synthetic document has neither.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 730 passed, 0 failed (was 729) |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 44 passed, 0 failed (was 42) |
+
+No `.qbs` change: no files added.
+
+### Where this leaves the document
+
+The goal at the top has been met since entry 33; the language this document
+kept saying was the one with "a plugin's worth of behaviour" left is now in
+the Qt Quick editor with every behaviour walked, ported and tested over both
+views. What remains anywhere:
+
+| | |
+| --- | --- |
+| Middle-click paste; the IME `Cursor` attribute | need a Linux box |
+| Whitespace drawing; printing | declined (entry 68); the owner's (entry 31) |
+| `forceOpenLinksInNextSplit` | a dead preference |
+| Designer, SCXML, EffectComposer, the binding editor, Qbs | embedded widget views, deliberately kept |
+| QmlDesigner over a Qt Quick QML editor | QmlDesigner's own migration |
+
+### What I would do next
+
+Nothing in this document - it is done twice over now, for C++ since entry 33
+and for QmlJS today. If the branch wants more, it is the Linux run, and after
+that the list above belongs to its owners.

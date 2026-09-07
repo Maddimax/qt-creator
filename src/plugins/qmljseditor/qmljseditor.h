@@ -80,7 +80,6 @@ protected:
     void contextMenuEvent(QContextMenuEvent *e) override;
     void createToolBar();
     void updateOutline(QWidget *newOutline);
-    QString foldReplacementText(const QTextBlock &block) const override;
 
 private:
 

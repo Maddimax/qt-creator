@@ -44,6 +44,7 @@ public:
     // The licence header every language folds, and the block the QML designer
     // writes at the end of a file.
     void foldOnFirstOpen() override;
+    QString foldReplacementText(const QTextBlock &block) const override;
 
     // Folds that block wherever it is. Public because the editor widget folds
     // it again when restoring a state written before this was remembered.

@@ -78,7 +78,16 @@ QString QmlJSQuickFixTest::applyQuickFix(const QString &source, int cursorPos,
         return {};
     }
 
+    // These tests drive quick fixes through the widget pipeline, so they pin
+    // the view that has one - a QML file opens in the Qt Quick editor now.
+    TextEditor::TextEditorFactory * const factory
+        = TextEditor::TextEditorFactory::preferredFactoryFor(filePath);
+    const bool wasQuick = factory && factory->usesQuickEditor();
+    if (factory)
+        factory->setUsesQuickEditor(false);
     IEditor *editor = EditorManager::openEditor(filePath);
+    if (factory)
+        factory->setUsesQuickEditor(wasQuick);
     auto baseEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
     if (!baseEditor) {
         m_errorString = "Could not open QML editor";

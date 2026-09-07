@@ -649,6 +649,12 @@ QList<QAction *> TextDocument::contextMenuActions(const QTextCursor &cursor)
     return {};
 }
 
+QString TextDocument::foldReplacementText(const QTextBlock &block) const
+{
+    Q_UNUSED(block)
+    return QLatin1String("...");
+}
+
 QList<QAction *> TextDocument::toolBarActions() const
 {
     QList<QAction *> actions = ownToolBarActions();

@@ -168,6 +168,11 @@ public:
     // Called once the highlighter has run, because which markers begin a
     // comment is the file's language and that is not known before.
     virtual void foldOnFirstOpen();
+    // What stands in for \a block's folded-away text, before the swallowed
+    // closing bracket is put back. The language's to answer - QML names the
+    // object's id - and the document's rather than a view's, so that every
+    // view says the same thing.
+    virtual QString foldReplacementText(const QTextBlock &block) const;
 
     // Run \a f once the highlighter has caught up, or answer false if it
     // already has and the caller should just call it. What a file's comment

@@ -52,6 +52,14 @@ void QmlJSIndenterTest::testAutoIndentWhileTyping()
     const FilePath filePath = tempDir.filePath("Typed.qml");
     QVERIFY(filePath.writeFileContents("import QtQuick\nItem {\n}\n"));
 
+    // Pinned to the widget view: this exercises the widget's typing pipeline,
+    // and a QML file opens in the Qt Quick editor now.
+    TextEditor::TextEditorFactory * const factory
+        = TextEditor::TextEditorFactory::preferredFactoryFor(filePath);
+    QVERIFY(factory);
+    const bool wasQuick = factory->usesQuickEditor();
+    factory->setUsesQuickEditor(false);
+    const QScopeGuard restoreView([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
     IEditor *editor = EditorManager::openEditor(filePath);
     QVERIFY(editor);
     auto baseEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);

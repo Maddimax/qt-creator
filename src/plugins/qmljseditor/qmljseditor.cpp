@@ -732,22 +732,6 @@ void QmlJSEditorWidget::semanticInfoUpdated(const SemanticInfo &semanticInfo)
 
 }
 
-QString QmlJSEditorWidget::foldReplacementText(const QTextBlock &block) const
-{
-    const int curlyIndex = block.text().indexOf(QLatin1Char('{'));
-
-    if (curlyIndex != -1 && qmlJsEditorDocument()->semanticInfo().isValid()) {
-        const int pos = block.position() + curlyIndex;
-        Node *node = qmlJsEditorDocument()->semanticInfo().rangeAt(pos);
-
-        const QString objectId = idOfObject(node);
-        if (!objectId.isEmpty())
-            return QLatin1String("id: ") + objectId + QLatin1String("...");
-    }
-
-    return TextEditorWidget::foldReplacementText(block);
-}
-
 
 // What a QML file offers whichever formatter is configured. The two laying-out
 // commands are not in here: which of them applies is the code style's answer
@@ -1083,7 +1067,12 @@ private:
 
 QmlJSEditorFactory::QmlJSEditorFactory()
     : QmlJSEditorFactory(Constants::C_QMLJSEDITOR_ID)
-{}
+{
+    // Only the language's own factory: the factories deriving from this one -
+    // QmlDesigner's and Qbs's - build widget subclasses of their own and keep
+    // them.
+    setUsesQuickEditor(true);
+}
 
 QmlJSEditorFactory::QmlJSEditorFactory(Utils::Id _id)
 {
