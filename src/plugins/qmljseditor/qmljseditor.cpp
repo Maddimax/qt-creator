@@ -98,6 +98,20 @@ using namespace Utils;
 
 namespace QmlJSEditor {
 
+// The editor showing \a widget, which is the direction a widget cannot ask
+// for itself: the document model lists the editors of its document, and one
+// of them is this view.
+static Core::IEditor *editorOfWidget(QmlJSEditorWidget *widget)
+{
+    const QList<Core::IEditor *> editors
+        = Core::DocumentModel::editorsForDocument(widget->textDocument());
+    for (Core::IEditor * const editor : editors) {
+        if (TextEditor::TextEditorWidget::fromEditor(editor) == widget)
+            return editor;
+    }
+    return nullptr;
+}
+
 // Whether the Qt Quick helper has anything to show for the element covering
 // \a position. The document's parse and a position in it, and nothing else -
 // QuickToolBar::isAvailable() took an editor widget and never read it, which
@@ -232,7 +246,7 @@ void QmlJSEditorWidget::updateContextPane()
         Node *oldNode = info.declaringMemberNoProperties(m_oldCursorPosition);
         Node *newNode = info.declaringMemberNoProperties(position());
         if (oldNode != newNode && m_oldCursorPosition != -1)
-            m_contextPane->apply(this, info.document, nullptr, newNode, false);
+            m_contextPane->apply(editorOfWidget(this), info.document, nullptr, newNode, false);
 
         if (QuickToolBar::isAvailable(info.document, newNode) &&
             !m_contextPane->widget()->isVisible()) {
@@ -835,7 +849,7 @@ void QmlJSEditorWidget::showContextPane()
     if (m_contextPane && info.isValid()) {
         Node *newNode = info.declaringMemberNoProperties(position());
         ScopeChain scopeChain = info.scopeChain(info.rangePath(position()));
-        m_contextPane->apply(this, info.document,
+        m_contextPane->apply(editorOfWidget(this), info.document,
                              &scopeChain,
                              newNode, false, true);
         m_oldCursorPosition = position();
@@ -935,7 +949,7 @@ void QmlJSEditorWidget::wheelEvent(QWheelEvent *event)
     TextEditorWidget::wheelEvent(event);
 
     if (visible)
-        m_contextPane->apply(this, qmlJsEditorDocument()->semanticInfo().document, nullptr,
+        m_contextPane->apply(editorOfWidget(this), qmlJsEditorDocument()->semanticInfo().document, nullptr,
                              qmlJsEditorDocument()->semanticInfo().declaringMemberNoProperties(m_oldCursorPosition),
                              false, true);
 }
@@ -967,7 +981,7 @@ void QmlJSEditorWidget::semanticInfoUpdated(const SemanticInfo &semanticInfo)
     if (m_contextPane) {
         Node *newNode = semanticInfo.declaringMemberNoProperties(position());
         if (newNode) {
-            m_contextPane->apply(this, semanticInfo.document, nullptr, newNode, true);
+            m_contextPane->apply(editorOfWidget(this), semanticInfo.document, nullptr, newNode, true);
             m_contextPaneTimer.start(); //update text marker
         }
     }
@@ -977,7 +991,7 @@ bool QmlJSEditorWidget::hideContextPane()
 {
     bool b = (m_contextPane) && m_contextPane->widget()->isVisible();
     if (b)
-        m_contextPane->apply(this, qmlJsEditorDocument()->semanticInfo().document,
+        m_contextPane->apply(editorOfWidget(this), qmlJsEditorDocument()->semanticInfo().document,
                              nullptr, nullptr, false);
     return b;
 }

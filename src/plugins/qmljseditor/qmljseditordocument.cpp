@@ -3,6 +3,7 @@
 
 #include "qmljseditordocument.h"
 #include "qmljseditor.h"
+#include "quicktoolbar.h"
 
 #include "qmljseditorsettings.h"
 
@@ -1013,6 +1014,96 @@ private slots:
     // The tool bar row draws whichever element the caret is in, and it finds
     // it with findChild<ToolBarOutline *>() on the editor. The editor widget
     // fills a combo of its own; a view that is not one is handed this.
+    // The context pane itself, floated over the element it edits. It took a
+    // TextEditorWidget for geometry only, so this force-applies it over a
+    // Rectangle in either view and asks where it landed. Forced, because the
+    // pane is off by default and this is about where it goes, not whether.
+    void testTheContextPaneFloatsOverEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheContextPaneFloatsOverEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-context-pane");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Pane.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\n"
+                                       "Item {\n"
+                                       "    Rectangle { id: box; width: 10; height: 10 }\n"
+                                       "}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        // Shown, because a pane can only be positioned over rows that are laid
+        // out, and the Qt Quick view lays out only what somebody looks at.
+        editor->widget()->resize(500, 400);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(!document->isSemanticInfoOutdated()
+                         && !document->semanticInfo().document.isNull(),
+                     "the QML file was never parsed");
+
+        const QmlJSTools::SemanticInfo info = document->semanticInfo();
+        const int inRectangle = document->plainText().indexOf("Rectangle") + 1;
+        QmlJS::AST::Node * const node = info.declaringMemberNoProperties(inRectangle);
+        QVERIFY2(node, "no element declares the position inside 'Rectangle'");
+
+        QuickToolBar * const bar = QuickToolBar::instance();
+        QWidget * const pane = bar->widget();
+        const QScopeGuard putAway([pane] {
+            pane->hide();
+            pane->setParent(nullptr);
+        });
+
+        // Moved, so that global and parent coordinates measurably differ:
+        // with the window at the origin they nearly coincide, and a pane
+        // positioned with unmapped global points still lands inside the
+        // parent - the clamping in rePosition() sees to that.
+        QWidget * const window = editor->widget()->window();
+        const QPoint windowWasAt = window->pos();
+        const QScopeGuard putWindowBack([window, windowWasAt] { window->move(windowWasAt); });
+        // Further than the anchor's own slack, which legitimately spans one
+        // pane height for the above-the-element placement.
+        window->move(windowWasAt + QPoint(160, 240));
+
+        bar->apply(editor, info.document, nullptr, node, false, /*force=*/true);
+
+        QWidget * const paneParent = editor->widget()->parentWidget();
+        QVERIFY2(paneParent, "the editor's view has no parent to float the pane over");
+        QCOMPARE(pane->parentWidget(), paneParent);
+        QVERIFY2(pane->isVisibleTo(paneParent), "the pane never showed");
+        // Anchored to the element it edits: every candidate point the pane is
+        // offered shares the element's row, sits one pane-height above it, or
+        // one line below - so its y may not stray further than that. Fed
+        // global points as parent points, it lands a window-offset away.
+        const QRect elementGlobal = TextEditor::globalRectForPositionIn(editor, inRectangle);
+        QVERIFY(!elementGlobal.isEmpty());
+        const int elementTop = paneParent->mapFromGlobal(elementGlobal.topLeft()).y();
+        QVERIFY2(qAbs(pane->y() - elementTop) <= pane->height() + 20,
+                 qPrintable(QString("the pane is not anchored to its element: pane y %1, "
+                                    "element y %2, pane height %3")
+                                .arg(pane->y()).arg(elementTop).arg(pane->height())));
+    }
+
     // Whether the Qt Quick helper is offered for the element the caret is in.
     // The context menu asked QuickToolBar::isAvailable() through the editor
     // widget, and that function took a widget it never read - so the question

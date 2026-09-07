@@ -52037,3 +52037,97 @@ seam calls, with the pane mapping global to its parent's space via
 is already off the widget (entry 160), so after B the class's header no longer
 names `TextEditorWidget`, and C is a decorator object of the same shape as
 `QmlJSUses`.
+
+## 2026-09-07 — The pane floats over either view (batch 162)
+
+Batch B of entry 161's decomposition. `QuickToolBar` no longer names
+`TextEditorWidget` anywhere - header or body - and the test that proves it
+force-applies the pane over a Rectangle **in both views** and asks where it
+landed. The Qt Quick row passes: the context pane, the one thing entry 114
+left undecided for forty-six batches, positions correctly over a
+`TextViewport` when applied.
+
+### What moved where
+
+| Was | Is |
+| --- | --- |
+| `apply(TextEditorWidget *, ...)` | `apply(Core::IEditor *, ...)` |
+| `m_editorWidget` | `QPointer<Core::IEditor> m_editor` |
+| `convertPosition()` ×4 | `Utils::Text::convertPosition()` on the document - the widget's was a one-line wrapper over exactly that |
+| `textCursor()` for edit blocks ×2 | a cursor made on the document; the widget's was a copy anyway |
+| `changeSet.apply(document())`, `indentLines()` | the document, via a `textDocument()` lookup on the editor |
+| `translatedLineRegion()` + 3 × `mapToParent(viewport()->mapToParent(cursorRect()))` | the two seam calls, mapped into the pane's parent with `mapFromGlobal()` |
+
+The widget's pixel-granular height cap on the element's region is reproduced
+block by block - rows join the rect until one starts more than a pane-height
+below the first. Not reproduced: the old `setWidth(width() - left())`, which
+trimmed the region by its own left margin and reads like a longstanding typo
+rather than a decision.
+
+The callers hand over their editor through `editorOfWidget()` - the document
+model lists the editors of the widget's document, and one of them is this
+view. Same shape as `editorForViewport()`, opposite direction.
+
+### The control that did not bite, twice
+
+**VA** - the `mapFromGlobal()` calls dropped, global points fed to the pane as
+parent points - passed on the first run. Two reasons, found one per run:
+
+1. In a test the window sits near the global origin, so the two coordinate
+   spaces nearly coincide, **and `rePosition()` clamps whatever it is given
+   into the parent** - so "the pane landed inside the editor" is an assertion
+   that almost cannot fail. Fixed by *moving the window*, so that the axes the
+   mapping depends on actually differ, and by anchoring the assertion to the
+   element: every candidate point shares the element's row, sits one
+   pane-height above it, or one line below, so the pane's y may not stray
+   further than a pane-height from the element's.
+2. The anchor's own slack must span that legitimate pane-height - and the
+   first window offset (140 px) fit inside it, so the quick row still passed.
+   **An offset that varies a coordinate space has to exceed the assertion's
+   slack**, or the sabotage hides in the tolerance. 240 px does; both rows
+   then go red on the sabotage and green on the real code.
+
+This is the method file's newest rule live: a measurement only retires a
+question if it varies what the answer depends on. The window position was the
+load-bearing axis, and no amount of re-running at the origin would have said
+anything.
+
+### Controls
+
+- **VA**: the mapping dropped - red on both rows at "not anchored to its
+  element" (pane y 441 / 250 against element y 32), after the two fixes above.
+- **VB**: `activate()`/`rePosition()` never called - red on both rows at "the
+  pane never showed". Showing and placing are separate claims.
+
+### Suites
+
+| Suite | Exit | Result |
+| --- | --- | --- |
+| `-test TextEditor` | 0 | 729 passed, 0 failed |
+| `-test QuickUi` | 0 | 207 passed, 0 failed, 1 skipped |
+| `-test QmlJSEditor` | 0 | 40 passed, 0 failed (was 38) |
+
+No `.qbs` change: no files added.
+
+### What moving QmlJS still needs
+
+Batch C, then D:
+
+- **C**: the pane's driving code - `semanticInfoUpdated`'s apply, the
+  `m_contextPaneTimer` update loop, `showTextMarker()`, `hideContextPane()`,
+  and the `wheelEvent`/`resizeEvent`/`scrollContentsBy` overrides that
+  reposition it - moved off `QmlJSEditorWidget` into a decorator object of
+  `QmlJSUses`'s shape, driven by `IEditor::cursorPositionChanged` and
+  `semanticInfoUpdated`. After C, the pane follows the caret in the Qt Quick
+  view instead of only appearing where a test puts it.
+- **D**: `setUsesQuickEditor(true)` on `QmlJSEditorFactory`, and the
+  `Thing.qml` row of `testWhichLanguagesOpenInTheQuickEditor` flips in the
+  same commit.
+
+### What I would do next
+
+**Batch C.** Its pieces are all named above and every seam it needs exists;
+the one design point is that the widget also still drives the pane (its own
+`updateContextPane()` path stays until D, or moves with C the way the outline
+pane's driving did in entry 152 - the second is less code and one behaviour,
+and is what I would do).

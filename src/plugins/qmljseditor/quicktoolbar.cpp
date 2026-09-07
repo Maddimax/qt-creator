@@ -20,7 +20,9 @@
 #include <qmljs/qmljsutils.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/textdocument.h>
+#include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/icore.h>
+#include <utils/textutils.h>
 
 #include <QDebug>
 
@@ -93,17 +95,17 @@ QuickToolBar *QuickToolBar::instance()
     return &theQuickToolBar;
 }
 
-void QuickToolBar::apply(TextEditor::TextEditorWidget *editorWidget, Document::Ptr document, const ScopeChain *scopeChain, Node *node, bool update, bool force)
+void QuickToolBar::apply(Core::IEditor *editor, Document::Ptr document, const ScopeChain *scopeChain, Node *node, bool update, bool force)
 {
     if (!settings().enableContextPane() && !force && !update) {
         contextWidget()->hide();
         return;
     }
 
-    if (document.isNull())
+    if (!editor || document.isNull())
         return;
 
-    if (update && editorWidget != m_editorWidget)
+    if (update && editor != m_editor)
         return; //do not update for different editor
 
     m_blockWriting = true;
@@ -133,9 +135,11 @@ void QuickToolBar::apply(TextEditor::TextEditorWidget *editorWidget, Document::P
     }
 
     setEnabled(document->isParsedCorrectly());
-    m_editorWidget = editorWidget;
-    contextWidget()->setParent(editorWidget->parentWidget());
-    contextWidget()->colorDialog()->setParent(editorWidget->parentWidget());
+    m_editor = editor;
+    // The pane floats over the editor as a sibling, whichever view that is.
+    QWidget * const paneParent = editor->widget()->parentWidget();
+    contextWidget()->setParent(paneParent);
+    contextWidget()->colorDialog()->setParent(paneParent);
 
     if (cast<UiObjectDefinition*>(node) || cast<UiObjectBinding*>(node)) {
         auto objectDefinition = cast<const UiObjectDefinition*>(node);
@@ -166,35 +170,47 @@ void QuickToolBar::apply(TextEditor::TextEditorWidget *editorWidget, Document::P
 
         m_prototypes.append(name);
 
+        TextEditor::TextDocument * const textDoc = textDocument();
+        if (!textDoc || !paneParent) {
+            m_blockWriting = false;
+            return;
+        }
+
         int line1;
         int column1;
         int line2;
         int column2;
-        m_editorWidget->convertPosition(offset, &line1, &column1); //get line
-        m_editorWidget->convertPosition(end, &line2, &column2); //get line
+        Utils::Text::convertPosition(textDoc->document(), offset, &line1, &column1);
+        Utils::Text::convertPosition(textDoc->document(), end, &line2, &column2);
 
-        QRegion reg;
-        if (line1 > -1 && line2 > -1)
-            reg = m_editorWidget->translatedLineRegion(line1 - 1, line2);
-
-        QRect rect;
-        rect.setHeight(widget()->height() + 10);
-        rect.setWidth(reg.boundingRect().width() - reg.boundingRect().left());
-        rect.moveTo(reg.boundingRect().topLeft());
-        reg = reg.intersected(rect);
+        // The rows the element covers, in global coordinates, capped at the
+        // pane's height block by block the way the widget's region was capped
+        // in pixels - the width being dodged is the width of what the pane
+        // could actually sit on.
+        QRect element;
+        if (line1 > -1 && line2 > -1) {
+            const int cap = widget()->height() + 10;
+            element = TextEditor::globalRectForBlocksIn(m_editor, line1 - 1, line1 - 1);
+            for (int block = line1; block <= line2 && !element.isEmpty(); ++block) {
+                const QRect row = TextEditor::globalRectForBlocksIn(m_editor, block, block);
+                if (row.isEmpty() || row.top() - element.top() > cap)
+                    break;
+                element |= row;
+            }
+        }
 
         if (contextWidget()->acceptsType(m_prototypes)) {
             m_node = nullptr;
             PropertyReader propertyReader(document, initializer);
-            QTextCursor tc = m_editorWidget->textCursor();
-            tc.setPosition(offset);
-            QPoint p1 = m_editorWidget->mapToParent(m_editorWidget->viewport()->mapToParent(m_editorWidget->cursorRect(tc).topLeft()) - QPoint(0, contextWidget()->height() + 10));
-            tc.setPosition(end);
-            QPoint p2 = m_editorWidget->mapToParent(m_editorWidget->viewport()->mapToParent(m_editorWidget->cursorRect(tc).bottomLeft()) + QPoint(0, 10));
-            QPoint offset = QPoint(10, 0);
-            if (reg.boundingRect().width() < 400)
-                offset = QPoint(400 - reg.boundingRect().width() + 10 ,0);
-            QPoint p3 = m_editorWidget->mapToParent(m_editorWidget->viewport()->mapToParent(reg.boundingRect().topRight()) + offset);
+            const QRect first = TextEditor::globalRectForPositionIn(m_editor, offset);
+            const QRect last = TextEditor::globalRectForPositionIn(m_editor, end);
+            QPoint p1 = paneParent->mapFromGlobal(
+                first.topLeft() - QPoint(0, contextWidget()->height() + 10));
+            QPoint p2 = paneParent->mapFromGlobal(last.bottomLeft() + QPoint(0, 10));
+            QPoint sideways(10, 0);
+            if (element.width() < 400)
+                sideways = QPoint(400 - element.width() + 10, 0);
+            const QPoint p3 = paneParent->mapFromGlobal(element.topRight() + sideways);
             p2.setX(p1.x());
             contextWidget()->setIsPropertyChanges(isPropertyChanges);
             if (!update)
@@ -296,12 +312,16 @@ void QuickToolBar::setProperty(const QString &propertyName, const QVariant &valu
 
         int changeSetPos = changeSet.operationList().constLast().pos1;
         int changeSetLength = changeSet.operationList().constLast().text().size();
-        QTextCursor tc = m_editorWidget->textCursor();
+        TextEditor::TextDocument * const textDoc = textDocument();
+        if (!textDoc)
+            return;
+        QTextCursor tc(textDoc->document());
         tc.beginEditBlock();
         changeSet.apply(&tc);
 
-        m_editorWidget->convertPosition(changeSetPos, &line, &column); //get line
-        m_editorWidget->convertPosition(changeSetPos + changeSetLength, &endLine, &column); //get line
+        Utils::Text::convertPosition(textDoc->document(), changeSetPos, &line, &column);
+        Utils::Text::convertPosition(textDoc->document(), changeSetPos + changeSetLength,
+                                     &endLine, &column);
 
         indentLines(line, endLine);
         tc.endEditBlock();
@@ -325,7 +345,8 @@ void QuickToolBar::removeProperty(const QString &propertyName)
             Utils::ChangeSet changeSet;
             Rewriter rewriter(m_doc->source(), &changeSet, m_propertyOrder);
             rewriter.removeBindingByName(initializer, propertyName);
-            changeSet.apply(m_editorWidget->document());
+            if (TextEditor::TextDocument * const textDoc = textDocument())
+                changeSet.apply(textDoc->document());
         }
     }
 }
@@ -362,7 +383,11 @@ void QuickToolBar::onPropertyRemovedAndChange(const QString &remove, const QStri
     if (!m_doc)
         return;
 
-    QTextCursor tc = m_editorWidget->textCursor();
+    TextEditor::TextDocument * const textDoc = textDocument();
+    if (!textDoc)
+        return;
+
+    QTextCursor tc(textDoc->document());
     tc.beginEditBlock();
 
     if (removeFirst) {
@@ -393,8 +418,15 @@ void QuickToolBar::onEnabledChanged(bool b)
 
 void QuickToolBar::indentLines(int startLine, int endLine)
 {
-    QmlJSEditor::indentQmlJs(m_editorWidget->document(), startLine, endLine,
-                             m_editorWidget->textDocument()->tabSettings());
+    TextEditor::TextDocument * const textDoc = textDocument();
+    if (!textDoc)
+        return;
+    QmlJSEditor::indentQmlJs(textDoc->document(), startLine, endLine, textDoc->tabSettings());
+}
+
+TextEditor::TextDocument *QuickToolBar::textDocument() const
+{
+    return m_editor ? qobject_cast<TextEditor::TextDocument *>(m_editor->document()) : nullptr;
 }
 
 ContextPaneWidget *QuickToolBar::contextWidget()

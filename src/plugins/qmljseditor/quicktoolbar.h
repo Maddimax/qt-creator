@@ -8,7 +8,9 @@
 
 #include <QPointer>
 
-namespace TextEditor { class TextEditorWidget; }
+namespace Core { class IEditor; }
+
+namespace TextEditor { class TextDocument; }
 
 namespace QmlJS {  class ScopeChain; }
 
@@ -26,7 +28,7 @@ public:
 
     static QuickToolBar *instance();
 
-    void apply(TextEditor::TextEditorWidget *widget, QmlJS::Document::Ptr document, const QmlJS::ScopeChain *scopeChain, QmlJS::AST::Node *node, bool update, bool force = false);
+    void apply(Core::IEditor *editor, QmlJS::Document::Ptr document, const QmlJS::ScopeChain *scopeChain, QmlJS::AST::Node *node, bool update, bool force = false);
     // Whether the pane has anything to show for \a node. A property of the
     // element and nothing else - it took an editor widget and never looked at
     // it, which is why asking was a widget's privilege.
@@ -47,12 +49,13 @@ signals:
 
 private:
     void indentLines(int startLine, int endLine);
+    TextEditor::TextDocument *textDocument() const;
 
     QmlEditorWidgets::ContextPaneWidget* contextWidget();
     QPointer<QmlEditorWidgets::ContextPaneWidget> m_widget;
     QmlJS::Document::Ptr m_doc;
     QmlJS::AST::Node *m_node = nullptr;
-    TextEditor::TextEditorWidget *m_editorWidget = nullptr;
+    QPointer<Core::IEditor> m_editor;
     bool m_blockWriting = false;
     QStringList m_propertyOrder;
     QStringList m_prototypes;
