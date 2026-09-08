@@ -1032,13 +1032,15 @@ public:
 private:
     NavigationView createWidget() final
     {
-        // The Qt Quick view draws the rows, opens one, removes one, walks with
-        // the keyboard and offers the right-click menu. It has not got the
-        // drag or the reorder yet, so it is behind a switch:
-        // QTC_QUICK_BOOKMARKS asks for it. The toolbar buttons are the same
-        // either way - Previous and Next are ActionManager commands, and a
-        // QToolButton in a dock's toolbar is not what this migration is about.
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_BOOKMARKS")) {
+        // The Qt Quick view is what a reader gets: it draws the rows, opens
+        // one, removes one, walks with the keyboard, offers the right-click
+        // menu, and can be dragged from and dropped on.
+        // QTC_WIDGET_BOOKMARKS asks for the tree view back, and a build with
+        // nothing to host QML gets it without asking. The toolbar buttons are
+        // the same either way - Previous and Next are ActionManager commands,
+        // and a QToolButton in a dock's toolbar is not what this migration is
+        // about.
+        if (!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_BOOKMARKS")) {
             auto * const list = new BookmarksList;
             if (QWidget * const view = Core::createQmlView(
                     QUrl("qrc:/qt/qml/QtCreator/TextEditor/BookmarksView.qml"), list)) {

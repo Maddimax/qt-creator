@@ -13333,28 +13333,24 @@ void QuickUiTest::testWhichNavigationViewsAreQuick()
         return found;
     };
 
-    // Both states, because a pane that has moved can be asked for the old
-    // one: Open Documents is Qt Quick now, and QTC_WIDGET_OPEN_DOCUMENTS
-    // hands back the tree view. Moving another pane means changing the first
+    // Every state of both switches, because a pane that has moved can be
+    // asked for the old one. Moving another pane means changing this first
     // list, in the commit that moves it.
-    QCOMPARE(quickViews(), QStringList({QString("Open Documents")}));
+    QCOMPARE(quickViews(), QStringList({QString("Bookmarks"), QString("Open Documents")}));
 
     Utils::Environment::modifySystemEnvironment(
         {{"QTC_WIDGET_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
     const QScopeGuard unsetSwitch([] {
         Utils::Environment::modifySystemEnvironment(
             {{"QTC_WIDGET_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
-    QCOMPARE(quickViews(), QStringList());
+    QCOMPARE(quickViews(), QStringList({QString("Bookmarks")}));
 
-    // Bookmarks is the pane being written now: Qt Quick when asked for, and
-    // the widget view until it is finished. The line above is what changes
-    // when it stops being asked for.
     Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
+        {{"QTC_WIDGET_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
     const QScopeGuard unsetBookmarks([] {
         Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
-    QCOMPARE(quickViews(), QStringList({QString("Bookmarks")}));
+            {{"QTC_WIDGET_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
+    QCOMPARE(quickViews(), QStringList());
 }
 
 // The first sidebar pane in Qt Quick, end to end: the switch gets a QML view
@@ -13388,7 +13384,7 @@ void QuickUiTest::testTheOpenDocumentsSidebarListsAndOpensInTheQuickView()
     QVERIFY(view.widget);
     const std::unique_ptr<QWidget> owned(view.widget);
     auto * const quickWidget = owned->findChild<QQuickWidget *>();
-    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    QVERIFY2(quickWidget, "the Bookmarks sidebar is not the Qt Quick one");
     owned->resize(300, 400);
     owned->show();
     QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
@@ -13815,17 +13811,11 @@ void QuickUiTest::testTheBookmarksSidebarListsAndOpensInTheQuickView()
     QVERIFY(editor);
     const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
 
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
-
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
     const std::unique_ptr<QWidget> owned(view.widget);
     auto * const quickWidget = owned->findChild<QQuickWidget *>();
-    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    QVERIFY2(quickWidget, "the Bookmarks sidebar is not the Qt Quick one");
     QVERIFY2(view.dockToolBarWidgets.size() == 2,
              "the Previous and Next buttons are gone from the pane's toolbar");
     owned->resize(300, 400);
@@ -13892,17 +13882,11 @@ void QuickUiTest::testTheBookmarksSidebarOffersTheWidgetsRightClickMenu()
     QVERIFY(editor);
     const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
 
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
-
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
     const std::unique_ptr<QWidget> owned(view.widget);
     auto * const quickWidget = owned->findChild<QQuickWidget *>();
-    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    QVERIFY2(quickWidget, "the Bookmarks sidebar is not the Qt Quick one");
     owned->resize(300, 400);
     owned->show();
     QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
@@ -14096,17 +14080,11 @@ void QuickUiTest::testDraggingABookmarkCarriesItAndReordersTheList()
     QVERIFY(editor);
     const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
 
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
-
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
     const std::unique_ptr<QWidget> owned(view.widget);
     auto * const quickWidget = owned->findChild<QQuickWidget *>();
-    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    QVERIFY2(quickWidget, "the Bookmarks sidebar is not the Qt Quick one");
     owned->resize(300, 400);
     owned->show();
     QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
@@ -14282,17 +14260,11 @@ void QuickUiTest::testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong()
     QVERIFY(editor);
     const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
 
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
-
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
     const std::unique_ptr<QWidget> owned(view.widget);
     auto * const quickWidget = owned->findChild<QQuickWidget *>();
-    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    QVERIFY2(quickWidget, "the Bookmarks sidebar is not the Qt Quick one");
     owned->resize(300, 400);
     owned->show();
     QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
