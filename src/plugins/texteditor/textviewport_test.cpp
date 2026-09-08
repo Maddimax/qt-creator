@@ -5067,11 +5067,22 @@ private slots:
         // The test line has no leading indentation, so the guides - which are
         // drawn in this same colour - cannot be mistaken for the marks.
         QVERIFY(!viewport->visibleLine(0).value("text").toString().startsWith(' '));
-        QTRY_COMPARE(inkOnFirstRow(), 0);
+
+        // Not "no pixel of that colour": the text's own antialiasing can land
+        // on it exactly, which one rasteriser does and another does not. What
+        // the setting is asked for is the *difference* it makes, with the
+        // marks-on count as the yardstick for what noise looks like.
+        const int inkWithSettingOff = inkOnFirstRow();
 
         displaySettings().visualizeWhitespace.setValue(true);
         QTRY_VERIFY2(inkOnFirstRow() > 0,
                      "the setting is on and not one pixel of the six spaces is marked");
+        const int inkWithSettingOn = inkOnFirstRow();
+        QVERIFY2(inkWithSettingOff * 4 < inkWithSettingOn,
+                 qPrintable(QString("%1 marked pixels with the setting off against %2 with it "
+                                    "on, so the marks were drawn either way")
+                                .arg(inkWithSettingOff)
+                                .arg(inkWithSettingOn)));
     }
 
     // Typing into a wrapped line makes it wrap over more rows. An edit is
@@ -6044,9 +6055,15 @@ private slots:
                  "it did not go to the left of the row");
 
         // Block-wise: the first thing on the whole line, from the same place.
-        viewport->setCursorPosition(inTheMiddle);
-        keyMove(fixture.view, QKeySequence::MoveToStartOfBlock);
-        QCOMPARE(viewport->cursorPosition(), 4);
+        // Only a Mac binds a chord to this move - Qt's table gives it Meta+A
+        // and Alt+Up, both KB_Mac - so elsewhere there is no key to send and
+        // nothing to assert about what it did. The line-wise half above is
+        // this test's subject and runs everywhere.
+        if (!QKeySequence::keyBindings(QKeySequence::MoveToStartOfBlock).isEmpty()) {
+            viewport->setCursorPosition(inTheMiddle);
+            keyMove(fixture.view, QKeySequence::MoveToStartOfBlock);
+            QCOMPARE(viewport->cursorPosition(), 4);
+        }
 
         // And with nothing wrapped, the line-wise Home is the first thing on
         // the line again - which is what it does for every unwrapped file.

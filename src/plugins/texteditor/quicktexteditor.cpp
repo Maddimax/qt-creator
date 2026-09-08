@@ -8087,7 +8087,13 @@ private slots:
             QKeyEvent event(QEvent::KeyPress, key, mods, written);
             QCoreApplication::sendEvent(view, &event);
         };
+        // The caret rectangles are produced when the item renders, and a
+        // platform with no screen renders only when asked - so ask, the way a
+        // visible window's render loop would. Without this the width reads 0
+        // here and 7.2 immediately after a grab.
         const auto caretWidth = [view] {
+            if (QQuickWindow * const window = view->window())
+                window->grabWindow();
             const QVariantList rects = view->caretRectangles();
             return rects.isEmpty() ? 0.0 : rects.first().toRectF().width();
         };
@@ -8101,9 +8107,16 @@ private slots:
         type(Qt::Key_X, "X");
         QCOMPARE(text->toPlainText(), QString("Xabcdef\n"));
 
-        // Shift+Insert is paste and must not be mistaken for the toggle.
+        // Shift+Insert is paste and must not be mistaken for the toggle. What
+        // it pastes is whatever the clipboard holds, and another test in this
+        // process may have filled it - so the text and the caret are put back
+        // afterwards, leaving this phase about the toggle alone.
         type(Qt::Key_Insert, {}, Qt::ShiftModifier);
         QVERIFY2(!view->overwriteMode(), "Shift+Insert was taken for the overwrite toggle");
+        QTextCursor whole(text);
+        whole.select(QTextCursor::Document);
+        whole.insertText("Xabcdef\n");
+        view->setCursorPosition(1);
 
         type(Qt::Key_Insert, {});
         QVERIFY2(view->overwriteMode(), "Insert did not turn typing-over on");
