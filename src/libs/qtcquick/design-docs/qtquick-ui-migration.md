@@ -53123,3 +53123,81 @@ and the two compare mismatches - and the two in QuickUi. Each wants the same
 treatment this one got: print the values, find which side is wrong, and only
 then decide whether the code or the assertion is at fault. The page one is
 ready to fix the moment macOS can be run.
+
+## 2026-09-08 — The three that were measuring the platform (batch 175)
+
+**TextEditor on Linux is at 726 passed, 1 failed, 3 skipped.** The one left
+is the short page scroll entry 174 diagnosed and deliberately did not fix.
+The three closed here were all the test measuring its host rather than the
+editor, and each said so once the values were printed - which is the whole
+of the method: the log already carried two of the three answers.
+
+### A standard key that only a Mac binds
+
+`testHomeOnAWrappedLineGoesToTheRowNotTheLine` failed with
+`cursorPosition()` **200 against 4** - the caret had not moved at all. The
+phase presses the chord for `QKeySequence::MoveToStartOfBlock`, and Qt's own
+table gives that key two bindings, `Meta+A` and `Alt+Up`, both marked
+`KB_Mac` (qplatformtheme.cpp:305). Elsewhere there is no chord, `QTest`
+sends nothing, and the assertion is about the platform's key table. That
+phase now runs only where a binding exists; the line-wise Home above it -
+the test's actual subject, and the regression it was written for - runs
+everywhere.
+
+The file already had a helper with a comment about exactly this hazard
+(*"End is the end of the line on Windows and the end of the file on a Mac"*).
+The lesson is one step further on: **a standard key can be bound on one
+platform and nowhere else**, and then a test that sends it asserts nothing.
+
+### A colour that antialiasing hits exactly
+
+`testWhitespaceIsDrawnWhenTheSettingAsksForIt` counted pixels equal to the
+mark colour and wanted **exactly zero** before the setting was on. It found
+one. Text antialiasing lands on that exact RGB on one rasteriser and not on
+another. It now compares the two states rather than one against zero: **1
+pixel with the setting off, 25 with it on**, and the assertion is that off is
+less than a quarter of on. That keeps what the test was for - marks appear
+when asked and not before - without pinning it to a rasteriser.
+
+### The screenless-render trap, a second time
+
+`testInsertTogglesTypingOverTheTextThatIsThere` read the caret's width right
+after toggling overwrite and got **0**, then **7.1875** after a forced
+render, against **1** for the thin insert caret. Same cause as the link
+underline in entry 173: caret rectangles are produced when the item renders,
+and a platform with no screen renders only when asked. Asking is now inside
+the helper that reads the width.
+
+That fix uncovered the next thing in the same test, which had been hidden
+behind it: the document came out as `"XalphaXXpastedYbcdef"`. **Shift+Insert
+really does paste**, and it pasted what another test in the same process had
+left on the clipboard. The phase only wants to know that Shift+Insert is not
+the overwrite toggle, so it puts the text and the caret back afterwards and
+stops depending on what the clipboard happens to hold.
+
+### Controls
+
+- **Guard forced true**: the Home test is red again at the same assertion,
+  200 against 4 - so the guard, and not something incidental, is what
+  changed the outcome.
+- **Marks turned on before the "off" measurement**: the whitespace test
+  reports *25 marked pixels with the setting off against 25 with it on* and
+  fails - so the difference assertion detects marks drawn either way.
+- The other two are their own before-states, measured: caret width 0 without
+  the forced render, and the pasted clipboard text without the restore.
+
+### Verification
+
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1
+    -test QuickUi      206 passed, 2 failed, exit 2
+
+No `.qbs` edit. macOS unverified since batch 170, for the same reason.
+
+### What is next
+
+The two QuickUi failures, by the same method - the Code Style preview drawn
+in one colour is probably the definitions story again, and the file dialog
+offering a one-entry filter is the one shape nobody has explained yet. After
+those, Linux is a gate rather than a list, and the two items that need
+someone else are the page scroll (macOS to verify a scrolling change) and
+the packed-position crash of entry 173.
