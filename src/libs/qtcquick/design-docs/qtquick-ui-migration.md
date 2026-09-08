@@ -53578,3 +53578,69 @@ view moves a row through the model's own `mimeData()`/`dropMimeData()`, and
 this library - so the pane's drag is likely a `DragHandler` and one existing
 call rather than anything new. When it lands, the switch goes and the census
 line in `testWhichNavigationViewsAreQuick` changes in that same commit.
+
+## 2026-09-08 — The drag, which was not what the last entry said (batch 181)
+
+**The gap this closed: a document could not be dragged out of the Quick
+sidebar** - into a split, an editor area, another application. The widget
+view is in `DragOnly` mode and has done this all along.
+
+### The last entry's guess, corrected by reading the model
+
+Entry 180 said the drag was "a reorder through the model's own
+`mimeData()`/`dropMimeData()`" and that `AspectModels.moveRow()` would do it.
+Both halves were wrong. **`DocumentModel` has no `dropMimeData` at all** -
+zero hits - so nothing is being dropped anywhere. What it has is
+
+    Qt::ItemFlags flags()      -> ItemIsDragEnabled, unless the entry has no file
+    QMimeData *mimeData()      -> a Utils::DropMimeData holding the row's path
+
+so the sidebar is a drag *source* handing a file to whoever catches it. That
+is why the pane starts a real `QDrag` with the model's own mime data: QML can
+build a mime map, but not a `Utils::DropMimeData`, and a drop target that
+does not recognise one ignores the drag entirely.
+
+Two entries in a row have now had their next-step guess corrected by the code
+(177 about the seam, 180 about the drag). The pattern is the same both times:
+**the guess was about how something is done, and the code was about what it
+is** - reading the model first would have cost one grep.
+
+### Tested for what a test can reach
+
+The payload, not the gesture, and the test says why: a system drag blocks
+until the pointer is let go, so nothing can drive one from a test - but what
+it *would* carry is answerable. The assertion is that the mime data is a
+`Utils::DropMimeData` naming this row's file, which a pane that invented
+plain text would fail. **Control I** does exactly that, and reports *"the
+drag carries plain mime data, which no drop target here reads"*.
+
+### The switch stays, because the inventory was short
+
+Reading `OpenEditorsWidget`'s constructor for this batch turned up something
+entries 178 and 180 both missed: **the widget sidebar navigates by
+keyboard.** `QAbstractItemView::activated` fires on Return as well as a
+click, arrows move the row *without* opening it, and a `focusChanged`
+connection snaps the selection back to the current editor when focus leaves
+the view - the subtlety being that a reader may walk the list without
+changing what is open.
+
+The Quick pane binds `currentIndex` one way to the controller and does none
+of that. So the switch does not go in this batch, and the list of what stands
+between it and the default is: **keyboard navigation, and nothing else that
+has been found by reading the widget view twice.**
+
+### Verification
+
+    -test QuickUi      213 passed, 0 failed, exit 0   (212 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Full Linux build clean, no `.qbs` edit, macOS unverified since batch 170.
+
+### What is next
+
+1. Keyboard navigation in the pane: arrows that move without opening, Return
+   that opens, and the snap-back on focus loss. That is a two-way
+   `currentIndex` - the binding has to give way to an explicit sync, which is
+   the usual QML shape for "follows something until the user touches it".
+2. Then the switch goes and the census line changes, in one commit.
+3. Bookmarks or Outline as the second pane.
