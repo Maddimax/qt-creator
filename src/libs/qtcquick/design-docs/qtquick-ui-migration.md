@@ -54311,3 +54311,128 @@ separately, and the runner selects classes rather than functions.
 4. macOS, still one desktop login away, for two defaulted sidebars.
 5. Parked: entry 174's page scroll, entry 173's crash, and now the two
    `ShortcutSettingsTest` failures above.
+
+## 2026-09-08 — The output-pane buttons in Qt Quick, and the crash that proved the last entry wrong (batch 189)
+
+**The gap this closed: the first piece of the shell's *frame* is drawn in Qt
+Quick.** `QTC_QUICK_OUTPUT_BUTTONS` asks for a Quick row of pane buttons in
+the status bar; the widget row is still what a reader gets. Every Quick thing
+before this was a pane's *contents* - an editor, a sidebar, an output view.
+
+### The seam learns one word
+
+A scene handed a dock fills it. A row that has to sit in a status bar beside
+other widgets has to be measured by **what it asks for**, or the layout gives
+it nothing and the row is invisible. So
+
+    createQmlView(source, controller, QmlViewSizing::SizeToScene)
+
+and the front end sets `SizeViewToRootObject` from it. Every existing call
+site keeps the default, `FillView`. This is the first time the shell phase
+needed the seam to say anything beyond "here is some QML".
+
+**The other half of the seam's contract turned out to matter too:**
+`createQmlView()` **parents the controller to the widget it returns** - right
+for a sidebar, whose controller is built per view, and wrong for a shared
+model that outlives every row. So `OutputPaneButtons` stands between them: one
+per row, owned by the row, holding nothing but a pointer to the manager's
+model and relaying its flash signal. Written down because the next shared
+model will hit the same wall.
+
+### A factory, because the shell builds this row once
+
+Entry 188 asked which of three ways to make the row testable. Taken: **a
+factory the shell and a test both call** (`Core::createOutputPaneButtonRow()`,
+routed through `OutputPaneManager::createButtonRow()`). A sidebar's factory
+builds a view on demand, so a test can set a switch and ask for one; the
+status bar's row is built at startup, before any test can speak. The factory
+is how the test gets a row of its own to look at.
+
+### The flash
+
+The widget button flashes with a `QTimeLine` - 1000 ms, `SineCurve`, alpha
+ramping to 92 of 255, three times over, stopped the moment the button becomes
+checked. The Quick row does the same with a `SequentialAnimation` of two
+500 ms `NumberAnimation`s to 0.36 opacity and back, `loops: 3`, stopped in
+`onCheckedChanged`. The row a pane asks about is matched against the
+delegate's own index, so the animation runs on one button and not the row.
+
+The colours are the **token palette** (`Tokens.backgroundSubtle`,
+`textMuted`, `notificationAlertDefault`), like every other Quick piece here,
+not the legacy `Theme::OutputPaneButtonFlashColor` family the widget row uses
+and QML has no access to. **So the Quick row is not pixel-identical**, and in
+the non-flat theme it will not be close: that row draws a nine-slice PNG per
+button state. Said plainly rather than discovered later.
+
+### The crash, and what it says about entry 188
+
+**Control AF found a segfault at startup.** Running the suite with the switch
+set - which is the only way to make the shell build the Quick row, since it
+builds it before any test runs - died in `setCurrentIndex()`:
+
+    QWidget::show()  <- on nullptr
+    OutputPaneManager::setCurrentIndex(idx=0)   outputpanemanager.cpp:1317
+    OutputPaneManager::readSettings()
+    OutputPaneManager::initialize()
+
+`data.button->show()`. With no widget buttons there is no button to show.
+
+Entry 188 said the row's state had moved out of the QToolButtons. **It had
+not: five sites in three functions still wrote it into them** - two
+`setChecked()` and the `show()` in `setCurrentIndex()`, a `setChecked()` in
+`slotHide()`, and a `flash()` in `showPage()`. Grepping for `isPaneVisible`
+found the *reader* and missed the *writers*, because they do not mention
+visibility at all - they call `show()`.
+
+And one of them is a **real bug in the shipped widget row**, not only a
+blocker for a Quick one: `setCurrentIndex()` shows a hidden pane's button
+without telling the model, while `saveSettings()` writes what the model says.
+Hide a pane's button from the manage menu, then reach that pane any other way
+- a shortcut, a build failing - and the button comes back on screen while the
+session saves it as hidden, so tomorrow it is gone again. That is now a test
+of its own, and the button is written to in exactly one place.
+
+**The lesson, for the next thing that moves state out of a widget:** grep for
+what the *widget class* offers, not for the name of the state. `show()`,
+`setChecked()` and `flash()` are all "the row's state" and none of them says
+so.
+
+### Controls
+
+- **AC - the front end ignores `SizeToScene`**: the row's resize mode is the
+  dock one, and the test says so.
+- **AD - nothing listens for a pane asking to be noticed**: "a pane asked to
+  be noticed and nothing moved".
+- **AE - the badge never reaches the drawn row**: the count compares empty
+  against `4`.
+- **AF - the shell built with the switch on**: the census line fails with
+  "the shell's button row is the Qt Quick one now, which this line has to
+  say". This is the control that found the crash; with it fixed, the run is
+  **219 passed, 1 failed - only the census** - and no QML warning from the
+  row's file, which is the only end-to-end evidence that the shell path works
+  at all.
+
+### Verification
+
+    -test QuickUi      220 passed, 0 failed, exit 0   (219 before)
+    -test Core         226 passed, 2 failed, exit 2   (225/2 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Core's two failures are the pre-existing `ShortcutSettingsTest` ones from
+entry 188. Both platforms build clean. One QML file added, which is one CMake
+line and **no `.qbs` edit** - that file globs `*.qml`.
+
+### What is next
+
+1. **The census, then the switch** for this row: it wants the same treatment
+   Open Documents and Bookmarks got - and it is the first one where the
+   default cannot be flipped and tested in the same process, so the census
+   line is the whole guard.
+2. The manage button at the end of the row, which is still a widget, and the
+   two arrows it draws by hand.
+3. The three widget output panes: Terminal, Search Results, Lua.
+4. The output toolbar, blocked on `IOutputPane::toolBarWidgets()` returning
+   `QWidget *` - the same interface problem as `Perspective`'s docks.
+5. macOS, still one desktop login away, for two defaulted sidebars.
+6. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures.
