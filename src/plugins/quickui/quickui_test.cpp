@@ -436,6 +436,7 @@ private slots:
     void testTheOpenDocumentsSidebarOffersTheSameRightClickEntries();
     void testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree();
     void testDraggingAnOpenDocumentCarriesItsFile();
+    void testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilReturn();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13623,6 +13624,125 @@ void QuickUiTest::testDraggingAnOpenDocumentCarriesItsFile()
     }
     QVERIFY2(dragHandler || !quickWidget->rootObject()->childItems().isEmpty(),
              "no row was drawn, so nothing could offer a drag");
+}
+
+// A reader may walk the sidebar without opening anything: the arrows move the
+// row, Return is what takes them there, and leaving the list puts it back to
+// showing what is open. That last part is why currentIndex cannot simply be
+// bound to the editor manager's answer.
+void QuickUiTest::testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilReturn()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Open Documents"); });
+    QVERIFY(factory);
+
+    Utils::TemporaryDirectory dir("quick-open-documents-keys");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath first = dir.filePath("first.txt");
+    const Utils::FilePath second = dir.filePath("second.txt");
+    QVERIFY(first.writeFileContents("one\n"));
+    QVERIFY(second.writeFileContents("two\n"));
+    Core::IEditor * const firstEditor = Core::EditorManager::openEditor(first);
+    Core::IEditor * const secondEditor = Core::EditorManager::openEditor(second);
+    QVERIFY(firstEditor && secondEditor);
+    // Whatever survives the run: Delete below closes one of them, and
+    // closing a closed editor is not a thing to ask of the editor manager.
+    const QScopeGuard closeThem([] {
+        Core::EditorManager::closeAllDocuments(); });
+    QCOMPARE(Core::EditorManager::currentEditor(), secondEditor);
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    owned->resize(300, 400);
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+    QQuickItem * const list = quickWidget->rootObject();
+    QVERIFY(list);
+
+    const std::optional<int> secondRow
+        = Core::DocumentModel::indexOfDocument(secondEditor->document());
+    const std::optional<int> firstRow
+        = Core::DocumentModel::indexOfDocument(firstEditor->document());
+    QVERIFY(secondRow && firstRow);
+    QVERIFY2(*firstRow != *secondRow, "both documents are on one row, so nothing can move");
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *secondRow);
+    QTRY_VERIFY2(list->hasActiveFocus(), "the list never took the keyboard");
+
+    // Walking moves the row and opens nothing.
+    const int walkTo = *secondRow > *firstRow ? *secondRow - 1 : *secondRow + 1;
+    QTest::keyClick(quickWidget->quickWindow(),
+                    *secondRow > *firstRow ? Qt::Key_Up : Qt::Key_Down);
+    QTRY_COMPARE(list->property("currentIndex").toInt(), walkTo);
+    QCOMPARE(Core::EditorManager::currentEditor(), secondEditor);
+
+    // Return is what takes the reader there.
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Return);
+    QTRY_COMPARE(Core::EditorManager::currentEditor(),
+                 walkTo == *firstRow ? firstEditor : secondEditor);
+
+    // And a walk that opened nothing is put back when the list is left.
+    // Opening took the keyboard with it - an activated editor asks for the
+    // focus - so the list is handed it again before this can be asked.
+    const Core::IEditor * const nowCurrent = Core::EditorManager::currentEditor();
+    const std::optional<int> currentRow
+        = Core::DocumentModel::indexOfDocument(nowCurrent->document());
+    QVERIFY(currentRow);
+    // The host widget lost the keyboard too, and a QML item cannot have it
+    // while the widget around it does not.
+    owned->activateWindow();
+    quickWidget->setFocus();
+    QVERIFY(QMetaObject::invokeMethod(list, "forceActiveFocus"));
+    QTRY_VERIFY2(list->hasActiveFocus(), "the list was not given the keyboard back");
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *currentRow);
+
+    QTest::keyClick(quickWidget->quickWindow(),
+                    *currentRow == 0 ? Qt::Key_Down : Qt::Key_Up);
+    QTRY_VERIFY2(list->property("currentIndex").toInt() != *currentRow,
+                 "the arrow key moved nothing, so leaving cannot put anything back");
+    QCOMPARE(Core::EditorManager::currentEditor(), nowCurrent);
+
+    // Leaving: the row goes back to the document that is open.
+    quickWidget->clearFocus();
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *currentRow);
+
+    // A walk breaks nothing: when something else opens a document - another
+    // pane, a search result - the row follows it. ListView writes its own
+    // currentIndex while walking, so a list that had bound that property
+    // would stop following here and nowhere earlier.
+    const Utils::FilePath third = dir.filePath("third.txt");
+    QVERIFY(third.writeFileContents("three\n"));
+    owned->activateWindow();
+    quickWidget->setFocus();
+    QVERIFY(QMetaObject::invokeMethod(list, "forceActiveFocus"));
+    QTRY_VERIFY(list->hasActiveFocus());
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Down);
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Up);
+
+    Core::IEditor * const thirdEditor = Core::EditorManager::openEditor(third);
+    QVERIFY(thirdEditor);
+    const std::optional<int> thirdRow
+        = Core::DocumentModel::indexOfDocument(thirdEditor->document());
+    QVERIFY(thirdRow);
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *thirdRow);
+
+    // Delete closes the row being looked at, as it does in the tree view.
+    owned->activateWindow();
+    quickWidget->setFocus();
+    QVERIFY(QMetaObject::invokeMethod(list, "forceActiveFocus"));
+    QTRY_VERIFY(list->hasActiveFocus());
+    const int before = Core::DocumentModel::entryCount();
+    QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Delete);
+    QTRY_COMPARE(Core::DocumentModel::entryCount(), before - 1);
 }
 
 QObject *createQuickUiTest()

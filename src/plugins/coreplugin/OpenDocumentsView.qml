@@ -20,9 +20,50 @@ ListView {
     model: root.controller.model
     clip: true
     boundsBehavior: Flickable.StopAtBounds
-    // Which row the reader is in is the editor manager's answer, not a
-    // selection this list keeps for itself.
-    currentIndex: root.controller.currentRow
+    focus: true
+    // Arrows walk the list on their own, which is the half of this that
+    // must not open anything: the tree view lets a reader look down the
+    // documents and only Return or a click takes them there.
+    keyNavigationEnabled: true
+
+    // currentIndex is written, not bound: ListView writes it itself while the
+    // arrows walk, and a binding to the editor manager's answer would be two
+    // things fighting over one property. It is set when the list is built and
+    // again whenever the reader leaves - the snap-back the tree view does
+    // from focusChanged, so a walk that opened nothing does not leave the
+    // sidebar pointing at a document nobody is in.
+    //
+    // Nothing listens for currentRowChanged, and a control is why: every path
+    // that changes the current editor activates it, activation takes the
+    // keyboard, and losing the keyboard is what runs the snap-back below. A
+    // listener as well was code no test could tell apart from its absence.
+    Component.onCompleted: root.currentIndex = root.controller.currentRow
+    onActiveFocusChanged: {
+        if (!root.activeFocus)
+            root.currentIndex = root.controller.currentRow
+    }
+
+    Keys.onReturnPressed: (event) => {
+        root.controller.activate(root.currentIndex)
+        event.accepted = true
+    }
+    // Delete and Backspace close the row being looked at, which is what the
+    // tree view's event filter does - and neither takes a modifier, so a
+    // chord that happens to use them is left alone.
+    Keys.onPressed: (event) => {
+        if (event.modifiers !== Qt.NoModifier)
+            return
+        if (event.key !== Qt.Key_Delete && event.key !== Qt.Key_Backspace)
+            return
+        if (root.currentIndex < 0)
+            return
+        root.controller.close(root.currentIndex)
+        event.accepted = true
+    }
+    Keys.onEnterPressed: (event) => {
+        root.controller.activate(root.currentIndex)
+        event.accepted = true
+    }
 
     ScrollBar.vertical: ScrollBar {}
 
@@ -52,6 +93,16 @@ ListView {
         // The reader's own click opens a document, as in the widget view;
         // nothing here opens anything by itself.
         onClicked: root.controller.activate(row.index)
+
+        // The middle button closes the row under the pointer, as it does in
+        // the tree view. Unmodified only, for the same reason as the keys.
+        TapHandler {
+            acceptedButtons: Qt.MiddleButton
+            onTapped: (point, button) => {
+                if (point.modifiers === Qt.NoModifier)
+                    root.controller.close(row.index)
+            }
+        }
 
         // Dragging a row takes the document with it, the way the tree view
         // does - the drag itself is the controller's, because what a drop
