@@ -53644,3 +53644,72 @@ Full Linux build clean, no `.qbs` edit, macOS unverified since batch 170.
    the usual QML shape for "follows something until the user touches it".
 2. Then the switch goes and the census line changes, in one commit.
 3. Bookmarks or Outline as the second pane.
+
+## 2026-09-08 — The keyboard, and a control that earned its keep by not biting (batch 182)
+
+**The gap this closed: the Quick sidebar could only be used with a mouse.**
+Three behaviours, all of them found by reading `OpenEditorsWidget` and
+`OpenDocumentsTreeView` rather than by guessing - which is the third time
+this pane's inventory has grown that way:
+
+- **Arrows walk, Return opens.** The half that matters is that walking opens
+  *nothing*: a reader looks down the documents without changing what is in
+  front of them. `keyNavigationEnabled` does the walking; `Keys.onReturnPressed`
+  does the opening.
+- **Delete and Backspace close the row being looked at**, unmodified only, so
+  a chord that happens to use them is left alone.
+- **The middle button closes the row under the pointer.** Both of these are
+  in the tree view's `eventFilter`, which is not where anyone looks for
+  behaviour.
+
+### The control that earned its keep by not biting
+
+`currentIndex` is written rather than bound - `ListView` writes it itself
+while the arrows walk, so a binding to the editor manager's answer would be
+two things fighting over one property. Alongside the write I had a
+`Connections` block listening for `currentRowChanged`, the usual "follows
+until the user touches it" shape.
+
+**Control J removed that listener entirely, and every phase still passed** -
+including a phase written specifically to catch its absence, where a third
+document is opened after a walk. The reason is worth having: *every* path
+that changes the current editor activates it, activation takes the keyboard,
+and losing the keyboard runs the snap-back. There is no way, in this
+application, for the current row to change while the sidebar keeps focus.
+
+So the listener went. `~/.claude/method.md` says a control that does not bite
+means the fix is unnecessary, the test is wrong, or it is not the whole cause;
+this was the first case, and the first time in this document that reading has
+been the *first* possibility rather than the last one checked. **Code that no
+test can tell from its absence is how a file grows things nobody can
+explain**, and the comment in the QML now names the control that said so.
+
+Controls that did bite: **K** - Delete made a no-op leaves the document open
+(3 entries against 2). And the walk assertions fail without
+`keyNavigationEnabled`, which is what makes them about walking.
+
+### One thing the test had to learn
+
+Opening a document **takes the keyboard away from the sidebar**, so a phase
+that wants to type again has to hand focus back *through the QQuickWidget*:
+`forceActiveFocus()` on the item does nothing while the widget around it has
+lost focus. That cost two runs and is the kind of thing worth writing down
+once.
+
+### Verification
+
+    -test QuickUi      214 passed, 0 failed, exit 0   (213 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Full Linux build clean, no `.qbs` edit, macOS unverified since batch 170.
+
+### What is next
+
+**The switch can go.** Reading the widget view for this batch found no
+behaviour left: rows with icon, colour and tool tip; click, Return, Delete,
+Backspace, middle click; the context menu; the drag; keyboard walking with
+the snap-back. The next batch turns `QTC_QUICK_OPEN_DOCUMENTS` into the
+default and changes the census line in the same commit - and given that this
+pane's inventory has grown on all three readings, the batch should start by
+reading the widget view once more and saying plainly whether anything is
+left.
