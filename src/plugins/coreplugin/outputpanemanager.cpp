@@ -43,6 +43,14 @@
 #include <QToolBar>
 #include <QToolButton>
 
+#ifdef WITH_TESTS
+#include <QScopeGuard>
+#include <QSignalSpy>
+#include <QTest>
+
+#include <limits>
+#endif
+
 using namespace Utils;
 using namespace Core::Internal;
 
@@ -80,7 +88,6 @@ public:
     void paintEvent(QPaintEvent*) override;
     void flash(int count = 3);
     void setIconBadgeNumber(int number);
-    bool isPaneVisible() const;
 
     void contextMenuEvent(QContextMenuEvent *e) override;
 
@@ -316,10 +323,122 @@ public:
     Id id;
     OutputPaneToggleButton *button = nullptr;
     QAction *action = nullptr;
+
+    // What the row says about this pane. The button draws it; it does not own
+    // it - see OutputPaneButtonModel.
+    int number = 0;
+    int badge = 0;
+    bool checked = false;
+    bool buttonVisible = false;
 };
 
 static QVector<OutputPaneData> g_outputPanes;
 static bool g_managerConstructed = false; // For debugging reasons.
+
+// OutputPaneButtonModel
+
+OutputPaneButtonModel::OutputPaneButtonModel(QObject *parent)
+    : QAbstractListModel(parent)
+{}
+
+int OutputPaneButtonModel::rowCount(const QModelIndex &parent) const
+{
+    if (parent.isValid())
+        return 0;
+    return g_outputPanes.size();
+}
+
+QVariant OutputPaneButtonModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() < 0 || index.row() >= g_outputPanes.size())
+        return {};
+
+    const OutputPaneData &data = g_outputPanes.at(index.row());
+    switch (role) {
+    case Qt::DisplayRole:
+        return data.pane->displayName();
+    case Qt::ToolTipRole:
+        return data.action ? data.action->toolTip() : QString();
+    case NumberRole:
+        return data.number;
+    case BadgeRole:
+        return data.badge ? QString::number(data.badge) : QString();
+    case CheckedRole:
+        return data.checked;
+    case ButtonVisibleRole:
+        return data.buttonVisible;
+    default:
+        return {};
+    }
+}
+
+QHash<int, QByteArray> OutputPaneButtonModel::roleNames() const
+{
+    QHash<int, QByteArray> names = QAbstractListModel::roleNames();
+    names[NumberRole] = "number";
+    names[BadgeRole] = "badge";
+    names[CheckedRole] = "checked";
+    names[ButtonVisibleRole] = "buttonVisible";
+    return names;
+}
+
+bool OutputPaneButtonModel::isButtonVisible(int row) const
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return false);
+    return g_outputPanes.at(row).buttonVisible;
+}
+
+void OutputPaneButtonModel::setButtonVisible(int row, bool visible)
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
+    if (g_outputPanes.at(row).buttonVisible == visible)
+        return;
+    g_outputPanes[row].buttonVisible = visible;
+    emit dataChanged(index(row), index(row), {ButtonVisibleRole});
+}
+
+void OutputPaneButtonModel::setChecked(int row, bool checked)
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
+    if (g_outputPanes.at(row).checked == checked)
+        return;
+    g_outputPanes[row].checked = checked;
+    emit dataChanged(index(row), index(row), {CheckedRole});
+}
+
+void OutputPaneButtonModel::setBadge(int row, int number)
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
+    if (g_outputPanes.at(row).badge == number)
+        return;
+    g_outputPanes[row].badge = number;
+    emit dataChanged(index(row), index(row), {BadgeRole});
+}
+
+void OutputPaneButtonModel::requestFlash(int row)
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
+    emit flashRequested(row);
+}
+
+void OutputPaneButtonModel::activate(int row)
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
+    OutputPaneManager::instance()->buttonTriggered(row);
+}
+
+void OutputPaneButtonModel::showMenu()
+{
+    OutputPaneManager::instance()->popupMenu();
+}
+
+void OutputPaneButtonModel::reset()
+{
+    // Everything about every row: the panes have just been sorted and
+    // renumbered.
+    beginResetModel();
+    endResetModel();
+}
 
 // OutputPane
 
@@ -643,8 +762,7 @@ void OutputPaneManager::updateStatusButtons(bool visible)
         return;
     QTC_ASSERT(idx < g_outputPanes.size(), return);
     const OutputPaneData &data = g_outputPanes.at(idx);
-    QTC_ASSERT(data.button, return);
-    data.button->setChecked(visible);
+    m_buttonModel->setChecked(idx, visible);
     data.pane->visibilityChanged(visible);
 }
 
@@ -671,6 +789,7 @@ static QKeySequence paneShortCut(int number)
 
 OutputPaneManager::OutputPaneManager(QWidget *parent) :
     QWidget(parent),
+    m_buttonModel(new OutputPaneButtonModel(this)),
     m_titleLabel(new QLabel),
     m_manageButton(new OutputPaneManageButton),
     m_outputWidgetPane(new QStackedWidget),
@@ -681,6 +800,20 @@ OutputPaneManager::OutputPaneManager(QWidget *parent) :
     m_titleLabel->setContentsMargins(5, 0, 5, 0);
 
     connect(ICore::instance(), &ICore::saveSettingsRequested, this, &OutputPaneManager::saveSettings);
+
+    // The buttons are a view of the model: what a row says about itself
+    // reaches the button here and nowhere else. There may be no button yet -
+    // a pane can report a badge while the shell is still starting - which is
+    // what the guard is for.
+    connect(m_buttonModel, &QAbstractItemModel::dataChanged, this,
+            [this](const QModelIndex &topLeft, const QModelIndex &bottomRight) {
+        for (int row = topLeft.row(); row <= bottomRight.row(); ++row)
+            updateButton(row);
+    });
+    connect(m_buttonModel, &OutputPaneButtonModel::flashRequested, this, [](int row) {
+        if (OutputPaneToggleButton * const button = g_outputPanes.at(row).button)
+            button->flash();
+    });
 
     auto toolBar = new StyledBar;
     auto clearButton = new QToolButton;
@@ -804,6 +937,17 @@ void OutputPaneManager::initialize()
     m_instance->m_initialized = true;
 }
 
+void OutputPaneManager::updateButton(int row)
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
+    const OutputPaneData &data = g_outputPanes.at(row);
+    if (!data.button)
+        return;
+    data.button->setVisible(data.buttonVisible);
+    data.button->setChecked(data.checked);
+    data.button->setIconBadgeNumber(data.badge);
+}
+
 void OutputPaneManager::setupButtons()
 {
     for (auto &pane : g_outputPanes)
@@ -816,6 +960,10 @@ void OutputPaneManager::setupButtons()
         return d1.pane->priorityInStatusBar() > d2.pane->priorityInStatusBar();
     });
     const int n = g_outputPanes.size();
+
+    OutputPaneButtonModel * const model = m_instance->m_buttonModel;
+    // Sorted and about to be renumbered, so nothing a row said still holds.
+    model->reset();
 
     int shortcutNumber = 1;
     const Id baseId = "QtCreator.Pane.";
@@ -842,6 +990,14 @@ void OutputPaneManager::setupButtons()
             connect(outPane, &IOutputPane::navigateStateUpdate, m_instance, [idx, outPane] {
                 if (m_instance->currentIndex() == idx)
                     m_instance->updateActions(outPane);
+            });
+
+            // What a pane has to say about its own button, said to the model.
+            connect(outPane, &IOutputPane::flashButton, model, [model, idx] {
+                model->requestFlash(idx);
+            });
+            connect(outPane, &IOutputPane::setBadgeNumber, model, [model, idx](int number) {
+                model->setBadge(idx, number);
             });
 
             auto *toolBar = new QToolBar(m_instance->m_opToolBarWidgets);
@@ -872,6 +1028,7 @@ void OutputPaneManager::setupButtons()
             .setDefaultKeySequence(paneShortCut(shortcutNumber))
             .addToContainer(Constants::M_VIEW_PANES, "Coreplugin.OutputPane.PanesGroup")
             .bindContextAction(&data.action);
+        data.number = shortcutNumber;
         auto button = new OutputPaneToggleButton(shortcutNumber,
                                                  outPane->displayName(),
                                                  paneAction.commandAction());
@@ -880,20 +1037,16 @@ void OutputPaneManager::setupButtons()
             m_instance->popupMenu();
         });
 
-        connect(outPane, &IOutputPane::flashButton, button, [button] { button->flash(); });
-        connect(outPane,
-                &IOutputPane::setBadgeNumber,
-                button,
-                &OutputPaneToggleButton::setIconBadgeNumber);
-
         ++shortcutNumber;
         m_instance->m_buttonsWidget->layout()->addWidget(data.button);
         connect(data.button, &QAbstractButton::clicked, m_instance, [i] {
             m_instance->buttonTriggered(i);
         });
 
-        const bool visible = outPane->priorityInStatusBar() >= 0;
-        data.button->setVisible(visible);
+        // A pane with no priority in the status bar has no button until a
+        // reader asks for one from the menu.
+        model->setButtonVisible(i, outPane->priorityInStatusBar() >= 0);
+        m_instance->updateButton(i);
     }
 
     m_instance->m_titleLabel->setMinimumWidth(
@@ -970,8 +1123,7 @@ void OutputPaneManager::readSettings()
         const int idx = Utils::indexOf(g_outputPanes, Utils::equal(&OutputPaneData::id, id));
         if (idx < 0) // happens for e.g. disabled plugins (with outputpanes) that were loaded before
             continue;
-        const bool visible = settings->value(outputPaneVisibleKeyC).toBool();
-        g_outputPanes[idx].button->setVisible(visible);
+        m_buttonModel->setButtonVisible(idx, settings->value(outputPaneVisibleKeyC).toBool());
     }
     settings->endArray();
 
@@ -1120,12 +1272,12 @@ void OutputPaneManager::popupMenu()
     for (OutputPaneData &data : g_outputPanes) {
         QAction *act = menu.addAction(data.pane->displayName());
         act->setCheckable(true);
-        act->setChecked(data.button->isPaneVisible());
-        connect(act, &QAction::triggered, this, [this, data, idx] {
-            if (data.button->isPaneVisible()) {
-                data.pane->visibilityChanged(false);
-                data.button->setChecked(false);
-                data.button->hide();
+        act->setChecked(m_buttonModel->isButtonVisible(idx));
+        connect(act, &QAction::triggered, this, [this, pane = data.pane, idx] {
+            if (m_buttonModel->isButtonVisible(idx)) {
+                pane->visibilityChanged(false);
+                m_buttonModel->setChecked(idx, false);
+                m_buttonModel->setButtonVisible(idx, false);
             } else {
                 showPage(idx, IOutputPane::ModeSwitch);
             }
@@ -1137,17 +1289,12 @@ void OutputPaneManager::popupMenu()
     QAction *reset = menu.addAction(Tr::tr("Reset to Default"));
     connect(reset, &QAction::triggered, this, [this] {
         for (int i = 0; i < g_outputPanes.size(); ++i) {
-            OutputPaneData &data = g_outputPanes[i];
+            const OutputPaneData &data = g_outputPanes.at(i);
             const bool buttonVisible = data.pane->priorityInStatusBar() >= 0;
-            const bool paneVisible = currentIndex() == i
+            const bool paneVisible = buttonVisible && currentIndex() == i
                                      && OutputPanePlaceHolder::isCurrentVisible();
-            if (buttonVisible) {
-                data.button->setChecked(paneVisible);
-                data.button->setVisible(true);
-            } else {
-                data.button->setChecked(false);
-                data.button->hide();
-            }
+            m_buttonModel->setChecked(i, paneVisible);
+            m_buttonModel->setButtonVisible(i, buttonVisible);
         }
     });
 
@@ -1163,7 +1310,7 @@ void OutputPaneManager::saveSettings() const
         const OutputPaneData &data = g_outputPanes.at(i);
         settings->setArrayIndex(i);
         settings->setValue(outputPaneIdKeyC, data.id.toSetting());
-        settings->setValue(outputPaneVisibleKeyC, data.button->isPaneVisible());
+        settings->setValue(outputPaneVisibleKeyC, data.buttonVisible);
     }
     settings->endArray();
     int heightSetting = m_outputPaneHeightSetting;
@@ -1347,11 +1494,6 @@ void OutputPaneToggleButton::setIconBadgeNumber(int number)
     updateGeometry();
 }
 
-bool OutputPaneToggleButton::isPaneVisible() const
-{
-    return isVisibleTo(parentWidget());
-}
-
 void OutputPaneToggleButton::contextMenuEvent(QContextMenuEvent *)
 {
     emit contextMenuRequested();
@@ -1445,6 +1587,118 @@ void BadgeLabel::calculateSize()
     m_size.setWidth(m_size.width() + m_padding * 1.5);
     m_size.setHeight(2 * m_padding + 1); // Needs to be uneven for pixel perfect vertical centering in the button
 }
+
+#ifdef WITH_TESTS
+
+// The row of pane buttons in the status bar. What is on trial here is that the
+// row's state is the model's: the buttons draw it, the session saves it, and a
+// pane reporting a badge or asking to be noticed reaches the model rather than
+// a widget.
+class OutputPaneButtonModelTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheButtonRowIsAModelOfThePanes()
+    {
+        OutputPaneButtonModel * const model = OutputPaneManager::instance()->m_buttonModel;
+        QVERIFY(model);
+
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QVERIFY2(!panes.isEmpty(), "no output panes are registered, so this tests nothing");
+        QCOMPARE(model->rowCount(), panes.size());
+
+        int previousPriority = std::numeric_limits<int>::max();
+        for (int row = 0; row < model->rowCount(); ++row) {
+            const QModelIndex index = model->index(row);
+            // The name a reader sees on the button, and the Alt+<n> that
+            // reaches it: the numbers run 1..N down the row.
+            QCOMPARE(index.data(Qt::DisplayRole).toString(), panes.at(row)->displayName());
+            QCOMPARE(index.data(OutputPaneButtonModel::NumberRole).toInt(), row + 1);
+
+            // The order is the status bar's: by priority, highest first.
+            const int priority = panes.at(row)->priorityInStatusBar();
+            QVERIFY2(priority <= previousPriority,
+                     qPrintable(QString("row %1 (%2) has priority %3, after %4")
+                                    .arg(row).arg(panes.at(row)->displayName())
+                                    .arg(priority).arg(previousPriority)));
+            previousPriority = priority;
+        }
+    }
+
+    void testWhatAPaneSaysAboutItsButtonReachesTheModel()
+    {
+        OutputPaneButtonModel * const model = OutputPaneManager::instance()->m_buttonModel;
+        QVERIFY(model);
+        QVERIFY(model->rowCount() > 0);
+        const int row = 0;
+        IOutputPane * const pane = IOutputPane::allOutputPanes().at(row);
+        const QModelIndex index = model->index(row);
+
+        // Left as it was found: this is the running shell's own row.
+        const QVariant badge = index.data(OutputPaneButtonModel::BadgeRole);
+        const QScopeGuard restoreBadge([pane, badge] {
+            pane->setIconBadgeNumber(badge.toString().toInt()); });
+
+        // Said the way a pane says it, which is what the connection under
+        // test is for - not by calling the model's own setter.
+        pane->setIconBadgeNumber(7);
+        QCOMPARE(index.data(OutputPaneButtonModel::BadgeRole).toString(), QString("7"));
+        pane->setIconBadgeNumber(0);
+        QVERIFY2(index.data(OutputPaneButtonModel::BadgeRole).toString().isEmpty(),
+                 "a pane with nothing to report still has a badge");
+
+        // And asking to be noticed is an event: it leaves no state behind.
+        QSignalSpy flashes(model, &OutputPaneButtonModel::flashRequested);
+        pane->flash();
+        QCOMPARE(flashes.size(), 1);
+        QCOMPARE(flashes.first().first().toInt(), row);
+    }
+
+    void testTheButtonDrawsWhatTheModelSays()
+    {
+        OutputPaneButtonModel * const model = OutputPaneManager::instance()->m_buttonModel;
+        QVERIFY(model);
+        QVERIFY(model->rowCount() > 0);
+        const int row = 0;
+        OutputPaneToggleButton * const button = g_outputPanes.at(row).button;
+        QVERIFY2(button, "the row has no button, so nothing here is being tested");
+
+        const bool wasVisible = model->isButtonVisible(row);
+        const QScopeGuard restore([model, wasVisible] {
+            model->setButtonVisible(row, wasVisible); });
+
+        // Whether a pane has a button at all is what the manage menu changes
+        // and the session remembers. isVisibleTo(), not isVisible(): the
+        // whole row is inside a window nothing has shown.
+        model->setButtonVisible(row, true);
+        QVERIFY(button->isVisibleTo(button->parentWidget()));
+        model->setButtonVisible(row, false);
+        QVERIFY2(!button->isVisibleTo(button->parentWidget()),
+                 "the button stayed after the model took it away");
+        model->setButtonVisible(row, true);
+        QVERIFY(button->isVisibleTo(button->parentWidget()));
+
+        // The badge is the model's too, and the button makes room for it.
+        IOutputPane * const pane = IOutputPane::allOutputPanes().at(row);
+        const QVariant badge = model->index(row).data(OutputPaneButtonModel::BadgeRole);
+        const QScopeGuard restoreBadge([pane, badge] {
+            pane->setIconBadgeNumber(badge.toString().toInt()); });
+        pane->setIconBadgeNumber(0);
+        const int plain = button->sizeHint().width();
+        pane->setIconBadgeNumber(88);
+        QVERIFY2(button->sizeHint().width() > plain,
+                 qPrintable(QString("the button asks for %1 either way")
+                                .arg(button->sizeHint().width())));
+    }
+};
+
+QObject *createOutputPaneButtonModelTest()
+{
+    return new OutputPaneButtonModelTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace Internal
 } // namespace Core
