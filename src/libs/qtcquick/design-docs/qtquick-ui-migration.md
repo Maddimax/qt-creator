@@ -52880,3 +52880,74 @@ defects:
 3. macOS in its VM is still blocked on a desktop login; `runtests-macos.sh`
    now checks the console user and says exactly that instead of failing
    obscurely.
+
+## 2026-09-08 — Eleven tests stop reading a home directory (batch 172)
+
+Step 1 of the last entry, done: the definition-dependent group. **Linux is
+at 717 passed, 10 failed, 3 skipped** (from 709/21), and every remaining
+failure is now a candidate for a real defect rather than a missing file.
+
+The gap this closed is not in the port - it is in what the suite was
+measuring. Eleven tests asked the generic highlighter about C++, Rust or Go;
+this repository ships 50 definitions and none of those three. Three shapes
+needed three different answers, and the difference matters:
+
+- **The language was incidental** - a document that folds, that comments,
+  that copies as HTML. Those get `bundledDefinition()`, which hands out
+  **Java**: shipped here, and it has braces that fold, `//` comments and
+  keywords, which is everything those tests wanted of a language. Nine
+  tests, and they now bite on every machine rather than only on one that has
+  run *Update Highlighting Definitions*.
+- **The language was the question** - the `rust` and `go` rows of
+  `testOrdinaryEditingIsTheSameInEitherView`, whose whole point is the
+  language's own comment marker. Those skip, with the reason and the menu
+  entry that fixes it.
+- **The census** - `testEveryCodeStylePreviewFindsItsLanguage` was asking
+  two questions at once and could not tell them apart: *does the page name a
+  mime type that exists* (this repository's business) and *is that
+  language's definition installed* (the machine's). It asserts the first,
+  reports the second with `qInfo`, and skips when it could check nothing.
+
+### Controls
+
+- **The guard discriminates, which is the point**: `rust` and `go` skip
+  while `yaml`, `shell` and `plain text` still run and pass - a blanket
+  skip would have taken all five, and would have looked just as green.
+- **The before/after is the control for the substitution**: with C++ the
+  same nine tests are red on a clean machine (709/21 measured), with Java
+  they pass (717/10/3).
+
+### One measured flake, not a regression
+
+`testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a line)` appeared
+in the failure list for the first time in this batch, which looks like
+something this batch broke. Measured instead of assumed: the class alone,
+three runs, **309/5, 308/6, 309/5** - it fails about one run in three, and
+it does so with and without this change. A pre-existing Linux flake, written
+down rather than pinned on the nearest commit.
+
+### What is left, and it is the interesting part
+
+    TextEditor  717 passed, 10 failed, 3 skipped
+    QuickUi     206 passed,  2 failed
+
+| Test | Says |
+| --- | --- |
+| `testALinkUnderThePointerIsUnderlined` | compare mismatch |
+| `testWhitespaceIsDrawnWhenTheSettingAsksForIt` | compare mismatch |
+| `testHomeOnAWrappedLineGoesToTheRowNotTheLine` | compare mismatch |
+| `testAPageIsAScreenOfRowsNotOfLines` | *scrolled 128, wanted about 176* |
+| `testInsertTogglesTypingOverTheTextThatIsThere` | *the caret is still drawn between two characters* |
+| `testOpeningASourceFileHighlightsIt`, `testWhitespaceInACommentIsNotDrawnAsABlackCell`, both licence-header tests | open a real `.cpp` file, so the same missing-definition class one layer down: the *file* names C++ |
+| `QuickUi`: Code Style preview in one colour | definitions again |
+| `QuickUi`: file dialog offers a one-entry filter | the odd one out |
+
+So the next batch is two things: give the four file-opening tests a source
+file in a language this repository ships (they need a real file, not a bare
+document, which is why they were not part of this batch), and then look
+properly at the six that are left - three of them measure *drawing*, which
+is where offscreen is most likely to differ honestly from a real screen, and
+that has to be established before any of them is called a defect.
+
+macOS remains unverified since batch 170: that VM has no desktop session,
+and host runs are off for good reasons.
