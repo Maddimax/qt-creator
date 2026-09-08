@@ -54083,3 +54083,94 @@ No binding-loop warning left in the log. Both platforms build clean, no
 3. macOS, still one desktop login away, for two panes.
 4. Then the next rung of entry 169: the output panes.
 5. Parked: entry 174's page scroll, entry 173's crash.
+
+## 2026-09-08 — Bookmarks is the second Quick sidebar (batch 187)
+
+**The gap this closed: a reader's Bookmarks pane is the Qt Quick one.**
+`QTC_WIDGET_BOOKMARKS` asks for the tree view back, exactly as
+`QTC_WIDGET_OPEN_DOCUMENTS` does next to it, and a build with nothing to host
+QML still gets the tree without asking. Two rungs of entry 169's shell list
+are done.
+
+The batch is the last two items of entry 186 in order: the row's layout first,
+because the switch should not be flipped onto a row that draws something else,
+and then the switch.
+
+### The row, and why the widget had to fade text out
+
+The widget delegate draws the filename at the left and the line number at the
+right of the first line, with no layout between them - so where they would
+collide it paints a **gradient pixmap under the number** and lets the name
+disappear into it. `lwidth` is `advance("8888") + 18`, which is that fade's
+width.
+
+Anchored to each other the two cannot collide, so the Quick row does not need
+the trick: the name is anchored to the number's left and elides. That is not
+just simpler, it is the *right* end that gives way - **the line a bookmark is
+at is not the part to lose**, and the old one-label `"name:line"` with
+`ElideMiddle` lost the middle of both.
+
+The test is what makes that a claim rather than a description: a filename 90
+characters long in a 300-pixel pane, and then
+
+- the number is an item of its own, and says `2`;
+- `name.truncated` is **true** - the name is the part that ran out of room;
+- the name's right edge is at or left of the number's left edge;
+- the number's right edge is inside the row.
+
+Two smaller things went with it, both of them UI-rule violations that only
+became visible on re-reading the file: the second line's `opacity: 0.7` is now
+`Tokens.textMuted` (the rules forbid alpha-blended text, and it was the only
+`opacity:` colour in the whole QML tree), and the separator line under each
+row - which the widget delegate draws by hand in a hard-coded
+`QColor(150,150,150)` - is back as a one-pixel `Tokens.strokeSubtle`.
+
+### The switch
+
+One `!`, one census line, and four fixtures that stop asking for what they now
+get by default. The census measures **both switches in every state** now:
+neither set, Open Documents' set, and both set - the last one asserting an
+empty list, which is the claim that each switch still reaches its own pane.
+
+### Controls
+
+- **W - the row back to one `"name:line"` label**: "the row draws no filename
+  of its own".
+- **X - the name anchored to the row's right** instead of the number's left,
+  so the two overlap: *"the name runs to 294 and the number starts at
+  287.141"*.
+- **Y - the flip reverted**, one character: **five tests fail**, exit code 5 -
+  the census and all four pane tests. A pane moving is a deliberate act that
+  five tests co-sign, which is the same shape entry 183 left for Open
+  Documents.
+
+### Verification
+
+    -test QuickUi      219 passed, 0 failed, exit 0   (218 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Both platforms build clean, no `.qbs` edit, and no QML warning from the pane's
+file in the log - checked deliberately after entry 186.
+
+**Said plainly, again: this is the second pane defaulted on one platform's
+evidence.** The macOS VM has had no desktop session since batch 170, so
+neither sidebar has been drawn on macOS. The argument that nothing here is
+platform-specific is the same one entry 183 made, and it is still an argument
+rather than a measurement.
+
+### What is next
+
+1. **The output panes**, the next rung of entry 169 - and the first one that
+   is not a list over a model, so the pattern the two sidebars share
+   (controller + `createQmlView` + a census line) is about to be tested
+   against something shaped differently.
+2. macOS, still one desktop login away, now for two defaulted panes.
+3. Parked: entry 174's page scroll, entry 173's crash.
+
+**A note on what these two panes cost, for planning the rest.** Open Documents
+took six batches (178-183), Bookmarks four (184-187), and in both cases the
+work was not the QML: it was finding out what the widget view *did* that
+nothing had written down - a scrollTo, an always-on scrollbar, a shared
+selection model, a context registered for three commands, a confirmation
+dialog, a payload with a line number in it. The QML for a pane is an
+afternoon. Reading the widget view end to end, twice, is the batch.
