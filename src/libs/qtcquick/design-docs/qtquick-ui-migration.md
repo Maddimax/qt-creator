@@ -53277,3 +53277,83 @@ failure, and it is the same one every run.
 3. Everything else on this branch has been done twice over: C++ since entry
    33, QmlJS since 164, and the shell phase is planned in entry 169 and not
    started.
+
+## 2026-09-08 — Rung 1 of the shell phase, twice corrected, and no code (batch 177)
+
+This batch shipped nothing, and the reason is worth more than the code would
+have been: **entry 169's first rung is wrong in both directions.** I started
+the pane port it specifies, found the constraint that forbids the obvious
+way to do it, and reverted rather than land a layering violation at the tail
+of a long session. What the next batch needs is now specified from the code
+rather than from a guess.
+
+### First correction: the seam entry 169 wanted already exists
+
+169 proposed that rung 1 build a seam so "an interface learns to say *my view
+is Quick*, the host learns to embed it". Neither half is needed.
+`INavigationWidgetFactory::createWidget()` already returns a `QWidget *`, so a
+Quick view needs no new interface, and `QtcQuick::QuickWidget` already hosts
+a QML file on the shared engine and hands data over. Measured, in the way it
+is done today (aspectform.cpp:51):
+
+    auto widget = new ShowReportingQuickWidget(container);
+    widget->quickWidget()->setInitialProperties({{"model", QVariant::fromValue(model)}});
+
+Two lines, and the shared engine, the icon provider and the style come with
+it.
+
+### Second correction: a pane may not do that *from Core*
+
+Which is what I wrote, and it is wrong. `coreplugin` has QML of its own -
+`AddToVcsDialog.qml`, `CodecSelector.qml`, `CustomLanguageModelsPage.qml` -
+and it does **not** depend on QtcQuick. It declares a URL:
+
+    setQmlSource(QUrl("qrc:/qt/qml/QtCreator/Core/AddToVcsDialog.qml"));
+
+and whatever backend `Core::setAspectFormFactory()` installed does the
+hosting - which in production is the **QuickUi plugin**
+(quickuiplugin.cpp:35). Core declares, the backend hosts, and Core stays
+backend-agnostic. Instantiating `QtcQuick::QuickWidget` inside
+`openeditorsview.cpp` inverts that, and a sidebar is not a good reason to
+make the shell depend on the Quick library.
+
+So rung 1 is a seam after all, but not the one 169 named: **the
+navigation-view equivalent of `setAspectFormFactory`** - Core says "this view
+is QML at this URL, with this object", the installed backend hosts it and
+hands back a `QWidget *`. That is small, it is the pattern the options pages
+already prove, and it is what every later pane will use.
+
+### What the port itself needs, so the next batch does not re-read it
+
+Open Documents, from `openeditorsview.cpp`:
+
+| What | Where it comes from |
+| --- | --- |
+| the rows | `DocumentModel::model()`, whose `Qt::DisplayRole` QML reads as `model.display` |
+| opening one | `EditorManager::activateEditorForEntry(DocumentModel::entryAtRow(row))` |
+| closing one | `EditorManager::closeDocuments({DocumentModel::entryAtRow(row)})` |
+| the current row | `EditorManager::currentEditorChanged` then `DocumentModel::indexOfDocument()` |
+| not yet ported | the context menu (`contextMenuRequested`), the drag actions, and the VCS decoration the widget delegate draws |
+
+Two practical notes for whoever writes it. A **flag** is the right shape
+while the pane is incomplete - the editor migration's `setUsesQuickEditor`
+kept eight factories on the widget path for months, and a sidebar with no
+context menu is not something to hand a reader by default. And **adding a
+QML file to a plugin costs one CMake line and no `.qbs` edit at all**:
+`coreplugin.qbs` globs `*.qml` under a comment saying the QML is built by
+CMake only, so the qbs re-resolve that entry 170 could not run does not come
+into it.
+
+### Verification
+
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1
+    -test QuickUi      208 passed, 0 failed, exit 0
+
+The tree is as batch 176 left it; no controls apply, because nothing changed.
+
+### What is next
+
+The navigation backend hook and Open Documents behind a flag, in one batch,
+with the census that counts Quick navigation views written at the same time -
+it has something to count only once the first pane exists, which is why
+batch 177 did not write it either.
