@@ -79,6 +79,8 @@ add_qtc_plugin(Core
     editormanager/ieditorfactory.cpp
     editormanager/ieditorfactory.h
     editormanager/ieditorfactory_p.h
+    editormanager/opendocumentslist.cpp
+    editormanager/opendocumentslist.h
     editormanager/openeditorsview.cpp
     editormanager/openeditorsview.h
     editormanager/openeditorswindow.cpp
@@ -373,6 +375,7 @@ if(TARGET Core)
     NO_PLUGIN
     QML_FILES
       AddToVcsDialog.qml
+      OpenDocumentsView.qml
       CodecSelector.qml
       SessionDialog.qml
       SessionNameInputDialog.qml

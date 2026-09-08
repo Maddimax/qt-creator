@@ -12,8 +12,11 @@
 #include <QList>
 #include <QKeySequence>
 
+#include <functional>
+
 QT_BEGIN_NAMESPACE
 class QToolButton;
+class QUrl;
 class QWidget;
 QT_END_NAMESPACE
 
@@ -28,6 +31,18 @@ struct NavigationView
     QWidget *widget;
     QList<QToolButton *> dockToolBarWidgets;
 };
+
+// Installed by a front end that can host a QML scene, the same way
+// setAspectFormFactory() is - and for the same reason: this plugin names the
+// QML its views are written in and never links the Quick library, so which
+// front end draws them stays the front end's business. The object is handed
+// to the scene as its "controller" property before the source is set, and
+// parented to the widget that comes back. Nothing installed, or nullptr back,
+// means the caller keeps its widget view.
+using QmlViewFactory = std::function<QWidget *(const QUrl &source, QObject *controller)>;
+CORE_EXPORT void setQmlViewFactory(const QmlViewFactory &factory);
+CORE_EXPORT QWidget *createQmlView(const QUrl &source, QObject *controller);
+CORE_EXPORT bool hasQmlViewFactory();
 
 class CORE_EXPORT INavigationWidgetFactory : public QObject
 {

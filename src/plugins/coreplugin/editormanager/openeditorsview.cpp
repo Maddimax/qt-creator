@@ -6,6 +6,7 @@
 #include "documentmodel.h"
 #include "editormanager.h"
 #include "ieditor.h"
+#include "opendocumentslist.h"
 #include "../actionmanager/command.h"
 #include "../coreplugintr.h"
 #include "../inavigationwidgetfactory.h"
@@ -13,6 +14,7 @@
 #include "../opendocumentstreeview.h"
 #include "../vcsmanager.h"
 
+#include <utils/environment.h>
 #include <utils/fsengine/fileiconprovider.h>
 #include <utils/qtcassert.h>
 #include <utils/theme/theme.h>
@@ -346,6 +348,19 @@ public:
 
     NavigationView createWidget() final
     {
+        // Behind a switch while the Quick view is being written: it draws the
+        // rows, opens one and closes one, and has neither the context menu
+        // nor the drag the widget view has. Nobody is handed a half-finished
+        // sidebar by opening Qt Creator.
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_OPEN_DOCUMENTS")) {
+            auto * const list = new OpenDocumentsList;
+            if (QWidget * const view = createQmlView(
+                    QUrl("qrc:/qt/qml/QtCreator/Core/OpenDocumentsView.qml"), list))
+                return {view, {}};
+            // Nothing can host QML in this build, so the switch does nothing
+            // rather than leaving an empty pane.
+            delete list;
+        }
         return {new OpenEditorsWidget, {}};
     }
 };

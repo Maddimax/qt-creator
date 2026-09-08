@@ -5,6 +5,7 @@
 #include "quickui_test.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
+#include <coreplugin/inavigationwidgetfactory.h>
 
 #include <QQuickItem>
 #include <QQuickWidget>
@@ -12,6 +13,7 @@
 #include <extensionsystem/iplugin.h>
 
 #include <qtcquick/aspectform.h>
+#include <qtcquick/qtcquickwidget.h>
 
 #include <utils/environment.h>
 
@@ -34,6 +36,17 @@ private:
         // to their widget layout.
         Core::setAspectFormFactory([](Utils::AspectContainer *container) {
             return QtcQuick::createAspectForm(container);
+        });
+        // The views that name their own QML - the Open Documents sidebar,
+        // and whatever the shell phase moves next - are hosted here for the
+        // same reason: Core names the file and never links this library.
+        Core::setQmlViewFactory([](const QUrl &source, QObject *controller) -> QWidget * {
+            auto * const host = new QtcQuick::QuickWidget;
+            controller->setParent(host);
+            host->quickWidget()->setInitialProperties(
+                {{"controller", QVariant::fromValue(controller)}});
+            host->setSource(source);
+            return host;
         });
         // The panes draw output into a QTextDocument and need something to
         // show it. Core cannot make one itself.

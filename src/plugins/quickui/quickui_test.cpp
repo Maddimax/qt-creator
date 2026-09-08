@@ -16,6 +16,11 @@
 #include <QLocale>
 #include <QElapsedTimer>
 #include <QClipboard>
+#include <coreplugin/editormanager/documentmodel.h>
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+#include <coreplugin/inavigationwidgetfactory.h>
+
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
@@ -425,6 +430,8 @@ private slots:
     void testTheFileBrowserRemembersWhereItHasBeen();
     void testTheFileBrowserFindsFilesBelowTheDirectory();
     void testTheFileDialogOffersEachKindOfFileSeparately();
+    void testWhichNavigationViewsAreQuick();
+    void testTheOpenDocumentsSidebarListsAndOpensInTheQuickView();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13287,6 +13294,122 @@ void QuickUiTest::testAVariableBeingDefinedIsNotOfferedForItself()
     QVERIFY2(findRow("%{Test:Other}").isValid(),
              "the filter dropped what it matched, or the group holding it");
     QVERIFY2(!findRow("%{Test:Name}").isValid(), "the filter kept what it did not match");
+}
+
+// Which sidebar views are drawn in Qt Quick. The switch that turns one round
+// is deliberate, so moving one has to change this line in the same commit -
+// the same bargain the editor censuses make in the text editor's suite.
+void QuickUiTest::testWhichNavigationViewsAreQuick()
+{
+    const auto quickViews = [] {
+        QStringList found;
+        for (Core::INavigationWidgetFactory * const factory :
+             Core::INavigationWidgetFactory::allNavigationFactories()) {
+            const Core::NavigationView view = factory->createWidget();
+            if (!view.widget)
+                continue;
+            const std::unique_ptr<QWidget> owned(view.widget);
+            if (owned->findChild<QQuickWidget *>())
+                found << factory->id().toString();
+        }
+        found.sort();
+        return found;
+    };
+
+    // Both states, because the switch is the whole of what has moved: with it
+    // off every sidebar is still the widget one, and with it on exactly one is
+    // not. Moving a pane means changing the second list, in the commit that
+    // moves it.
+    QCOMPARE(quickViews(), QStringList());
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
+    QCOMPARE(quickViews(), QStringList({QString("Open Documents")}));
+}
+
+// The first sidebar pane in Qt Quick, end to end: the switch gets a QML view
+// instead of the tree, it lists what is open, and a click on a row is what
+// opens that document - not a property written by the test.
+void QuickUiTest::testTheOpenDocumentsSidebarListsAndOpensInTheQuickView()
+{
+    QVERIFY2(Core::hasQmlViewFactory(),
+             "nothing installed a QML view factory, so Core has nothing to host with");
+
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Open Documents"); });
+    QVERIFY2(factory, "the Open Documents sidebar is gone");
+
+    Utils::TemporaryDirectory dir("quick-open-documents");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath first = dir.filePath("first.txt");
+    const Utils::FilePath second = dir.filePath("second.txt");
+    QVERIFY(first.writeFileContents("alpha\n"));
+    QVERIFY(second.writeFileContents("beta\n"));
+
+    Core::IEditor * const firstEditor = Core::EditorManager::openEditor(first);
+    Core::IEditor * const secondEditor = Core::EditorManager::openEditor(second);
+    QVERIFY(firstEditor && secondEditor);
+    const QScopeGuard closeThem([firstEditor, secondEditor] {
+        Core::EditorManager::closeEditors({firstEditor, secondEditor}, false); });
+    QCOMPARE(Core::EditorManager::currentEditor(), secondEditor);
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    owned->resize(300, 400);
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+
+    QQuickItem * const list = quickWidget->rootObject();
+    QVERIFY(list);
+    QCOMPARE(list->objectName(), QString("openDocumentsList"));
+
+    // It lists what is open, and says which row is being read.
+    // The list shows the documents, and not DocumentModel's <no document>
+    // row, which is why this is entryCount() and not the model's rowCount().
+    QTRY_COMPARE(list->property("count").toInt(), Core::DocumentModel::entryCount());
+    QVERIFY2(list->property("count").toInt() >= 2, "fewer rows than the documents just opened");
+    const std::optional<int> secondRow
+        = Core::DocumentModel::indexOfDocument(secondEditor->document());
+    QVERIFY(secondRow);
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *secondRow);
+
+    // And a click on the other row opens that document. The row is asked for
+    // its own position rather than guessed at, so this does not depend on how
+    // tall a row happens to be drawn.
+    const std::optional<int> firstRow
+        = Core::DocumentModel::indexOfDocument(firstEditor->document());
+    QVERIFY(firstRow);
+    QQuickItem *rowItem = nullptr;
+    QTRY_VERIFY([&] {
+        for (QQuickItem *candidate : list->childItems()) {
+            for (QQuickItem *inner : candidate->childItems()) {
+                if (inner->objectName() == QLatin1String("openDocumentRow")
+                    && inner->property("index").toInt() == *firstRow) {
+                    rowItem = inner;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }());
+    const QPointF centre = rowItem->mapToScene(
+        QPointF(rowItem->width() / 4, rowItem->height() / 2));
+    QTest::mouseClick(quickWidget->quickWindow(), Qt::LeftButton, {}, centre.toPoint());
+    QTRY_COMPARE(Core::EditorManager::currentEditor(), firstEditor);
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *firstRow);
 }
 
 QObject *createQuickUiTest()

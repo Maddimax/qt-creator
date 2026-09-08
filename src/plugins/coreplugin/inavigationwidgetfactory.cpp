@@ -8,6 +8,7 @@
 
 #include <QIcon>
 #include <QKeySequence>
+#include <QUrl>
 
 /*!
     \class Core::INavigationWidgetFactory
@@ -62,6 +63,32 @@
 using namespace Utils;
 
 namespace Core {
+
+// Set once, by whichever front end can draw QML. Not a member of anything:
+// the factories that name a QML source do not know each other and none of
+// them owns the front end.
+static QmlViewFactory &theQmlViewFactory()
+{
+    static QmlViewFactory factory;
+    return factory;
+}
+
+void setQmlViewFactory(const QmlViewFactory &factory)
+{
+    theQmlViewFactory() = factory;
+}
+
+bool hasQmlViewFactory()
+{
+    return bool(theQmlViewFactory());
+}
+
+QWidget *createQmlView(const QUrl &source, QObject *controller)
+{
+    if (!theQmlViewFactory())
+        return nullptr;
+    return theQmlViewFactory()(source, controller);
+}
 
 static QList<INavigationWidgetFactory *> g_navigationWidgetFactories;
 
