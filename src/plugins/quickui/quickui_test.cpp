@@ -447,6 +447,7 @@ private slots:
     void testTheOpenDocumentsSidebarFollowsTheEditorItNeverHadFocusFrom();
     void testTheBookmarksSidebarListsAndOpensInTheQuickView();
     void testTheBookmarksSidebarOffersTheWidgetsRightClickMenu();
+    void testDraggingABookmarkCarriesItAndReordersTheList();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -14071,6 +14072,192 @@ void QuickUiTest::testTheBookmarksSidebarOffersTheWidgetsRightClickMenu()
     QTRY_COMPARE(model->rowCount(), 0);
     QVERIFY2(Core::SessionManager::value("Bookmarks").toStringList().isEmpty(),
              "the bookmarks are off the list but still in the session");
+}
+
+// Dragging a bookmark does two things, and this pane is the first to need the
+// second: the payload carries the file and the line away, and letting the row
+// go inside the list reorders it. The Open Documents model has no
+// dropMimeData() at all; this one has, and it is the path a reorder has to go
+// through, because what reorders the list is a payload carrying Bookmarks and
+// a drag from anywhere else carries none.
+void QuickUiTest::testDraggingABookmarkCarriesItAndReordersTheList()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Bookmarks"); });
+    QVERIFY2(factory, "the Bookmarks sidebar is gone");
+
+    Utils::TemporaryDirectory dir("quick-bookmarks-drag");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("dragged.txt");
+    QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    owned->resize(300, 400);
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+    QQuickItem * const list = quickWidget->rootObject();
+    QVERIFY(list);
+    QObject * const controller = list->property("controller").value<QObject *>();
+    QVERIFY(controller);
+    auto * const model = controller->property("model").value<QAbstractItemModel *>();
+    QVERIFY(model);
+
+    // A QML warning is not a failure by itself - the engine reports it and
+    // carries on - so the pane's own are collected and asserted on at the
+    // end. The reorder is what brings them out: the drop moves the manager's
+    // current row from under the list, and a list that *bound* its
+    // currentIndex to that row while writing it back was a binding loop. What
+    // Qt does to a binding it has called a loop is not something to rely on,
+    // so this asserts the diagnostic rather than the behaviour.
+    QStringList paneWarnings;
+    const QMetaObject::Connection warned = QObject::connect(
+        quickWidget->engine(), &QQmlEngine::warnings, quickWidget->engine(),
+        [&paneWarnings](const QList<QQmlError> &errors) {
+            for (const QQmlError &error : errors) {
+                if (error.url().toString().contains(QLatin1String("BookmarksView.qml")))
+                    paneWarnings << error.toString();
+            }
+        });
+    const QScopeGuard unwatch([warned] { QObject::disconnect(warned); });
+
+    // As in the menu test: bookmarks outlive the editor they were set in, and
+    // this one is about the order of the whole list.
+    for (int rows = model->rowCount(); rows > 0 && model->rowCount(); --rows)
+        QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, 0)));
+    QCOMPARE(model->rowCount(), 0);
+
+    const int lineNumberRole = model->roleNames().key("lineNumber");
+    QVERIFY2(lineNumberRole > 0, "the bookmark model does not name its line number role");
+    const auto lines = [model, lineNumberRole] {
+        QList<int> numbers;
+        for (int row = 0; row < model->rowCount(); ++row)
+            numbers << model->index(row, 0).data(lineNumberRole).toInt();
+        return numbers;
+    };
+
+    Core::Command * const toggle = Core::ActionManager::command("Bookmarks.Toggle");
+    QVERIFY2(toggle, "the bookmark toggle command is gone");
+    for (const int line : {1, 2, 3}) {
+        editor->gotoLine(line, 0);
+        toggle->action()->trigger();
+    }
+    QTRY_COMPARE(model->rowCount(), 3);
+    QCOMPARE(lines(), QList<int>({1, 2, 3}));
+
+    // What a row carries: the mime data Qt Creator's drop targets read, and
+    // in it the line as well as the file - which is what makes a bookmark
+    // dropped on an editor area open at the line it marks.
+    QMimeData *carried = nullptr;
+    QVERIFY(QMetaObject::invokeMethod(controller, "dragMimeData",
+                                      Q_RETURN_ARG(QMimeData *, carried), Q_ARG(int, 1)));
+    const std::unique_ptr<QMimeData> ownedData(carried);
+    QVERIFY2(carried, "a row would drag nothing");
+    auto * const payload = dynamic_cast<Utils::DropMimeData *>(carried);
+    QVERIFY2(payload, "the drag carries plain mime data, which no drop target here reads");
+    QCOMPARE(payload->files().size(), 1);
+    QCOMPARE(payload->files().first().filePath, file);
+    QCOMPARE(payload->files().first().line, 2);
+    // And the bookmark itself, which is the half of the payload that only
+    // this pane reads: without a value that casts back to a Bookmark, the
+    // model's dropMimeData() moves nothing.
+    QCOMPARE(payload->values().size(), 1);
+
+    // A row let go on another one moves there. The gesture is not driven
+    // here - a QDrag runs a loop of its own - but the row it started on and
+    // the point it ended at are what the handlers pass on, and those are.
+    const auto dropAtY = [list](qreal y) {
+        bool taken = false;
+        QMetaObject::invokeMethod(list, "dropRowAt", Q_RETURN_ARG(bool, taken),
+                                  Q_ARG(qreal, 4.0), Q_ARG(qreal, y));
+        return taken;
+    };
+    const auto middleOfRow = [list](int row) {
+        QQuickItem *item = nullptr;
+        QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item),
+                                  Q_ARG(int, row));
+        return item ? item->y() + item->height() / 2 - list->property("contentY").toReal()
+                    : qreal(-1);
+    };
+
+    QVERIFY(list->setProperty("draggedRow", 2));
+    const qreal firstRow = middleOfRow(0);
+    QVERIFY2(firstRow > 0, "the first row is not drawn, so nothing can be dropped on it");
+    QVERIFY2(dropAtY(firstRow), "the drop was refused");
+    QCOMPARE(lines(), QList<int>({3, 1, 2}));
+
+    // The list shows it, and that is not the same claim: move() emits only
+    // dataChanged, so a row that did not re-read its roles would still be
+    // drawing the bookmark that used to be there.
+    QQuickItem *drawnFirst = nullptr;
+    QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, drawnFirst), Q_ARG(int, 0)));
+    QVERIFY(drawnFirst);
+    QTRY_COMPARE(drawnFirst->property("lineNumber").toInt(), 3);
+
+    // Let go past the last row, which is the end of the list: the model reads
+    // a drop that names no row that way, and so the first row becomes the
+    // last one.
+    QQuickItem *drawnLast = nullptr;
+    QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, drawnLast), Q_ARG(int, 2)));
+    QVERIFY(drawnLast);
+    const qreal endOfRows = drawnLast->y() + drawnLast->height()
+                            - list->property("contentY").toReal();
+    QVERIFY2(list->height() > endOfRows + 1,
+             "the rows fill the list, so a drop past them all cannot be aimed");
+    QVERIFY(list->setProperty("draggedRow", 0));
+    QVERIFY2(dropAtY(list->height() - 1), "the drop past the last row was refused");
+    QCOMPARE(lines(), QList<int>({1, 2, 3}));
+
+    // And a drag this list did not start reorders nothing. This is what keeps
+    // a file dropped from anywhere else - which carries the same mime types -
+    // from shuffling the bookmarks.
+    QVERIFY(list->setProperty("draggedRow", -1));
+    QVERIFY2(!dropAtY(firstRow), "a drop from nowhere was taken");
+    QCOMPARE(lines(), QList<int>({1, 2, 3}));
+
+    // The same drop again, on a list that has been scrolled. The drop area
+    // lives in the content's coordinates - an Item declared inside a
+    // Flickable is reparented to its contentItem - so the point it reports
+    // has to be read back through contentY, and a list too small for its rows
+    // is the only place where getting that wrong is visible at all.
+    QQuickItem *firstItem = nullptr;
+    QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                      Q_RETURN_ARG(QQuickItem *, firstItem), Q_ARG(int, 0)));
+    QVERIFY(firstItem);
+    const qreal rowHeight = firstItem->height();
+    QVERIFY2(rowHeight > 8, "a row is too short to aim inside");
+    owned->resize(300, int(rowHeight * 2));
+    QTRY_VERIFY2(list->height() > rowHeight && list->height() < rowHeight * 3,
+                 "the list did not take the size that makes it scroll");
+    QVERIFY(list->setProperty("contentY", rowHeight));
+    QTRY_COMPARE(list->property("contentY").toReal(), rowHeight);
+
+    // Four pixels below the top of the viewport is now the second row, not
+    // the first.
+    QVERIFY(list->setProperty("draggedRow", 2));
+    QVERIFY2(dropAtY(4.0), "the drop on the scrolled list was refused");
+    QCOMPARE(lines(), QList<int>({1, 3, 2}));
+
+    for (int rows = model->rowCount(); rows > 0 && model->rowCount(); --rows)
+        QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, 0)));
+    QCOMPARE(model->rowCount(), 0);
+
+    QVERIFY2(paneWarnings.isEmpty(), qPrintable("\n" + paneWarnings.join("\n")));
 }
 
 QObject *createQuickUiTest()

@@ -15,8 +15,10 @@
 #include <utils/qtcassert.h>
 #include <utils/storekey.h>
 
+#include <QDrag>
 #include <QItemSelectionModel>
 #include <QMenu>
+#include <QMimeData>
 
 namespace TextEditor::Internal {
 
@@ -122,6 +124,46 @@ void BookmarksList::remove(int row)
         = bookmarkManager().bookmarkForIndex(bookmarkManager().index(row, 0))) {
         bookmarkManager().deleteBookmark(mark);
     }
+}
+
+QMimeData *BookmarksList::dragMimeData(int row) const
+{
+    // index() creates an index for any row it is given, so the bound is
+    // checked here rather than read off the index.
+    if (row < 0 || row >= bookmarkManager().rowCount())
+        return nullptr;
+    return bookmarkManager().mimeData({bookmarkManager().index(row, 0)});
+}
+
+void BookmarksList::startDrag(int row)
+{
+    QMimeData * const data = dragMimeData(row);
+    if (!data)
+        return;
+
+    // The row a drag starts on is the row it is about: the widget view gets
+    // that from the item view's own press, and BookmarkManager::move() reads
+    // the current index to say which rows a reorder changed.
+    setCurrentRow(row);
+
+    // The drag belongs to the view being dragged from, and it is what the
+    // reader is holding until they let go: exec() blocks, as it does for the
+    // item view.
+    auto * const drag = new QDrag(this);
+    drag->setMimeData(data);
+    drag->exec(Qt::MoveAction);
+}
+
+bool BookmarksList::dropRowOn(int draggedRow, int targetRow)
+{
+    const std::unique_ptr<QMimeData> data(dragMimeData(draggedRow));
+    if (!data)
+        return false;
+
+    const QModelIndex target = bookmarkManager().index(targetRow, 0);
+    if (!bookmarkManager().canDropMimeData(data.get(), Qt::MoveAction, -1, -1, target))
+        return false;
+    return bookmarkManager().dropMimeData(data.get(), Qt::MoveAction, -1, -1, target);
 }
 
 QObjectList BookmarksList::contextMenuActions(int row)

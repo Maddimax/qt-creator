@@ -10,6 +10,7 @@
 QT_BEGIN_NAMESPACE
 class QAbstractItemModel;
 class QMenu;
+class QMimeData;
 QT_END_NAMESPACE
 
 namespace TextEditor::Internal {
@@ -60,6 +61,22 @@ public:
     // the widget view does with whatever gotoBookmark() could not reach.
     Q_INVOKABLE void activate(int row);
     Q_INVOKABLE void remove(int row);
+
+    // Dragging a row carries the bookmark's file *and its line* out of the
+    // pane - into a split, an editor area, another application - and the
+    // Bookmark the payload also carries is what lets the pane reorder itself
+    // when the row is let go inside it. The mime data is the model's own, so
+    // a drop target sees exactly what the widget view would have sent; the
+    // caller owns what comes back. startDrag() is what a gesture calls.
+    Q_INVOKABLE QMimeData *dragMimeData(int row) const;
+    Q_INVOKABLE void startDrag(int row);
+
+    // A row let go on another. This goes through the model's own drop path
+    // rather than reordering by hand, because what reorders the list is a
+    // payload carrying Bookmarks and a drop from anywhere else carries none.
+    // A target row of -1 is a drop past the last row, which the model reads
+    // as the end.
+    Q_INVOKABLE bool dropRowOn(int draggedRow, int targetRow);
 
     // What the right-click menu holds, in the order the widget view holds it,
     // and with the same entries disabled. The QActions belong to a menu kept
