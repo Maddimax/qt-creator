@@ -53515,3 +53515,66 @@ Open Documents still lacks the **drag** (the widget view moves a row through
 the model's own mimeData/dropMimeData) and the **VCS decoration** its item
 delegate paints. Those two are what stand between the switch and the census
 line changing. After that, Bookmarks or Outline as the second pane.
+
+## 2026-09-08 — One model for both sidebars (batch 180)
+
+**The gap this closed: the Quick pane showed a document's name and nothing
+else** - no file icon, no version control colour, no tool tip naming the
+state. The widget sidebar shows all three, and it gets them from its proxy
+rather than from its delegate: `Qt::DecorationRole` falls back to
+`FileIconProvider`, `Qt::ForegroundRole` is `VcsManager::fileStateColor()`,
+and `Qt::ToolTipRole` is the path plus `fileStateDescription()`.
+
+### Moved, not copied
+
+That proxy is now `editormanager/opendocumentsproxymodel.{h,cpp}` and **both
+views use it**. The Quick pane had grown a `QSortFilterProxyModel` of its own
+that hid the `<no document>` row and answered nothing else; replacing it with
+the real one was a smaller change than teaching it the same three answers,
+and it removes the question of whether the two agree - there is one proxy.
+
+Two proxies that must answer alike are two proxies that will not. The
+migration has landed that lesson before (the fold label on the document, the
+context menu from one `EditorManager` call); this is the same shape for a
+model.
+
+### What the QML had to do
+
+`AspectModels.decorationUrl()` turns a `QVariant` icon into an
+`image://qtcreator/...` URL, which is how everything in this library draws a
+model's icon. The colour needed more: `ItemDelegate` paints its own `text`,
+so the label became a `contentItem` of its own, because **that is where a
+colour can reach**. The tool tip is `ToolTip.text` on hover, with the
+model's string.
+
+### The test asks the two views the same question
+
+It builds the sidebar twice from the same factory - switch on, then off - and
+compares `Qt::DisplayRole`, `Qt::ToolTipRole` and `Qt::ForegroundRole` for
+the same row, plus the row count. **No expected values are written into the
+test**: a tool tip's wording and a state's colour are version control's
+business and would have to be edited here every time either changed. What is
+asserted is that the two sidebars agree, which is the claim that matters and
+the one that keeps mattering.
+
+### Control
+
+**H - the pane back on a plain `QSortFilterProxyModel`**: fails at **2 rows
+against 1**, because that proxy keeps the `<no document>` row and carries
+none of the decoration. One control, both halves of the change.
+
+### Verification
+
+    -test QuickUi      212 passed, 0 failed, exit 0   (211 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Full Linux build clean, no `.qbs` edit, macOS unverified since batch 170.
+
+### What is next
+
+**The drag is the last thing between the switch and the default.** The widget
+view moves a row through the model's own `mimeData()`/`dropMimeData()`, and
+`AspectModels.moveRow()` already does exactly that for the tree delegates in
+this library - so the pane's drag is likely a `DragHandler` and one existing
+call rather than anything new. When it lands, the switch goes and the census
+line in `testWhichNavigationViewsAreQuick` changes in that same commit.
