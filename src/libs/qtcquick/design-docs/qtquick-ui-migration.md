@@ -52703,3 +52703,101 @@ as a Quick view behind a factory flag, censuses counting it, controls that
 bite (flag off → census red; view refuses a file the model does not list).
 Small enough for one batch, and it forces the seam, the embedding, the focus
 question and the state question all at unit size.
+
+## 2026-09-08 — The branch builds and runs on Linux, and that found four defects (batch 170)
+
+The owner's two UTM VMs (Ubuntu 26.04 arm64, macOS 15.6.1) are now test
+targets, with the split they asked for: **build on the host, run in the VM.**
+This closes the oldest excuse in this document - "needs a Linux box", carried
+since entry 164 - and the first Linux build and run immediately found four
+real defects, none of them findable on macOS.
+
+### The arrangement
+
+Linux binaries are built in a container whose userland matches the VM
+(Ubuntu 26.04), with the source and Qt mounted **at the paths they have in
+the VM** (`/home/marcus/qtc-ci/master`, `/home/marcus/Qt/6.11.1`). That is
+what makes the result runnable there: RPATHs, `SRCDIR` defines and the QML
+dir-map resources all record absolute paths, so a build tree is only
+relocatable to an identical path. Qt itself is the VM's own install, copied
+to the host, so the VM needs no new runtime; `QTC_USE_INTERNAL_TASKTREE` is
+on because that Qt has no TaskTree module, and the Go CmdBridge is off
+because the image has no Go.
+
+Display, with no sudo and no desktop login in the guest: the VM's Qt ships
+the **VNC platform plugin**, so `QT_QPA_PLATFORM=vnc:size=1920x1080` plus
+`QT_QUICK_BACKEND=software` (that plugin has no OpenGL) gives a real screen
+and real windows. Measured before being relied on: one 1920x1080 screen, and
+a Quick window created and drawn. Nothing on the host desktop can reach
+those runs, which is the other reason for doing this - two host runs this
+week were spoiled by a pointer moving.
+
+Scripts live outside the checkout, in `~/projects/qt/vm-testing/`, because
+they encode this machine's paths.
+
+### The four defects, in the order the toolchain found them
+
+1. **Configure**: `tests/manual/quick/terminal` links AppKit and compiles an
+   Objective-C++ file, but neither CMake nor qbs said macOS-only, so a Linux
+   configure failed outright on `FWAppKit-NOTFOUND`.
+2. **Compile**: `toolchain.cpp` instantiated
+   `std::unique_ptr<ToolchainConfigAspects>` with only a forward declaration
+   in scope. GCC 15 rejects the deleter on an incomplete type; Clang accepts
+   it. From `9e9107f0a9b`, a branch commit.
+3. **Link, and this one is the interesting one**: `QtcQuickStyle` carries the
+   Controls style as QML and *no symbols at all* - its lone translation unit
+   said so in a comment. Both build systems declare the dependency, but ELF
+   linkers default to `--as-needed` and drop a library nothing uses a symbol
+   from, so on Linux the style's QML was never in the resource system:
+   `module "QtCreatorStyle" is not installed`, every control unresolvable,
+   no test able to start. The style is now selected by a function that
+   library exports, called from `QtcQuick`; the dependency is real, the
+   library stays, and the style's name lives in the library that implements
+   it.
+4. **Runtime**: `TestResultsPane::eventFilter` had its body removed when the
+   results tree went Quick, leaving `if (...)` with the `return false;` as
+   its body - so any non-matching event fell off the end of a `bool`
+   function. GCC 15 traps: the process died on startup before a single test
+   ran. Clang returns a register's contents, which is why macOS never
+   flinched. From `48900445894`, also a branch commit.
+
+Two of the four are branch regressions this document's own batches
+introduced, and both were invisible to every gate it has: **a defect that
+only one compiler diagnoses is not caught by running the same compiler more
+often.**
+
+### The first Linux baseline, and what it is worth
+
+    -test TextEditor   685 passed, 45 failed, exit 45
+    -test QuickUi      201 passed,  7 failed, exit 7
+
+Not a gate yet, and the failures are honest about themselves rather than
+mysterious - they cluster into four groups:
+
+| Shape | Example message | Reading |
+| --- | --- | --- |
+| No syntax definitions | *"no highlight definition for C++ - is KSyntaxHighlighting's data available?"* | data not found from a build-tree run on Linux; a path question |
+| No monospace font | *"the code field was drawn in Noto Sans"* | the guest has no fixed-pitch family installed |
+| Focus | *"the table never took the keyboard"* | window activation under the VNC platform, not a product defect |
+| Real differences | sort order, file-dialog filter, preview colours | the only group worth suspecting the code over |
+
+Triaging those is the next Linux batch, and the order matters: the first
+three are environment, and fixing them is what turns this into a gate. The
+fourth group is the reason the exercise exists.
+
+macOS gates unchanged after all four fixes: `TextEditor` 730 passed, 0
+failed; `QuickUi` 207 passed, 0 failed, 1 skipped; both exit 0.
+
+### The macOS VM, and a regression of mine
+
+The macOS VM runs host-built binaries - verified - but cannot host GUI tests
+until someone logs into its desktop: with the login window up, the console
+user is `root` and Qt aborts with *"Cannot create window: no screens
+available"*. Its Qt and the 776 MB bundle are already staged there.
+
+Getting that far exposed a mistake this session made: wiping the build
+directory dropped `CMAKE_OSX_DEPLOYMENT_TARGET=13` from the cache, so
+binaries were being built `minos 26.0` and could not have loaded on any
+older macOS. Restored and rebuilt; `minos 13.0` again. **A wiped build
+directory loses every setting that was only in the cache** - read it before
+deleting it, which is why that file is now backed up beside the logs.
