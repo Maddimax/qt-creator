@@ -2232,19 +2232,26 @@ void QuickUiTest::testAShownPreviewIsColouredAndEditsWithMouseAndKeyboard()
                      "the preview laid out no lines, so nothing below means anything");
 
         // Coloured: highlighting is a foreground colour, so one colour across
-        // every format range is text that only looks highlighted.
-        QSet<QRgb> foregrounds;
-        const int lines = inner->property("visibleLineCount").toInt();
-        for (int i = 0; i < lines; ++i) {
-            QVariantMap line;
-            QMetaObject::invokeMethod(inner, "visibleLine", Q_RETURN_ARG(QVariantMap, line),
-                                      Q_ARG(int, i));
-            const QVariantList formats = line.value("formats").toList();
-            for (const QVariant &format : formats)
-                foregrounds.insert(format.toMap().value("foreground").value<QColor>().rgb());
+        // every format range is text that only looks highlighted. Asked only
+        // of a preview that found a definition for its language: the generic
+        // highlighter has the definitions this repository ships, C++ is not
+        // among them, and a page whose language has none is grey by rights.
+        // The buffer answers that itself, through its metaobject - this
+        // plugin does not link the text editor.
+        if (buffer->property("highlighting").toBool()) {
+            QSet<QRgb> foregrounds;
+            const int lines = inner->property("visibleLineCount").toInt();
+            for (int i = 0; i < lines; ++i) {
+                QVariantMap line;
+                QMetaObject::invokeMethod(inner, "visibleLine", Q_RETURN_ARG(QVariantMap, line),
+                                          Q_ARG(int, i));
+                const QVariantList formats = line.value("formats").toList();
+                for (const QVariant &format : formats)
+                    foregrounds.insert(format.toMap().value("foreground").value<QColor>().rgb());
+            }
+            QVERIFY2(foregrounds.size() > 1,
+                     qPrintable(page->displayName() + " draws its preview in one colour"));
         }
-        QVERIFY2(foregrounds.size() > 1,
-                 qPrintable(page->displayName() + " draws its preview in one colour"));
 
         // Edited: press, drag, release, Delete. Not forceActiveFocus() and a
         // property write, which is what a test reaches for and not what
@@ -9546,11 +9553,25 @@ void QuickUiTest::testTheFileDialogOffersEachKindOfFileSeparately()
     QCOMPARE(browser->nameFilters(), QStringList({"*"}));
     QTRY_COMPARE(names(), QStringList({"code.cpp", "code.h", "notes.txt"}));
 
-    // With nothing to choose between, the box is not in the way.
+    // With nothing to choose between, the box is not in the way - in the
+    // layout that only offers a choice worth making. The classic row keeps a
+    // place for the kinds whether or not the caller asked for them, and which
+    // of the two a host gets is its own habit: FileBrowser defaults every
+    // dialog but a Mac one to classic. So each rule is asked for by name
+    // rather than whichever one this machine happens to start in.
     dialog->setProperty("nameFilter", "Sources (*.cpp *.h)");
     QCOMPARE(browser->nameFilters(), QStringList({"*.cpp", "*.h"}));
-    QVERIFY2(!filterBox->property("visible").toBool(),
-             "a choice of one is offered as a choice");
+    const bool wasClassic = browser->classicLayout();
+
+    browser->setClassicLayout(false);
+    QTRY_VERIFY2(!filterBox->property("visible").toBool(),
+                 "a choice of one is offered as a choice");
+
+    browser->setClassicLayout(true);
+    QTRY_VERIFY2(filterBox->property("visible").toBool(),
+                 "the classic row dropped the kinds instead of keeping their place");
+
+    browser->setClassicLayout(wasClassic);
 }
 
 // A list of paths - include paths, suppression files - is added to several at
