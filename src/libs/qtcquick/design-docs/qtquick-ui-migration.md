@@ -53038,3 +53038,88 @@ it is the only remaining item on this branch that looks like a real crash.
 2. The two QuickUi ones, of which the file-dialog filter is the odd one.
 3. The packed-position crash, when someone can make it happen on purpose.
 4. macOS in its VM, still one desktop login away.
+
+## 2026-09-08 — One of the four explained: a page is clamped by what is laid out (batch 174)
+
+No code changed on the port in this batch. What it produced is a mechanism
+for the cheapest of the four remaining failures, a refuted hypothesis, and a
+correction to a measurement of my own - which is the order those three things
+should be reported in.
+
+### `testAPageIsAScreenOfRowsNotOfLines`, measured to the bottom
+
+The failure is *scrolled 128, wanted about 176*. Instrumented in the VM, all
+values from the run rather than from reading:
+
+    height 200   lineHeight 16   textAreaHeight 200
+    rowsPerPage 11   pageRows(test) 11   visibleLineCount 13
+    after PageDown:  scrollY 128   contentHeight 6416   caret at content y 176
+
+So the test and the production code **agree** on what a page is - eleven
+rows, 176 pixels - and the caret does move exactly that far. Only the view
+scrolls short, by three rows, which leaves the caret three rows further down
+the screen than it started.
+
+The reason is in `setScrollY()`:
+
+    const qreal clamped = qBound(0.0, scrollY, qMax(0.0, m_contentHeight - height()));
+
+`m_contentHeight` is **the laid-out extent, not the document's**. It is 6416
+once the wrapped document has been laid out, but 328 - about twenty rows -
+at the moment the key arrives, because the test has just turned wrapping on
+and the layout grows over successive polishes. 328 - 200 = 128, which is
+exactly where the scroll landed. On macOS the layout has got further by the
+time the key is handled, so the clamp does not bite and the test passes.
+
+**The defect this names**: a page key pressed while a document is still
+being laid out scrolls less than a page, silently. Not fixed here, and
+deliberately: the fix belongs where the lazy-layout invariant is owned -
+either the page handler makes the extent current before it clamps, or the
+clamp asks the document rather than the layout - and neither can be verified
+on the second platform while the macOS VM has no desktop session. A change
+to how the editor scrolls, verified on one platform only, is not worth
+landing on a branch this size.
+
+### A hypothesis worth killing quickly
+
+Entry 171 had grouped some failures as *"no monospace font in the guest"*.
+The guest now has DejaVu Sans Mono, in `~/.local/share/fonts` - no root, and
+`fc-match monospace` names it. **The suites did not move at all**: 723/4/3
+and 206/2 before and after, the same four and the same two. The font group
+from entry 171 does not exist; those failures had already gone when the
+platform changed to offscreen, and I had left the guess in the table.
+Installing the font is kept anyway, because a guest that cannot resolve
+`monospace` is not a guest anyone should be measuring editor geometry in.
+
+### The correction, because it nearly went into this document as a finding
+
+My first instrumentation computed the caret's screen position as
+`rectangleAt(pos).top() - scrollY` and reported that a page key left the
+caret at **-80**, off the top of the view. That would have been a much more
+serious defect than the real one, and it was wrong: `line.at` is already
+`yOfRow(row) - m_scrollY` (textviewport.cpp:6578), so `rectangleAt()` is in
+item coordinates and my subtraction removed the scroll twice. The caret is
+at item y 48 - visibly on screen, three rows below where it started, which
+is the drift the real diagnosis explains.
+
+`positionAt()` confirms the convention from the other side: it does
+`rowAtY(y + m_scrollY)`, so its input is item coordinates too. **A
+coordinate space is a fact to look up, not to infer from one measurement**;
+the check cost two greps and would have cost a retraction.
+
+### Verification
+
+    -test TextEditor   723 passed, 4 failed, 3 skipped, exit 4
+    -test QuickUi      206 passed, 2 failed, exit 2
+
+Unchanged by this batch, which changed no product or test code. No `.qbs`
+edit. macOS still unverified: no desktop session in that VM, and host runs
+are off.
+
+### What is next
+
+The three failures left in TextEditor - the caret width in overwrite mode
+and the two compare mismatches - and the two in QuickUi. Each wants the same
+treatment this one got: print the values, find which side is wrong, and only
+then decide whether the code or the assertion is at fault. The page one is
+ready to fix the moment macOS can be run.
