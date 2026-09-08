@@ -53968,3 +53968,118 @@ build-only, unrun since batch 170.
    editor is a modal dialog of its own).
 4. macOS, still one desktop login away, now for two panes.
 5. Parked: entry 174's page scroll, entry 173's crash.
+
+## 2026-09-08 — The drag, the drop, and a binding that was a loop all along (batch 186)
+
+**The gap this closed: the Qt Quick Bookmarks pane can be dragged from and
+dropped on.** That was the last thing entry 184 listed as missing, so the pane
+is now feature-complete against the widget view and only the switch is left.
+
+### A drag out, and a drop that reorders
+
+Open Documents was a drag *source* only - its model has no `dropMimeData()` at
+all (entry 181, which first guessed otherwise). This model has one, and it is
+the path a reorder has to go through:
+
+    dropMimeData() -> the values that cast to Bookmark* -> move()
+
+So the pane does not reorder anything itself. `dropRowOn(dragged, target)`
+builds the model's own payload for the dragged row and hands it to
+`canDropMimeData()`/`dropMimeData()`, which means **a drop carrying no
+bookmark moves nothing** - and a file dragged in from Open Documents carries
+exactly the same mime *types*, so that is not a hypothetical.
+
+The payload carries the **line** as well as the file, which is what makes a
+bookmark dropped on an editor area open where it points. That is one
+`addFile(path, line)` in the model and nothing in the pane; it is asserted
+because it is the half of the drag a reader is most likely to notice.
+
+The list remembers `draggedRow` while a drag is in flight, which is what a
+`QAbstractItemView` keeps inside itself, and `startDrag()` blocks in
+`QDrag::exec()` exactly as the item view's does - so the row is written before
+the call and forgotten after it.
+
+### Two coordinate systems, from one function
+
+Entry 185 measured that a *pointer handler* declared inside a Flickable is
+attached to the Flickable. The other half of `QQuickFlickablePrivate::
+data_append` says an **Item** declared there is reparented to the
+`contentItem`. So the `DropArea` lives in content coordinates and is placed at
+`(contentX, contentY)` with the viewport's size to sit over what the reader
+sees, and the point it reports is read back through `contentY`.
+
+**In an unscrolled list every one of those is invisible**, which is why the
+test scrolls: it shrinks the pane until three rows do not fit, sets `contentY`
+to one row, and drops four pixels below the top of the viewport, where the
+answer must be row 1 and not row 0. Control V - dropping the `+ contentY` -
+lands on row 0 and gives the wrong order.
+
+### The binding loop the reorder brought out
+
+`QuickUi` was green and the *warnings* were not: the new test's log carried
+**"Binding loop detected for property currentIndex"**, four times, from the
+two-way row of batch 184 -
+
+    currentIndex: root.controller.currentRow
+    onCurrentIndexChanged: root.controller.currentRow = root.currentIndex
+
+A declarative binding whose own handler writes back to what it reads is a
+loop. Nothing before this batch made the two disagree from *outside* the list;
+a drop does, because `move()` writes the manager's current row from under it.
+The pane now follows by assignment - a `Connections` handler plus
+`Component.onCompleted`, the shape the Open Documents pane already had - and
+each direction stops after one round trip, because `setCurrentRow()` returns
+early on the row that is already current and assigning an unchanged
+`currentIndex` signals nothing.
+
+What Qt does to a binding it has called a loop is not worth relying on, so the
+test **asserts the diagnostic**: it collects the QML engine's warnings for this
+file and requires none. That is the assertion control S fails, with the loop
+text quoted back.
+
+Written down for the next pane: **read the warnings even when the suite is
+green.** A QML warning is not a failure, and this one had been printed since
+the pane was written.
+
+### Controls
+
+- **S - the binding back** in place of the assignment: the loop is reported
+  and `paneWarnings` is not empty.
+- **T - both guards against a foreign drop removed** (the list's
+  `draggedRow < 0` and `dragMimeData()`'s bound check): "a drop from nowhere
+  was taken". Broken together on purpose - `~/.claude/testing.md`'s two-guard
+  rule - because either alone still refuses: an empty payload reorders
+  nothing. The redundancy stays: the list is the thing that knows whether it
+  started a drag, and the controller is the thing that knows what a row is.
+- **V - the scroll offset dropped** from the drop's coordinate mapping: the
+  scrolled drop lands on row 0, **3,1,2 against 1,3,2**.
+
+### What is left untested, said plainly
+
+The gesture itself. `QDrag::exec()` runs a loop of its own, so no test here
+presses a button and moves a pointer; what is driven is the row a drag started
+on and the point it ended at, which is exactly what the two handlers pass on.
+The `DragHandler`-to-`startDrag()` and `DropArea`-to-`dropRowAt()` wiring, and
+the drop area's own placement, are read rather than measured.
+
+### Verification
+
+    -test QuickUi      218 passed, 0 failed, exit 0   (217 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+No binding-loop warning left in the log. Both platforms build clean, no
+`.qbs` edit. macOS is still build-only.
+
+### What is next
+
+1. **The switch.** Nothing on the widget view is unported now: rows, opening,
+   removing, the keyboard, the menu, the drag, the drop. Flipping
+   `QTC_QUICK_BOOKMARKS` to `QTC_WIDGET_BOOKMARKS` and changing the census
+   line belong in one commit, the way entry 183 did it for Open Documents.
+2. **The row's own layout**, still worth doing first, and now the only known
+   difference: the widget draws the filename left and the line number right
+   with a gradient fade under the number; the Quick row is one elided
+   `filename:lineNumber` label.
+3. macOS, still one desktop login away, for two panes.
+4. Then the next rung of entry 169: the output panes.
+5. Parked: entry 174's page scroll, entry 173's crash.
