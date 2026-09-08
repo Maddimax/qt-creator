@@ -53862,3 +53862,109 @@ clean, no `.qbs` edit, macOS unverified since batch 170.
    drop** - this model reorders, unlike Open Documents - and then the switch.
 2. macOS, still one login away, now for two panes rather than one.
 3. Parked: entry 174's page scroll, entry 173's crash.
+
+## 2026-09-08 — The Bookmarks menu, and three entries that read somebody else's row (batch 185)
+
+**The gap this closed: the Qt Quick Bookmarks pane has the right-click menu,
+and it is not a copy of the widget one - it is the same one.** Both views fill
+their `QMenu` from one function now. `QTC_QUICK_BOOKMARKS` still asks for the
+pane, because the drag and the drop are what is left before the switch.
+
+### The reading came first, and found three things
+
+Entry 183's rule - read the widget view end to end before writing anything -
+paid again.
+
+**1. `IContext::attach(this, Context(BOOKMARKS_CONTEXT))`.** Three of the six
+entries are ActionManager commands, and all three - Move Up, Move Down, Sort
+by Filenames - are registered in *that* context rather than the editor
+manager's. A view that does not carry it offers three dead entries and three
+dead shortcuts (Ctrl+Alt+, / . / P). So the factory attaches the context to
+whatever hosts the QML, and focus reaches it through the QQuickWidget like any
+other child. **This is the first thing the shell phase has needed from the
+host widget that is not layout.** Entry 184 said "two of them ActionManager
+commands"; it is three.
+
+**2. Three of the six entries act on the manager's current row**, not on the
+row the menu was opened over: Move Up, Move Down and `edit()` all read
+`selectionModel()->currentIndex()`, while Remove uses the clicked row. In the
+widget view the two coincide, because a right-press in a `QListView` moves the
+current index on its way to the context menu. In QML nothing does, so the pane
+does it itself - `pickRowAt()` writes the row before the menu is asked for.
+Without that write, Edit edits whatever row the reader last walked to.
+
+And `edit()` is unguarded: `m_bookmarksList.at(current.row())` with a row of
+-1 is out of range. **The disabled Edit on a right-click that hits no row is
+not cosmetic; it is the whole guard between a reader and that `at(-1)`.**
+
+**3. Remove All asks first** - `CheckableMessageBox::question` with a "Do not
+ask again" box - and then removes the bookmarks one at a time. Batch 184's
+`removeAll()` did neither: it called `BookmarkManager::removeAllBookmarks()`,
+which asks nothing and, worse, **does not save**. Its only other caller is the
+session *load*, where not saving is the point. So that pane's Remove All would
+have swept the list clean and left every bookmark in the session, to come back
+with it. Measured rather than argued: the test reads
+`SessionManager::value("Bookmarks")` afterwards, and control R fails there.
+
+### One menu, not two
+
+The builder is a free function both views call - the same move as entry 180's
+shared proxy model. The widget view *lost* code: `removeFromContextMenu()`,
+`removeAll()` and the `m_contextMenuIndex` member it kept to remember what had
+been right-clicked. Where the two views used to agree because they had been
+typed the same way, they now agree by construction.
+
+One wart came along, and naming it beats hiding it: right-clicking empty space
+**disables the global Move Up and Move Down actions** until the next selection
+change, because the menu's entries *are* those commands' proxy actions and
+there is nowhere else to say "not for this row". Both views did this before;
+now they do it in one place.
+
+For the next controller: a `std::unique_ptr<QMenu>` member with only a forward
+declaration needs a **declared destructor**. Without one it broke on both
+toolchains at the same line, because TextEditor's `mocs_compilation.cpp` sees
+the header without `<QMenu>`; `OpenDocumentsList` has the same member and
+compiles only because coreplugin's happens to see the full type.
+
+### Controls
+
+- **O - the context attach dropped**: "the pane does not carry the Bookmarks
+  context".
+- **P - `pickRowAt()` stops writing the row**: currentRow **0 against 1**,
+  which is this batch's finding.
+- **Q - Remove reads the current row** instead of the clicked one: the wrong
+  bookmark survives, **line 3 against line 1**.
+- **R - Remove All back to `removeAllBookmarks()`**: the rows go and
+  "the bookmarks are off the list but still in the session" fails.
+
+And how that list nearly went wrong: control P's first run failed at
+**control O's** assertion. `git checkout` on the file had restored it to HEAD,
+throwing the uncommitted fix away along with the control edit - the trap
+`~/.claude/testing.md` already describes, complete with its tell, two controls
+failing at the same assertion. The rest of the run copied the files aside and
+restored from the copy, which is what that note says to do.
+
+### Verification
+
+    -test QuickUi      217 passed, 0 failed, exit 0   (216 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Both platforms build clean, no `.qbs` edit - no new files. macOS is still
+build-only, unrun since batch 170.
+
+### What is next
+
+1. **The drag and the drop**, the last of the pane before the switch. This
+   model reorders: `dropMimeData()` pulls `Bookmark*` values out of a
+   `Utils::DropMimeData` and calls `move()`. The drag is ours, so the source
+   row can be remembered rather than parsed back out of the payload - and a
+   foreign drop reorders nothing, because nothing in it casts to `Bookmark*`.
+2. Then the switch, with the census line in the same commit.
+3. **The row's own layout**, worth doing before the switch: the widget draws
+   the filename left and the line number right, with a gradient fade under the
+   number where they would collide, while the Quick row is one elided
+   `filename:lineNumber` label. The note is compared trimmed now, as the
+   delegate compares it - untested, because nothing public sets a note (the
+   editor is a modal dialog of its own).
+4. macOS, still one desktop login away, now for two panes.
+5. Parked: entry 174's page scroll, entry 173's crash.
