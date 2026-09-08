@@ -45,6 +45,39 @@ ListView {
         // nothing here opens anything by itself.
         onClicked: root.controller.activate(row.index)
 
+        // The right-click menu the widget sidebar offers, from the same
+        // actions. Built when it is asked for rather than kept: the entries
+        // are about this row and go stale as soon as another is clicked.
+        TapHandler {
+            acceptedButtons: Qt.RightButton
+            onTapped: {
+                rowMenu.actions = root.controller.contextMenuActions(row.index)
+                rowMenu.popup()
+            }
+        }
+
+        Menu {
+            id: rowMenu
+
+            objectName: "openDocumentMenu"
+            property var actions: []
+
+            Repeater {
+                model: rowMenu.actions
+
+                delegate: MenuItem {
+                    required property var modelData
+
+                    // A separator arrives as an action with no text; the
+                    // widget menu draws a line there and so does this.
+                    text: modelData.text
+                    enabled: modelData.enabled && modelData.text !== ""
+                    height: modelData.text === "" ? 1 : implicitHeight
+                    onTriggered: modelData.trigger()
+                }
+            }
+        }
+
         ToolButton {
             objectName: "closeDocument"
             anchors.right: parent.right

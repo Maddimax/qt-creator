@@ -432,6 +432,7 @@ private slots:
     void testTheFileDialogOffersEachKindOfFileSeparately();
     void testWhichNavigationViewsAreQuick();
     void testTheOpenDocumentsSidebarListsAndOpensInTheQuickView();
+    void testTheOpenDocumentsSidebarOffersTheSameRightClickEntries();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13410,6 +13411,86 @@ void QuickUiTest::testTheOpenDocumentsSidebarListsAndOpensInTheQuickView()
     QTest::mouseClick(quickWidget->quickWindow(), Qt::LeftButton, {}, centre.toPoint());
     QTRY_COMPARE(Core::EditorManager::currentEditor(), firstEditor);
     QTRY_COMPARE(list->property("currentIndex").toInt(), *firstRow);
+}
+
+// The right-click menu, which is the half of the sidebar that is not a row:
+// the same entries the widget one builds, in the same order, and triggering
+// one acts on the row it was asked about.
+void QuickUiTest::testTheOpenDocumentsSidebarOffersTheSameRightClickEntries()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Open Documents"); });
+    QVERIFY(factory);
+
+    Utils::TemporaryDirectory dir("quick-open-documents-menu");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("closable.txt");
+    QVERIFY(file.writeFileContents("gamma\n"));
+
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    bool stillOpen = true;
+    const QScopeGuard closeIt([editor, &stillOpen] {
+        if (stillOpen)
+            Core::EditorManager::closeEditors({editor}, false); });
+    const std::optional<int> row = Core::DocumentModel::indexOfDocument(editor->document());
+    QVERIFY(row);
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget && quickWidget->rootObject());
+
+    // Asked of the pane the way its QML asks, rather than of a controller
+    // built here: what is on trial is what the sidebar offers.
+    QObject * const controller
+        = quickWidget->rootObject()->property("controller").value<QObject *>();
+    QVERIFY2(controller, "the view was handed no controller");
+    QObjectList offeredActions;
+    QVERIFY(QMetaObject::invokeMethod(controller, "contextMenuActions",
+                                      Q_RETURN_ARG(QObjectList, offeredActions),
+                                      Q_ARG(int, *row)));
+    QVERIFY2(!offeredActions.isEmpty(), "the row offers no right-click entries at all");
+
+    // The same entries the widget sidebar builds, because both ask
+    // EditorManager for them - compared against that call rather than against
+    // a list written out here, which would only say what somebody typed.
+    QMenu widgetMenu;
+    Core::EditorManager::addContextMenuActions(
+        &widgetMenu, Core::DocumentModel::entryAtRow(*row + 1), nullptr,
+        Core::EditorManager::ShowEditorActions);
+    QStringList expected;
+    for (QAction * const action : widgetMenu.actions())
+        expected << action->text();
+    QStringList offered;
+    for (QObject * const action : offeredActions)
+        offered << qobject_cast<QAction *>(action)->text();
+    QCOMPARE(offered, expected);
+
+    // And an entry does what it says. Close is the one every row has.
+    QAction *closeAction = nullptr;
+    for (QObject * const action : offeredActions) {
+        auto * const candidate = qobject_cast<QAction *>(action);
+        const QString text = candidate->text();
+        if (text.contains(QLatin1String("Close")) && !text.contains(QLatin1String("All"))
+            && !text.contains(QLatin1String("Other"))) {
+            closeAction = candidate;
+        }
+    }
+    QVERIFY2(closeAction, qPrintable("no Close entry among: " + offered.join(", ")));
+
+    const int was = Core::DocumentModel::entryCount();
+    closeAction->trigger();
+    QTRY_COMPARE(Core::DocumentModel::entryCount(), was - 1);
+    stillOpen = false;
 }
 
 QObject *createQuickUiTest()

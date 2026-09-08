@@ -5,8 +5,11 @@
 
 #include <QObject>
 
+#include <memory>
+
 QT_BEGIN_NAMESPACE
 class QAbstractItemModel;
+class QMenu;
 QT_END_NAMESPACE
 
 namespace Core {
@@ -39,6 +42,13 @@ public:
     Q_INVOKABLE void activate(int row);
     Q_INVOKABLE void close(int row);
 
+    // What the right-click menu holds for a row, in the order the widget
+    // sidebar holds it. The QActions belong to a menu kept alive here while
+    // they are on screen - a fresh one per row, the way the editor's gutter
+    // builds its mark menu. A separator arrives as an entry with no text,
+    // which is what the QML draws a line for.
+    Q_INVOKABLE QObjectList contextMenuActions(int row);
+
 signals:
     void currentRowChanged();
 
@@ -46,6 +56,9 @@ private:
     void follow(IEditor *editor);
 
     QAbstractItemModel *m_model = nullptr;
+    // Owns the QActions contextMenuActions() hands out. They are built for
+    // one row and are worthless once another row is asked about.
+    std::unique_ptr<QMenu> m_menu;
     int m_currentRow = -1;
 };
 

@@ -9,6 +9,7 @@
 
 #include <utils/qtcassert.h>
 
+#include <QMenu>
 #include <QSortFilterProxyModel>
 
 namespace Core::Internal {
@@ -64,6 +65,20 @@ void OpenDocumentsList::close(int row)
     DocumentModel::Entry * const entry = DocumentModel::entryAtRow(row + 1);
     QTC_ASSERT(entry, return);
     EditorManager::closeDocuments({entry});
+}
+
+QObjectList OpenDocumentsList::contextMenuActions(int row)
+{
+    DocumentModel::Entry * const entry = DocumentModel::entryAtRow(row + 1);
+    QTC_ASSERT(entry, return {});
+
+    m_menu = std::make_unique<QMenu>();
+    EditorManager::addContextMenuActions(m_menu.get(), entry, nullptr,
+                                         EditorManager::ShowEditorActions);
+    QObjectList actions;
+    for (QAction * const action : m_menu->actions())
+        actions << action;
+    return actions;
 }
 
 void OpenDocumentsList::follow(IEditor *editor)
