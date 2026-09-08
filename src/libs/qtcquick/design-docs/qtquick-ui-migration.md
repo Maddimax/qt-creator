@@ -52801,3 +52801,82 @@ binaries were being built `minos 26.0` and could not have loaded on any
 older macOS. Restored and rebuilt; `minos 13.0` again. **A wiped build
 directory loses every setting that was only in the cache** - read it before
 deleting it, which is why that file is now backed up beside the logs.
+
+## 2026-09-08 — Triaging the Linux failures, and one test suite caught cheating (batch 171)
+
+Entry 170 left 45 + 7 Linux failures in three environmental groups and one
+suspicious group. Two of the environmental groups are now understood, one is
+fixed at the root, and the numbers moved to **709/21 and 206/2**.
+
+**First, the house rule this batch got wrong twice: tests run in the VMs,
+never on the host.** A host run takes the pointer and the keyboard focus from
+whoever is using the machine, which is how two runs got spoiled before the
+VMs existed - and then I did it again here, mid-batch, while the owner was at
+the keyboard. The host runner script is now a stub that refuses and points at
+`runtests-linux.sh` / `runtests-macos.sh`. A rule that only lives in a
+sentence gets broken; a rule that lives in the script that would break it
+does not.
+
+### Focus: the platform plugin, not the product
+
+18 TextEditor tests failed with *"the viewport never took focus, so no key
+arrives"*. Qt's **vnc plugin implements no window activation at all** - no
+`requestActivateWindow`, no `handleFocusWindowChanged` anywhere in its
+sources - while the **offscreen** plugin does. Swapping the platform:
+
+    vnc:        685 passed, 45 failed
+    offscreen:  707 passed, 23 failed   (every focus failure gone)
+
+Both give a screen and neither gives OpenGL, so the software Quick backend
+is needed either way. `runtests-linux.sh` uses offscreen now. Nothing in the
+product was wrong; the display was.
+
+### Highlighting: the suite was reading the developer's home directory
+
+The same instrumentation on both machines, printing what the highlight
+repository actually holds:
+
+    macOS:  defs before custom paths: 405 | after: 428 | for text/x-c++src: 6
+    Linux:  defs before custom paths:   1 | after:  50 | for text/x-c++src: 0
+
+The repository ships **50 definitions in `src/libs/3rdparty/syntax-highlighting/data/syntax`, and none of them is C++** - the only matches
+for "cpp" are `jinja-cpp.xml` and `jinja-isocpp.xml`, which are Jinja
+templates. The 405 on this machine come from
+`~/Library/Application Support/org.kde.syntax-highlighting`, the full KDE
+set that Qt Creator offers to download. So every test that asked the generic
+highlighter about C++ was passing **because of one developer's home
+directory**, and would fail on CI, on a fresh checkout, and for every new
+contributor.
+
+Fixed at the root for the two tests whose subject is "a document gets
+coloured" rather than "C++ specifically": they ask for **Java**, which the
+repository does bundle, over the same text - keywords, a number and a
+comment read the same either way. 13/2 → 15/0 on the VM, unchanged 15/0 on
+macOS.
+
+### Where the Linux baseline stands
+
+    -test TextEditor   709 passed, 21 failed
+    -test QuickUi      206 passed,  2 failed
+
+The 21 are no longer a mystery, and only a few are candidates for real
+defects:
+
+| Count | Shape | Reading |
+| --- | --- | --- |
+| ~13 | comment markers for Go and Rust, foldability, "drawn in 1 colour", empty-message definition checks | the same missing-definitions class as above, in tests whose example language the repository does not ship |
+| 3 | compare mismatches (whitespace drawing, Home on a wrapped line, link underline) | worth suspecting the code; offscreen draws, but check what these measure |
+| 1 | *"the caret is still drawn between two characters, not over one"* | overwrite-mode caret; plausible real difference |
+| 2 (QuickUi) | Code Style preview in one colour; file dialog offers a one-entry filter | the first is definitions again, the second is the only genuinely odd one |
+
+### What is next, in order
+
+1. Give the definition-dependent tests a bundled language, or an honest skip
+   where the language *is* the subject (the Go and Rust rows cannot be
+   checked on a machine without those definitions, and saying so is better
+   than passing by accident).
+2. Then the four that are not environmental - they are what this whole
+   exercise was for.
+3. macOS in its VM is still blocked on a desktop login; `runtests-macos.sh`
+   now checks the console user and says exactly that instead of failing
+   obscurely.
