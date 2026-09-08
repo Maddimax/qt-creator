@@ -172,21 +172,54 @@ ListView {
         contentItem: Column {
             spacing: 0
 
-            Label {
+            // The file at one end of the first line and the line number at
+            // the other, as the widget delegate draws them. It draws both
+            // without a layout, so where they would collide it fades the
+            // filename out under the number with a gradient; anchored to each
+            // other they cannot collide, and the name is what runs out of
+            // room - the number a bookmark is at is never the part to lose.
+            Item {
                 width: parent.width
-                text: row.filename + ":" + row.lineNumber
-                elide: Text.ElideMiddle
+                height: bookmarkName.implicitHeight
+
+                Label {
+                    id: bookmarkName
+
+                    objectName: "bookmarkFilename"
+                    anchors.left: parent.left
+                    anchors.right: bookmarkLine.left
+                    anchors.rightMargin: Spacing.GapHS
+                    text: row.filename
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    id: bookmarkLine
+
+                    objectName: "bookmarkLineNumber"
+                    anchors.right: parent.right
+                    text: row.lineNumber
+                }
             }
 
             Label {
+                objectName: "bookmarkNote"
                 width: parent.width
                 // Trimmed, as the widget delegate compares it: a note of
                 // nothing but spaces is not a note, and the line's own text
                 // says more.
                 text: row.note.trim() !== "" ? row.note : row.lineText
                 elide: Text.ElideRight
-                opacity: 0.7
+                color: Tokens.textMuted
             }
+        }
+
+        // The line under each row, which the widget delegate draws itself.
+        Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            color: Tokens.strokeSubtle
         }
 
         // Opening a bookmark takes two clicks in the widget view, which is

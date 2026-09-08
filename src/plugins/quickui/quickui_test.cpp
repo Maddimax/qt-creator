@@ -448,6 +448,7 @@ private slots:
     void testTheBookmarksSidebarListsAndOpensInTheQuickView();
     void testTheBookmarksSidebarOffersTheWidgetsRightClickMenu();
     void testDraggingABookmarkCarriesItAndReordersTheList();
+    void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -14258,6 +14259,97 @@ void QuickUiTest::testDraggingABookmarkCarriesItAndReordersTheList()
     QCOMPARE(model->rowCount(), 0);
 
     QVERIFY2(paneWarnings.isEmpty(), qPrintable("\n" + paneWarnings.join("\n")));
+}
+
+// A row's first line holds the file at one end and the line number at the
+// other, the way the widget delegate draws them. A name too long for the pane
+// is what makes that a claim rather than a description: the number has to
+// still be there, at the right, and the name has to be the part that gives up
+// its room.
+void QuickUiTest::testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Bookmarks"); });
+    QVERIFY2(factory, "the Bookmarks sidebar is gone");
+
+    Utils::TemporaryDirectory dir("quick-bookmarks-row");
+    QVERIFY(dir.isValid());
+    // Far too long for a sidebar, which is the point of the fixture.
+    const Utils::FilePath file = dir.filePath(QString(90, QLatin1Char('w')) + ".txt");
+    QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    owned->resize(300, 400);
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+    QQuickItem * const list = quickWidget->rootObject();
+    QVERIFY(list);
+    QObject * const controller = list->property("controller").value<QObject *>();
+    QVERIFY(controller);
+    auto * const model = controller->property("model").value<QAbstractItemModel *>();
+    QVERIFY(model);
+
+    for (int rows = model->rowCount(); rows > 0 && model->rowCount(); --rows)
+        QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, 0)));
+    QCOMPARE(model->rowCount(), 0);
+
+    Core::Command * const toggle = Core::ActionManager::command("Bookmarks.Toggle");
+    QVERIFY2(toggle, "the bookmark toggle command is gone");
+    editor->gotoLine(2, 0);
+    toggle->action()->trigger();
+    QTRY_COMPARE(model->rowCount(), 1);
+    QTRY_COMPARE(list->property("count").toInt(), 1);
+
+    QQuickItem *rowItem = nullptr;
+    QTRY_VERIFY(QMetaObject::invokeMethod(list, "itemAtIndex",
+                                          Q_RETURN_ARG(QQuickItem *, rowItem), Q_ARG(int, 0))
+                && rowItem);
+
+    QQuickItem * const name = drawnItemNamed(rowItem, "bookmarkFilename");
+    QQuickItem * const number = drawnItemNamed(rowItem, "bookmarkLineNumber");
+    QQuickItem * const note = drawnItemNamed(rowItem, "bookmarkNote");
+    QVERIFY2(name, "the row draws no filename of its own");
+    QVERIFY2(number, "the row draws no line number of its own");
+    QVERIFY2(note, "the row draws no second line");
+
+    // The number says which line, on its own - not as the tail of a string
+    // that elides away in the middle.
+    QCOMPARE(number->property("text").toString(), QString("2"));
+    QVERIFY2(number->width() > 0, "the line number was given no room");
+
+    // This is the assertion the fixture's long name is for: the name is what
+    // ran out of room.
+    QVERIFY2(name->property("truncated").toBool(),
+             "the name fits the pane, so this tests nothing");
+
+    const QPointF nameAt = name->mapToItem(rowItem, QPointF(0, 0));
+    const QPointF numberAt = number->mapToItem(rowItem, QPointF(0, 0));
+    const QPointF noteAt = note->mapToItem(rowItem, QPointF(0, 0));
+    QVERIFY2(nameAt.x() < numberAt.x(), "the line number is drawn left of the name");
+    QVERIFY2(nameAt.x() + name->width() <= numberAt.x(),
+             qPrintable(QString("the name runs to %1 and the number starts at %2")
+                            .arg(nameAt.x() + name->width()).arg(numberAt.x())));
+    QVERIFY2(numberAt.x() + number->width() <= rowItem->width(),
+             "the line number is drawn past the edge of the row");
+    // Two lines, in that order.
+    QVERIFY2(noteAt.y() > nameAt.y(), "the note is not on the second line");
+
+    QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, 0)));
+    QTRY_COMPARE(model->rowCount(), 0);
 }
 
 QObject *createQuickUiTest()
