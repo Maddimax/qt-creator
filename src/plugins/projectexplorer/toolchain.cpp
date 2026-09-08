@@ -8,6 +8,7 @@
 #include "gcctoolchain.h"
 #include "projectexplorerconstants.h"
 #include "projectexplorertr.h"
+#include "toolchainconfigaspects.h"
 #include "toolchainmanager.h"
 #include "task.h"
 
