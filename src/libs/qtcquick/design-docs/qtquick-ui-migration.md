@@ -54174,3 +54174,140 @@ nothing had written down - a scrollTo, an always-on scrollbar, a shared
 selection model, a context registered for three commands, a confirmation
 dialog, a payload with a line number in it. The QML for a pane is an
 afternoon. Reading the widget view end to end, twice, is the batch.
+
+## 2026-09-08 — Rung 3, and the output panes turn out to be mostly done (batch 188)
+
+**The gap this closed: the row of output-pane buttons has a model, and its
+state is no longer inside the QToolButtons.** That is the precondition for
+drawing that row any other way, and it was not obvious from the outside.
+
+### First, the census - because rung 3 was written before the panes were done
+
+Rung 3 of entry 169 reads "the output-pane seam, then the panes; Search
+Results and the terminal are the hard ones there". Measured at HEAD, **10 of
+the 13 `IOutputPane`s already draw with Qt Quick**, and none of them is behind
+a switch:
+
+| Quick | Widget |
+| --- | --- |
+| Application Output, Compile Output, Issues, Version Control, Test Results, To-Do Entries, General Messages, Squish, QML Debugger Console, Serial Terminal | **Terminal**, **Search Results**, **Lua** |
+
+Most of them go through `Core::OutputPaneView`, whose only registered factory
+is `QuickUi::QuickOutputView` - so anything built on it is Quick with no widget
+fallback at all. That work is the old "The output panes" section of this
+document; **the plan's rung 3 was written as though it were still ahead.** It
+is not: what is left of rung 3 is the *frame* plus those three panes, and the
+two the plan called hard are two of the three. Lua is the surprise - a
+`QListView` REPL nobody has mentioned.
+
+### The frame has two halves, and one of them is blocked
+
+- **The toolbar row** - the title, Clear, Previous, Next, Minimize, Close, and
+  then `m_opToolBarWidgets`, a `QStackedWidget` of `QToolBar`s filled from
+  `IOutputPane::toolBarWidgets()`, which hands back **`QList<QWidget *>`**. A
+  Quick toolbar would have to host those widgets, which is the
+  widgets-inside-Quick direction entry 169 reserves for the endgame. **Blocked
+  until every pane's toolbar widgets are Quick**, which is the same shape as
+  the docking problem.
+- **The button row** in the status bar - the numbered buttons with their
+  badges - has no foreign widgets in it. Not blocked. So that is what this
+  batch took.
+
+### What the reading found: the row's state lives in the widgets
+
+`saveSettings()` wrote, per pane,
+
+    settings->setValue(outputPaneVisibleKeyC, data.button->isPaneVisible());
+
+and `isPaneVisible()` is `isVisibleTo(parentWidget())` - deliberately, so that
+it answers before the window is ever shown. **The bit the session remembers
+was a widget's own visibility.** The manage menu read it the same way, and
+`readSettings()` wrote it straight onto the button.
+
+A QML row cannot hold that. A delegate exists while the view feels like
+drawing it, so anything a row *remembers* has to live outside it - which is
+this document's oldest QML lesson wearing new clothes.
+
+So `OutputPaneButtonModel` now holds it: one row per pane in status-bar
+priority order, with the number a reader presses (Alt+1..9), the name, the
+badge, whether the button is checked, and whether the button is there at all.
+
+**The widget row is its first consumer**, which is the point: the roles are
+proven by something real rather than designed for an imagined QML row. One
+function, `updateButton(row)`, is the only place a button is written to; the
+constructor - not the listing code - is where the model is connected to it;
+and what a pane says about itself (`flash()`, `setIconBadgeNumber()`) now
+reaches the model instead of the button. `isPaneVisible()` is **deleted**, so
+the old path is unavailable rather than merely unused.
+
+### The problem the next batch has to solve first
+
+The sidebars were easy to test because `INavigationWidgetFactory::
+createWidget()` builds a view **on demand**: a test sets the switch, calls the
+factory, and owns the result. The button row is built **once, at startup**, by
+the manager's `setupButtons()`. A Quick row behind `QTC_QUICK_OUTPUT_BUTTONS`
+would therefore be untestable from the suite - the process is already running
+by the time a test can set the variable.
+
+Three ways out, and the choice belongs in the next batch:
+
+1. **A `CORE_EXPORT` factory** both the manager and a test call - mirroring
+   `Core::createQmlView()`, which is the seam this phase already uses. The
+   test builds its own row against the same model. This is the one to take.
+2. Ship the Quick row as the default with no switch, so the test process has
+   it. Against this project's convention and it skips the census step.
+3. Make the row rebuildable at runtime. More machinery than the thing being
+   built.
+
+### Controls
+
+- **AA - the model-to-button connection dropped**: "the button stayed after
+  the model took it away".
+- **AB - what a pane says about its own button goes nowhere**: the badge reads
+  empty against `7`, *and* the button's width assertion fails with "the button
+  asks for 58 either way" - which is what proves that indirect measurement
+  bites. The badge is private to the button, so what the test can see is that
+  the button asks for room for it.
+
+### Verification
+
+    -test Core         225 passed, 2 failed, exit 2   (220/2 before)
+    -test QuickUi      219 passed, 0 failed, exit 0   (unchanged)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Both platforms build clean. No new files, so **no `.qbs` edit** - deliberate,
+because `qbs resolve` is unusable in this checkout and a new source file would
+have needed it.
+
+### Two failures in Core that nobody was watching
+
+`-test Core` is not one of the two suites this project runs every batch, and
+it has **two pre-existing failures**, both in `ShortcutSettingsTest`:
+`testTwoCommandsOnTheSameSequenceCollide` and
+`testACommandIsFoundByTheSequenceItIsMappedTo`. They were there before this
+batch and are unchanged by it.
+
+**Measured, not assumed:** running that class on its own
+(`-test Core,ShortcutSettingsTest`) gives the same two failures, 5 passed - so
+this is not pollution from some other test class.
+
+**Guess, marked as one:** the first test sets *two* commands to
+`Ctrl+Shift+F12` and only resets one of them, so Preferences is left holding
+that sequence - which is exactly what the second test then finds when it
+asserts the sequence is gone. Both failures would follow from that one
+oversight. Not yet measured, because it needs the two functions run
+separately, and the runner selects classes rather than functions.
+
+### What is next
+
+1. **The Quick button row**, with option 1 above as its seam: a factory both
+   the shell and a test call, a census of which shell rows are Quick, and the
+   flash as a QML animation rather than a `QTimeLine`.
+2. The three widget panes: Terminal and Search Results as entry 169 predicted,
+   and Lua.
+3. The output toolbar, once `toolBarWidgets()` has a Quick answer - that is
+   the same interface problem as `Perspective`'s `QWidget *` docks, and worth
+   solving once for both.
+4. macOS, still one desktop login away, for two defaulted sidebars.
+5. Parked: entry 174's page scroll, entry 173's crash, and now the two
+   `ShortcutSettingsTest` failures above.
