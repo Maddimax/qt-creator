@@ -81,6 +81,8 @@ add_qtc_plugin(Core
     editormanager/ieditorfactory_p.h
     editormanager/opendocumentslist.cpp
     editormanager/opendocumentslist.h
+    editormanager/opendocumentsproxymodel.cpp
+    editormanager/opendocumentsproxymodel.h
     editormanager/openeditorsview.cpp
     editormanager/openeditorsview.h
     editormanager/openeditorswindow.cpp

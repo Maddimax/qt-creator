@@ -41,6 +41,14 @@ ListView {
         height: Metrics.tableRowMinimumHeight
         highlighted: root.currentIndex === row.index
         text: row.model.display
+        // The icon, the colour and the tool tip are the model's answers, and
+        // the model is the one the widget sidebar uses: the colour says what
+        // version control makes of the file, the tip names that state.
+        icon.source: AspectModels.decorationUrl(row.model.decoration)
+        icon.color: "transparent"
+        ToolTip.text: row.model.toolTip
+        ToolTip.visible: row.hovered && row.model.toolTip !== ""
+        ToolTip.delay: 800
         // The reader's own click opens a document, as in the widget view;
         // nothing here opens anything by itself.
         onClicked: root.controller.activate(row.index)
@@ -76,6 +84,17 @@ ListView {
                     onTriggered: modelData.trigger()
                 }
             }
+        }
+
+        // The label is drawn here rather than left to ItemDelegate, because
+        // the colour is the model's and contentItem is where it reaches.
+        contentItem: Label {
+            text: row.text
+            color: row.model.foreground !== undefined ? row.model.foreground
+                                                      : row.palette.text
+            elide: Text.ElideMiddle
+            verticalAlignment: Text.AlignVCenter
+            leftPadding: row.icon.source !== "" ? Spacing.GapHM : 0
         }
 
         ToolButton {

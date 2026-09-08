@@ -6,38 +6,19 @@
 #include "documentmodel.h"
 #include "editormanager.h"
 #include "ieditor.h"
+#include "opendocumentsproxymodel.h"
 
 #include <utils/qtcassert.h>
 
 #include <QMenu>
-#include <QSortFilterProxyModel>
 
 namespace Core::Internal {
 
-// DocumentModel's first row is the <no document> entry, which no sidebar
-// shows - the widget view has a proxy of its own that drops it, and this is
-// the same cut. Everything below counts rows the way the list draws them, so
-// a row here is an entry index and entryAtRow() gets its offset back.
-class WithoutNoDocument final : public QSortFilterProxyModel
-{
-public:
-    explicit WithoutNoDocument(QObject *parent)
-        : QSortFilterProxyModel(parent)
-    {
-        setSourceModel(DocumentModel::model());
-    }
-
-private:
-    bool filterAcceptsRow(int row, const QModelIndex &parent) const final
-    {
-        return !parent.isValid() && row > 0;
-    }
-};
-
 OpenDocumentsList::OpenDocumentsList(QObject *parent)
     : QObject(parent)
-    , m_model(new WithoutNoDocument(this))
+    , m_model(new ProxyModel(this))
 {
+    static_cast<ProxyModel *>(m_model)->setSourceModel(DocumentModel::model());
     connect(EditorManager::instance(), &EditorManager::currentEditorChanged,
             this, &OpenDocumentsList::follow);
     follow(EditorManager::currentEditor());

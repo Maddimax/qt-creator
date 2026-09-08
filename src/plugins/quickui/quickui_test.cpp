@@ -433,6 +433,7 @@ private slots:
     void testWhichNavigationViewsAreQuick();
     void testTheOpenDocumentsSidebarListsAndOpensInTheQuickView();
     void testTheOpenDocumentsSidebarOffersTheSameRightClickEntries();
+    void testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13491,6 +13492,68 @@ void QuickUiTest::testTheOpenDocumentsSidebarOffersTheSameRightClickEntries()
     closeAction->trigger();
     QTRY_COMPARE(Core::DocumentModel::entryCount(), was - 1);
     stillOpen = false;
+}
+
+// The icon, the version control colour and the tool tip a row carries. Both
+// sidebars read them from one model now, so what this asserts is that the
+// Quick pane really is reading that model rather than a plainer one - the
+// first version of the pane had a proxy of its own that answered none of
+// these.
+void QuickUiTest::testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Open Documents"); });
+    QVERIFY(factory);
+
+    Utils::TemporaryDirectory dir("quick-open-documents-decoration");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("decorated.txt");
+    QVERIFY(file.writeFileContents("delta\n"));
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    const QScopeGuard closeIt(
+        [editor] { Core::EditorManager::closeEditors({editor}, false); });
+    const std::optional<int> row = Core::DocumentModel::indexOfDocument(editor->document());
+    QVERIFY(row);
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView quickView = factory->createWidget();
+    QVERIFY(quickView.widget);
+    const std::unique_ptr<QWidget> ownedQuick(quickView.widget);
+    auto * const quickWidget = ownedQuick->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget && quickWidget->rootObject());
+    QAbstractItemModel * const quickModel
+        = quickWidget->rootObject()->property("model").value<QAbstractItemModel *>();
+    QVERIFY2(quickModel, "the list was given no model");
+
+    // The widget sidebar, from the same factory with the switch off, is what
+    // the answers are compared against - not values written out here, which
+    // would say nothing about the two views agreeing.
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}});
+    const Core::NavigationView treeView = factory->createWidget();
+    QVERIFY(treeView.widget);
+    const std::unique_ptr<QWidget> ownedTree(treeView.widget);
+    auto * const tree = qobject_cast<QAbstractItemView *>(ownedTree.get());
+    QVERIFY2(tree && tree->model(), "the widget sidebar is not an item view over a model");
+
+    QCOMPARE(quickModel->rowCount(), tree->model()->rowCount());
+    const QModelIndex quickIndex = quickModel->index(*row, 0);
+    const QModelIndex treeIndex = tree->model()->index(*row, 0);
+    QVERIFY(quickIndex.isValid() && treeIndex.isValid());
+
+    QCOMPARE(quickIndex.data(Qt::DisplayRole), treeIndex.data(Qt::DisplayRole));
+    QCOMPARE(quickIndex.data(Qt::ToolTipRole), treeIndex.data(Qt::ToolTipRole));
+    QCOMPARE(quickIndex.data(Qt::ForegroundRole), treeIndex.data(Qt::ForegroundRole));
+    QVERIFY2(quickIndex.data(Qt::ToolTipRole).toString().contains(file.fileName()),
+             "the tool tip does not name the file");
+    QVERIFY2(!quickIndex.data(Qt::DecorationRole).isNull(), "the row carries no icon");
 }
 
 QObject *createQuickUiTest()
