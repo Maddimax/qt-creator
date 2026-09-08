@@ -4,6 +4,7 @@
 #include "qtcquickengine.h"
 
 #include "qtciconprovider.h"
+#include "style/qtcquickstyle.h"
 
 #include <utils/environment.h>
 #include <utils/shutdownguard.h>
@@ -11,7 +12,6 @@
 #include <QCoreApplication>
 #include <QLoggingCategory>
 #include <QQmlEngine>
-#include <QQuickStyle>
 
 namespace QtcQuick {
 
@@ -24,11 +24,14 @@ static const char kImportPathVariable[] = "QTC_QML_IMPORT_PATH";
 // which is not necessarily before some other engine in the process has drawn
 // a control - so the style is set when the application starts instead, which
 // is early enough for every engine in it.
-static void setQtCreatorStyle()
+//
+// The call is what keeps QtcQuickStyle linked, so it has to happen from here
+// rather than from a startup function inside that library; see its header.
+static void setStyleAtStartup()
 {
-    QQuickStyle::setStyle("QtCreatorStyle");
+    setQtCreatorStyle();
 }
-Q_COREAPP_STARTUP_FUNCTION(setQtCreatorStyle)
+Q_COREAPP_STARTUP_FUNCTION(setStyleAtStartup)
 
 static QQmlEngine *createEngine()
 {

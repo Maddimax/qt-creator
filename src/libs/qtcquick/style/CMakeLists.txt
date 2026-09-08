@@ -5,7 +5,7 @@ add_qtc_library(QtcQuickStyle
     Qt::Quick
     Qt::QuickControls2
   SOURCES
-    qtcquickstyle.cpp
+    qtcquickstyle.cpp qtcquickstyle.h
 )
 
 if(TARGET QtcQuickStyle)
