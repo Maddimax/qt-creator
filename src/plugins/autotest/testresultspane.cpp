@@ -287,7 +287,6 @@ TestResultsPane::TestResultsPane(QObject *parent) :
             this, &TestResultsPane::scheduleTestResult);
     connect(TestRunner::instance(), &TestRunner::hadDisabledTests,
             m_model, &TestResultModel::raiseDisabledTests);
-    visualOutputWidget->installEventFilter(this);
     connect(SessionManager::instance(), &SessionManager::sessionLoaded,
             this, &TestResultsPane::onSessionLoaded);
     connect(SessionManager::instance(), &SessionManager::aboutToSaveSession,
@@ -698,13 +697,6 @@ void TestResultsPane::filterMenuTriggered(QAction *action)
 {
     m_filterModel->toggleTestResultType(TestResult::toResultType(action->data().value<int>()));
     navigateStateChanged();
-}
-
-bool TestResultsPane::eventFilter(QObject *object, QEvent *event)
-{
-    QTC_ASSERT(m_outputWidget, return false);
-    if (event->type() == QEvent::Resize && object->parent() == m_outputWidget)
-    return false;
 }
 
 void TestResultsPane::onTestRunStarted()

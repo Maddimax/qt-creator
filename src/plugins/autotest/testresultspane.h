@@ -142,7 +142,6 @@ private:
     void onItemActivated(const QModelIndex &index);
     void checkAllFilter(bool checked);
     void filterMenuTriggered(QAction *action);
-    bool eventFilter(QObject *object, QEvent *event) override;
 
     void initializeFilterMenu();
     void updateSummaryLabel();
