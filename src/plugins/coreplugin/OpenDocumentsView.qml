@@ -28,19 +28,33 @@ ListView {
 
     // currentIndex is written, not bound: ListView writes it itself while the
     // arrows walk, and a binding to the editor manager's answer would be two
-    // things fighting over one property. It is set when the list is built and
-    // again whenever the reader leaves - the snap-back the tree view does
-    // from focusChanged, so a walk that opened nothing does not leave the
-    // sidebar pointing at a document nobody is in.
+    // things fighting over one property.
     //
-    // Nothing listens for currentRowChanged, and a control is why: every path
-    // that changes the current editor activates it, activation takes the
-    // keyboard, and losing the keyboard is what runs the snap-back below. A
-    // listener as well was code no test could tell apart from its absence.
-    Component.onCompleted: root.currentIndex = root.controller.currentRow
+    // So it is written from three places, and each is a case the others do
+    // not cover. The editor manager's answer, whenever it changes - a sidebar
+    // the reader never clicks in still has to show what is open, and in the
+    // shell it never holds the keyboard. The reader leaving, which is the
+    // snap-back the tree view does from focusChanged, so that a walk which
+    // opened nothing does not leave the row somewhere else. And once when the
+    // list is built, because neither of those has happened yet.
+    function showCurrentRow(): void {
+        root.currentIndex = root.controller.currentRow
+        // What the tree view's scrollTo() does: a row nobody can see is not
+        // an answer to which document is open.
+        if (root.currentIndex >= 0)
+            root.positionViewAtIndex(root.currentIndex, ListView.Contain)
+    }
+
+    Component.onCompleted: root.showCurrentRow()
     onActiveFocusChanged: {
         if (!root.activeFocus)
-            root.currentIndex = root.controller.currentRow
+            root.showCurrentRow()
+    }
+
+    Connections {
+        target: root.controller
+
+        function onCurrentRowChanged(): void { root.showCurrentRow() }
     }
 
     Keys.onReturnPressed: (event) => {
@@ -65,7 +79,9 @@ ListView {
         event.accepted = true
     }
 
-    ScrollBar.vertical: ScrollBar {}
+    // Always shown, as in the tree view: a bar that comes and goes moves
+    // every row sideways when a document is opened.
+    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn }
 
     delegate: ItemDelegate {
         id: row

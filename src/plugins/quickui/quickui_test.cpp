@@ -437,6 +437,7 @@ private slots:
     void testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree();
     void testDraggingAnOpenDocumentCarriesItsFile();
     void testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilReturn();
+    void testTheOpenDocumentsSidebarFollowsTheEditorItNeverHadFocusFrom();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13321,18 +13322,18 @@ void QuickUiTest::testWhichNavigationViewsAreQuick()
         return found;
     };
 
-    // Both states, because the switch is the whole of what has moved: with it
-    // off every sidebar is still the widget one, and with it on exactly one is
-    // not. Moving a pane means changing the second list, in the commit that
-    // moves it.
-    QCOMPARE(quickViews(), QStringList());
+    // Both states, because a pane that has moved can be asked for the old
+    // one: Open Documents is Qt Quick now, and QTC_WIDGET_OPEN_DOCUMENTS
+    // hands back the tree view. Moving another pane means changing the first
+    // list, in the commit that moves it.
+    QCOMPARE(quickViews(), QStringList({QString("Open Documents")}));
 
     Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+        {{"QTC_WIDGET_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
     const QScopeGuard unsetSwitch([] {
         Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
-    QCOMPARE(quickViews(), QStringList({QString("Open Documents")}));
+            {{"QTC_WIDGET_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
+    QCOMPARE(quickViews(), QStringList());
 }
 
 // The first sidebar pane in Qt Quick, end to end: the switch gets a QML view
@@ -13361,12 +13362,6 @@ void QuickUiTest::testTheOpenDocumentsSidebarListsAndOpensInTheQuickView()
     const QScopeGuard closeThem([firstEditor, secondEditor] {
         Core::EditorManager::closeEditors({firstEditor, secondEditor}, false); });
     QCOMPARE(Core::EditorManager::currentEditor(), secondEditor);
-
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
 
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
@@ -13441,12 +13436,6 @@ void QuickUiTest::testTheOpenDocumentsSidebarOffersTheSameRightClickEntries()
     const std::optional<int> row = Core::DocumentModel::indexOfDocument(editor->document());
     QVERIFY(row);
 
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
-
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
     const std::unique_ptr<QWidget> owned(view.widget);
@@ -13520,12 +13509,6 @@ void QuickUiTest::testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree()
     const std::optional<int> row = Core::DocumentModel::indexOfDocument(editor->document());
     QVERIFY(row);
 
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
-
     const Core::NavigationView quickView = factory->createWidget();
     QVERIFY(quickView.widget);
     const std::unique_ptr<QWidget> ownedQuick(quickView.widget);
@@ -13539,7 +13522,10 @@ void QuickUiTest::testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree()
     // the answers are compared against - not values written out here, which
     // would say nothing about the two views agreeing.
     Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}});
+        {{"QTC_WIDGET_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard backToQuick([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_WIDGET_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
     const Core::NavigationView treeView = factory->createWidget();
     QVERIFY(treeView.widget);
     const std::unique_ptr<QWidget> ownedTree(treeView.widget);
@@ -13582,12 +13568,6 @@ void QuickUiTest::testDraggingAnOpenDocumentCarriesItsFile()
         [editor] { Core::EditorManager::closeEditors({editor}, false); });
     const std::optional<int> row = Core::DocumentModel::indexOfDocument(editor->document());
     QVERIFY(row);
-
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
 
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
@@ -13651,12 +13631,6 @@ void QuickUiTest::testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilRet
     const QScopeGuard closeThem([] {
         Core::EditorManager::closeAllDocuments(); });
     QCOMPARE(Core::EditorManager::currentEditor(), secondEditor);
-
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
 
     const Core::NavigationView view = factory->createWidget();
     QVERIFY(view.widget);
@@ -13743,6 +13717,62 @@ void QuickUiTest::testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilRet
     const int before = Core::DocumentModel::entryCount();
     QTest::keyClick(quickWidget->quickWindow(), Qt::Key_Delete);
     QTRY_COMPARE(Core::DocumentModel::entryCount(), before - 1);
+}
+
+// The sidebar a reader never clicks in. It still has to show which document
+// is open, and that is the case the keyboard test cannot see: that one gives
+// the list the focus and takes it away again, and taking it away is what put
+// the row right. Here nothing ever touches the list.
+void QuickUiTest::testTheOpenDocumentsSidebarFollowsTheEditorItNeverHadFocusFrom()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Open Documents"); });
+    QVERIFY(factory);
+
+    Utils::TemporaryDirectory dir("quick-open-documents-unfocused");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath first = dir.filePath("one.txt");
+    QVERIFY(first.writeFileContents("one\n"));
+    Core::IEditor * const firstEditor = Core::EditorManager::openEditor(first);
+    QVERIFY(firstEditor);
+    const QScopeGuard closeThem([] { Core::EditorManager::closeAllDocuments(); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget);
+    owned->resize(300, 400);
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+    QQuickItem * const list = quickWidget->rootObject();
+    QVERIFY(list);
+
+    const std::optional<int> firstRow
+        = Core::DocumentModel::indexOfDocument(firstEditor->document());
+    QVERIFY(firstRow);
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *firstRow);
+
+    // The condition this test exists for: the list does not hold the
+    // keyboard. In the shell it never does unless the reader clicks it, and
+    // a pane in a window of its own is the only place it does by default -
+    // which is why this has to be taken away on purpose.
+    quickWidget->clearFocus();
+    QTRY_VERIFY2(!list->hasActiveFocus(), "the list kept the keyboard, so this proves nothing");
+
+    // Another document opens, from the editor area rather than from here.
+    const Utils::FilePath second = dir.filePath("two.txt");
+    QVERIFY(second.writeFileContents("two\n"));
+    Core::IEditor * const secondEditor = Core::EditorManager::openEditor(second);
+    QVERIFY(secondEditor);
+    const std::optional<int> secondRow
+        = Core::DocumentModel::indexOfDocument(secondEditor->document());
+    QVERIFY(secondRow);
+    QVERIFY2(*secondRow != *firstRow, "both documents are on one row, so nothing can move");
+
+    // The row moves with it, without the list ever having been touched.
+    QTRY_COMPARE(list->property("currentIndex").toInt(), *secondRow);
 }
 
 QObject *createQuickUiTest()

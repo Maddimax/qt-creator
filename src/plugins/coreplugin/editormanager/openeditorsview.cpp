@@ -162,17 +162,22 @@ public:
 
     NavigationView createWidget() final
     {
-        // Behind a switch while the Quick view is being written: it draws the
-        // rows, opens one and closes one, and has neither the context menu
-        // nor the drag the widget view has. Nobody is handed a half-finished
-        // sidebar by opening Qt Creator.
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_OPEN_DOCUMENTS")) {
+        // The Qt Quick view is the sidebar now. Everything the tree view
+        // does it does: the rows with their icon, version control colour and
+        // tool tip, single-click and Return to open, Delete, Backspace and
+        // the middle button to close, the right-click menu from the same
+        // EditorManager call, the drag that carries the file, walking with
+        // the arrows without opening anything, and the row following
+        // whichever document is open.
+        //
+        // QTC_WIDGET_OPEN_DOCUMENTS asks for the tree view instead, the way
+        // QTC_WIDGET_CPP_EDITOR does for the editor - and a build with
+        // nothing to host QML gets it without asking.
+        if (!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_OPEN_DOCUMENTS")) {
             auto * const list = new OpenDocumentsList;
             if (QWidget * const view = createQmlView(
                     QUrl("qrc:/qt/qml/QtCreator/Core/OpenDocumentsView.qml"), list))
                 return {view, {}};
-            // Nothing can host QML in this build, so the switch does nothing
-            // rather than leaving an empty pane.
             delete list;
         }
         return {new OpenEditorsWidget, {}};
