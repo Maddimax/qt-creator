@@ -2,7 +2,8 @@ CppApplication {
     name: "Manual Test Qt Quick terminal"
 
     Depends { name: "Qt.quick"; required: false }
-    condition: Qt.quick.present
+    // Objective-C++ and AppKit below: this one only builds on macOS.
+    condition: Qt.quick.present && qbs.targetOS.contains("macos")
 
     Depends { name: "TerminalQuick" }
     Depends { name: "TerminalModel" }

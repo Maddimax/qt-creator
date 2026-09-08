@@ -1,6 +1,7 @@
 add_qtc_test(tst_manual_quick_terminal
   MANUALTEST
-  CONDITION TARGET TerminalQuick
+  # Objective-C++ and AppKit below: this one only builds on macOS.
+  CONDITION APPLE AND TARGET TerminalQuick
   DEPENDS TerminalQuick TerminalModel Qt::Gui Qt::Qml Qt::Quick
   DEFINES RESULTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/results"
   SOURCES
