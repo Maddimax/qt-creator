@@ -55,6 +55,7 @@
 #include <utils/aspects.h>
 #include <utils/plaintextedit/texteditorlayout.h>
 #include <utils/temporarydirectory.h>
+#include <utils/mimeutils.h>
 #include <utils/hostosinfo.h>
 #include <utils/theme/theme.h>
 
@@ -87,6 +88,17 @@
 using namespace Utils;
 
 namespace TextEditor::Internal {
+
+// A generic-highlighter definition every checkout has. The definitions this
+// repository ships are the 50 under src/libs/3rdparty/syntax-highlighting,
+// and C++ is not one of them - a machine that highlights C++ through this
+// path has downloaded the full KSyntaxHighlighting set into its home
+// directory, which no test may depend on. Java is bundled and has what the
+// tests below need of a language: braces that fold, // comments, keywords.
+static HighlighterHelper::Definition bundledDefinition()
+{
+    return HighlighterHelper::definitionForName("Java");
+}
 
 // The chord this platform uses for a standard move. End is the end of the line
 // on Windows and the end of the *file* on a Mac, so a test that types Key_End
@@ -3960,25 +3972,50 @@ private slots:
         const QMap<Utils::Id, ICodeStylePreferencesFactory *> factories = codeStyleFactories();
         QVERIFY2(!factories.isEmpty(), "no code style pages exist, so this checks nothing");
 
+        // Two different questions, and only the first is this repository's to
+        // answer: does the page name a mime type that exists, and does the
+        // preview then highlight? The second needs the language's definition
+        // installed, and the 50 shipped here do not include C++, QML or Nim -
+        // so those are reported as unchecked rather than asserted on, which
+        // would only be asserting what the machine has downloaded.
+        QStringList unknownMimeType;
         QStringList unhighlighted;
+        QStringList noDefinitionInstalled;
         int checked = 0;
         for (auto it = factories.cbegin(); it != factories.cend(); ++it) {
             const QString mimeType = SnippetProvider::mimeTypeForGroup(it.value()->snippetGroupId());
             if (mimeType.isEmpty())
                 continue; // a language with no snippet group names no mime type
+            const QString what = it.key().toString() + " (" + mimeType + ")";
+            if (!Utils::mimeTypeForName(mimeType).isValid()) {
+                unknownMimeType << what;
+                continue;
+            }
+            if (HighlighterHelper::definitionsForMimeType(mimeType).isEmpty()) {
+                noDefinitionInstalled << what;
+                continue;
+            }
             ++checked;
 
             CodeBuffer buffer;
             buffer.setMimeType(mimeType);
             buffer.setText("// comment\nint value = 42;\n");
             if (!buffer.isHighlighting())
-                unhighlighted << it.key().toString() + " (" + mimeType + ")";
+                unhighlighted << what;
         }
 
-        QVERIFY2(checked > 0, "no code style page named a mime type, so this checks nothing");
+        if (!noDefinitionInstalled.isEmpty()) {
+            qInfo().noquote() << "not checked, no definition installed:"
+                              << noDefinitionInstalled.join(", ");
+        }
+        QVERIFY2(unknownMimeType.isEmpty(),
+                 qPrintable("code style pages naming a mime type nothing knows: "
+                            + unknownMimeType.join(", ")));
         QVERIFY2(unhighlighted.isEmpty(),
                  qPrintable("code style previews with no highlight definition: "
                             + unhighlighted.join(", ")));
+        if (checked == 0)
+            QSKIP("no code style page's language has a syntax definition installed");
     }
 
     // Utils::TextEditorLayout is the per-view index of which row each block
@@ -6094,8 +6131,8 @@ private slots:
         // test puts one there itself - which is also the path being tested.
         TextDocument * const doc = viewport->textDocument();
         const HighlighterHelper::Definition definition
-            = HighlighterHelper::definitionForName("C++");
-        QVERIFY2(definition.isValid(), "no C++ syntax definition is installed");
+            = bundledDefinition();
+        QVERIFY2(definition.isValid(), "no bundled syntax definition is installed");
         HighlighterHelper::setDefinitionOn(doc, definition);
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
 
@@ -6130,7 +6167,7 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 0);
 
         TextDocument * const doc = viewport->textDocument();
-        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        HighlighterHelper::setDefinitionOn(doc, bundledDefinition());
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
 
         QTextDocument * const text = doc->document();
@@ -6408,7 +6445,7 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 3);
 
         TextDocument * const doc = viewport->textDocument();
-        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        HighlighterHelper::setDefinitionOn(doc, bundledDefinition());
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
         QTextDocument * const text = doc->document();
         // Folding indents are the highlighter's, so there is nothing to fold
@@ -6449,7 +6486,7 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 4);
 
         TextDocument * const doc = viewport->textDocument();
-        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        HighlighterHelper::setDefinitionOn(doc, bundledDefinition());
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
         QTextDocument * const text = doc->document();
         QTRY_VERIFY(TextEditor::hasUnfoldedBlocks(text));
@@ -6582,7 +6619,7 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 4);
 
         TextDocument * const doc = viewport->textDocument();
-        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        HighlighterHelper::setDefinitionOn(doc, bundledDefinition());
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
         QTRY_VERIFY(doc->syntaxHighlighter()
                     && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
@@ -6621,7 +6658,7 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 3);
 
         TextDocument * const doc = viewport->textDocument();
-        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        HighlighterHelper::setDefinitionOn(doc, bundledDefinition());
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
         QTRY_VERIFY(doc->syntaxHighlighter()
                     && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
@@ -7342,7 +7379,7 @@ private slots:
         // A language, so that there is highlighting to carry in the first
         // place - without one the HTML would be right and prove nothing.
         TextDocument * const doc = viewport->textDocument();
-        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        HighlighterHelper::setDefinitionOn(doc, bundledDefinition());
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
         QTRY_VERIFY(doc->syntaxHighlighter()
                     && doc->syntaxHighlighter()->syntaxHighlighterUpToDate());
@@ -7729,7 +7766,7 @@ private slots:
         QVERIFY(viewport->isReadOnly());
 
         TextDocument * const doc = viewport->textDocument();
-        HighlighterHelper::setDefinitionOn(doc, HighlighterHelper::definitionForName("C++"));
+        HighlighterHelper::setDefinitionOn(doc, bundledDefinition());
         QTRY_VERIFY(HighlighterHelper::definitionForDocument(doc).isValid());
 
         QTextDocument * const text = doc->document();
@@ -8318,8 +8355,9 @@ private slots:
         // no path to guess it from.
         CodeBuffer buffer;
         buffer.setText("int main()\n{\n    return 0;\n}\n");
-        buffer.setMimeType("text/x-c++src");
-        QVERIFY2(buffer.isHighlighting(), "no highlight definition for C++");
+        // Java, for the reason bundledDefinition() gives.
+        buffer.setMimeType("text/x-java");
+        QVERIFY2(buffer.isHighlighting(), "no highlight definition for Java");
         QVERIFY(buffer.textDocument());
 
         ViewportFixture fixture(&buffer);

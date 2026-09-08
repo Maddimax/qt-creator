@@ -9389,6 +9389,19 @@ private slots:
         QFETCH(QString, start);
         QFETCH(QString, comment);
 
+        // Commenting takes its marker from the language's generic-highlighter
+        // definition, and this repository ships only the 50 under
+        // src/libs/3rdparty/syntax-highlighting - yaml and shell are there,
+        // Rust and Go are not. Where the language is the question the row
+        // asks, a machine without its definition cannot answer it; saying so
+        // beats asserting on whichever editor happens to be installed.
+        if (!comment.isEmpty()
+            && HighlighterHelper::definitionsForFileName(Utils::FilePath::fromString(name))
+                   .isEmpty()) {
+            QSKIP(qPrintable("no syntax definition installed for " + name
+                             + "; Help > Update Highlighting Definitions fetches them"));
+        }
+
         Utils::TemporaryDirectory dir("languages-both-ways");
         QVERIFY(dir.isValid());
 
