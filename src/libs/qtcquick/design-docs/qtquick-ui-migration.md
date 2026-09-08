@@ -53357,3 +53357,93 @@ The navigation backend hook and Open Documents behind a flag, in one batch,
 with the census that counts Quick navigation views written at the same time -
 it has something to count only once the first pane exists, which is why
 batch 177 did not write it either.
+
+## 2026-09-08 — The first sidebar pane, and the seam the rest will use (batch 178)
+
+**The gap this closed: no sidebar view could be drawn in Qt Quick at all**,
+because the shell has no way to host QML that does not go through the aspect
+system, and Core may not host it itself. Open Documents now draws in Qt Quick
+behind `QTC_QUICK_OPEN_DOCUMENTS`, and the seam it needed is the one every
+later pane will use.
+
+### The seam, in the shape entry 177 specified
+
+    // inavigationwidgetfactory.h
+    using QmlViewFactory = std::function<QWidget *(const QUrl &, QObject *controller)>;
+    CORE_EXPORT void setQmlViewFactory(const QmlViewFactory &factory);
+    CORE_EXPORT QWidget *createQmlView(const QUrl &source, QObject *controller);
+
+The counterpart of `setAspectFormFactory()`, and installed the same way, by
+the QuickUi plugin. Core hands over a URL and a controller; the front end
+returns a widget; **nothing installed, or nullptr back, means the caller
+keeps its widget view**, which is what makes the switch safe in a build
+without QuickUi.
+
+### What the pane needed beyond the QML
+
+`OpenDocumentsList` is what a QML delegate cannot reach for itself: the rows,
+which row is being read, and the two things a row does
+(`activateEditorForEntry`, `closeDocuments`). It also makes the cut the
+widget view's own proxy makes - **DocumentModel's first row is the
+`<no document>` entry** - so a row here is an entry, and `entryAtRow()` gets
+its offset back. Getting that wrong is what the first run said: 3 rows
+against 2 documents.
+
+The QML is a `ListView` of `ItemDelegate`s, and one thing there is worth
+writing down: **`ItemDelegate` has a FINAL `display` property**, so a
+delegate that declares `required property string display` to pick up
+`Qt::DisplayRole` fails to load the whole file with *"Cannot override FINAL
+property"*. Take `required property var model` and read `model.display`,
+which is what the tree delegates in this library already do.
+
+### What is not ported, and why the switch exists
+
+The view draws the rows, opens one and closes one. It has **no context menu,
+no drag, and none of the VCS decoration** the widget delegate paints. That is
+why it is behind a switch and off by default - the same bargain
+`setUsesQuickEditor()` made for eight editor factories for months. A reader
+who opens Qt Creator gets the widget sidebar until the rest is there.
+
+### Tests, and the census that counts both states
+
+- `testWhichNavigationViewsAreQuick` creates every navigation view and counts
+  the ones hosting a `QQuickWidget`, **with the switch off and with it on** -
+  none, then exactly Open Documents. The second list is the line a pane has
+  to change in the commit that moves it. Counting only the default state
+  would have left the switch's branch unasserted, which is what the control
+  below found.
+- `testTheOpenDocumentsSidebarListsAndOpensInTheQuickView` drives it: the
+  switch gets a QML view rather than the tree, the list holds as many rows as
+  there are documents, `currentIndex` is the row of the editor being read,
+  and **a click on another row is what opens that document** - the row is
+  asked for its own position rather than guessed at.
+
+### Controls
+
+- **E - the row no longer activates**: the click opens nothing and the pane
+  test fails on the editor it compares, so the click is what opens a
+  document and not the editor already being current.
+- **F - the census expects nothing while the switch is on**: fails, one
+  against zero. Worth keeping the story: the first version of the census
+  only asserted the default state, and F passed against it - a census that
+  cannot see the thing it exists to see. It measures both states now because
+  the control said so.
+
+### Verification
+
+    -test QuickUi      210 passed, 0 failed, exit 0   (208 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Full Linux build clean. **No `.qbs` edit**, so no re-resolve: `coreplugin.qbs`
+globs the QML because CMake owns it, as entry 177 measured. macOS unverified
+since batch 170.
+
+### What is next
+
+1. The rest of Open Documents: the context menu, the drag, the VCS
+   decoration - and then the switch can go, with the census line changing in
+   that commit.
+2. The next panes, in the order entry 169 gave: Bookmarks and Outline are
+   the ones with the least behaviour behind them.
+3. Still waiting on someone else: the page scroll of entry 174 (macOS), and
+   the packed-position crash of entry 173.
