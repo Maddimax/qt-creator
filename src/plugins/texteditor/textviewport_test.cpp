@@ -1719,7 +1719,16 @@ private slots:
         link.linkTextEnd = 5; // "alpha"
         viewport->showLink(link);
 
-        QTRY_COMPARE(underlined().size(), 1);
+        // showLink() asks for a polish, and a polish is processed when the
+        // window renders - which a platform with no screen does only when
+        // asked. Grabbing does what a visible window's render loop would;
+        // without it the underline never arrives under -platform offscreen.
+        const auto underlinedOnScreen = [&fixture, &underlined] {
+            fixture.view.grabWindow();
+            return underlined();
+        };
+
+        QTRY_COMPARE(underlinedOnScreen().size(), 1);
         const QVariantMap range = underlined().first().toMap();
         QCOMPARE(range.value("start").toInt(), 0);
         QCOMPARE(range.value("length").toInt(), 5);
@@ -1727,7 +1736,8 @@ private slots:
 
         // Letting go of Control puts it away again.
         QTest::keyRelease(&fixture.view, Qt::Key_Control);
-        QTRY_VERIFY2(underlined().isEmpty(), "letting go of Control left the link underlined");
+        QTRY_VERIFY2(underlinedOnScreen().isEmpty(),
+                     "letting go of Control left the link underlined");
         QCOMPARE(viewport->cursor().shape(), plain);
     }
 

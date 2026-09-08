@@ -2805,20 +2805,6 @@ private slots:
         QCOMPARE(document->mimeType(),
                  Utils::mimeTypeForFile(file, Utils::MimeMatchMode::MatchDefaultAndRemote).name());
 
-        // Saving under a different name changes the language. TextDocument
-        // reads its mime type when it *opens* and never again, so this is the
-        // editor's job - the same reason the widget one reconfigures on
-        // filePathChanged.
-        const Utils::FilePath renamed = dir.filePath("sample.py");
-        const QString expected
-            = Utils::mimeTypeForFile(renamed, Utils::MimeMatchMode::MatchDefaultAndRemote).name();
-        QVERIFY2(expected != document->mimeType(),
-                 "both names have the same mime type, so renaming proves nothing");
-
-        document->setFilePath(renamed);
-        QCOMPARE(document->mimeType(), expected);
-        QVERIFY(document->syntaxHighlighter());
-
         auto * const quick = editor->widget()->findChild<QQuickWidget *>();
         QVERIFY(quick && quick->rootObject());
         auto * const viewport = quick->rootObject()->findChild<TextViewport *>();
@@ -2826,7 +2812,9 @@ private slots:
         QTRY_VERIFY(viewport->visibleLineCount() > 0);
 
         // And the colours reach what is drawn, which is the half a highlighter
-        // being present does not prove.
+        // being present does not prove. Asked of JSON, the language this file
+        // still is: it is one of the definitions this repository ships, so
+        // this holds on a checkout that has downloaded nothing.
         const auto colours = [viewport] {
             QSet<QRgb> found;
             const QVariantList ranges = viewport->visibleLine(0).value("formats").toList();
@@ -2836,6 +2824,22 @@ private slots:
         };
         QTRY_VERIFY2(colours().size() > 1,
                      qPrintable(QString("the line is drawn in %1 colour(s)").arg(colours().size())));
+
+        // Saving under a different name changes the language. TextDocument
+        // reads its mime type when it *opens* and never again, so this is the
+        // editor's job - the same reason the widget one reconfigures on
+        // filePathChanged. What the new language colours is its own business
+        // and not checked here; Python is not a definition this repository
+        // ships, and the question is whether the rename is noticed at all.
+        const Utils::FilePath renamed = dir.filePath("sample.py");
+        const QString expected
+            = Utils::mimeTypeForFile(renamed, Utils::MimeMatchMode::MatchDefaultAndRemote).name();
+        QVERIFY2(expected != document->mimeType(),
+                 "both names have the same mime type, so renaming proves nothing");
+
+        document->setFilePath(renamed);
+        QCOMPARE(document->mimeType(), expected);
+        QVERIFY(document->syntaxHighlighter());
     }
 
     // Whitespace inside a comment or a string carries the visual-whitespace
@@ -2847,7 +2851,10 @@ private slots:
     {
         Utils::TemporaryDirectory dir("whitespace-cells");
         QVERIFY(dir.isValid());
-        const Utils::FilePath file = dir.filePath("commented.cpp");
+        // Java, not C++: the comment marker is the same and its definition is
+        // one of the 50 this repository ships, so the run does not depend on
+        // what the machine has downloaded. See bundledDefinition().
+        const Utils::FilePath file = dir.filePath("commented.java");
         QVERIFY(file.writeFileContents("// a b c\nint x = 1;\n"));
 
         // Asked for rather than assumed. What this checks is how this view
@@ -6599,8 +6606,10 @@ private slots:
     {
         Utils::TemporaryDirectory dir("quick-editor-licence");
         QVERIFY(dir.isValid());
-        // A C++ file, so that the highlighter has comment markers to offer.
-        const Utils::FilePath file = dir.filePath("licensed.cpp");
+        // Java: its definition is shipped here and folds block comments,
+        // which is what the header being foldable rests on. A C++ file would
+        // need definitions this repository does not ship.
+        const Utils::FilePath file = dir.filePath("licensed.java");
         QVERIFY(file.writeFileContents("/* Copyright (C) 2026 The Qt Company Ltd.\n"
                                        "   SPDX-License-Identifier: whatever\n"
                                        "*/\n"
@@ -6639,7 +6648,8 @@ private slots:
     {
         Utils::TemporaryDirectory dir("quick-editor-licence-off");
         QVERIFY(dir.isValid());
-        const Utils::FilePath file = dir.filePath("licensed.cpp");
+        // Java, for the reason the folding test beside this one gives.
+        const Utils::FilePath file = dir.filePath("licensed.java");
         QVERIFY(file.writeFileContents("/* Copyright (C) 2026 The Qt Company Ltd.\n"
                                        "   SPDX-License-Identifier: whatever\n"
                                        "*/\n"
