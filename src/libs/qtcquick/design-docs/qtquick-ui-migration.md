@@ -52951,3 +52951,90 @@ that has to be established before any of them is called a defect.
 
 macOS remains unverified since batch 170: that VM has no desktop session,
 and host runs are off for good reasons.
+
+## 2026-09-08 — The last five, sorted by asking a second platform (batch 173)
+
+Both halves of the last entry's proposal, and **Linux is at 723 passed, 4
+failed, 3 skipped**. What is left is four tests, and none of them is now
+explained by anything missing from the machine.
+
+### The four file-opening tests
+
+Three of them - a comment's whitespace, and the licence header folded and
+left alone - open a real file, so the language came from its *name*. They
+open a `.java` file now: Java is among the 50 definitions shipped here and
+its definition folds block comments (`beginRegion="Comment"`), which is the
+property the header tests rest on.
+
+The fourth, `testOpeningASourceFileHighlightsIt`, was mis-filed in entry 172
+as a definitions problem, and it was worse than that: it opens
+`sample.json` - a language this repository *does* ship - then **renames it to
+`sample.py`** and checks the colours of what is drawn. Python is not shipped
+here either, so the colours it examined were nobody's. The colour check now
+happens while the file is still JSON; the rename keeps the question it was
+really there to ask, which is whether a language change is noticed at all.
+
+### Asking a second platform is a cheap way to sort a failure
+
+The remaining five were three compare mismatches, a scroll distance and a
+caret width - all of them plausible defects, all of them in code that draws.
+Running the same tests under **vnc** as well as **offscreen** sorted them in
+one measurement:
+
+| Test | offscreen | vnc | Verdict |
+| --- | --- | --- | --- |
+| `testALinkUnderThePointerIsUnderlined` | FAIL | **PASS** | the platform, not the code |
+| `testWhitespaceIsDrawnWhenTheSettingAsksForIt` | FAIL | FAIL | real |
+| `testHomeOnAWrappedLineGoesToTheRowNotTheLine` | FAIL | FAIL | real |
+| `testAPageIsAScreenOfRowsNotOfLines` | FAIL | FAIL | real |
+| `testInsertTogglesTypingOverTheTextThatIsThere` | FAIL | FAIL | real |
+
+The link one was then diagnosed rather than skipped: `showLink()` asks for a
+`polish()`, a polish is processed when the window renders, and **a platform
+with no screen renders only when asked**. The test asks - `grabWindow()`,
+which is what a visible window's render loop does - and passes under both
+platforms. Anything that waits on a later polish under `offscreen` needs the
+same, which is worth knowing before the next such failure is called a bug.
+
+### Controls
+
+- **The platform pair is the control**: it is what separated one failure from
+  four, and it cost one extra run rather than an afternoon of reading.
+- **The render fix bites**: without `grabWindow()` the same test reports
+  `underlined().size()` 0 against 1 under offscreen - measured before the fix
+  and again as the reason for it.
+- The three substituted file tests are red on a clean machine with `.cpp` and
+  green with `.java`, which is the before/after in the numbers: 717/10/3 to
+  723/4/3.
+
+### One real crash, recorded rather than solved
+
+A full-suite run aborted with
+
+    QTextCursor::setPosition: Position '65550' out of range
+    QTextCursor::setPosition: Position '131086' out of range
+    QFATAL: ASSERT: "pos <= d.size" in qstring.h:1224
+
+in `testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a line)` - the
+Quick row; the widget row beside it passes. 65550 is `0x1000E` and 131086 is
+`0x2000E`: a position of 14 with 1 and then 2 in the high 16 bits, which is
+what a packed *(something, offset)* pair looks like when it is handed to
+`setPosition()` unpacked. That is a concrete lead for whoever picks it up.
+
+Not reproduced on demand: five runs under gdb and four with
+`QT_MESSAGE_PATTERN` backtraces, class-alone, produced **no** out-of-range
+warning at all - the debugger and the isolated class both change the timing
+that makes it happen. The plain compare failure in that row is about one run
+in three of the class; the fatal has been seen once, in a whole-suite run.
+**Written down with its numbers instead of chased with the wrong tool** - and
+it is the only remaining item on this branch that looks like a real crash.
+
+### What is next
+
+1. The four real failures, cheapest first: the scroll distance
+   (*scrolled 128, wanted about 176*) is arithmetic and should be readable
+   from the code; the caret width and the two compare mismatches need the
+   values printed.
+2. The two QuickUi ones, of which the file-dialog filter is the odd one.
+3. The packed-position crash, when someone can make it happen on purpose.
+4. macOS in its VM, still one desktop login away.
