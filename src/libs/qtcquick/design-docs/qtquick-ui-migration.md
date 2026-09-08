@@ -53201,3 +53201,79 @@ offering a one-entry filter is the one shape nobody has explained yet. After
 those, Linux is a gate rather than a list, and the two items that need
 someone else are the page scroll (macOS to verify a scrolling change) and
 the packed-position crash of entry 173.
+
+## 2026-09-08 — QuickUi is green on Linux (batch 176)
+
+    -test QuickUi      208 passed, 0 failed, exit 0
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1
+
+**Both QuickUi failures were the tests asserting this host's defaults**, and
+the guess in the last entry was half right: one was the definitions story
+again, and the other - the one nobody had explained - turned out to be the
+better find of the two.
+
+### The file dialog offered a choice of one, correctly
+
+The test ended by setting a single filter group and asserting the combo box
+hides: *"with nothing to choose between, the box is not in the way"*. The QML
+says something more careful than that:
+
+    visible: root.classic ? root.filterGroups.length > 0
+                          : root.filterGroups.length > 1
+
+and `FileBrowser` decides which layout a host starts in:
+
+    settings.value("ClassicLayout", !HostOsInfo::isMacHost())
+
+**The classic row keeps a place for the kinds whether or not the caller asked
+for them**, and every host but a Mac is classic by default. So the assertion
+was a Mac assertion, passing here and failing everywhere else, and the
+product was right on both. The test now sets each layout and asserts that
+layout's own rule - which covers both rules and depends on neither host.
+
+Worth keeping as a shape: **when a QML binding has a mode in it, a test that
+never sets the mode is asserting the default**, and defaults are per
+platform more often than they look.
+
+### The preview that is grey by rights
+
+`testAShownPreviewIsColouredAndEditsWithMouseAndKeyboard` walks every options
+page with a preview and asserts more than one foreground colour. A preview
+whose language has no generic-highlighter definition is grey *correctly*, and
+this repository ships no C++ definition - so the C++ code style page draws
+grey on any checkout that has downloaded nothing. The colour check now
+applies where the buffer says it found a definition, asked through the
+metaobject because QuickUi does not link the text editor. Same lesson as
+entries 172 and 173, third occurrence, now in a second plugin.
+
+### Controls
+
+- **Definition check forced true**: the preview test is red again with its
+  own message, *"Code Style draws its preview in one colour"*.
+- **Classic layout left on for the hide assertion**: the dialog test is red
+  again with *"a choice of one is offered as a choice"*.
+
+Both reproduce the original failures exactly, which is what makes them
+controls rather than decoration.
+
+### Where the Linux baseline stands
+
+One failure left in TextEditor, and it is the short page scroll of entry 174:
+a page key pressed while a document is still being laid out clamps against
+the laid-out extent. That is a product defect with a known mechanism, held
+back only because changing how the editor scrolls should be verified on the
+second platform, and the macOS VM still has no desktop session.
+
+So: **Linux is a gate now, not a list** - one known, documented, non-flaky
+failure, and it is the same one every run.
+
+### What is next
+
+1. The page scroll, the moment macOS can run tests - it is a small change to
+   where the clamp gets its extent from, and it wants a control that shows a
+   page moving a page while the layout is still catching up.
+2. The packed-position crash of entry 173, when it can be made to happen on
+   purpose.
+3. Everything else on this branch has been done twice over: C++ since entry
+   33, QmlJS since 164, and the shell phase is planned in entry 169 and not
+   started.
