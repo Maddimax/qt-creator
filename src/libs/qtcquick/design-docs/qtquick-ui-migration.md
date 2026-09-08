@@ -53789,3 +53789,76 @@ argument, not a measurement.
    and the shape of a pane's tests all exist.
 3. Still parked: the page scroll of entry 174, the packed-position crash of
    entry 173.
+
+## 2026-09-08 — Bookmarks, and a row that belongs to somebody else (batch 184)
+
+**The gap this closed: the second pane exists, and it needed something the
+first one did not.** `QTC_QUICK_BOOKMARKS` asks for the Qt Quick Bookmarks
+sidebar; the widget view is still the default, because the context menu, the
+drag and the reorder are not ported.
+
+This entry's whole content is the difference between the two panes, because
+that is what the next one will want to know.
+
+### The row belongs to the manager, not to the list
+
+Open Documents keeps no state: the current row *is* the current editor, and
+the pane asks the editor manager. Bookmarks is not like that. The widget view
+does
+
+    setSelectionModel(bookmarkManager().selectionModel());
+
+because **Previous and Next move that selection from the toolbar above the
+list**. A pane that kept a selection of its own would disagree with its own
+buttons - so `BookmarksList` reads and writes the manager's selection model,
+and the QML follows it in both directions (`currentIndex` from it,
+`onCurrentIndexChanged` back into it).
+
+Written down for the next pane: **ask who owns the current row before drawing
+one.** Two panes, two different owners, and neither is the list.
+
+### Two smaller things
+
+`BookmarkManager` gains **`roleNames()`**. Its roles are `UserRole` numbers -
+`Filename`, `LineNumber`, `LineText`, `Note` - which a widget delegate asks
+for by number and **QML cannot ask for at all**. Naming them changes nothing
+for the widget view and is the one edit the model needed.
+
+The pane's **toolbar buttons stay widgets**. `Previous` and `Next` are
+ActionManager commands wrapped in `QToolButton`s that live in the dock's
+toolbar, not in the pane; the factory hands back the same two either way. A
+button in a dock frame is not what this migration is about, and pretending
+otherwise would have meant porting the dock as well.
+
+### The unexported-symbol wall, again
+
+The test makes its bookmarks the way a reader does - the `Bookmarks.Toggle`
+command on the line the editor is on - because `bookmarkManager()` lives in
+`TextEditor::Internal` and is not exported: `undefined symbol` at load time,
+the whole suite dead. **That is the second time** (entry 179 was the first),
+and the answer was the same both times: reach through what is public. It
+makes for a better test anyway - this one goes through the command a reader
+presses.
+
+### Control
+
+**N - the controller returns a row of its own** instead of the manager's
+selection: fails at **-1 against 0**, which is the assertion that the two are
+one thing.
+
+### Verification
+
+    -test QuickUi      216 passed, 0 failed, exit 0   (215 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+The census counts Bookmarks as Quick when its switch is set, so the line that
+changes when it becomes the default is already written. Full Linux build
+clean, no `.qbs` edit, macOS unverified since batch 170.
+
+### What is next
+
+1. The rest of Bookmarks: the context menu (six entries, two of them
+   ActionManager commands and one an editor of its own), the drag **and
+   drop** - this model reorders, unlike Open Documents - and then the switch.
+2. macOS, still one login away, now for two panes rather than one.
+3. Parked: entry 174's page scroll, entry 173's crash.
