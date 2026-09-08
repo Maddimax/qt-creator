@@ -20,7 +20,6 @@
 
 #include <utils/algorithm.h>
 #include <utils/environment.h>
-#include <utils/checkablemessagebox.h>
 #include <utils/dropsupport.h>
 #include <utils/icon.h>
 #include <utils/itemviews.h>
@@ -194,16 +193,10 @@ public:
 
     void gotoBookmark(const QModelIndex &index);
 
-    void removeFromContextMenu();
-    void removeAll();
-
 protected:
     void contextMenuEvent(QContextMenuEvent *event) final;
     void removeBookmark(const QModelIndex &index);
     void keyPressEvent(QKeyEvent *event) final;
-
-private:
-    QModelIndex m_contextMenuIndex;
 };
 
 BookmarkView::BookmarkView()
@@ -252,43 +245,8 @@ QList<QToolButton *> BookmarkView::createToolBarWidgets()
 void BookmarkView::contextMenuEvent(QContextMenuEvent *event)
 {
     QMenu menu;
-    Command *moveUpCmd = ActionManager::command(TextEditor::Constants::BOOKMARKS_MOVEUP_ACTION);
-    Command *moveDownCmd = ActionManager::command(TextEditor::Constants::BOOKMARKS_MOVEDOWN_ACTION);
-    menu.addAction(moveUpCmd->action());
-    menu.addAction(moveDownCmd->action());
-    menu.addSeparator();
-    Command *sortByFilenamesCmd = ActionManager::command(TextEditor::Constants::BOOKMARKS_SORTBYFILENAMES_ACTION);
-    menu.addAction(sortByFilenamesCmd->action());
-    menu.addSeparator();
-    QAction *edit = menu.addAction(Tr::tr("&Edit"));
-    menu.addSeparator();
-    QAction *remove = menu.addAction(Tr::tr("&Remove"));
-    menu.addSeparator();
-    QAction *removeAll = menu.addAction(Tr::tr("Remove All"));
-
-    m_contextMenuIndex = indexAt(event->pos());
-    if (!m_contextMenuIndex.isValid()) {
-        moveUpCmd->action()->setEnabled(false);
-        moveDownCmd->action()->setEnabled(false);
-        remove->setEnabled(false);
-        edit->setEnabled(false);
-    }
-
-    if (model()->rowCount() == 0) {
-        removeAll->setEnabled(false);
-    }
-
-    BookmarkManager *manager = &bookmarkManager();
-    connect(remove, &QAction::triggered, this, &BookmarkView::removeFromContextMenu);
-    connect(removeAll, &QAction::triggered, this, &BookmarkView::removeAll);
-    connect(edit, &QAction::triggered, manager, &BookmarkManager::edit);
-
+    fillBookmarksContextMenu(&menu, indexAt(event->pos()).row());
     menu.exec(mapToGlobal(event->pos()));
-}
-
-void BookmarkView::removeFromContextMenu()
-{
-    removeBookmark(m_contextMenuIndex);
 }
 
 void BookmarkView::removeBookmark(const QModelIndex& index)
@@ -305,23 +263,6 @@ void BookmarkView::keyPressEvent(QKeyEvent *event)
         return;
     }
     ListView::keyPressEvent(event);
-}
-
-void BookmarkView::removeAll()
-{
-    if (CheckableMessageBox::question(Tr::tr("Remove All Bookmarks"),
-                                      Tr::tr("Are you sure you want to remove all bookmarks from "
-                                             "all files in the current session?"),
-                                      Key("RemoveAllBookmarks"))
-        != QMessageBox::Yes)
-        return;
-
-    // The performance of this function could be greatly improved.
-    BookmarkManager *manager = &bookmarkManager();
-    while (manager->rowCount()) {
-        QModelIndex index = manager->index(0, 0);
-        removeBookmark(index);
-    }
 }
 
 void BookmarkView::gotoBookmark(const QModelIndex &index)
@@ -1091,16 +1032,20 @@ public:
 private:
     NavigationView createWidget() final
     {
-        // The Qt Quick view draws the rows, opens one, removes one and walks
-        // with the keyboard. It has not got the context menu, the drag or the
-        // reorder yet, so it is behind a switch: QTC_QUICK_BOOKMARKS asks for
-        // it. The toolbar buttons are the same either way - Previous and Next
-        // are ActionManager commands, and a QToolButton in a dock's toolbar
-        // is not what this migration is about.
+        // The Qt Quick view draws the rows, opens one, removes one, walks with
+        // the keyboard and offers the right-click menu. It has not got the
+        // drag or the reorder yet, so it is behind a switch:
+        // QTC_QUICK_BOOKMARKS asks for it. The toolbar buttons are the same
+        // either way - Previous and Next are ActionManager commands, and a
+        // QToolButton in a dock's toolbar is not what this migration is about.
         if (Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_BOOKMARKS")) {
             auto * const list = new BookmarksList;
             if (QWidget * const view = Core::createQmlView(
                     QUrl("qrc:/qt/qml/QtCreator/TextEditor/BookmarksView.qml"), list)) {
+                // Move Up, Move Down and Sort by Filenames are registered in
+                // this context, so without it they are disabled wherever the
+                // reader asks for them - the menu and the keyboard alike.
+                IContext::attach(view, Context(BOOKMARKS_CONTEXT));
                 auto * const buttons = new BookmarkView;
                 buttons->hide();
                 buttons->setParent(view);

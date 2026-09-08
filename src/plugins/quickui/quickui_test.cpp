@@ -21,7 +21,12 @@
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
+#include <coreplugin/icontext.h>
 #include <coreplugin/inavigationwidgetfactory.h>
+#include <coreplugin/session.h>
+
+#include <utils/checkabledecider.h>
+#include <utils/qtcsettings.h>
 
 #include <utils/dropsupport.h>
 #include <utils/temporarydirectory.h>
@@ -441,6 +446,7 @@ private slots:
     void testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilReturn();
     void testTheOpenDocumentsSidebarFollowsTheEditorItNeverHadFocusFrom();
     void testTheBookmarksSidebarListsAndOpensInTheQuickView();
+    void testTheBookmarksSidebarOffersTheWidgetsRightClickMenu();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13855,10 +13861,216 @@ void QuickUiTest::testTheBookmarksSidebarListsAndOpensInTheQuickView()
     QTRY_COMPARE(list->property("currentIndex").toInt(), before + 1);
 
     // And removing one takes it out of the manager, not just off the list.
+    // Both of this test's own go, because bookmarks outlive the editor they
+    // were set in and the next test counts what is there.
     QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, before + 1)));
     QTRY_COMPARE(model->rowCount(), before + 1);
-    QVERIFY(QMetaObject::invokeMethod(controller, "removeAll"));
+    QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, before)));
+    QTRY_COMPARE(model->rowCount(), before);
+}
+
+// The pane's right-click menu: six entries and four separators, filled by the
+// same function the widget view fills its menu with. Three of the six are
+// ActionManager commands registered in the Bookmarks context, and three of
+// them act on the manager's current row rather than on the row the menu was
+// opened over - so this checks that the pane carries that context, that a
+// click moves that row, and what is disabled when.
+void QuickUiTest::testTheBookmarksSidebarOffersTheWidgetsRightClickMenu()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Bookmarks"); });
+    QVERIFY2(factory, "the Bookmarks sidebar is gone");
+
+    Utils::TemporaryDirectory dir("quick-bookmarks-menu");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("marked.txt");
+    QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    owned->resize(300, 400);
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+    QQuickItem * const list = quickWidget->rootObject();
+    QVERIFY(list);
+
+    // Move Up, Move Down and Sort by Filenames are registered in the
+    // Bookmarks context, so a pane that does not carry it leaves all three
+    // disabled wherever a reader reaches them - the menu and the keyboard
+    // alike. The widget view attaches it to itself; this one has to have it
+    // attached to whatever hosts the QML.
+    QVERIFY2(Utils::anyOf(owned->findChildren<Core::IContext *>(),
+                          [&owned](Core::IContext *context) {
+                              return context->widget() == owned.get()
+                                     && context->context().contains(Utils::Id("Bookmarks"));
+                          }),
+             "the pane does not carry the Bookmarks context");
+
+    QObject * const controller = list->property("controller").value<QObject *>();
+    QVERIFY(controller);
+    auto * const model = controller->property("model").value<QAbstractItemModel *>();
+    QVERIFY(model);
+
+    // Bookmarks outlive the editor they were set in, so anything an earlier
+    // test left behind goes first: what is asserted below is the state of the
+    // whole list, not of a suffix of it.
+    for (int rows = model->rowCount(); rows > 0 && model->rowCount(); --rows)
+        QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, 0)));
+    QCOMPARE(model->rowCount(), 0);
+
+    const auto entriesFor = [controller](int row) {
+        QObjectList actions;
+        QMetaObject::invokeMethod(controller, "contextMenuActions",
+                                  Q_RETURN_ARG(QObjectList, actions), Q_ARG(int, row));
+        return Utils::transform(actions,
+                                [](QObject *object) { return qobject_cast<QAction *>(object); });
+    };
+
+    // With nothing in the list the only entry that is not about a row has
+    // nothing to do either.
+    const QList<QAction *> onNothing = entriesFor(-1);
+    QCOMPARE(onNothing.size(), 10);
+    QVERIFY2(!onNothing.contains(nullptr), "the menu offered something that is not an action");
+    QVERIFY2(!onNothing.last()->isEnabled(), "Remove All offers to empty an empty list");
+
+    // Two bookmarks, made the way a reader makes them - see the test above.
+    Core::Command * const toggle = Core::ActionManager::command("Bookmarks.Toggle");
+    QVERIFY2(toggle, "the bookmark toggle command is gone");
+    editor->gotoLine(1, 0);
+    toggle->action()->trigger();
+    editor->gotoLine(3, 0);
+    toggle->action()->trigger();
+    QTRY_COMPARE(model->rowCount(), 2);
+    QTRY_COMPARE(list->property("count").toInt(), 2);
+
+    // The order the widget view builds, with the three commands read from the
+    // ActionManager rather than written out here.
+    QStringList commandTexts;
+    for (const Utils::Id id : {Utils::Id("Bookmarks.MoveUp"), Utils::Id("Bookmarks.MoveDown"),
+                               Utils::Id("Bookmarks.SortByFilenames")}) {
+        Core::Command * const command = Core::ActionManager::command(id);
+        QVERIFY2(command,
+                 qPrintable(QString("%1 is not a registered command").arg(id.toString())));
+        commandTexts << command->action()->text();
+    }
+    const QList<QAction *> onRow = entriesFor(1);
+    QCOMPARE(onRow.size(), 10);
+    QCOMPARE(onRow[0]->text(), commandTexts[0]);
+    QCOMPARE(onRow[1]->text(), commandTexts[1]);
+    QCOMPARE(onRow[3]->text(), commandTexts[2]);
+
+    // A separator is where the widget menu draws a line, and it reaches the
+    // QML as an entry with no text - which is what the QML draws one for.
+    for (const int separator : {2, 4, 6, 8}) {
+        QVERIFY2(onRow[separator]->isSeparator(),
+                 qPrintable(QString("entry %1 is not a separator").arg(separator)));
+        QCOMPARE(onRow[separator]->text(), QString());
+    }
+    // Edit, Remove and Remove All are this menu's own, and on a row all three
+    // are offered. The three commands are not asserted on here: the proxy
+    // action of a command whose context is not the current one reads disabled
+    // whatever the menu asks for, which is why the context assertion above is
+    // the one that speaks for them.
+    for (const int entry : {5, 7, 9}) {
+        QVERIFY2(!onRow[entry]->text().isEmpty(),
+                 qPrintable(QString("entry %1 has no text").arg(entry)));
+        QVERIFY2(onRow[entry]->isEnabled(),
+                 qPrintable(QString("entry %1 is refused on a row").arg(entry)));
+    }
+
+    // Nothing under the pointer takes away the four entries that are about a
+    // row. Edit above all: BookmarkManager::edit() indexes its list with the
+    // current row and does not guard it, so an Edit offered there is a crash.
+    const QList<QAction *> offRow = entriesFor(-1);
+    QCOMPARE(offRow.size(), 10);
+    QVERIFY2(!offRow[5]->isEnabled(), "Edit is offered with no bookmark under the pointer");
+    QVERIFY2(!offRow[7]->isEnabled(), "Remove is offered with no bookmark under the pointer");
+    QVERIFY2(offRow[9]->isEnabled(), "Remove All is refused with two bookmarks in the list");
+
+    // The click makes the row it landed on current, which is what Move Up,
+    // Move Down and Edit read. Row 0 first, so the click has somewhere to
+    // move it from.
+    QVERIFY(controller->setProperty("currentRow", 0));
+    QCOMPARE(controller->property("currentRow").toInt(), 0);
+    QQuickItem *secondRow = nullptr;
+    QVERIFY(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, secondRow),
+                                      Q_ARG(int, 1)));
+    QVERIFY2(secondRow, "the second row is not drawn, so nothing can be clicked on it");
+    const qreal middleOfSecond = secondRow->y() + secondRow->height() / 2
+                                 - list->property("contentY").toReal();
+    int picked = -1;
+    QVERIFY(QMetaObject::invokeMethod(list, "pickRowAt", Q_RETURN_ARG(int, picked),
+                                      Q_ARG(qreal, 4.0), Q_ARG(qreal, middleOfSecond)));
+    QCOMPARE(picked, 1);
+    QCOMPARE(controller->property("currentRow").toInt(), 1);
+
+    // Below the last row is not "no menu" but a menu about the list, and it
+    // leaves the current row where it was.
+    const qreal endOfTheRows = secondRow->y() + secondRow->height()
+                               - list->property("contentY").toReal();
+    QVERIFY2(list->height() > endOfTheRows + 1,
+             "the rows fill the list, so a click that misses them all cannot be aimed");
+    QVERIFY(QMetaObject::invokeMethod(list, "pickRowAt", Q_RETURN_ARG(int, picked),
+                                      Q_ARG(qreal, 4.0),
+                                      Q_ARG(qreal, list->height() - 1)));
+    QCOMPARE(picked, -1);
+    QCOMPARE(controller->property("currentRow").toInt(), 1);
+
+    // Remove takes the row the menu was opened over, not the current one.
+    // They are told apart here on purpose: with the current row on the first
+    // bookmark, the menu of the second must still remove the second.
+    const int lineNumberRole = model->roleNames().key("lineNumber");
+    QVERIFY2(lineNumberRole > 0, "the bookmark model does not name its line number role");
+    QVERIFY(controller->setProperty("currentRow", 0));
+    entriesFor(1)[7]->trigger();
+    QTRY_COMPARE(model->rowCount(), 1);
+    QCOMPARE(model->index(0, 0).data(lineNumberRole).toInt(), 1);
+
+    // Remove All asks first, with a "Do not ask again" box. Answered here the
+    // way a reader who ticked it would have, and put back afterwards, because
+    // these are the developer's own settings.
+    Utils::QtcSettings * const settings = Utils::doNotAskAgainSettings();
+    QVERIFY2(settings, "there is nowhere to answer the Remove All question");
+    QVariant asked;
+    settings->withGroup(Utils::doNotAskAgainGroup(), [&asked](Utils::QtcSettings *group) {
+        asked = group->value("RemoveAllBookmarks");
+        group->setValue("RemoveAllBookmarks", true);
+    });
+    const QScopeGuard restoreAsking([settings, asked] {
+        settings->withGroup(Utils::doNotAskAgainGroup(), [&asked](Utils::QtcSettings *group) {
+            if (asked.isValid())
+                group->setValue("RemoveAllBookmarks", asked);
+            else
+                group->remove("RemoveAllBookmarks");
+        });
+    });
+    // Read back through the decider the menu entry itself builds: if the
+    // question would still be asked, a modal box would hang this run.
+    QVERIFY2(!Utils::CheckableDecider(Utils::Key("RemoveAllBookmarks")).shouldAskAgain(),
+             "the Remove All question is still armed");
+
+    // And it removes them from the session, not only from the list: the
+    // manager's own removeAllBookmarks() leaves the session holding every
+    // bookmark it just took off the screen, so they come back with it.
+    QVERIFY2(!Core::SessionManager::value("Bookmarks").toStringList().isEmpty(),
+             "the session holds no bookmarks, so emptying it proves nothing");
+    entriesFor(-1)[9]->trigger();
     QTRY_COMPARE(model->rowCount(), 0);
+    QVERIFY2(Core::SessionManager::value("Bookmarks").toStringList().isEmpty(),
+             "the bookmarks are off the list but still in the session");
 }
 
 QObject *createQuickUiTest()

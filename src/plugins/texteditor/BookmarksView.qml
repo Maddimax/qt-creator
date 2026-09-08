@@ -51,6 +51,57 @@ ListView {
         event.accepted = true
     }
 
+    // Which row a right-click landed on, made the current one on the way.
+    // Move Up, Move Down and Edit act on the manager's current row rather
+    // than on the row the menu was opened over; the widget view gets that
+    // from the item view's own right-press, and this pane has to do it
+    // itself. -1 where the click missed every row.
+    function pickRowAt(x: real, y: real) : int {
+        // indexAt() works in content coordinates, and a handler declared in a
+        // Flickable is attached to the Flickable, so its points are not.
+        const row = root.indexAt(x + root.contentX, y + root.contentY)
+        if (row >= 0)
+            root.controller.currentRow = row
+        return row
+    }
+
+    // The right-click menu, from the same six entries the widget view builds.
+    // One handler for the whole list rather than one per row, because a
+    // right-click that lands on no row is not "no menu": it is the menu with
+    // the four entries about a row disabled, which is what a row of -1 says.
+    // A row's ItemDelegate takes the left button only, so this sees the right
+    // one wherever it falls.
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: (point, button) => {
+            const row = root.pickRowAt(point.position.x, point.position.y)
+            rowMenu.actions = root.controller.contextMenuActions(row)
+            rowMenu.popup()
+        }
+    }
+
+    Menu {
+        id: rowMenu
+
+        objectName: "bookmarkMenu"
+        property var actions: []
+
+        Repeater {
+            model: rowMenu.actions
+
+            delegate: MenuItem {
+                required property var modelData
+
+                // A separator arrives as an action with no text; the widget
+                // menu draws a line there and so does this.
+                text: modelData.text
+                enabled: modelData.enabled && modelData.text !== ""
+                height: modelData.text === "" ? 1 : implicitHeight
+                onTriggered: modelData.trigger()
+            }
+        }
+    }
+
     delegate: ItemDelegate {
         id: row
 
@@ -80,7 +131,10 @@ ListView {
 
             Label {
                 width: parent.width
-                text: row.note !== "" ? row.note : row.lineText
+                // Trimmed, as the widget delegate compares it: a note of
+                // nothing but spaces is not a note, and the line's own text
+                // says more.
+                text: row.note.trim() !== "" ? row.note : row.lineText
                 elide: Text.ElideRight
                 opacity: 0.7
             }
