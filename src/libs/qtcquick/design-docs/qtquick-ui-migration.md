@@ -53447,3 +53447,71 @@ since batch 170.
    the ones with the least behaviour behind them.
 3. Still waiting on someone else: the page scroll of entry 174 (macOS), and
    the packed-position crash of entry 173.
+
+## 2026-09-08 — The sidebar's right-click menu, from the same call (batch 179)
+
+**The gap this closed: the Quick Open Documents pane had no context menu**,
+which is most of what a sidebar row can do - close others, close all, copy
+the path, open in a split, the version control entries.
+
+Both sidebars now show the same menu, because both build it from
+`EditorManager::addContextMenuActions()`. Nothing in the Quick pane decides
+what a document offers, which is the only way two views of one thing stay the
+same as the thing changes.
+
+### The shape, taken from the editor's gutter
+
+The QActions belong to a `QMenu` the controller keeps alive while they are on
+screen, built afresh for the row that was clicked. That is what
+`TextViewport::showMarkMenu()` already does for the gutter's mark menu, and
+the comment there says why: the entries are built for one line and are
+worthless for another. A sidebar row is the same situation.
+
+QML lists them and triggers them - `text`, `enabled` and `trigger()` are all
+a `QAction` needs to expose, so **Core hands out plain `QObject *` and needs
+no action model and no Quick library**. `QtcQuick::ActionModel` exists and is
+what the text editor uses, but it lives on the wrong side of the line entry
+177 drew.
+
+A separator arrives as an action with no text, which is where the QML draws
+a line rather than an entry.
+
+### The test asks the pane, and compares against the call
+
+Two things worth keeping about how it is written:
+
+- It reaches the controller **through the pane** - `rootObject()->property("controller")`,
+  then the invokable through the metaobject. The first version built an
+  `OpenDocumentsList` beside the test instead, and the suite would not even
+  load: `undefined symbol: vtable for Core::Internal::OpenDocumentsList`,
+  because the class is `Internal` and not exported. Asking the pane is both
+  linkable and a better question - what is on trial is what the sidebar
+  offers, not what a controller can be made to say.
+- It compares against a `QMenu` it fills through the same `EditorManager`
+  call, **not against a list of names written into the test**. A written list
+  would assert what somebody typed in 2026 and would have to be edited every
+  time the editor manager gains an entry; this way the assertion is *"the
+  same entries the widget sidebar builds"*, which is the actual claim.
+
+Then it triggers Close and watches `entryCount()` drop, so an entry does what
+it says rather than merely appearing.
+
+### Control
+
+**G - the pane builds a one-entry menu of its own** instead of asking
+EditorManager: the comparison fails at **1 against 25**, which also says how
+much of a sidebar's behaviour lives in that one call.
+
+### Verification
+
+    -test QuickUi      211 passed, 0 failed, exit 0   (210 before)
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Full Linux build clean, no `.qbs` edit, macOS unverified since batch 170.
+
+### What is next
+
+Open Documents still lacks the **drag** (the widget view moves a row through
+the model's own mimeData/dropMimeData) and the **VCS decoration** its item
+delegate paints. Those two are what stand between the switch and the census
+line changing. After that, Bookmarks or Outline as the second pane.
