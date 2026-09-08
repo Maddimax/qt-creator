@@ -40,9 +40,14 @@ private:
         // The views that name their own QML - the Open Documents sidebar,
         // and whatever the shell phase moves next - are hosted here for the
         // same reason: Core names the file and never links this library.
-        Core::setQmlViewFactory([](const QUrl &source, QObject *controller) -> QWidget * {
+        Core::setQmlViewFactory([](const QUrl &source, QObject *controller,
+                                   Core::QmlViewSizing sizing) -> QWidget * {
             auto * const host = new QtcQuick::QuickWidget;
             controller->setParent(host);
+            // A scene that has to fit beside other widgets is measured by
+            // what it asks for; one that is given a dock fills it.
+            if (sizing == Core::QmlViewSizing::SizeToScene)
+                host->quickWidget()->setResizeMode(QQuickWidget::SizeViewToRootObject);
             host->quickWidget()->setInitialProperties(
                 {{"controller", QVariant::fromValue(controller)}});
             host->setSource(source);

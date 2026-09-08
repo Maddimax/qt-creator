@@ -378,6 +378,7 @@ if(TARGET Core)
     QML_FILES
       AddToVcsDialog.qml
       OpenDocumentsView.qml
+      OutputPaneButtons.qml
       CodecSelector.qml
       SessionDialog.qml
       SessionNameInputDialog.qml

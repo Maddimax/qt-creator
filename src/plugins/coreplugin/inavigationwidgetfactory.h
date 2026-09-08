@@ -39,9 +39,17 @@ struct NavigationView
 // to the scene as its "controller" property before the source is set, and
 // parented to the widget that comes back. Nothing installed, or nullptr back,
 // means the caller keeps its widget view.
-using QmlViewFactory = std::function<QWidget *(const QUrl &source, QObject *controller)>;
+//
+// Whether the scene fills the widget it is given - a dock, an editor area -
+// or the widget takes the size the scene asks for, which is what something
+// living in a bar beside other widgets needs.
+enum class QmlViewSizing { FillView, SizeToScene };
+
+using QmlViewFactory = std::function<
+    QWidget *(const QUrl &source, QObject *controller, QmlViewSizing sizing)>;
 CORE_EXPORT void setQmlViewFactory(const QmlViewFactory &factory);
-CORE_EXPORT QWidget *createQmlView(const QUrl &source, QObject *controller);
+CORE_EXPORT QWidget *createQmlView(const QUrl &source, QObject *controller,
+                                   QmlViewSizing sizing = QmlViewSizing::FillView);
 CORE_EXPORT bool hasQmlViewFactory();
 
 class CORE_EXPORT INavigationWidgetFactory : public QObject

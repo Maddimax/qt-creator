@@ -76,12 +76,43 @@ signals:
     void flashRequested(int row);
 };
 
+// What the Qt Quick row needs of the buttons above. One per row, and short
+// lived: Core::createQmlView() hands the scene the controller it is given and
+// parents it to the widget that comes back, while the model belongs to the
+// output pane manager and outlives every row. So this stands between them.
+class OutputPaneButtons : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QAbstractItemModel *model READ model CONSTANT)
+
+public:
+    explicit OutputPaneButtons(OutputPaneButtonModel *model, QObject *parent = nullptr);
+
+    QAbstractItemModel *model() const;
+
+    // A row pressed, and the menu that says which panes have buttons at all.
+    Q_INVOKABLE void activate(int row);
+    Q_INVOKABLE void showMenu();
+
+signals:
+    // Relayed, because a delegate cannot connect to the model's own signal
+    // without reaching past its controller.
+    void flashRequested(int row);
+
+private:
+    OutputPaneButtonModel *m_model = nullptr;
+};
+
 class OutputPaneManager : public QWidget
 {
     Q_OBJECT
 
 public:
     static OutputPaneManager *instance();
+    // The row of buttons in Qt Quick, for whoever asks: the shell when its
+    // switch is set, and a test that wants one of its own.
+    static QWidget *createButtonRow();
     void updateStatusButtons(bool visible);
     static void updateMaximizeButton(bool maximized);
 

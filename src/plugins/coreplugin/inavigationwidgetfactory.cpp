@@ -83,11 +83,11 @@ bool hasQmlViewFactory()
     return bool(theQmlViewFactory());
 }
 
-QWidget *createQmlView(const QUrl &source, QObject *controller)
+QWidget *createQmlView(const QUrl &source, QObject *controller, QmlViewSizing sizing)
 {
     if (!theQmlViewFactory())
         return nullptr;
-    return theQmlViewFactory()(source, controller);
+    return theQmlViewFactory()(source, controller, sizing);
 }
 
 static QList<INavigationWidgetFactory *> g_navigationWidgetFactories;

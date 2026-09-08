@@ -23,6 +23,9 @@
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/icontext.h>
 #include <coreplugin/inavigationwidgetfactory.h>
+#include <coreplugin/ioutputpane.h>
+#include <coreplugin/outputpane.h>
+#include <coreplugin/outputpanemanager.h>
 #include <coreplugin/session.h>
 
 #include <utils/checkabledecider.h>
@@ -106,6 +109,7 @@
 #include <QQuickWidget>
 #include <QLineEdit>
 #include <QScrollArea>
+#include <QStatusBar>
 #include <QQmlProperty>
 #include <QVBoxLayout>
 #include <QTemporaryDir>
@@ -449,6 +453,7 @@ private slots:
     void testTheBookmarksSidebarOffersTheWidgetsRightClickMenu();
     void testDraggingABookmarkCarriesItAndReordersTheList();
     void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
+    void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -14322,6 +14327,105 @@ void QuickUiTest::testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong()
 
     QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, 0)));
     QTRY_COMPARE(model->rowCount(), 0);
+}
+
+// The first piece of the shell's *frame* in Qt Quick, rather than of a pane's
+// contents: the row of output-pane buttons. It is built here rather than
+// found in the status bar, because the shell builds its row once at startup
+// and a test cannot get in before that - which is what the exported factory
+// is for.
+void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()
+{
+    QVERIFY2(Core::hasQmlViewFactory(),
+             "nothing installed a QML view factory, so Core has nothing to host with");
+
+    const std::unique_ptr<QWidget> owned(Core::createOutputPaneButtonRow());
+    QVERIFY2(owned, "the row was not built at all");
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "the row is not a Qt Quick one");
+    // A row in a bar is measured by what it asks for, not given whatever is
+    // left: the sidebars fill a dock, this has to fit beside a status bar.
+    QCOMPARE(quickWidget->resizeMode(), QQuickWidget::SizeViewToRootObject);
+
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+    QQuickItem * const row = quickWidget->rootObject();
+    QVERIFY(row);
+    QCOMPARE(row->objectName(), QString("outputPaneButtons"));
+
+    QObject * const controller = row->property("controller").value<QObject *>();
+    QVERIFY(controller);
+    auto * const model = controller->property("model").value<QAbstractItemModel *>();
+    QVERIFY(model);
+
+    // One button per pane, and the row is the manager's own: the panes it
+    // lists are the ones the shell has.
+    const QList<Core::IOutputPane *> panes = Core::IOutputPane::allOutputPanes();
+    QVERIFY2(!panes.isEmpty(), "no output panes are registered, so this tests nothing");
+    QCOMPARE(model->rowCount(), panes.size());
+
+    QList<QQuickItem *> buttons;
+    for (QQuickItem * const child : row->childItems()) {
+        if (child->objectName() == QLatin1String("outputPaneButton"))
+            buttons << child;
+    }
+    QCOMPARE(buttons.size(), panes.size());
+
+    // What a button says: the number a reader presses and the pane's name,
+    // each in an item of its own rather than in one string.
+    QQuickItem * const first = buttons.first();
+    QQuickItem * const number = drawnItemNamed(first, "outputPaneButtonNumber");
+    QQuickItem * const name = drawnItemNamed(first, "outputPaneButtonName");
+    QVERIFY2(number && name, "the button draws no number or no name");
+    QCOMPARE(number->property("text").toString(), QString("1"));
+    QCOMPARE(name->property("text").toString(), panes.first()->displayName());
+
+    // A pane with no priority in the status bar has no button drawn, which is
+    // the same rule the widget row follows.
+    for (int i = 0; i < buttons.size(); ++i) {
+        const bool wanted
+            = model->index(i, 0).data(Core::Internal::OutputPaneButtonModel::ButtonVisibleRole)
+                  .toBool();
+        QCOMPARE(buttons.at(i)->isVisible(), wanted);
+    }
+
+    // And what a pane says about its own button reaches the row it is drawn
+    // in. Said the way a pane says it, so what is on trial is the whole way
+    // through: pane, model, controller, delegate.
+    Core::IOutputPane * const pane = panes.first();
+    const QVariant badge
+        = model->index(0, 0).data(Core::Internal::OutputPaneButtonModel::BadgeRole);
+    const QScopeGuard restoreBadge([pane, badge] {
+        pane->setIconBadgeNumber(badge.toString().toInt()); });
+
+    QQuickItem * const badgeItem = drawnItemNamed(first, "outputPaneButtonBadge");
+    QQuickItem * const badgeText = drawnItemNamed(first, "outputPaneButtonBadgeText");
+    QVERIFY2(badgeItem && badgeText, "the button has nowhere to report a count");
+    pane->setIconBadgeNumber(4);
+    QTRY_COMPARE(badgeText->property("text").toString(), QString("4"));
+    QVERIFY2(badgeItem->isVisible(), "the count is drawn nowhere");
+    // Nothing to report draws nothing at all, rather than an empty bubble.
+    pane->setIconBadgeNumber(0);
+    QTRY_VERIFY2(!badgeItem->isVisible(), "an empty badge is still drawn");
+
+    // Asking to be noticed starts the animation that says so - unless the
+    // pane is the one being read, which is where the widget row stops its
+    // timer as well.
+    auto * const flash = first->findChild<QObject *>("outputPaneFlash");
+    QVERIFY2(flash, "the button has nothing to flash with");
+    QVERIFY2(!flash->property("running").toBool(), "the row starts out flashing");
+    pane->flash();
+    QVERIFY2(flash->property("running").toBool(), "a pane asked to be noticed and nothing moved");
+
+    // The census: the shell's own row is still the widget one. The status bar
+    // builds its row once, at startup, so a test cannot change which kind it
+    // gets - it can only say which kind is there, and this is the line that
+    // has to change in the commit that makes the Quick row the default.
+    QWidget * const shellRow
+        = Core::ICore::statusBar()->findChild<QWidget *>("OutputPaneButtons");
+    QVERIFY2(shellRow, "the status bar holds no output pane buttons at all");
+    QVERIFY2(!shellRow->findChild<QQuickWidget *>(),
+             "the shell's button row is the Qt Quick one now, which this line has to say");
 }
 
 QObject *createQuickUiTest()
