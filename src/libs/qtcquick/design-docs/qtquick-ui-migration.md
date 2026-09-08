@@ -52626,3 +52626,80 @@ address-reuse bug is. `Amends 99991c0c5b0...`.
   compiler until a rebuild against the old Qt separates them.
 - The 6.11.1 Debug build is kept beside the 6.11.2 one for exactly that kind
   of A/B; it costs disk, and the next environment surprise costs an evening.
+
+## 2026-09-08 — The shell: what is still widgets, and the order to take it (batch 169, a plan)
+
+The owner set the next phase: convert more widgets, starting from the
+observation that the docking and the main window are still widgets. Confirmed
+by survey at HEAD - everything Quick so far is an island inside an
+all-widgets shell:
+
+| Shell piece | What it is | Size of the seam |
+| --- | --- | --- |
+| `MainWindow : AppMainWindow` | a `QMainWindow`, private in `icore.cpp` | `ICore::mainWindow()` leaks `QMainWindow *` to 33 call sites, mostly dialog parents |
+| `FancyTabWidget` | mode selector + per-mode stacked widget | 9 `IMode`s |
+| `NavigationWidget` ×2 | the sidebars; splitter of factory views | 15 `INavigationWidgetFactory`s, each answering a `QWidget *` |
+| `OutputPaneManager` | the bottom panes | 13 `IOutputPane`s, each answering `outputWidget()` |
+| `StatusBarManager` | a `QStatusBar` | `ICore::statusBar()` has 3 direct users |
+| menu bar | native, via ActionManager | stays native regardless |
+| `Utils::FancyMainWindow` | **the docking** - `QDockWidget`-based | debugger `Perspective`s, ProjectWindow, DesignMode, Designer, CompilerExplorer, Axivion |
+| `SplitterOrView` | editor splits | EditorManager-internal |
+
+Entry ~13 (line 1275) once filed `fancymainwindow.h` under "belongs on the
+widget side". That was true for the editor phase; this phase re-opens it.
+
+### Strategy: inside-out, the way the editor was done
+
+Quick-inside-widgets (`QQuickWidget`) is the direction 168 batches have
+proven; widgets-inside-Quick (`WindowContainer`, present in the installed Qt
+since 6.7) is the fragile direction and is kept for the endgame only. So the
+shell stays a `QMainWindow` while its *contents* go Quick, seam by seam, the
+same shape as `setUsesQuickEditor()`: an interface learns to say "my view is
+Quick", the host learns to embed it, a census test learns to count it, and a
+negative control proves the census can refuse.
+
+### The ladder, in order
+
+1. **The navigation seam.** `INavigationWidgetFactory` gains the Quick
+   answer beside the widget one; `NavigationWidget`/`NavigationSubWidget`
+   embed it. Census: which navigation views are Quick; does each get what its
+   factory configures (the editor censuses are the template).
+2. **Panes by value, model-first.** Most of the 15 views are item views over
+   models the QtcQuick tree/table delegates already draw. First rungs:
+   **Open Documents** (a list over DocumentModel, no drag-and-drop), then
+   Bookmarks, Outline. The Projects tree is the hard one (drag-and-drop,
+   session state) and comes last in this rung.
+3. **The output-pane seam**, then the panes; Search Results and the
+   terminal are the hard ones there.
+4. **Status bar**: a Quick row fed by the same `StatusBarManager`; three
+   direct `ICore::statusBar()` users to re-seam.
+5. **Mode selector**: `FancyTabWidget`'s painting is self-contained; a Quick
+   column replaces it while the mode *stack* stays widgets until its pages
+   are Quick.
+6. **Docking, last.** When the docks' *contents* are Quick, decide with
+   measurements in hand: a QML docking layer (own, or KDDockWidgets-QtQuick)
+   hosting the remainder via `WindowContainer` - or keep `QDockWidget`
+   docking as the final deliberate widget island. `Perspective` is the seam
+   to prepare either way: today it deals in `QWidget *` docks.
+7. **The shell flip** (`QMainWindow` → Quick window) only after 6, and the
+   menu bar stays on the native ActionManager machinery throughout.
+
+### What to measure before believing any of it
+
+- **QQuickWidget density**: sidebars + output pane + editor visible at once
+  is 3-4 live Quick scenes. Measure memory and render cost early, on the
+  first batch that puts two beside the editor - not after ten panes.
+- **Focus chains** across widget↔Quick boundaries - the editor batches have
+  a drawer of lessons; the sidebar adds the "focus follows the mouse into a
+  different scene" case.
+- **State restore**: `NavigationWidget::saveSettings()` and the perspectives
+  save widget-shaped state; the Quick views have to restore from it, the way
+  the editor deliberately did not (entry 164 records that one-time loss).
+
+### The first batch
+
+The navigation seam plus one pane end-to-end: Open Documents in the sidebar
+as a Quick view behind a factory flag, censuses counting it, controls that
+bite (flag off → census red; view refuses a file the model does not list).
+Small enough for one batch, and it forces the seam, the embedding, the focus
+question and the state question all at unit size.
