@@ -10,7 +10,10 @@
 
 #include <utils/qtcassert.h>
 
+#include <QDrag>
+#include <QIcon>
 #include <QMenu>
+#include <QMimeData>
 
 namespace Core::Internal {
 
@@ -46,6 +49,31 @@ void OpenDocumentsList::close(int row)
     DocumentModel::Entry * const entry = DocumentModel::entryAtRow(row + 1);
     QTC_ASSERT(entry, return);
     EditorManager::closeDocuments({entry});
+}
+
+QMimeData *OpenDocumentsList::dragMimeData(int row) const
+{
+    const QModelIndex index = m_model->index(row, 0);
+    if (!index.isValid())
+        return nullptr;
+    return m_model->mimeData({index});
+}
+
+void OpenDocumentsList::startDrag(int row)
+{
+    QMimeData * const data = dragMimeData(row);
+    if (!data)
+        return;
+
+    // The drag belongs to the view being dragged from, and it is what the
+    // reader is holding until they let go: exec() blocks, as it does for the
+    // tree view.
+    auto * const drag = new QDrag(this);
+    drag->setMimeData(data);
+    const QVariant decoration = m_model->index(row, 0).data(Qt::DecorationRole);
+    if (decoration.canConvert<QIcon>())
+        drag->setPixmap(decoration.value<QIcon>().pixmap(16, 16));
+    drag->exec(Qt::MoveAction);
 }
 
 QObjectList OpenDocumentsList::contextMenuActions(int row)

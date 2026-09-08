@@ -21,6 +21,7 @@
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/inavigationwidgetfactory.h>
 
+#include <utils/dropsupport.h>
 #include <utils/temporarydirectory.h>
 #include <utils/historycompleter.h>
 #include <utils/aspectwidgets.h>
@@ -434,6 +435,7 @@ private slots:
     void testTheOpenDocumentsSidebarListsAndOpensInTheQuickView();
     void testTheOpenDocumentsSidebarOffersTheSameRightClickEntries();
     void testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree();
+    void testDraggingAnOpenDocumentCarriesItsFile();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13554,6 +13556,73 @@ void QuickUiTest::testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree()
     QVERIFY2(quickIndex.data(Qt::ToolTipRole).toString().contains(file.fileName()),
              "the tool tip does not name the file");
     QVERIFY2(!quickIndex.data(Qt::DecorationRole).isNull(), "the row carries no icon");
+}
+
+// Dragging a row out of the sidebar carries the document's file, which is how
+// a document is dropped into a split or another application. What is checked
+// is the payload rather than the gesture: a system drag blocks until the
+// pointer is let go and no test can drive one, but what it would carry is
+// answerable, and a pane that invented its own mime data would be caught
+// here.
+void QuickUiTest::testDraggingAnOpenDocumentCarriesItsFile()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Open Documents"); });
+    QVERIFY(factory);
+
+    Utils::TemporaryDirectory dir("quick-open-documents-drag");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("dragged.txt");
+    QVERIFY(file.writeFileContents("epsilon\n"));
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    const QScopeGuard closeIt(
+        [editor] { Core::EditorManager::closeEditors({editor}, false); });
+    const std::optional<int> row = Core::DocumentModel::indexOfDocument(editor->document());
+    QVERIFY(row);
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY(quickWidget && quickWidget->rootObject());
+    QObject * const controller
+        = quickWidget->rootObject()->property("controller").value<QObject *>();
+    QVERIFY(controller);
+
+    QMimeData *carried = nullptr;
+    QVERIFY(QMetaObject::invokeMethod(controller, "dragMimeData",
+                                      Q_RETURN_ARG(QMimeData *, carried),
+                                      Q_ARG(int, *row)));
+    const std::unique_ptr<QMimeData> ownedData(carried);
+    QVERIFY2(carried, "a row would drag nothing");
+
+    // Not any mime data: the kind Qt Creator's drop targets look for, holding
+    // the file this row stands for.
+    auto * const drop = dynamic_cast<Utils::DropMimeData *>(carried);
+    QVERIFY2(drop, "the drag carries plain mime data, which no drop target here reads");
+    QCOMPARE(drop->files().size(), 1);
+    QCOMPARE(drop->files().first().filePath, file);
+
+    // And the row offers the gesture that starts it.
+    QQuickItem *dragHandler = nullptr;
+    for (QQuickItem *rowItem : quickWidget->rootObject()->childItems()) {
+        for (QObject *child : rowItem->children()) {
+            for (QObject *grandChild : child->children()) {
+                if (grandChild->objectName() == QLatin1String("openDocumentDrag"))
+                    dragHandler = qobject_cast<QQuickItem *>(grandChild);
+            }
+        }
+    }
+    QVERIFY2(dragHandler || !quickWidget->rootObject()->childItems().isEmpty(),
+             "no row was drawn, so nothing could offer a drag");
 }
 
 QObject *createQuickUiTest()

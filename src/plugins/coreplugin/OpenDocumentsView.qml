@@ -53,6 +53,18 @@ ListView {
         // nothing here opens anything by itself.
         onClicked: root.controller.activate(row.index)
 
+        // Dragging a row takes the document with it, the way the tree view
+        // does - the drag itself is the controller's, because what a drop
+        // target reads is the model's own mime data and QML cannot build it.
+        DragHandler {
+            objectName: "openDocumentDrag"
+            target: null
+            onActiveChanged: {
+                if (active)
+                    root.controller.startDrag(row.index)
+            }
+        }
+
         // The right-click menu the widget sidebar offers, from the same
         // actions. Built when it is asked for rather than kept: the entries
         // are about this row and go stale as soon as another is clicked.

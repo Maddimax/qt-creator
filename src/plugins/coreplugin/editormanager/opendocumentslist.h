@@ -10,6 +10,7 @@
 QT_BEGIN_NAMESPACE
 class QAbstractItemModel;
 class QMenu;
+class QMimeData;
 QT_END_NAMESPACE
 
 namespace Core {
@@ -41,6 +42,14 @@ public:
     // sidebar shows them, with DocumentModel's <no document> entry left out.
     Q_INVOKABLE void activate(int row);
     Q_INVOKABLE void close(int row);
+
+    // Dragging a row carries the document's file out of the sidebar - into a
+    // split, an editor area, another application. The mime data is the
+    // model's own, so a drop target that looks for Utils::DropMimeData sees
+    // exactly what the tree view would have sent; the caller owns what comes
+    // back. startDrag() is what a gesture calls.
+    Q_INVOKABLE QMimeData *dragMimeData(int row) const;
+    Q_INVOKABLE void startDrag(int row);
 
     // What the right-click menu holds for a row, in the order the widget
     // sidebar holds it. The QActions belong to a menu kept alive here while
