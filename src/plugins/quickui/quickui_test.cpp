@@ -16,6 +16,8 @@
 #include <QLocale>
 #include <QElapsedTimer>
 #include <QClipboard>
+#include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/actionmanager/command.h>
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
@@ -438,6 +440,7 @@ private slots:
     void testDraggingAnOpenDocumentCarriesItsFile();
     void testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilReturn();
     void testTheOpenDocumentsSidebarFollowsTheEditorItNeverHadFocusFrom();
+    void testTheBookmarksSidebarListsAndOpensInTheQuickView();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -13334,6 +13337,16 @@ void QuickUiTest::testWhichNavigationViewsAreQuick()
         Utils::Environment::modifySystemEnvironment(
             {{"QTC_WIDGET_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
     QCOMPARE(quickViews(), QStringList());
+
+    // Bookmarks is the pane being written now: Qt Quick when asked for, and
+    // the widget view until it is finished. The line above is what changes
+    // when it stops being asked for.
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetBookmarks([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
+    QCOMPARE(quickViews(), QStringList({QString("Bookmarks")}));
 }
 
 // The first sidebar pane in Qt Quick, end to end: the switch gets a QML view
@@ -13773,6 +13786,79 @@ void QuickUiTest::testTheOpenDocumentsSidebarFollowsTheEditorItNeverHadFocusFrom
 
     // The row moves with it, without the list ever having been touched.
     QTRY_COMPARE(list->property("currentIndex").toInt(), *secondRow);
+}
+
+// The second sidebar pane. Bookmarks are not documents: the row a reader is
+// on belongs to the bookmark manager, because Previous and Next move it from
+// the toolbar above the list - so what this checks is that the QML list and
+// that selection are the same thing, in both directions.
+void QuickUiTest::testTheBookmarksSidebarListsAndOpensInTheQuickView()
+{
+    Core::INavigationWidgetFactory * const factory = Utils::findOr(
+        Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
+        [](Core::INavigationWidgetFactory *f) { return f->id() == Utils::Id("Bookmarks"); });
+    QVERIFY2(factory, "the Bookmarks sidebar is gone");
+
+    Utils::TemporaryDirectory dir("quick-bookmarks");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("marked.txt");
+    QVERIFY(file.writeFileContents("alpha\nbeta\ngamma\n"));
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([] { Core::EditorManager::closeAllDocuments(); });
+
+    Utils::Environment::modifySystemEnvironment(
+        {{"QTC_QUICK_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
+    const QScopeGuard unsetSwitch([] {
+        Utils::Environment::modifySystemEnvironment(
+            {{"QTC_QUICK_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
+
+    const Core::NavigationView view = factory->createWidget();
+    QVERIFY(view.widget);
+    const std::unique_ptr<QWidget> owned(view.widget);
+    auto * const quickWidget = owned->findChild<QQuickWidget *>();
+    QVERIFY2(quickWidget, "the switch did not get a Qt Quick view");
+    QVERIFY2(view.dockToolBarWidgets.size() == 2,
+             "the Previous and Next buttons are gone from the pane's toolbar");
+    owned->resize(300, 400);
+    owned->show();
+    QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+    QQuickItem * const list = quickWidget->rootObject();
+    QVERIFY(list);
+    QCOMPARE(list->objectName(), QString("bookmarksList"));
+
+    QObject * const controller = list->property("controller").value<QObject *>();
+    QVERIFY(controller);
+    auto * const model = controller->property("model").value<QAbstractItemModel *>();
+    QVERIFY(model);
+
+    // Two bookmarks, made the way a reader makes them: the toggle command on
+    // the line the editor is on. Not bookmarkManager() - that lives in
+    // TextEditor's Internal namespace and is not exported, which is the same
+    // wall the Open Documents menu test hit.
+    const int before = model->rowCount();
+    Core::Command * const toggle
+        = Core::ActionManager::command("Bookmarks.Toggle");
+    QVERIFY2(toggle, "the bookmark toggle command is gone");
+    editor->gotoLine(1, 0);
+    toggle->action()->trigger();
+    editor->gotoLine(3, 0);
+    toggle->action()->trigger();
+    QTRY_COMPARE(model->rowCount(), before + 2);
+    QTRY_COMPARE(list->property("count").toInt(), model->rowCount());
+
+    // The row is the manager's in both directions: what the list is on is
+    // what the manager's selection says, and moving the list moves that.
+    list->setProperty("currentIndex", before);
+    QTRY_COMPARE(controller->property("currentRow").toInt(), before);
+    QVERIFY(controller->setProperty("currentRow", before + 1));
+    QTRY_COMPARE(list->property("currentIndex").toInt(), before + 1);
+
+    // And removing one takes it out of the manager, not just off the list.
+    QVERIFY(QMetaObject::invokeMethod(controller, "remove", Q_ARG(int, before + 1)));
+    QTRY_COMPARE(model->rowCount(), before + 1);
+    QVERIFY(QMetaObject::invokeMethod(controller, "removeAll"));
+    QTRY_COMPARE(model->rowCount(), 0);
 }
 
 QObject *createQuickUiTest()

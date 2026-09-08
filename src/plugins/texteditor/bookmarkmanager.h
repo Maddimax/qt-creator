@@ -39,6 +39,8 @@ public:
     int rowCount(const QModelIndex &parent = QModelIndex()) const final;
     int columnCount(const QModelIndex &parent = QModelIndex()) const final;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const final;
+    // Named so that a QML view can read them; the widget view asks by number.
+    QHash<int, QByteArray> roleNames() const final;
     Qt::ItemFlags flags(const QModelIndex &index) const final;
 
     Qt::DropActions supportedDragActions() const final;

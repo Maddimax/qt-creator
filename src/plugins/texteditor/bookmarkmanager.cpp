@@ -4,6 +4,7 @@
 #include "bookmarkmanager.h"
 
 #include "bookmark.h"
+#include "bookmarkslist.h"
 #include "texteditor.h"
 #include "texteditorconstants.h"
 #include "texteditortr.h"
@@ -18,6 +19,7 @@
 #include <coreplugin/session.h>
 
 #include <utils/algorithm.h>
+#include <utils/environment.h>
 #include <utils/checkablemessagebox.h>
 #include <utils/dropsupport.h>
 #include <utils/icon.h>
@@ -503,6 +505,17 @@ int BookmarkManager::columnCount(const QModelIndex &parent) const
     if (parent.isValid())
         return 0;
     return 3;
+}
+
+QHash<int, QByteArray> BookmarkManager::roleNames() const
+{
+    QHash<int, QByteArray> names = QAbstractItemModel::roleNames();
+    names[Filename] = "filename";
+    names[LineNumber] = "lineNumber";
+    names[Directory] = "directory";
+    names[LineText] = "lineText";
+    names[Note] = "note";
+    return names;
 }
 
 QVariant BookmarkManager::data(const QModelIndex &index, int role) const
@@ -1078,6 +1091,23 @@ public:
 private:
     NavigationView createWidget() final
     {
+        // The Qt Quick view draws the rows, opens one, removes one and walks
+        // with the keyboard. It has not got the context menu, the drag or the
+        // reorder yet, so it is behind a switch: QTC_QUICK_BOOKMARKS asks for
+        // it. The toolbar buttons are the same either way - Previous and Next
+        // are ActionManager commands, and a QToolButton in a dock's toolbar
+        // is not what this migration is about.
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_BOOKMARKS")) {
+            auto * const list = new BookmarksList;
+            if (QWidget * const view = Core::createQmlView(
+                    QUrl("qrc:/qt/qml/QtCreator/TextEditor/BookmarksView.qml"), list)) {
+                auto * const buttons = new BookmarkView;
+                buttons->hide();
+                buttons->setParent(view);
+                return {view, buttons->createToolBarWidgets()};
+            }
+            delete list;
+        }
         auto view = new BookmarkView;
         view->setActivationMode(Utils::DoubleClickActivation); // QUESTION: is this useful ?
         return {view, view->createToolBarWidgets()};

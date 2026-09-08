@@ -25,6 +25,7 @@ add_qtc_plugin(TextEditor
     bookmark.cpp bookmark.h
     bookmarkfilter.cpp bookmarkfilter.h
     bookmarkmanager.cpp bookmarkmanager.h
+    bookmarkslist.cpp bookmarkslist.h
     circularclipboard.cpp circularclipboard.h
     circularclipboardassist.cpp circularclipboardassist.h
     codeassist/assistenums.h
@@ -204,6 +205,7 @@ if(TARGET TextEditor)
     DEPENDENCIES
       QtCreator.Ui
     QML_FILES
+      BookmarksView.qml
       ${TEXTEDITOR_TEST_QML_FILES}
       ActionMenu.qml
       BehaviorSettingsForm.qml
