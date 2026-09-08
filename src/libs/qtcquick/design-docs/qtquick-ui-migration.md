@@ -53713,3 +53713,79 @@ default and changes the census line in the same commit - and given that this
 pane's inventory has grown on all three readings, the batch should start by
 reading the widget view once more and saying plainly whether anything is
 left.
+
+## 2026-09-08 — Open Documents is the Quick sidebar, and the fourth reading paid for itself (batch 183)
+
+**The gap this closed: the sidebar a reader gets is the Qt Quick one.**
+`QTC_WIDGET_OPEN_DOCUMENTS` asks for the tree view back, the way
+`QTC_WIDGET_CPP_EDITOR` does for the editor, and a build with nothing to host
+QML still gets the tree view without asking.
+
+The last entry said to read the widget view once more first, because the
+inventory had grown on all three earlier readings. **It grew again**, and this
+time both files were read end to end rather than searched.
+
+### What the fourth reading found
+
+- `updateCurrentItem()` ends with **`scrollTo()`**. A row that says which
+  document is open is no answer if it is scrolled out of sight, so the pane
+  scrolls it in - from the one function that also writes `currentIndex`,
+  which is where that belongs.
+- The tree view keeps its **scrollbar always shown**, so that opening a
+  document does not shift every row sideways. Matched, one line.
+- And the thing that mattered: **batch 182 was wrong.**
+
+### The control that was blind, and the rule's third possibility
+
+Batch 182 removed a listener for `currentRowChanged` because control J did
+not bite, and wrote down that the fix was unnecessary. It was not. Every test
+in that batch **gave the list the keyboard and took it away**, and taking it
+away is what set the row - so the listener's absence was invisible.
+
+In the shell the sidebar *never* holds the keyboard unless the reader clicks
+in it. A document opened from the editor area, from Locator, from a search
+result, would have left the row pointing at whatever was open before. A pane
+in a window of its own is the only place where window activation hands it
+focus by default, which is exactly why every test saw the wrong thing.
+
+The rule in `~/.claude/method.md` gives three readings of a control that does
+not bite: the fix is unnecessary, **the test is wrong**, or it is not the
+whole cause. Batch 182 took the first and stopped. The test that finds this
+now **takes the focus away on purpose** before opening anything, and fails at
+row 0 against row 1 without the listener.
+
+So the entry above stands corrected in place: the listener is back, the
+comment beside it says which case it covers that the other two writes do not,
+and *"a control that does not bite"* has cost this document a wrong entry
+once - the cheap guard is to ask what the test would have to look like for
+the control to bite, before believing it.
+
+### Controls
+
+- **L - the flip reverted**: all seven pane tests fail, the census among
+  them. A pane moving is a deliberate act that seven tests co-sign.
+- **M - the listener removed again**: the unfocused sidebar stops following,
+  row 0 against row 1. Run on its own, because L masks it - with no Quick
+  view at all there is nothing to follow.
+
+### Verification
+
+    -test QuickUi      215 passed, 0 failed, exit 0
+    -test TextEditor   726 passed, 1 failed, 3 skipped, exit 1  (unchanged)
+
+Full Linux build clean, no `.qbs` edit.
+
+**Said plainly: this is a default changed on one platform's evidence.** The
+macOS VM has no desktop session, so the pane has never been drawn on macOS.
+Nothing in it is platform-specific - it is QML over a model, and the two
+gestures that are (middle click, Delete) are Qt's own - but that is an
+argument, not a measurement.
+
+### What is next
+
+1. **macOS.** A default that has only been seen on Linux wants the other
+   platform before anyone relies on it. One desktop login away.
+2. Bookmarks or Outline as the second pane, now that the seam, the census
+   and the shape of a pane's tests all exist.
+3. Still parked: the page scroll of entry 174, the packed-position crash of
+   entry 173.
