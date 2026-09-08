@@ -404,9 +404,14 @@ void CodeHighlightingTest::testHighlightsAQuickDocument()
 
     CodeHighlighting highlighting;
     highlighting.setDocument(quickDocument);
-    highlighting.setMimeType("text/x-c++src");
+    // Java, not C++: the generic highlighter's definitions are only the ones
+    // this repository ships, and it ships none for C++ - a machine that
+    // highlights C++ here has downloaded the full set into its home
+    // directory, which is not something a test may depend on. The text below
+    // is keywords, a number and a comment in either language.
+    highlighting.setMimeType("text/x-java");
     QVERIFY2(highlighting.isHighlighting(),
-             "no highlight definition for C++ - is KSyntaxHighlighting's data available?");
+             "no highlight definition for Java - are the bundled ones installed?");
 
     // The keyword, the number and the comment are all coloured differently, so
     // the line ends up in several runs.
@@ -428,8 +433,9 @@ void CodeHighlightingTest::testUnknownMimeTypeStillShowsTheText()
     QVERIFY(!highlighting.isHighlighting());
     QCOMPARE(edit->property("text").toString(), QString("some text\n"));
 
-    // Naming a type it does know attaches one.
-    highlighting.setMimeType("text/x-c++src");
+    // Naming a type it does know attaches one. Java because that is one the
+    // repository ships a definition for; see testHighlightsAQuickDocument().
+    highlighting.setMimeType("text/x-java");
     QVERIFY(highlighting.isHighlighting());
 
     // And taking the document away detaches it again.
