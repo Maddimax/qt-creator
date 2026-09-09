@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "theme/theme.h"
 #include "utils_global.h"
 
 #include <QIcon>

@@ -17,7 +17,7 @@
 
 #include <memory>
 
-namespace QmlProfiler::Internal {
+namespace Profiler::Internal {
 
 // Every recording backend's settings are drawn by a form of their own, and
 // only the standalone Qt Profiler renders them - so on a machine where a
@@ -108,6 +108,6 @@ QObject *createSamplerFormsTest()
     return new SamplerFormsTest;
 }
 
-} // namespace QmlProfiler::Internal
+} // namespace Profiler::Internal
 
 #include "samplerforms_test.moc"

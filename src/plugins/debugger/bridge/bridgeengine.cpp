@@ -14,7 +14,7 @@
 #include <debugger/debuggerconstants.h>
 #include <debugger/debuggerinternalconstants.h>
 #include <debugger/debuggerprotocol.h>
-#include <debugger/debuggersourcepathmappingwidget.h>
+#include <debugger/sourcepathmap.h>
 
 #include <utils/algorithm.h>
 #include <utils/macroexpander.h>

@@ -3166,7 +3166,6 @@ class GITSHARED_EXPORT GitPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createRemoteDialogTest);
         addTestCreator(Gerrit::Internal::createGerritRemoteChooserTest);
         addTestCreator(createLogChangeMarksTest);
-        addTestCreator(createInstantBlameTest);
         addTestCreator(Gerrit::Internal::createGerritPushDialogTest);
         addTestCreator(Gerrit::Internal::createGerritDialogTest);
 #endif

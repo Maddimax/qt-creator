@@ -21,6 +21,7 @@
 #include <theme.h>
 #include <utils/outputformatter.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <projectexplorer/project.h>
 #include <projectexplorer/projectmanager.h>

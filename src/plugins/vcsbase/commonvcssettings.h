@@ -13,8 +13,6 @@ class VCSBASE_EXPORT SpellCheckLanguageAspect final : public Utils::StringSelect
 {
 public:
     using StringSelectionAspect::StringSelectionAspect;
-
-    void fixupComboBox(QComboBox *comboBox) override;
 };
 
 class VCSBASE_EXPORT CommonVcsSettings final : public Utils::AspectContainer

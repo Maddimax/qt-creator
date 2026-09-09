@@ -11,6 +11,8 @@
 
 #include "profilertr.h"
 
+#include <utils/async.h>
+#include <utils/futuresynchronizer.h>
 #include <utils/processinfo.h>
 
 #ifdef WITH_TESTS

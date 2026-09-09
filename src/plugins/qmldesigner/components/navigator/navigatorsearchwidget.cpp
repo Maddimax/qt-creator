@@ -6,6 +6,7 @@
 #include "navigatortracing.h"
 
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <theme.h>
 
 #include <QAction>

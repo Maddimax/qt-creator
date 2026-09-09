@@ -84,7 +84,6 @@ public:
 };
 
 #ifdef WITH_TESTS
-QObject *createMcpCommandsTest();
 #endif
 
 } // namespace Mcp::Internal

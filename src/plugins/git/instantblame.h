@@ -66,6 +66,7 @@ private:
     friend class InstantBlameTest;
 #endif
     void setupForCurrentEditor();
+    bool setEditor(TextEditor::TextEditorWidget *widget);
     bool setEditor(Core::IEditor *editor);
     void scheduleInstantBlame();
     void stop();

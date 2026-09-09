@@ -8,6 +8,7 @@
 #include <theme.h>
 #include <utils/hostosinfo.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QBitmap>
 #include <QBrush>

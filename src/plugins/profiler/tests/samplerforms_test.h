@@ -5,8 +5,8 @@
 
 #include <QObject>
 
-namespace QmlProfiler::Internal {
+namespace Profiler::Internal {
 
 QObject *createSamplerFormsTest();
 
-} // namespace QmlProfiler::Internal
+} // namespace Profiler::Internal

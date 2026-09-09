@@ -32,6 +32,7 @@
 #include <utils/qtcassert.h>
 #include <utils/qtcprocess.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/widgets.h>
 #include <utils/theme/theme.h>
 

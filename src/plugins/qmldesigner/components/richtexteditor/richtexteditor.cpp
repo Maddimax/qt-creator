@@ -6,6 +6,7 @@
 
 #include <utils/layoutbuilder.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <functional>
 

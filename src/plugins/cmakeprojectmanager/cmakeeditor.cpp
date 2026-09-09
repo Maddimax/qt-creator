@@ -310,7 +310,7 @@ static void findCMakeLinkAt(TextDocument *document,
 
     // Resolve local variables and functions
     QString projectName;
-    auto hash = getLocalSymbolsHash(document->textAt(0, funcEnd + 1).toUtf8(),
+    auto hash = getLocalSymbolsHash(document->textAt(0, funcEnd + 1),
                                     document->filePath(),
                                     projectName);
     if (!projectName.isEmpty())

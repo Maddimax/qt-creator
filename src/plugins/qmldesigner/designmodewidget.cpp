@@ -37,6 +37,7 @@
 
 #include <utils/fileutils.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QActionGroup>
 #include <QApplication>

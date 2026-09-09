@@ -99,7 +99,7 @@ class ProfilerPlugin final : public ExtensionSystem::IPlugin
         addTest<QmlProfilerTraceViewTest>();
 
         addTestCreator(createCallStackSamplerSettingsTest);
-        addTestCreator(QmlProfiler::Internal::createSamplerFormsTest);
+        addTestCreator(createSamplerFormsTest);
         addTestCreator(createPerfConfigEventsModelTest);
         addTestCreator(createPerfNativeMixedTest);
         addTestCreator(createPerfResourceCounterTest);

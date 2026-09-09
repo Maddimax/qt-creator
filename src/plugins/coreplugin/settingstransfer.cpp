@@ -7,6 +7,7 @@
 #include "documentmanager.h"
 #include "icore.h"
 
+#include <utils/filedialogs.h>
 #include <utils/aspects.h>
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>

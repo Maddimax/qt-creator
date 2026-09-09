@@ -32,6 +32,7 @@
 #include <utils/algorithm.h>
 #include <utils/icon.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 
 #include <QHeaderView>
 #include <QMimeData>

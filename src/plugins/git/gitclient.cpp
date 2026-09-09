@@ -1789,7 +1789,7 @@ DiffEditor::InlineDiffBaseline GitClient::revisionBaseline(const FilePath &worki
     const QString blameRef = ref.isEmpty() ? QString("HEAD") : ref;
     baseline.setupBaselineView = [workingDirectory, blameRef, relativeFile,
                                   sourceFile](TextEditor::TextEditorWidget *widget) {
-        new BaselineBlame(editor, workingDirectory, blameRef, relativeFile, sourceFile);
+        new BaselineBlame(widget, workingDirectory, blameRef, relativeFile, sourceFile);
     };
     return baseline;
 }

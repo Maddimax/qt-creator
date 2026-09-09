@@ -8,7 +8,7 @@
 #include "pydapengine.h"
 
 #include "../debuggeractions.h"
-#include "../debuggersourcepathmappingwidget.h"
+#include "../sourcepathmap.h"
 
 #include <coreplugin/messagemanager.h>
 

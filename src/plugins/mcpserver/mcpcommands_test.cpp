@@ -9,6 +9,8 @@
 #include <mcp/server/toolregistry.h>
 
 #include <texteditor/texteditor.h>
+#include "mcpcommands.h"
+#include <texteditor/textdocument.h>
 
 #include <utils/filepath.h>
 #include <utils/temporarydirectory.h>
@@ -56,6 +58,41 @@ private slots:
     void testSelectTextTakesOneBasedColumns();
     void testSelectTextRejectsAnInvalidRange();
     void testFindWidgetsReportsATextEditAsAnExcerpt();
+    // reformat_file asked the editor for a TextEditorWidget and gave up
+    // without one, so the tool failed outright on a C++ file - which opens in
+    // the Qt Quick editor.
+    void testReformatReachesAViewThatIsNotAWidget()
+    {
+        Utils::TemporaryDirectory dir("mcp-reformat-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("crooked.cpp");
+        QVERIFY(file.writeFileContents("int main()\n{\nreturn 0;\n}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        // The fixture only means anything if the file really is in the view
+        // this is about.
+        Core::IEditor * const opened = Core::EditorManager::openEditor(file);
+        QVERIFY2(opened, "the editor manager opened nothing");
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(opened),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        McpCommands commands;
+        QVERIFY2(commands.reformatFile(file.toUserOutput()),
+                 "the tool refused the file it had just been given");
+
+        auto * const document
+            = qobject_cast<TextEditor::TextDocument *>(opened->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(document->plainText().contains("    return 0;"),
+                     qPrintable("the body was not indented:\n" + document->plainText()));
+    }
 };
 
 void McpCommandsTest::testSelectTextSpansWholeLinesByDefault()

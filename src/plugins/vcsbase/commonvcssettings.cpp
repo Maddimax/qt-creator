@@ -41,11 +41,6 @@ CommonVcsSettings &commonSettings()
     return settings;
 }
 
-void SpellCheckLanguageAspect::fixupComboBox(QComboBox *comboBox)
-{
-    comboBox->setMinimumContentsLength(20);
-}
-
 QString submitMessageSpellCheckLanguage()
 {
     if (!commonSettings().spellCheck())

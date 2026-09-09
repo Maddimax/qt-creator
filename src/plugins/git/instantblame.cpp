@@ -450,6 +450,37 @@ void InstantBlame::setupForCurrentEditor()
     m_modified = m_document->isModified();
 }
 
+bool InstantBlame::setEditor(TextEditorWidget *widget)
+{
+    if (!widget)
+        return false;
+    m_document = widget->textDocument();
+    if (!m_document)
+        return false;
+
+    FilePath topLevel = currentState().currentFileTopLevel();
+    if (topLevel.isEmpty()) {
+        const QString repository = m_document->property("GitRepository").toString();
+        if (!repository.isEmpty())
+            topLevel = FilePath::fromString(repository);
+    }
+    if (topLevel.isEmpty()) {
+        m_document = nullptr;
+        return false;
+    }
+
+    const FilePath sourceFilePath = VcsBase::source(m_document);
+    const FilePath workingFilePath = sourceFilePath.isEmpty() ? m_document->filePath()
+                                                              : sourceFilePath;
+    m_controller->setContext(widget, topLevel,
+                             m_document->property("GitReference").toString(),
+                             workingFilePath.path(), workingFilePath,
+                             /*allowModifiedDocument=*/true,
+                             /*useDocumentContents=*/true);
+    m_controller->setEnabled(true);
+    return true;
+}
+
 bool InstantBlame::setEditor(Core::IEditor *editor)
 {
     if (!editor)
@@ -478,7 +509,7 @@ bool InstantBlame::setEditor(Core::IEditor *editor)
     const FilePath sourceFilePath = VcsBase::source(m_document);
     const FilePath workingFilePath = sourceFilePath.isEmpty() ? m_document->filePath()
                                                               : sourceFilePath;
-    m_controller->setContext(widget, topLevel,
+    m_controller->setContext(editor, topLevel,
                              m_document->property("GitReference").toString(),
                              workingFilePath.path(), workingFilePath);
     m_controller->setEnabled(true);
@@ -608,7 +639,7 @@ void InstantBlame::once()
         return;
     }
     m_blameCursorPosConn = TextEditor::whenCursorMoved(
-        editor, this, &InstantBlame::stop, Qt::SingleShotConnection);
+        editor, this, [this] { stop(); }, Qt::SingleShotConnection);
 }
 
 void InstantBlame::scheduleInstantBlame()

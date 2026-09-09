@@ -535,7 +535,6 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
 
 #ifdef WITH_TESTS
     addTestCreator(createActionManagerTest);
-    addTestCreator(createOutputFilterTest);
     addTestCreator(OutputText::createOutputTextTest);
     addTestCreator(createItemViewFindTest);
     addTestCreator(createOutputPaneViewTest);

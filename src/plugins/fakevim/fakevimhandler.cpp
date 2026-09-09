@@ -27311,7 +27311,7 @@ int FakeVimHandler::Private::columnsOnScreen() const
     if (!editor())
         return 1;
     const int w = QFontMetrics(EDITOR(font())).horizontalAdvance(' ');
-    return w > 0 ? EDITOR(viewport()->width()) / w : 1;
+    return w > 0 ? EDITOR(viewportWidth()) / w : 1;
 }
 
 int FakeVimHandler::Private::cursorLine() const
