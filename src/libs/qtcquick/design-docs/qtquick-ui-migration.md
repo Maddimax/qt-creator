@@ -55875,3 +55875,77 @@ row is the widget one, which this line has to say)`, and nothing else moves.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — What a result row draws is the model's answer (batch 204)
+
+**Gap closed: the search results delegate no longer works out what to draw.**
+Entry 203 said the tree is two batches; this is the first, and it is the same
+precondition the last four panes needed - get the presentation decisions out
+of the painter, with the widget delegate as their first consumer.
+
+### Four decisions that lived in a QPainter
+
+`SearchResultTreeItemDelegate` computed, per paint:
+
+- the display text with **" (N)" appended** for a group, from
+  `model()->rowCount(index)`;
+- **padding to 80 columns**, rounded up in 20s, so that the "[in f]" suffixes
+  line up down the column - a loop called `align()` in the delegate;
+- **tab expansion**, `replace('\t', m_tabString)`, done separately on each of
+  the four pieces it cut the line into;
+- the **three pieces themselves**: before the match, the match, after it.
+
+None of that is reachable from a QML delegate, and the last two are why.
+
+### The offsets were lying, and nothing said so
+
+`ResultBeginColumnNumberRole` and `SearchTermLengthRole` are offsets into the
+**raw** line. The delegate expanded tabs in each piece *after* cutting, so it
+got the right answer; any other consumer using those roles directly puts the
+highlight in the wrong place whenever the line contains a tab before the
+match - which, in indented code, is most of them.
+
+There are three new roles that answer the question a view actually has -
+`DrawnTextRole`, `DrawnHighlightStartRole`, `DrawnHighlightLengthRole`, plus
+`DrawnFunctionTextRole` - and the offsets are into the drawn text. The old
+roles stay, because `SearchResultItem` consumers outside the view use them for
+what they say.
+
+The tab width moved with them: it used to go
+`SearchResultWidget → view → delegate`, a painter's private string of spaces.
+It goes to the **model** now, which is where the offsets are computed, and a
+change emits `dataChanged` so the rows redraw - which the delegate got for
+free from `doItemsLayout()` and a model would not.
+
+### Verification
+
+Both platforms build clean. No new files, so no `.qbs` edit.
+
+    -test Core         277 passed, 2 failed, exit 2   (276 before)
+    -test QuickUi      223 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+### Negative controls
+
+**BR - the expansion bites.** `DrawnHighlightStartRole` returning the raw
+column: the test's row is `"\tneedle here"` with a tab width of 4, so the
+match is drawn at 4 and the control says 1. That is exactly the bug a QML
+delegate would have shipped by believing the old roles.
+
+**BS - the redraw bites.** The `dataChanged` on a tab width change removed:
+`(the tab width changed and no row was told to redraw)`.
+
+### What is next
+
+1. **The results tree in QML.** What a row draws is now data; what is left is
+   the tree itself - check states, the file/match hierarchy, filtering,
+   expansion, and the focus question entry 203 parked. That is the second of
+   the two batches.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**, the same interface problem batch 202 solved once.
+4. **macOS verification**, owed since entry 168, now including two Quick panes
+   nobody has looked at.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

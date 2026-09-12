@@ -11,6 +11,7 @@
 #include <QWidget>
 
 QT_BEGIN_NAMESPACE
+class QAbstractItemModel;
 class QFrame;
 class QLabel;
 class QLineEdit;
@@ -253,6 +254,7 @@ public:
 
 #ifdef WITH_TESTS
     const SearchResultHeader &headerForTesting() const { return m_header; }
+    QAbstractItemModel *resultsModelForTesting() const;
 #endif
 
 public slots:

@@ -23,7 +23,6 @@ class SearchResultTreeItemDelegate: public QItemDelegate
 public:
     SearchResultTreeItemDelegate(int tabWidth, QObject *parent = nullptr);
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-    void setTabWidth(int width);
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 private:
     LayoutInfo getLayoutInfo(const QStyleOptionViewItem &option, const QModelIndex &index) const;
@@ -31,7 +30,6 @@ private:
     void drawText(QPainter *painter, const QStyleOptionViewItem &option,
                            const QRect &rect, const QModelIndex &index) const;
 
-    QString m_tabString;
 };
 
 } // namespace Core::Internal

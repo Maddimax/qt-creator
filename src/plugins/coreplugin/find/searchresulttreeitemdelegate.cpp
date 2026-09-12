@@ -15,7 +15,6 @@ using namespace Core::Internal;
 SearchResultTreeItemDelegate::SearchResultTreeItemDelegate(int tabWidth, QObject *parent)
     : QItemDelegate(parent)
 {
-    setTabWidth(tabWidth);
 }
 
 const int lineNumberAreaHorizontalPadding = 4;
@@ -37,28 +36,12 @@ static std::pair<int, QString> lineNumberInfo(const QStyleOptionViewItem &option
 }
 
 // Aligns text by appending spaces
-static QString align(QString text)
-{
-    constexpr int minimumTextSize = 80;
-    constexpr int textSizeIncrement = 20;
-
-    int textSize = ((text.size() / textSizeIncrement) + 1) * textSizeIncrement;
-    textSize = std::max(minimumTextSize, textSize);
-    text.resize(textSize, ' ');
-    return text;
-}
-
+// Both halves come from the model now: what a row draws is the model's
+// answer, tabs already expanded, so a view that is not this one gets the same.
 static QPair<QString, QString> itemText(const QModelIndex &index)
 {
-    QString text = index.data(Qt::DisplayRole).toString();
-    // show number of subresults in displayString
-    if (index.model()->hasChildren(index))
-        text += " (" + QString::number(index.model()->rowCount(index)) + ')';
-
-    const auto functionName = index.data(ItemDataRoles::ContainingFunctionNameRole).toString();
-    if (!functionName.isEmpty())
-        return {align(std::move(text)), "[in " + functionName + "]"};
-    return {text, {}};
+    return {index.data(ItemDataRoles::DrawnTextRole).toString(),
+            index.data(ItemDataRoles::DrawnFunctionTextRole).toString()};
 }
 
 LayoutInfo SearchResultTreeItemDelegate::getLayoutInfo(const QStyleOptionViewItem &option,
@@ -131,20 +114,14 @@ void SearchResultTreeItemDelegate::paint(QPainter *painter, const QStyleOptionVi
     painter->restore();
 }
 
-void SearchResultTreeItemDelegate::setTabWidth(int width)
-{
-    m_tabString = QString(width, QLatin1Char(' '));
-}
-
 QSize SearchResultTreeItemDelegate::sizeHint(const QStyleOptionViewItem &option,
                                              const QModelIndex &index) const
 {
     const LayoutInfo info = getLayoutInfo(option, index);
     const int height = index.data(Qt::SizeHintRole).value<QSize>().height();
     // get text width, see QItemDelegatePrivate::displayRect
-    auto texts = itemText(index);
-    const QString text = texts.first.replace('\t', m_tabString)
-                         + texts.second.replace('\t', m_tabString);
+    const auto texts = itemText(index);
+    const QString text = texts.first + texts.second;
     const QRect textMaxRect(0, 0, INT_MAX / 256, height);
     const QRect textLayoutRect = textRectangle(nullptr, textMaxRect, info.option.font, text);
     const QRect textRect(info.textRect.x(), info.textRect.y(), textLayoutRect.width(), height);
@@ -195,22 +172,17 @@ void SearchResultTreeItemDelegate::drawText(QPainter *painter,
     const auto texts = itemText(index);
     const QString text = texts.first;
 
-    const int searchTermStart = index.model()->data(index, ItemDataRoles::ResultBeginColumnNumberRole).toInt();
-    int searchTermLength = index.model()->data(index, ItemDataRoles::SearchTermLengthRole).toInt();
+    const int searchTermStart = index.data(ItemDataRoles::DrawnHighlightStartRole).toInt();
+    const int searchTermLength = index.data(ItemDataRoles::DrawnHighlightLengthRole).toInt();
     if (searchTermStart < 0 || searchTermStart >= text.size() || searchTermLength < 1) {
-        QItemDelegate::drawDisplay(painter,
-                                   option,
-                                   rect,
-                                   QString(text).replace(QLatin1Char('\t'), m_tabString));
+        QItemDelegate::drawDisplay(painter, option, rect, text);
         return;
     }
 
-    // clip searchTermLength to end of line
-    searchTermLength = qMin(searchTermLength, text.size() - searchTermStart);
     const int textMargin = QApplication::style()->pixelMetric(QStyle::PM_FocusFrameHMargin) + 1;
-    const QString textBefore = text.left(searchTermStart).replace(QLatin1Char('\t'), m_tabString);
-    const QString textHighlight = text.mid(searchTermStart, searchTermLength).replace(QLatin1Char('\t'), m_tabString);
-    const QString textAfter = text.mid(searchTermStart + searchTermLength).replace(QLatin1Char('\t'), m_tabString);
+    const QString textBefore = text.left(searchTermStart);
+    const QString textHighlight = text.mid(searchTermStart, searchTermLength);
+    const QString textAfter = text.mid(searchTermStart + searchTermLength);
     int searchTermStartPixels = option.fontMetrics.horizontalAdvance(textBefore);
     int searchTermLengthPixels = option.fontMetrics.horizontalAdvance(textHighlight);
     int textAfterLengthPixels = option.fontMetrics.horizontalAdvance(textAfter);

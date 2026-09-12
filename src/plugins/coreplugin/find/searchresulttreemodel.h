@@ -25,6 +25,7 @@ public:
     void setShowReplaceUI(bool show);
     void setRelativePaths(bool relative);
     void setTextEditorFont(const QFont &font, const Utils::SearchResultColors &colors);
+    void setTabWidth(int width);
     QList<QModelIndex> addResults(const Utils::SearchResultItems &items,
                                   SearchResult::AddMode mode);
     void clear();

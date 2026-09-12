@@ -3,6 +3,8 @@
 
 #include "searchresultwidget.h"
 
+#include "searchresulttreeitemroles.h"
+
 #include <coreplugin/inavigationwidgetfactory.h>
 
 #include <utils/environment.h>
@@ -430,6 +432,13 @@ void SearchResultWidget::setTextEditorFont(const QFont &font, const SearchResult
 {
     m_searchResultTreeView->setTextEditorFont(font, colors);
 }
+
+#ifdef WITH_TESTS
+QAbstractItemModel *SearchResultWidget::resultsModelForTesting() const
+{
+    return m_searchResultTreeView->model();
+}
+#endif
 
 void SearchResultWidget::setTabWidth(int tabWidth)
 {
@@ -1000,6 +1009,42 @@ private slots:
         QVERIFY(header.additionalOptionChecked());
         row.setPreserveCaseChecked(true);
         QVERIFY(header.preserveCaseChecked());
+    }
+
+    void testWhatAResultRowDrawsIsTheModelsAnswer()
+    {
+        // The delegate used to cut the line into before/match/after and expand
+        // tabs in each piece, so the offsets it was given were into the raw
+        // line and only meant anything to a painter that did the same.
+        SearchResultWidget widget;
+        widget.setTabWidth(4);
+
+        Utils::SearchResultItem item;
+        item.setFilePath(Utils::FilePath::fromString("/src/a.cpp"));
+        // One tab, then the match: drawn, the match starts four columns in,
+        // not one.
+        item.setLineText("\tneedle here");
+        item.setMainRange(1, 1, 6);
+        widget.addResults({item}, SearchResult::AddOrdered);
+
+        QAbstractItemModel * const model = widget.resultsModelForTesting();
+        QVERIFY(model);
+        QModelIndex row = model->index(0, 0);
+        QVERIFY(row.isValid());
+        // A file group on top, with the match under it.
+        if (model->rowCount(row) > 0)
+            row = model->index(0, 0, row);
+        QVERIFY(row.isValid());
+
+        QCOMPARE(row.data(ItemDataRoles::DrawnTextRole).toString(), QString("    needle here"));
+        QCOMPARE(row.data(ItemDataRoles::DrawnHighlightStartRole).toInt(), 4);
+        QCOMPARE(row.data(ItemDataRoles::DrawnHighlightLengthRole).toInt(), 6);
+
+        // A wider tab moves it further along, and the rows are told.
+        QSignalSpy redrawn(model, &QAbstractItemModel::dataChanged);
+        widget.setTabWidth(8);
+        QCOMPARE(row.data(ItemDataRoles::DrawnHighlightStartRole).toInt(), 8);
+        QVERIFY2(!redrawn.isEmpty(), "the tab width changed and no row was told to redraw");
     }
 
     void testTheRowIsToldWheneverAnyOfThatChanges()

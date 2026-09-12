@@ -30,6 +30,9 @@ public:
     void setShowReplaceUI(bool show);
     void setRelativePaths(bool relative);
     void setTextEditorFont(const QFont &font, const SearchResultColors &colors);
+    // How wide a tab is where these rows are drawn, which is what decides
+    // where in the drawn text a match starts.
+    void setTabWidth(int width);
 
     Qt::ItemFlags flags(const QModelIndex &index) const override;
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
@@ -70,6 +73,7 @@ private:
     SearchResultColors m_colors;
     QModelIndex m_currentIndex;
     QStringList m_currentPath; // the path that belongs to the current parent
+    int m_tabWidth = 8;
     QFont m_textEditorFont;
     bool m_showReplaceUI;
     bool m_relativePaths;
@@ -115,6 +119,15 @@ void SearchResultTreeModel::setRelativePaths(bool relative)
 {
     m_relativePaths = relative;
     emit dataChanged(index(0, 0), index(rowCount() - 1, 0));
+}
+
+void SearchResultTreeModel::setTabWidth(int width)
+{
+    if (m_tabWidth == width)
+        return;
+    m_tabWidth = width;
+    if (rowCount() > 0)
+        emit dataChanged(index(0, 0), index(rowCount() - 1, 0));
 }
 
 void SearchResultTreeModel::setTextEditorFont(const QFont &font, const SearchResultColors &colors)
@@ -281,6 +294,36 @@ void SearchResultTreeModel::updateCheckStateFromChildren(const QModelIndex &idx,
 
 void setDataInternal(const QModelIndex &index, const QVariant &value, int role);
 
+// What a row draws: the line, a group's child count appended, and - where the
+// language named the containing function - padded out so the "[in f]" suffixes
+// line up down the column.
+static QString drawnTextFor(const SearchResultTreeItem *row, const QString &display,
+                            bool hasChildren, int childCount, bool hasFunction)
+{
+    Q_UNUSED(row)
+    QString text = display;
+    if (hasChildren)
+        text += " (" + QString::number(childCount) + ')';
+    if (!hasFunction)
+        return text;
+    constexpr int minimumTextSize = 80;
+    constexpr int textSizeIncrement = 20;
+    int textSize = ((text.size() / textSizeIncrement) + 1) * textSizeIncrement;
+    textSize = std::max(minimumTextSize, textSize);
+    text.resize(textSize, ' ');
+    return text;
+}
+
+// Expanding tabs moves everything after them along, so a match's offset into
+// the raw line is not its offset into what is drawn.
+static int expandedOffset(const QString &raw, int rawOffset, int tabWidth)
+{
+    int drawn = 0;
+    for (int i = 0; i < rawOffset && i < raw.size(); ++i)
+        drawn += raw.at(i) == '\t' ? tabWidth : 1;
+    return drawn;
+}
+
 QVariant SearchResultTreeModel::data(const SearchResultTreeItem *row, int role) const
 {
     QVariant result;
@@ -352,6 +395,41 @@ QVariant SearchResultTreeModel::data(const SearchResultTreeItem *row, int role) 
     case ItemDataRoles::IsGroupingItemRole:
         result = row->isGroupingItem();
         break;
+    case ItemDataRoles::DrawnTextRole: {
+        const QString tabs(m_tabWidth, ' ');
+        result = drawnTextFor(row, data(row, Qt::DisplayRole).toString(),
+                              row->childrenCount() > 0, row->childrenCount(),
+                              row->item.containingFunctionName().has_value())
+                     .replace('\t', tabs);
+        break;
+    }
+    case ItemDataRoles::DrawnHighlightStartRole: {
+        const QString raw = data(row, Qt::DisplayRole).toString();
+        const int begin = row->item.mainRange().begin.column;
+        if (begin < 0 || begin >= raw.size())
+            result = -1;
+        else
+            result = expandedOffset(raw, begin, m_tabWidth);
+        break;
+    }
+    case ItemDataRoles::DrawnHighlightLengthRole: {
+        const QString raw = data(row, Qt::DisplayRole).toString();
+        const int begin = row->item.mainRange().begin.column;
+        const int length = data(row, ItemDataRoles::SearchTermLengthRole).toInt();
+        if (begin < 0 || begin >= raw.size() || length < 1) {
+            result = 0;
+        } else {
+            const int clipped = qMin(length, int(raw.size()) - begin);
+            result = expandedOffset(raw, begin + clipped, m_tabWidth)
+                     - expandedOffset(raw, begin, m_tabWidth);
+        }
+        break;
+    }
+    case ItemDataRoles::DrawnFunctionTextRole: {
+        const QString name = row->item.containingFunctionName().value_or(QString{});
+        result = name.isEmpty() ? QString() : QString("[in " + name + ']');
+        break;
+    }
     default:
         result = QVariant();
         break;
@@ -608,6 +686,11 @@ void SearchResultFilterModel::setRelativePaths(bool relative)
 void SearchResultFilterModel::setTextEditorFont(const QFont &font, const SearchResultColors &colors)
 {
     sourceModel()->setTextEditorFont(font, colors);
+}
+
+void SearchResultFilterModel::setTabWidth(int width)
+{
+    sourceModel()->setTabWidth(width);
 }
 
 QList<QModelIndex> SearchResultFilterModel::addResults(const SearchResultItems &items,
