@@ -56728,3 +56728,85 @@ it was for forty batches.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — A toolbar's order is the pane's to decide (batch 214)
+
+**Gap closed: the ordering regression batch 210 shipped, and the interface
+that made it possible.**
+
+### What was wrong
+
+`toolBarWidgets()`, `toolBarAspects()` and `toolBarCommands()` were assembled
+by the manager in that fixed order. But a real toolbar interleaves the kinds:
+
+- Console was `{toggles, spacer, statusLabel}` and became
+  `spacer, statusLabel, toggles` - its three filters moved to the far side of
+  a gap and a label.
+- Test Results' duration toggle was **seventh of nine** and became first of
+  the aspects.
+
+Both were shipped by batches 210 and 212, and no test could see either,
+because nothing asked what order a toolbar is in. `IOutputPane::ToolBarItem`
+is one entry of any of the three kinds, `toolBarItems()` returns them in the
+pane's own order, and the two converted panes state the order they used to
+have. The default implementation is the old fixed assembly, so a pane that has
+not been given an order keeps the one it had.
+
+### Two controls that did not bite, and why that was the test's fault
+
+The first version of the ordering test listed the *named* items of the wanted
+order and of the drawn toolbar and compared the lists. It passed - and it
+passed with the manager's ordering disabled, and with Console's stated order
+removed.
+
+Only toggles and commands have names. The pane's own widgets do not, and the
+regression moves toggles **past those unnamed widgets**. Filtering them out of
+both sides left the same sequence either way, so the comparison could not
+fail. It was an assertion that had quietly removed the thing it was about.
+
+Comparing *positions* fixes it - the index of `Console/showLog` against the
+index of the pane's own widget - and then the control says
+
+    Console/showLog is drawn at 3, after the pane's widget at 1
+
+**Two quiet controls on different mechanisms is a test that is not looking**,
+and that is now in `~/.claude/testing.md` under "An assertion that filters its
+inputs can filter the defect away".
+
+### Verification
+
+Both platforms build clean.
+
+    -test Core         281 passed, 2 failed, exit 2   (280 before)
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**CI - the ordering bites**, once the assertion could see it: the manager
+calling `IOutputPane::toolBarItems()` rather than the pane's own gives
+`(Console/showLog is drawn at 3, after the pane's widget at 1)`.
+
+**CH - did not bite, and is left recorded rather than replaced.** Reverting
+*Console's* order alone changes nothing, because Test Results also interleaves
+and the test finds whichever pane does. That is the test being about the
+mechanism rather than about one pane, which is what it should be - but it
+means no control isolates a single pane's order, and a pane that quietly loses
+its `toolBarItems()` override would not be caught.
+
+### What is next
+
+1. **The remaining panes' toolbar widgets**, which the ordered item type now
+   makes possible without rearranging anybody: Todo's scanning scope is a
+   three-way exclusive choice whose state lives in a plain settings struct
+   rather than an aspect, its keyword filters are a dynamic list, Test
+   Results' output toggle changes its own icon per state, and the spacer, the
+   status label and the filter field are display rather than settings.
+2. **Automatic login in the macOS VM** - Qt is staged, the runner works, this
+   is the only step left for the second platform.
+3. **Terminal**, the last of the three widget panes.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

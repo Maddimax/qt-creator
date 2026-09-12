@@ -392,6 +392,18 @@ QList<Utils::BaseAspect *> IOutputPane::toolBarAspects() const
 {
     return {};
 }
+QList<IOutputPane::ToolBarItem> IOutputPane::toolBarItems() const
+{
+    QList<ToolBarItem> items;
+    for (QWidget * const widget : toolBarWidgets())
+        items << ToolBarItem::forWidget(widget);
+    for (Utils::BaseAspect * const aspect : toolBarAspects())
+        items << ToolBarItem::forAspect(aspect);
+    for (const Id command : toolBarCommands())
+        items << ToolBarItem::forCommand(command);
+    return items;
+}
+
 
 /*!
     Returns the ID of the output pane.
@@ -1090,41 +1102,36 @@ void OutputPaneManager::setupButtons()
 
             auto *toolBar = new QToolBar(m_instance->m_opToolBarWidgets);
             toolBar->setContentsMargins(0, 0, 0, 0);
-            const QList<QWidget *> toolBarWidgets = outPane->toolBarWidgets();
-            for (QWidget *toolButton : toolBarWidgets)
-                toolBar->addWidget(toolButton);
-            // Built here from what the pane named, so that a toolbar which is
-            // not a QToolBar has something to draw rather than a widget to
-            // host. An aspect brings its own icon, tooltip and value.
-            for (Utils::BaseAspect * const aspect : outPane->toolBarAspects()) {
-                auto * const toggle = new QToolButton;
-                // Named only where there is a name: an aspect that saves
-                // nothing has no key, and an empty object name matches the
-                // first unnamed widget anybody looks for.
-                if (!aspect->settingsKey().isEmpty())
-                    toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
-                toggle->setDefaultAction(aspect->action());
-                toolBar->addWidget(toggle);
-            }
-            // The icons belong to the commands, not to the pane.
-            for (const Id commandId : outPane->toolBarCommands()) {
-                QToolButton * const button
-                    = Command::createToolButtonWithShortcutToolTip(commandId);
-                button->setObjectName(commandId.toString());
-                if (commandId == Constants::ZOOM_IN)
-                    button->setIcon(Utils::Icons::PLUS_TOOLBAR.icon());
-                else if (commandId == Constants::ZOOM_OUT)
-                    button->setIcon(Utils::Icons::MINUS_TOOLBAR.icon());
-                connect(button, &QToolButton::clicked, outPane, [outPane, commandId] {
+            // In the order the pane asked for, because a toolbar's order is
+            // the pane's to decide and it interleaves kinds.
+            for (const IOutputPane::ToolBarItem &item : outPane->toolBarItems()) {
+                if (QWidget * const w = item.widget()) {
+                    toolBar->addWidget(w);
+                } else if (Utils::BaseAspect * const aspect = item.aspect()) {
+                    auto * const toggle = new QToolButton;
+                    if (!aspect->settingsKey().isEmpty())
+                        toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
+                    toggle->setDefaultAction(aspect->action());
+                    toolBar->addWidget(toggle);
+                } else if (const Id commandId = item.command(); commandId.isValid()) {
+                    QToolButton * const button
+                        = Command::createToolButtonWithShortcutToolTip(commandId);
+                    button->setObjectName(commandId.toString());
                     if (commandId == Constants::ZOOM_IN)
-                        emit outPane->zoomInRequested(1);
+                        button->setIcon(Utils::Icons::PLUS_TOOLBAR.icon());
                     else if (commandId == Constants::ZOOM_OUT)
-                        emit outPane->zoomOutRequested(1);
-                });
-                button->setEnabled(outPane->zoomEnabled());
-                connect(outPane, &IOutputPane::zoomEnabledChanged, button,
-                        &QWidget::setEnabled);
-                toolBar->addWidget(button);
+                        button->setIcon(Utils::Icons::MINUS_TOOLBAR.icon());
+                    connect(button, &QToolButton::clicked, outPane, [outPane, commandId] {
+                        if (commandId == Constants::ZOOM_IN)
+                            emit outPane->zoomInRequested(1);
+                        else if (commandId == Constants::ZOOM_OUT)
+                            emit outPane->zoomOutRequested(1);
+                    });
+                    button->setEnabled(outPane->zoomEnabled());
+                    connect(outPane, &IOutputPane::zoomEnabledChanged, button,
+                            &QWidget::setEnabled);
+                    toolBar->addWidget(button);
+                }
             }
             auto stretch = new QWidget;
             stretch->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
@@ -2074,6 +2081,52 @@ private slots:
         // rather than asked for: outputWidget() reparents, which is the side
         // effect this whole test is about, so calling it here would be the
         // test causing what it is looking for.
+    }
+
+    void testAPaneDecidesTheOrderOfItsOwnToolbar()
+    {
+        // Naming the toggles moved them: a pane's widgets, its aspects and
+        // its commands were appended in that fixed order, so Console's three
+        // toggles ended up after the gap and the status label they used to
+        // come before. Nothing could see it, because nothing asked what order
+        // a toolbar is in.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        IOutputPane *interleaved = nullptr;
+        for (IOutputPane * const pane : panes) {
+            const QList<IOutputPane::ToolBarItem> items = pane->toolBarItems();
+            bool seenAspect = false;
+            for (const IOutputPane::ToolBarItem &item : items) {
+                if (item.aspect())
+                    seenAspect = true;
+                else if (item.widget() && seenAspect && !interleaved)
+                    interleaved = pane;
+            }
+        }
+        QVERIFY2(interleaved,
+                 "no pane puts a widget after a toggle, so ordering is untested");
+
+        // And the toolbar drew them in that order rather than in kind order.
+        const int row = panes.indexOf(interleaved);
+        QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+        QVERIFY(toolBar);
+        const QList<QWidget *> drawn = toolBar->findChildren<QWidget *>(
+            QString(), Qt::FindDirectChildrenOnly);
+
+        QStringList wanted;
+        for (const IOutputPane::ToolBarItem &item : interleaved->toolBarItems()) {
+            if (item.aspect() && !item.aspect()->settingsKey().isEmpty())
+                wanted << QString::fromUtf8(item.aspect()->settingsKey().view());
+            else if (item.command().isValid())
+                wanted << item.command().toString();
+        }
+        QVERIFY2(wanted.size() >= 2, "too few named items to say anything about order");
+
+        QStringList got;
+        for (QWidget * const w : drawn) {
+            if (!w->objectName().isEmpty() && wanted.contains(w->objectName()))
+                got << w->objectName();
+        }
+        QCOMPARE(got, wanted);
     }
 
     void testAPaneNamesItsTogglesAsAspectsRatherThanButtons()

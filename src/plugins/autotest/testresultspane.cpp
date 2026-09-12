@@ -454,6 +454,24 @@ QStringList TestResultsPane::outputTexts() const
     return {m_textOutput->toPlainText()};
 }
 
+QList<Core::IOutputPane::ToolBarItem> TestResultsPane::toolBarItems() const
+{
+    // Seventh of nine, where it was before it stopped being a QToolButton.
+    QList<ToolBarItem> items = {ToolBarItem::forWidget(m_expandCollapse),
+                                ToolBarItem::forWidget(m_runAll),
+                                ToolBarItem::forWidget(m_runSelected),
+                                ToolBarItem::forWidget(m_runFailed),
+                                ToolBarItem::forWidget(m_runFile),
+                                ToolBarItem::forWidget(m_stopTestRun),
+                                ToolBarItem::forAspect(
+                                    const_cast<Utils::BoolAspect *>(&m_showDuration)),
+                                ToolBarItem::forWidget(m_outputToggleButton),
+                                ToolBarItem::forWidget(m_filterButton)};
+    for (const ToolBarItem &item : IOutputPane::toolBarItems())
+        items << item;
+    return items;
+}
+
 QList<Utils::BaseAspect *> TestResultsPane::toolBarAspects() const
 {
     return {const_cast<Utils::BoolAspect *>(&m_showDuration)};

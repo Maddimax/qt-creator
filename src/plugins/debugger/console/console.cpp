@@ -123,6 +123,17 @@ QWidget *Console::outputWidget(QWidget *)
     return m_consoleWidget;
 }
 
+QList<Core::IOutputPane::ToolBarItem> Console::toolBarItems() const
+{
+    // The order this pane had before its toggles stopped being QToolButtons:
+    // the three of them, then the gap, then what it has to report.
+    return {ToolBarItem::forAspect(const_cast<Utils::BoolAspect *>(&m_showDebug)),
+            ToolBarItem::forAspect(const_cast<Utils::BoolAspect *>(&m_showWarning)),
+            ToolBarItem::forAspect(const_cast<Utils::BoolAspect *>(&m_showError)),
+            ToolBarItem::forWidget(m_spacer),
+            ToolBarItem::forWidget(m_statusLabel)};
+}
+
 QList<Utils::BaseAspect *> Console::toolBarAspects() const
 {
     return {const_cast<Utils::BoolAspect *>(&m_showDebug),

@@ -35,6 +35,36 @@ public:
     // per pane - thirteen pairs of the same two buttons, which is thirteen
     // widgets a toolbar that is not a QToolBar would have to host.
     virtual QList<Utils::Id> toolBarCommands() const;
+    // One entry of a pane's toolbar, in the order the pane wants them. The
+    // three lists above cannot express that between them: a pane's own
+    // widgets, its toggles and its commands interleave - Console's toggles
+    // come before its spacer, and Test Results' duration toggle sits seventh
+    // of nine - and a fixed order silently rearranges somebody's toolbar.
+    class CORE_EXPORT ToolBarItem
+    {
+    public:
+        static ToolBarItem forWidget(QWidget *widget) { return {widget, nullptr, {}}; }
+        static ToolBarItem forAspect(Utils::BaseAspect *aspect) { return {nullptr, aspect, {}}; }
+        static ToolBarItem forCommand(Utils::Id command) { return {nullptr, nullptr, command}; }
+
+        QWidget *widget() const { return m_widget; }
+        Utils::BaseAspect *aspect() const { return m_aspect; }
+        Utils::Id command() const { return m_command; }
+
+    private:
+        ToolBarItem(QWidget *widget, Utils::BaseAspect *aspect, Utils::Id command)
+            : m_widget(widget), m_aspect(aspect), m_command(command) {}
+
+        QWidget *m_widget = nullptr;
+        Utils::BaseAspect *m_aspect = nullptr;
+        Utils::Id m_command;
+    };
+
+    // What the toolbar draws. The default puts the three lists above in the
+    // order they used to be assembled in, so a pane that has not been given
+    // an order keeps the one it had.
+    virtual QList<ToolBarItem> toolBarItems() const;
+
 
     // The settings this pane's toolbar toggles. An aspect already carries its
     // icon, its tooltip, its value and where that value is saved, and this
