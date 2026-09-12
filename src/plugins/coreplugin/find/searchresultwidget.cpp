@@ -165,7 +165,7 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     connect(m_preserveCaseCheck, &QAbstractButton::clicked, Find::instance(), &Find::setPreserveCase);
 
     m_matchesFoundLabel = new QLabel(topFindWidget);
-    updateMatchesFoundLabel();
+    updateHeader();
 
     topFindLayout->addWidget(m_descriptionContainer);
     topFindLayout->addWidget(m_cancelButton);
@@ -178,12 +178,18 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     topReplaceLayout->addWidget(m_additionalReplaceWidget);
     topReplaceLayout->addWidget(m_replaceButton);
     topReplaceLayout->addStretch(2);
-    setShowReplaceUI(m_replaceSupported);
+    setShowReplaceUI(m_header.supportsReplace());
     setSupportPreserveCase(true);
 
     connect(&m_header, &SearchResultHeader::changed,
-            this, &SearchResultWidget::updateMatchesFoundLabel);
-    updateMatchesFoundLabel();
+            this, &SearchResultWidget::updateHeader);
+    // The two widgets a reader edits are editors of the header's state, not
+    // the place it lives: what they are told, they tell back.
+    connect(m_replaceTextEdit, &QLineEdit::textChanged, &m_header,
+            &SearchResultHeader::setTextToReplace);
+    connect(m_preserveCaseCheck, &QCheckBox::toggled, &m_header,
+            &SearchResultHeader::setPreserveCaseChecked);
+    updateHeader();
 
     connect(m_searchResultTreeView, &SearchResultTreeView::jumpToSearchResult,
             this, &SearchResultWidget::handleJumpToSearchResult);
@@ -205,11 +211,7 @@ SearchResultWidget::~SearchResultWidget()
 
 void SearchResultWidget::setInfo(const QString &label, const QString &toolTip, const QString &term)
 {
-    m_label->setText(label);
-    m_label->setVisible(!label.isEmpty());
-    m_descriptionContainer->setToolTip(toolTip);
-    m_searchTerm->setText(term);
-    m_searchTerm->setVisible(!term.isEmpty());
+    m_header.setInfo(label, toolTip, term);
 }
 
 QWidget *SearchResultWidget::additionalReplaceWidget() const
@@ -231,7 +233,7 @@ void SearchResultWidget::addResults(const SearchResultItems &items, SearchResult
     bool firstItems = (m_header.matchCount() == 0);
     m_header.addMatches(items.size());
     m_searchResultTreeView->addResults(items, mode);
-    updateMatchesFoundLabel();
+    updateHeader();
     if (firstItems) {
         if (!m_dontAskAgainGroup.isEmpty()) {
             Id undoWarningId = Id("warninglabel/").withSuffix(m_dontAskAgainGroup);
@@ -270,38 +272,37 @@ int SearchResultWidget::count() const
 
 void SearchResultWidget::setSupportsReplace(bool replaceSupported, const QString &group)
 {
-    m_replaceSupported = replaceSupported;
+    m_header.setSupportsReplace(replaceSupported);
     setShowReplaceUI(replaceSupported);
     m_dontAskAgainGroup = group;
 }
 
 bool SearchResultWidget::supportsReplace() const
 {
-    return m_replaceSupported;
+    return m_header.supportsReplace();
 }
 
 void SearchResultWidget::setTextToReplace(const QString &textToReplace)
 {
+    m_header.setTextToReplace(textToReplace);
     m_replaceTextEdit->setText(textToReplace);
     m_replaceTextEdit->selectAll();
 }
 
 QString SearchResultWidget::textToReplace() const
 {
-    return m_replaceTextEdit->text();
+    return m_header.textToReplace();
 }
 
 void SearchResultWidget::setSupportPreserveCase(bool enabled)
 {
-    m_preserveCaseSupported = enabled;
-    m_preserveCaseCheck->setVisible(m_preserveCaseSupported);
+    m_header.setSupportsPreserveCase(enabled);
 }
 
 void SearchResultWidget::setShowReplaceUI(bool visible)
 {
     m_searchResultTreeView->model()->setShowReplaceUI(visible);
-    m_topReplaceWidget->setVisible(visible);
-    m_isShowingReplaceUI = visible;
+    m_header.setShowingReplaceUi(visible);
     if (visible)
         m_replaceTextEdit->setFocus();
     else
@@ -310,14 +311,15 @@ void SearchResultWidget::setShowReplaceUI(bool visible)
 
 bool SearchResultWidget::hasFocusInternally() const
 {
-    return m_searchResultTreeView->hasFocus() || (m_isShowingReplaceUI && m_replaceTextEdit->hasFocus());
+    return m_searchResultTreeView->hasFocus()
+           || (m_header.isShowingReplaceUi() && m_replaceTextEdit->hasFocus());
 }
 
 void SearchResultWidget::setFocusInternally()
 {
     if (!canFocusInternally() || hasFocusInternally())
         return;
-    if (m_isShowingReplaceUI && (!focusWidget() || focusWidget() == m_replaceTextEdit))
+    if (m_header.isShowingReplaceUi() && (!focusWidget() || focusWidget() == m_replaceTextEdit))
         m_replaceTextEdit->setFocus();
     else
         m_searchResultTreeView->setFocus();
@@ -325,7 +327,7 @@ void SearchResultWidget::setFocusInternally()
 
 bool SearchResultWidget::canFocusInternally() const
 {
-    return m_isShowingReplaceUI || m_header.matchCount() > 0;
+    return m_header.isShowingReplaceUi() || m_header.matchCount() > 0;
 }
 
 void SearchResultWidget::notifyVisibilityChanged(bool visible)
@@ -468,13 +470,12 @@ void SearchResultWidget::doReplace()
 {
     m_infoBar.clear();
     setShowReplaceUI(false);
-    emit replaceButtonClicked(m_replaceTextEdit->text(), items(true),
-                              m_preserveCaseSupported && m_preserveCaseCheck->isChecked());
+    emit replaceButtonClicked(m_header.textToReplace(), items(true), m_header.preserveCase());
 }
 
 void SearchResultWidget::cancel()
 {
-    m_cancelButton->setVisible(false);
+    m_header.requestCancel();
     if (m_infoBar.containsInfo(Id(SIZE_WARNING_ID)))
         cancelAfterSizeWarning();
     else
@@ -512,6 +513,65 @@ QString SearchResultHeader::matchesFound() const
     return m_searching ? Tr::tr("Searching...") : Tr::tr("No matches found.");
 }
 
+void SearchResultHeader::setInfo(const QString &label, const QString &toolTip,
+                                 const QString &term)
+{
+    if (m_label == label && m_toolTip == toolTip && m_term == term)
+        return;
+    m_label = label;
+    m_toolTip = toolTip;
+    m_term = term;
+    emit changed();
+}
+
+void SearchResultHeader::setSupportsReplace(bool supported)
+{
+    if (m_replaceSupported == supported)
+        return;
+    m_replaceSupported = supported;
+    emit changed();
+}
+
+void SearchResultHeader::setShowingReplaceUi(bool showing)
+{
+    if (m_showingReplaceUi == showing)
+        return;
+    m_showingReplaceUi = showing;
+    emit changed();
+}
+
+void SearchResultHeader::setTextToReplace(const QString &text)
+{
+    if (m_textToReplace == text)
+        return;
+    m_textToReplace = text;
+    emit changed();
+}
+
+void SearchResultHeader::setSupportsPreserveCase(bool supported)
+{
+    if (m_preserveCaseSupported == supported)
+        return;
+    m_preserveCaseSupported = supported;
+    emit changed();
+}
+
+void SearchResultHeader::setPreserveCaseChecked(bool checked)
+{
+    if (m_preserveCaseChecked == checked)
+        return;
+    m_preserveCaseChecked = checked;
+    emit changed();
+}
+
+void SearchResultHeader::requestCancel()
+{
+    if (m_cancelRequested)
+        return;
+    m_cancelRequested = true;
+    emit changed();
+}
+
 void SearchResultHeader::setSearchAgainSupported(bool supported)
 {
     if (m_searchAgainSupported == supported)
@@ -523,6 +583,7 @@ void SearchResultHeader::setSearchAgainSupported(bool supported)
 void SearchResultHeader::startSearch()
 {
     m_searching = true;
+    m_cancelRequested = false;
     m_count = 0;
     m_message.clear();
     emit changed();
@@ -547,9 +608,16 @@ void SearchResultHeader::finishSearch(bool canceled, const QString &reason)
 }
 
 // The one place the header's answers reach the widgets that draw them.
-void SearchResultWidget::updateMatchesFoundLabel()
+void SearchResultWidget::updateHeader()
 {
     m_matchesFoundLabel->setText(m_header.matchesFound());
+    m_label->setText(m_header.label());
+    m_label->setVisible(!m_header.label().isEmpty());
+    m_descriptionContainer->setToolTip(m_header.toolTip());
+    m_searchTerm->setText(m_header.term());
+    m_searchTerm->setVisible(!m_header.term().isEmpty());
+    m_topReplaceWidget->setVisible(m_header.isShowingReplaceUi());
+    m_preserveCaseCheck->setVisible(m_header.supportsPreserveCase());
     m_cancelButton->setVisible(m_header.canCancel());
     m_searchAgainButton->setVisible(m_header.canSearchAgain());
     m_replaceButton->setEnabled(m_header.canReplace());
@@ -643,6 +711,88 @@ private slots:
         QVERIFY(header.canReplace());
         header.startSearch();
         QVERIFY2(!header.canReplace(), "a new search kept the last one's matches");
+    }
+
+    void testWhatTheRowSaysThisSearchIs()
+    {
+        // Written straight to four widgets and kept nowhere, so nothing could
+        // ask afterwards what was being looked for.
+        SearchResultHeader header;
+        QVERIFY(header.label().isEmpty());
+        QVERIFY(header.term().isEmpty());
+
+        header.setInfo("Files in File System", "Searching /src for thing", "thing");
+        QCOMPARE(header.label(), QString("Files in File System"));
+        QCOMPARE(header.toolTip(), QString("Searching /src for thing"));
+        QCOMPARE(header.term(), QString("thing"));
+    }
+
+    void testWhatAReplaceAsksForComesFromTheRowRatherThanItsWidgets()
+    {
+        // The text lived in the QLineEdit drawing it and the tick in the check
+        // box beside it, and whether the tick counted was decided where it was
+        // read rather than where it was kept.
+        SearchResultHeader header;
+        header.setSupportsReplace(true);
+        header.setTextToReplace("after");
+        QCOMPARE(header.textToReplace(), QString("after"));
+
+        header.setSupportsPreserveCase(true);
+        header.setPreserveCaseChecked(true);
+        QVERIFY2(header.preserveCase(), "a ticked box on a filter that supports it does not count");
+
+        // Ticked, but the filter cannot do it: the tick does not count, and
+        // the row does not offer it either.
+        header.setSupportsPreserveCase(false);
+        QVERIFY2(!header.preserveCase(),
+                 "a filter that cannot preserve case was asked to anyway");
+        QVERIFY(!header.supportsPreserveCase());
+    }
+
+    void testCancellingIsAskedForOnce()
+    {
+        // Cancelling used to hide the Cancel button directly, so the row and
+        // the button disagreed until the search actually stopped - and the
+        // next thing to redraw the row brought the button back.
+        SearchResultHeader header;
+        header.startSearch();
+        QVERIFY(header.canCancel());
+
+        header.requestCancel();
+        QVERIFY2(!header.canCancel(), "a search being cancelled offers to be cancelled again");
+        QVERIFY2(header.isSearching(), "the search stopped before anything said it had");
+
+        // Still nothing to repeat until it really ends.
+        header.setSearchAgainSupported(true);
+        QVERIFY(!header.canSearchAgain());
+        header.finishSearch(true, {});
+        QVERIFY(header.canSearchAgain());
+
+        // And the next search can be cancelled like any other.
+        header.startSearch();
+        QVERIFY2(header.canCancel(), "the last search's cancel outlived it");
+    }
+
+    void testTypingIntoTheReplaceFieldReachesWhatAReplaceWillUse()
+    {
+        // The two widgets a reader edits are editors of the row's state. If
+        // they do not tell it back, a replace uses whatever was last set
+        // programmatically and quietly ignores what was typed.
+        SearchResultWidget widget;
+        const QList<QLineEdit *> edits = widget.findChildren<QLineEdit *>();
+        QCOMPARE(edits.size(), 1);
+        const QList<QCheckBox *> boxes = widget.findChildren<QCheckBox *>();
+        QCOMPARE(boxes.size(), 1);
+
+        widget.setSupportsReplace(true, {});
+        widget.setSupportPreserveCase(true);
+
+        edits.first()->setText("typed");
+        QCOMPARE(widget.textToReplace(), QString("typed"));
+
+        boxes.first()->setChecked(true);
+        QVERIFY2(widget.headerForTesting().preserveCase(),
+                 "ticking the box beside the field reaches nothing");
     }
 
     void testTheRowIsToldWheneverAnyOfThatChanges()

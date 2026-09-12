@@ -43,14 +43,42 @@ public:
 
     // A search that is running can be cancelled and cannot be repeated; one
     // that has finished is the other way round.
-    bool canCancel() const { return m_searching; }
+    bool canCancel() const { return m_searching && !m_cancelRequested; }
     bool canSearchAgain() const { return m_searchAgainSupported && !m_searching; }
     bool canReplace() const { return m_count > 0; }
 
     // What went wrong, where anything did. Empty is the ordinary case.
     QString message() const { return m_message; }
 
+    // What this search is: the filter's own description, what it was looking
+    // for, and the longer form for a tooltip. Written to four widgets and
+    // kept nowhere before, so nothing could ask afterwards.
+    QString label() const { return m_label; }
+    QString toolTip() const { return m_toolTip; }
+    QString term() const { return m_term; }
+    void setInfo(const QString &label, const QString &toolTip, const QString &term);
+
+    // The replace row. What is typed into it lived in the QLineEdit drawing
+    // it, and whether to preserve case was read from the check box beside it
+    // and gated on support at the point of reading.
+    bool supportsReplace() const { return m_replaceSupported; }
+    void setSupportsReplace(bool supported);
+    bool isShowingReplaceUi() const { return m_showingReplaceUi; }
+    void setShowingReplaceUi(bool showing);
+    QString textToReplace() const { return m_textToReplace; }
+    void setTextToReplace(const QString &text);
+    bool supportsPreserveCase() const { return m_preserveCaseSupported; }
+    void setSupportsPreserveCase(bool supported);
+    bool preserveCaseChecked() const { return m_preserveCaseChecked; }
+    void setPreserveCaseChecked(bool checked);
+    // Which is what a replace actually asks for.
+    bool preserveCase() const { return m_preserveCaseSupported && m_preserveCaseChecked; }
+
     void setSearchAgainSupported(bool supported);
+
+    // Asked for once: a search being stopped cannot be stopped again, and the
+    // button went away by being hidden directly before this was state.
+    void requestCancel();
 
     void startSearch();
     void addMatches(int count);
@@ -62,8 +90,17 @@ signals:
 private:
     bool m_searching = true;
     bool m_searchAgainSupported = false;
+    bool m_cancelRequested = false;
+    bool m_replaceSupported = false;
+    bool m_showingReplaceUi = false;
+    bool m_preserveCaseSupported = true;
+    bool m_preserveCaseChecked = false;
     int m_count = 0;
     QString m_message;
+    QString m_label;
+    QString m_toolTip;
+    QString m_term;
+    QString m_textToReplace;
 };
 
 #ifdef WITH_TESTS
@@ -121,6 +158,10 @@ public:
     void setReplaceEnabled(bool enabled);
     Utils::SearchResultItems items(bool checkedOnly) const;
 
+#ifdef WITH_TESTS
+    const SearchResultHeader &headerForTesting() const { return m_header; }
+#endif
+
 public slots:
     void finishSearch(bool canceled, const QString &reason);
     void sendRequestPopup();
@@ -152,7 +193,7 @@ private:
     void continueAfterSizeWarning();
     void cancelAfterSizeWarning();
 
-    void updateMatchesFoundLabel();
+    void updateHeader();
 
     SearchResultTreeView *m_searchResultTreeView = nullptr;
     SearchResultHeader m_header;
@@ -173,9 +214,6 @@ private:
     Utils::InfoLabel *m_messageLabel = nullptr;
     QToolButton *m_cancelButton = nullptr;
     QLabel *m_matchesFoundLabel = nullptr;
-    bool m_preserveCaseSupported = true;
-    bool m_isShowingReplaceUI = false;
-    bool m_replaceSupported = false;
 };
 
 } // Internal

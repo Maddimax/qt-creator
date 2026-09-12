@@ -55606,3 +55606,94 @@ files.")`.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, and entry 199's note that a QML root
    with no `controller` property loads and is useless.
+
+## 2026-09-12 — The rest of the Search Results row, and its two editors (batch 201)
+
+**Gap closed: the replace row and the description are state now too.** Entry
+200 took the count, the verb and the Search Again rule; this takes what was
+left, and with it the pane has nothing a QML row would need to reach into a
+widget for.
+
+### What moved, and what each was doing before
+
+- **`setInfo()` wrote four widgets and kept nothing.** The filter's label, its
+  tooltip and the term being looked for existed only as pixels, so nothing
+  could ask afterwards what this search was. Three strings now.
+- **The text to replace lived in the `QLineEdit` drawing it.**
+  `textToReplace()` was `m_replaceTextEdit->text()`. A view that is not that
+  line edit has nowhere to read it from.
+- **Whether to preserve case was read from the check box, and gated where it
+  was read**: `m_preserveCaseSupported && m_preserveCaseCheck->isChecked()`,
+  written at the point of use. `preserveCase()` is one answer now, and the
+  tick and the support are separate facts.
+- **Cancelling hid the Cancel button directly.** `cancel()` did
+  `m_cancelButton->setVisible(false)` and nothing else knew, so the row and the
+  button disagreed until the search actually stopped - and the next thing to
+  redraw the row would have brought the button back. `requestCancel()` is
+  state, and `canCancel()` is `searching && !requested`.
+
+`updateMatchesFoundLabel()` is `updateHeader()`, because it now redraws the
+whole row from one place, which is the point.
+
+### The two editors, and the control that found they were uncovered
+
+The line edit and the check box are **editors** of the row's state, not where
+it lives: they are connected in the constructor to write back what they are
+told. Control BM removed that connection and **nothing failed** - every test
+built a bare `SearchResultHeader`, so the wire from the widget to it was not
+covered at all.
+
+That matters more than it looks. Without the write-back, `textToReplace()`
+returns whatever was last set programmatically, so a reader who types a
+replacement gets the *previous* text used and no warning. A test that builds a
+`SearchResultWidget`, finds its one line edit and its one check box, and asks
+the widget what a replace would use now covers it; BM bites after that.
+
+This is the third batch running where a quiet control meant something
+different - entry 199's was the code being unnecessary, entry 200's was the
+test being too weak, this one was a genuinely missing test. They look alike at
+the moment the suite stays green.
+
+### And a self-inflicted one worth recording
+
+Restoring after control BM with `git checkout -- searchresultwidget.cpp` threw
+away the **uncommitted** test that had just been added to make it bite, and
+the next baseline run came back 272 instead of 273. That is exactly
+"Negative controls on uncommitted work" in `~/.claude/testing.md`, written
+after the same thing happened in batch 189 - and the tell was the same, a
+count that did not match. Caught by comparing against the run ten minutes
+earlier rather than by reading the diff.
+
+### Verification
+
+Both platforms build clean. No new files, so no `.qbs` edit.
+
+    -test Core         273 passed, 2 failed, exit 2   (269 before: four new)
+    -test QuickUi      222 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+### Negative controls
+
+**BK - the preserve-case gate bites.** `preserveCase()` reduced to the tick
+alone: `(a filter that cannot preserve case was asked to anyway)`.
+
+**BL - the cancel request bites.** `canCancel()` back to `m_searching`:
+`(a search being cancelled offers to be cancelled again)`.
+
+**BM - bit only after the missing test was written**, as above.
+
+### What is next
+
+1. **A Qt Quick row for Search Results.** Everything it needs to read exists
+   now: the description, the count sentence, the three button rules, the
+   message, and the replace row's state. The results themselves are already a
+   tree model. This is the batch that produces QML, and it wants the same
+   shape as the Lua pane - a controller, `Core::createQmlView()`, a census in
+   QuickUi, and `QTC_WIDGET_SEARCH_RESULTS`.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**, blocked on `IOutputPane::toolBarWidgets()`.
+4. **macOS verification**, owed since entry 168, now including the Lua pane.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.
