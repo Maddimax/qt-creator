@@ -58016,3 +58016,148 @@ done** as far as this branch can take it. Every pane that loads states its
 toolbar as items; aspects and commands have no other way in; and what each
 pane hands over is watched by six censuses that have between them caught a
 shipped regression in four of the last seven batches.
+
+## 2026-09-13 — The two red tests nobody looked at (batch 224)
+
+Entry 223 ended the output pane toolbar work: what is left of it is blocked
+outside this repository, judged not worth closing, or the user's to do. **The
+plan's toolbar queue is empty.** Rather than invent a batch, this one takes the
+top of the parked list, which has been sitting there for about thirty batches:
+
+    -test Core   291 passed, 2 failed, exit 2   (the two ShortcutSettings)
+
+Two tests that fail on every single Linux run. Carried as a number in every
+batch's measurements, which is how "2 failed" came to read as green.
+
+### What they were
+
+Both assert a negative, and both were wrong about the platform.
+
+**`testTwoCommandsOnTheSameSequenceCollide`** ends with "a row that collides
+with nothing is not marked", and moved its command to `Ctrl+Shift+F11` to
+arrange that. A probe printing every command on that sequence at the failing
+line said:
+
+    on F11: QtCreator.New,QtCreator.ToggleFullScreen
+
+`Ctrl+Shift+F11` **is Toggle Full Screen on Linux.** The row meant to collide
+with nothing collided with that, every run, since the test was written. The
+sequence was free on macOS, where the test was written and passes.
+
+The fix is not another hand-picked sequence - the next one could be taken on a
+platform nobody here runs. It asks:
+
+    static QString unusedSequence()
+    {
+        QSet<QString> taken;
+        for (Command * const cmd : ActionManager::commands())
+            for (const QKeySequence &key : cmd->keySequences())
+                taken.insert(keySequenceToEditString(key));
+        for (int i = 1; i <= 12; ++i) { ... first Ctrl+Alt+Shift+F<i> not taken ... }
+    }
+
+and `QSKIP`s with a reason if every candidate is taken.
+
+**`testACommandIsFoundByTheSequenceItIsMappedTo`** asserted
+
+    QVERIFY(!shown.contains("Ctrl+Shift+F12"));
+
+where `shown` is the row's native-text display. The point was "the rows do not
+show the portable text, so filtering on what they show would find nothing" -
+true on macOS, where a keyboard draws glyphs. On Linux
+`QKeySequence::NativeText` and `PortableText` are the same string for this
+sequence, so the row does show it and the assertion was simply false here.
+
+### A proxy model that was never asked anything
+
+Fixing the second test turned up worse than a platform assumption. It built
+
+    QSortFilterProxyModel filter;
+    filter.setFilterCaseSensitivity(...);
+    filter.setSourceModel(p->commands().tableModel());
+
+and then **never used `filter` again.** Four lines of setup, no query.
+
+My first attempt was to make it real - filter by the sequence and check the row
+survives. It kept zero rows: the command model is a tree, the top-level rows
+are categories, and a fixed-string filter drops all of them. Then the reason
+became clear, and it is not fixable by trying harder:
+
+    names.insert(FilterTextRole, "filterText");
+
+**The filtering is the view's, and the view is QML.** The role reaches the
+Quick table as `filterText` and the matching happens there. A C++ proxy over
+the same model is not the thing under test; it is a second implementation of
+it written in the test, which is the trap the plan has now hit from three
+directions. So the proxy is gone, and the test asserts what the row *offers* a
+filter - the command id and the portable sequence - and that the row does not
+*show* that, which is the contrast the test was always about.
+
+### An assertion I wrote that could not fail, caught before it landed
+
+The first version of the replacement was
+
+    QCOMPARE(item->data(2, Qt::DisplayRole).toString(),
+             keySequencesToNativeString(item->shortcut()->m_keys));
+
+which is what `data()` returns, compared against itself. Green, and proving
+nothing. Replaced with something platform-independent and not tautological:
+the command id is in the filter role on every platform and never in the row.
+
+### Measurements
+
+    -test Core              293 passed, 0 failed, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   530 passed, 3 failed, 4 skipped, exit 3
+    -test Todo              11 passed, 0 failed, exit 0
+
+**Core is exit 0 for the first time in this whole run of batches.** 291/2
+became 293/0: the two failures are fixed and no test was deleted to do it.
+
+### Negative controls
+
+**DH — the hand-picked `Ctrl+Shift+F11` goes back in.** Bit, reproducing the
+original failure exactly:
+
+    testTwoCommandsOnTheSameSequenceCollide() '!other->data(2, Qt::ForegroundRole).isValid()' returned FALSE
+
+This is the control that matters: the thing that was failing for thirty batches
+fails again when the fix is removed, so the fix is what fixed it and not some
+other change along the way.
+
+**DI — the filter role stops carrying the command id.** Bit:
+`(the row cannot be found by the command it is for either)`.
+
+**DJ — the filter role carries the native text instead of the portable one.**
+**Did not bite.** 293/0 with the defect in. And the reason is the same fact
+that caused the original bug: on Linux the two forms of `Ctrl+Shift+F12` are
+the same string, so swapping them changes nothing observable here.
+
+That is worth stating plainly rather than working around. **The "portable, not
+native" half of this test cannot be watched on Linux at all.** The role could
+silently switch to native text and only a macOS run would notice - and this
+branch cannot run one until the VM logs in by itself. There is no sequence to
+choose instead: on Linux `NativeText` and `PortableText` agree on everything,
+which is what makes that platform the wrong one to find this class of bug on.
+
+### What is next
+
+The output pane toolbar work is finished as far as this branch can take it, and
+the parked list is now the queue. In the order I would take them:
+
+1. **The three `ProjectExplorer` failures** (entry 218), by the same method
+   that worked here: they have been carried as a number since they were first
+   measured and nobody has looked. `RunWorkerConflictTest::testConflict` and
+   `RunConfigurationTest::testWorkingDirectoryAspectStopsAskingOnceTornDown`
+   are real tests; `ProjectTest::testSourceToBinaryMapping(qbs)` says "the qbs
+   build failed", which may be environmental rather than a defect.
+2. **The `TextEditor` flake** — 751/1/3, exit 1, on every run. 0/18 at tip when
+   last chased, diagnosed as heap corruption and not reproduced. Harder than
+   the above and the payoff is the same: a suite that reads as green.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works, and
+   as DJ shows there are now assertions that only a macOS run can exercise.
+4. The rest, with numbers: entry 174's page scroll, entry 173's crash, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

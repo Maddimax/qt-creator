@@ -28,7 +28,6 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QScopeGuard>
-#include <QSortFilterProxyModel>
 #include <QFile>
 #include <QKeyEvent>
 #include <QKeySequence>
@@ -955,6 +954,25 @@ private slots:
             static_cast<BaseAspect *>(p)->cancel();
     }
 
+    // Ctrl+Shift+F11 was written in here as a sequence nothing else uses. It
+    // is Toggle Full Screen on Linux, so the row that was meant to collide
+    // with nothing collided with that, and this test failed on every Linux
+    // run. Ask what is taken instead of picking.
+    static QString unusedSequence()
+    {
+        QSet<QString> taken;
+        for (Command * const cmd : ActionManager::commands()) {
+            for (const QKeySequence &key : cmd->keySequences())
+                taken.insert(keySequenceToEditString(key));
+        }
+        for (int i = 1; i <= 12; ++i) {
+            const QString candidate = QString("Ctrl+Alt+Shift+F%1").arg(i);
+            if (!taken.contains(candidate))
+                return candidate;
+        }
+        return {};
+    }
+
     void testTypingASequenceReachesTheCommand()
     {
         // The tree row, the shortcut box and the command all say the same
@@ -1031,7 +1049,10 @@ private slots:
         QVERIFY(entry->warning.text().contains("conflict"));
 
         // And a row that collides with nothing is not marked.
-        entry->key.setValue("Ctrl+Shift+F11");
+        const QString free = unusedSequence();
+        if (free.isEmpty())
+            QSKIP("Every candidate sequence is taken here");
+        entry->key.setValue(free);
         QVERIFY(!other->data(2, Qt::ForegroundRole).isValid());
         QVERIFY(!entry->warning.isVisible());
     }
@@ -1050,14 +1071,22 @@ private slots:
         std::static_pointer_cast<ShortcutAspects>(p->shortcuts().volatileItems().first())
             ->key.setValue("Ctrl+Shift+F12");
 
-        QSortFilterProxyModel filter;
-        filter.setFilterCaseSensitivity(Qt::CaseInsensitive);
-        filter.setFilterKeyColumn(-1);
-        filter.setSourceModel(p->commands().tableModel());
-        const QString shown = item->data(2, Qt::DisplayRole).toString();
         const QVariant found = item->data(0, Utils::AspectTable::FilterTextRole);
-        QVERIFY(found.toString().contains("Ctrl+Shift+F12"));
-        QVERIFY(!shown.contains("Ctrl+Shift+F12"));
+        QVERIFY2(found.toString().contains("Ctrl+Shift+F12"),
+                 "the role a filter reads does not carry the sequence");
+
+        // And what the row shows is not what a filter matches on. Comparing
+        // the shown text against the portable one only tells them apart where
+        // a keyboard draws glyphs, which is macOS and not here; the command
+        // id is in the role on every platform and never in the row.
+        QVERIFY2(!item->data(2, Qt::DisplayRole).toString().contains(Constants::OPTIONS),
+                 "the row shows what a filter matches on, so the role is not needed");
+
+        // The filtering itself is the view's: the role reaches QML as
+        // "filterText" and the Quick table matches against it, so what C++
+        // can say is what the row offers a filter, not what a filter keeps.
+        QVERIFY2(found.toString().contains(Constants::OPTIONS),
+                 "the row cannot be found by the command it is for either");
     }
 
     void testResettingPutsTheDefaultsBack()
