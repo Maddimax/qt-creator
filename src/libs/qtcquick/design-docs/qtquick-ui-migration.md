@@ -55309,3 +55309,138 @@ moves.
 5. Parked: entry 174's page scroll, entry 173's crash, the two
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll.
+
+## 2026-09-12 — The anomaly was a stale binary, and two recorded findings were wrong (batch 198)
+
+**Gap closed: none in the product. This corrects the record and the rig.**
+Entry 197 put an unexplained anomaly at the top of the queue and guessed it was
+"either a stale build or a second factory". It was the stale build, and the
+same fault had already corrupted a control result recorded in entry 191.
+
+### What was broken
+
+Building and running are two machines here: `build-linux.sh` builds on the host
+in Docker, `runtests-linux.sh` **rsyncs** the result to the VM and runs it. The
+little runner written in batch 191 for env-var controls did not rsync - its own
+comment said "on whatever is already synced" - and it was then used directly
+after a build, repeatedly.
+
+So a control run that way measured **the binary the previous control left on
+the VM**. The results still move, which is what makes it invisible: removing
+fix A and seeing a failure reads as A biting, when it is control B from twenty
+minutes earlier still resident.
+
+Settled in one command rather than by reasoning - `md5sum` of
+`libQuickUi.so` on both machines after a build that touched it:
+
+    VM        4c628374e1b1dca75515ad1f128fcbb8
+    host      830922c762124f8a143a9b325d97977d
+
+### Entry 197's anomaly does not exist
+
+The sequence was: control BC removed `Component.onCompleted` and was run
+through `runtests-linux.sh`, which rsynced it; the QML was then restored, and
+the switch-state check ran through the runner that does not sync. **The VM was
+still running the BC binary**, whose scene really does never call `start()` -
+which is exactly the failure that was written up as unexplained.
+
+Re-run with a syncing runner, the test passes under `QTC_WIDGET_LUA_PANE=1`.
+It has been **restored**, and entry 197's "an anomaly, unresolved" section
+should be read as withdrawn. Nothing is wrong with the seam, and the next pane
+does not have to investigate it first.
+
+The seam change entry 197 reverted - reporting `QQuickWidget::Error` from
+`createQmlView()` - was reverted for the right reason on the wrong evidence: it
+was never *observed* firing because the probe was not in the running binary.
+It is still worth having and is left for a batch that can measure it.
+
+### Entry 191's control AK was measuring the control before it
+
+AK removes `pane.button = nullptr` from `setupButtons()`. Entry 191 records
+"3 failures rather than 2, on three runs out of three" and concludes that
+adding `data.action = nullptr` had turned a crash into a quieter corruption.
+
+**That was control AJ(b)'s binary** - the one with the `QAction::changed`
+listener removed, which fails the tooltip test with "the row was never told".
+Two shortcut failures plus that one is the three.
+
+Re-run properly, AK **crashes**: exit 255, twice out of two, dying immediately
+after `testTheTooltipNamesTheKeysThatReachThePane()` - that is,
+in `testASecondPassRebuildsTheRowRatherThanDoublingIt()`, the second
+`setupButtons()`. Which is precisely where batch 191's gdb backtrace put it:
+
+    updateButton -> data.button->setVisible()   // on memory freed at the top
+
+So the fix is load-bearing and the mechanism recorded in entry 191 was right.
+What was wrong was the sentence saying the crash stopped reproducing; there was
+never a second behaviour to explain. **The stronger claim was available all
+along and the artefact talked me out of it.**
+
+### The rig
+
+The control runner now rsyncs the source and the build before every run. Two
+details cost a run each and are worth writing down:
+
+- `rsync --delete` on the source tree deletes `extralibs/`, which
+  `runtests-linux.sh` sends separately afterwards. Two plugins then fail to
+  load and Qt Creator prints "Errors occurred while loading plugins, skipping
+  test run" - **and exits 0**. A green exit code from a run that started no
+  tests is the worst failure mode in this rig, and it now sends `extralibs`
+  too.
+- A probe that prints nothing is evidence about the binary, not about the
+  code. Entry 197 read "the `qWarning` inside the factory lambda never
+  appeared" as "the lambda is not reached" and went looking for a second
+  factory registration. The real reading was "this binary does not contain
+  your probe".
+
+All three are now in `~/.claude/testing.md` under "A control runner that does
+not deploy measures the previous control", because nothing about them is
+specific to this project.
+
+### Verification
+
+Both platforms build clean.
+
+    -test Lua          13 passed, 0 failed, exit 0   (12 before: the restored test)
+    -test QuickUi      221 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Core         262 passed, 2 failed, exit 2
+
+    QTC_WIDGET_LUA_PANE=1  -test Lua   13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**AK, re-run correctly** - the one this batch exists to correct.
+`pane.button = nullptr` removed: the Core suite dies with exit 255 at the
+second `setupButtons()`, reproducibly. Recorded here rather than in entry 191
+so that both the wrong number and the right one stay visible.
+
+**The rig itself was controlled.** A `qWarning` probe added to
+`quickuiplugin.cpp`, built, and the two artefacts hashed: the host's changed
+and the VM's did not. That is the whole proof, and it is the control for the
+claim that every affected result was measuring something else.
+
+No product code changed in this batch, so there is nothing else to control -
+saying that plainly is the point.
+
+### What is next
+
+1. **Search Results** and **Terminal**, the two panes entry 169 called hard.
+   Entry 197's item 1 is withdrawn: there is nothing to investigate first.
+2. **The output toolbar**, blocked on `IOutputPane::toolBarWidgets()`.
+3. **macOS verification**, owed since entry 168, now including the Lua pane.
+4. Worth doing when convenient: the `createQmlView()` error reporting entry
+   197 wrote and reverted, with a measurement this time.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll.
+
+### The lesson, which is about this document
+
+Entry 197 wrote a careful, honest section explaining what had been measured and
+what had not - and every measurement in it was taken against the wrong binary.
+Being disciplined about *reporting* uncertainty does not help if the
+measurements themselves are unsound. **The cheap check - hash the artefact on
+both machines - was never run, because the rig had been trusted since batch
+170.** Anything that sits between the code and the test is part of the
+experiment.

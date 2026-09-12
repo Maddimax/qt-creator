@@ -863,6 +863,61 @@ private slots:
                  "a view that reads roles by name cannot tell the errors apart");
     }
 
+    void testBuildingTheQuickPaneStartsTheReplAndBindsToIt()
+    {
+        if (!Core::hasQmlViewFactory())
+            QSKIP("no QML view factory is installed, so there is nothing to host the pane with");
+
+        // A scene that loads but warns is a scene with a broken binding in it,
+        // and the suite stays green either way. Collected here because the Lua
+        // plugin cannot reach the QML engine to ask it directly.
+        static QStringList complaints;
+        static QtMessageHandler previous = nullptr;
+        complaints.clear();
+        previous = qInstallMessageHandler(
+            [](QtMsgType type, const QMessageLogContext &context, const QString &message) {
+                if (type == QtWarningMsg && message.contains("LuaReplPane.qml"))
+                    complaints << message;
+                // Forwarded, not swallowed: a handler that eats every message
+                // takes the log away from whatever fails next.
+                if (previous)
+                    previous(type, context, message);
+            });
+        const QScopeGuard restoreHandler([] { qInstallMessageHandler(previous); });
+
+        // No Qt Quick headers here on purpose: the seam hands back a QWidget,
+        // and a plugin that had to know it was a QQuickWidget would be a seam
+        // that leaks. What this can see is that the scene loaded and ran -
+        // Component.onCompleted calls start(), so a REPL that is running is
+        // proof the QML parsed, instantiated and reached the controller.
+        LuaRepl repl;
+        QVERIFY(!repl.isStarted());
+        auto * const controller = new LuaReplController(&repl);
+        const std::unique_ptr<QWidget> owned(
+            Core::createQmlView(QUrl("qrc:/qt/qml/QtCreator/Lua/LuaReplPane.qml"), controller));
+        QVERIFY2(owned, "the pane was not built at all");
+        QVERIFY2(repl.isStarted(),
+                 "the scene never reached the controller, so the QML did not load");
+
+        // Shown, so that the list builds delegates: a binding that is only
+        // wrong inside one is not reported until one exists.
+        owned->resize(400, 300);
+        owned->show();
+        QVERIFY(QTest::qWaitForWindowExposed(owned.get()));
+        QTRY_VERIFY2(repl.model()->rowCount() > 0, "the REPL drew no lines to make delegates of");
+        QTRY_VERIFY2(repl.isWaitingForInput(), "the REPL started and never asked for a line");
+        QVERIFY2(complaints.isEmpty(), qPrintable(complaints.join("; ")));
+
+        // What the view binds to is the REPL's own model, not a copy.
+        QCOMPARE(controller->model(), repl.model());
+        QCOMPARE(controller->prompt(), repl.prompt());
+
+        const int before = repl.model()->rowCount();
+        controller->submit("return 6 * 7");
+        QCOMPARE(repl.model()->rowCount(), before + 1);
+        QVERIFY(repl.model()->index(before).data().toString().contains("42"));
+    }
+
     void testTheQuickPaneRemembersWhatWasTypedBeforeIt()
     {
         if (!Core::hasQmlViewFactory())
