@@ -47,9 +47,7 @@ const char SETTINGS_KEY[] = "ProjectExplorer/CompileOutput/Zoom";
 const char C_COMPILE_OUTPUT[] = "ProjectExplorer.CompileOutput";
 const char OPTIONS_PAGE_ID[] = "C.ProjectExplorer.CompileOutputOptions";
 
-CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
-    m_cancelBuildButton(new QToolButton),
-    m_settingsButton(new QToolButton)
+CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction)
 {
     setId("CompileOutput");
     setDisplayName(QCoreApplication::translate("QtC::ProjectExplorer", "Compile Output"));
@@ -65,9 +63,17 @@ CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
     Utils::ProxyAction *cancelBuildProxyButton =
             Utils::ProxyAction::proxyActionWithIcon(cancelBuildAction,
                                                     Utils::Icons::STOP_SMALL_TOOLBAR.icon());
-    m_cancelBuildButton->setDefaultAction(cancelBuildProxyButton);
-    m_settingsButton->setToolTip(Core::ICore::msgShowSettings());
-    m_settingsButton->setIcon(Utils::Icons::SETTINGS_TOOLBAR.icon());
+    m_cancelBuildAction = cancelBuildProxyButton;
+    // Owned here now: the QToolButton that used to hold it did not own it and
+    // was deleted by hand in the destructor.
+    m_cancelBuildAction->setParent(this);
+    m_cancelBuildAction->setObjectName("CompileOutput.CancelBuild");
+
+    // An action rather than a bare button, so that whatever draws the toolbar
+    // has something to draw rather than a widget to host.
+    m_settingsAction = new QAction(Utils::Icons::SETTINGS_TOOLBAR.icon(),
+                                   Core::ICore::msgShowSettings(), this);
+    m_settingsAction->setObjectName("CompileOutput.Settings");
 
     auto updateFontSettings = [this] {
         m_outputWindow->setBaseFont(TextEditor::globalFontSettings().data().font());
@@ -92,7 +98,7 @@ CompileOutputWindow::CompileOutputWindow(QAction *cancelBuildAction) :
     connect(&TextEditor::globalBehaviorSettings(), &Utils::AspectContainer::changed,
             this, updateZoomEnabled);
 
-    connect(m_settingsButton, &QToolButton::clicked, this, [] {
+    connect(m_settingsAction, &QAction::triggered, this, [] {
         Core::ICore::showSettings(OPTIONS_PAGE_ID);
     });
 
@@ -136,8 +142,6 @@ CompileOutputWindow::~CompileOutputWindow()
 {
     ExtensionSystem::PluginManager::removeObject(m_handler);
     delete m_handler;
-    delete m_cancelBuildButton;
-    delete m_settingsButton;
 }
 
 void CompileOutputWindow::updateFromSettings()
@@ -172,9 +176,13 @@ QWidget *CompileOutputWindow::outputWidget(QWidget *)
     return m_outputWindow;
 }
 
-QList<QWidget *> CompileOutputWindow::toolBarWidgets() const
+QList<Core::IOutputPane::ToolBarItem> CompileOutputWindow::toolBarItems() const
 {
-    return QList<QWidget *>{m_cancelBuildButton, m_settingsButton} + IOutputPane::toolBarWidgets();
+    QList<ToolBarItem> items{ToolBarItem::forAction(m_cancelBuildAction),
+                             ToolBarItem::forAction(m_settingsAction)};
+    for (const ToolBarItem &item : baseToolBarItems())
+        items << item;
+    return items;
 }
 
 void CompileOutputWindow::appendText(const QString &text, BuildStep::OutputFormat format)

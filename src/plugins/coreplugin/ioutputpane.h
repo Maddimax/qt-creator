@@ -46,10 +46,19 @@ public:
         static ToolBarItem forWidget(QWidget *widget) { return {widget, nullptr, {}}; }
         static ToolBarItem forAspect(Utils::BaseAspect *aspect) { return {nullptr, aspect, {}}; }
         static ToolBarItem forCommand(Utils::Id command) { return {nullptr, nullptr, command}; }
+        // An action that is not a registered command: a proxy of somebody
+        // else's, or one a pane made for a button of its own.
+        static ToolBarItem forAction(QAction *action)
+        {
+            ToolBarItem item{nullptr, nullptr, {}};
+            item.m_action = action;
+            return item;
+        }
 
         QWidget *widget() const { return m_widget; }
         Utils::BaseAspect *aspect() const { return m_aspect; }
         Utils::Id command() const { return m_command; }
+        QAction *action() const { return m_action; }
 
     private:
         ToolBarItem(QWidget *widget, Utils::BaseAspect *aspect, Utils::Id command)
@@ -57,6 +66,7 @@ public:
 
         QWidget *m_widget = nullptr;
         Utils::BaseAspect *m_aspect = nullptr;
+        QAction *m_action = nullptr;
         Utils::Id m_command;
     };
 
@@ -64,6 +74,11 @@ public:
     // order they used to be assembled in, so a pane that has not been given
     // an order keeps the one it had.
     virtual QList<ToolBarItem> toolBarItems() const;
+
+    // What this base contributes, and nothing a subclass added. A pane that
+    // states its own order appends this: asking for IOutputPane::toolBarItems()
+    // instead calls the virtuals back and lists the pane's own widgets twice.
+    QList<ToolBarItem> baseToolBarItems() const;
 
 
     // The settings this pane's toolbar toggles. An aspect already carries its

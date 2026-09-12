@@ -467,7 +467,7 @@ QList<Core::IOutputPane::ToolBarItem> TestResultsPane::toolBarItems() const
                                     const_cast<Utils::BoolAspect *>(&m_showDuration)),
                                 ToolBarItem::forWidget(m_outputToggleButton),
                                 ToolBarItem::forWidget(m_filterButton)};
-    for (const ToolBarItem &item : IOutputPane::toolBarItems())
+    for (const ToolBarItem &item : baseToolBarItems())
         items << item;
     return items;
 }
@@ -479,12 +479,10 @@ QList<Utils::BaseAspect *> TestResultsPane::toolBarAspects() const
 
 QList<QWidget *> TestResultsPane::toolBarWidgets() const
 {
-    QList<QWidget *> result = {m_expandCollapse, m_runAll, m_runSelected, m_runFailed,
-                               m_runFile, m_stopTestRun,
-                               m_outputToggleButton, m_filterButton};
-    for (QWidget *widget : IOutputPane::toolBarWidgets())
-        result.append(widget);
-    return result;
+    // The order is in toolBarItems(); this stays for anyone asking what
+    // widgets the pane has rather than how its toolbar is laid out.
+    return {m_expandCollapse, m_runAll, m_runSelected, m_runFailed,
+            m_runFile, m_stopTestRun, m_outputToggleButton, m_filterButton};
 }
 
 void TestResultsPane::clearContents()

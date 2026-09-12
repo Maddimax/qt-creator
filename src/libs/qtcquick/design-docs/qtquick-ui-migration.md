@@ -56810,3 +56810,86 @@ its `toolBarItems()` override would not be caught.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — Compile Output stops handing over buttons, and the order census (batch 215)
+
+**Gap closed: a third pane off `QWidget *`, and the coverage hole control CH
+named last batch.**
+
+### Entry 209 was wrong about these two
+
+It called Compile Output "two commands". Neither is: the cancel button holds a
+**proxy of somebody else's `QAction`**, not a registered command, and the
+settings button is a plain `QToolButton` with a lambda and no action at all.
+
+`ToolBarItem::forAction(QAction *)` is the missing kind - an action that is
+not a command - and QML draws actions as readily as widgets do, which is the
+point. The settings button became an action of its own, so **Compile Output
+now puts no widgets in its toolbar at all**.
+
+One thing fell out: the cancel proxy was owned by nobody and the destructor
+deleted the two buttons by hand. It is parented to the pane now.
+
+### A duplication the conversion introduced
+
+Test Results' `toolBarItems()` appended `IOutputPane::toolBarItems()` - which
+calls the **virtual** `toolBarWidgets()`, so the pane's own eight buttons were
+listed twice. The test said so plainly: `asked for 17 of its own widgets, drew
+9 of them`. `baseToolBarItems()` lists only what the base contributes, and the
+converted panes append that instead.
+
+### Three tries at a test that could see the defect
+
+The assertion this batch was meant to strengthen took three attempts, and the
+first two are worth recording because each looked right:
+
+1. **Compare the pane's own widgets' order.** Passed with the ordering
+   disabled - the widgets keep their relative order either way; what moves is
+   the *toggle* between them.
+2. **Compare the whole identifiable sequence** - widgets by identity, toggles
+   and commands by name. Also passed under control CJ, and for a subtler
+   reason: the test compares what the pane **asks for** against what was
+   **drawn**, and removing a pane's stated order changes both together. It can
+   catch the manager ignoring an order; it cannot catch a pane losing one.
+3. **A census.** How many panes put one of their own widgets after a toggle or
+   a command - which a fixed kind order cannot produce - compared against the
+   names of the three that do. That is what bites.
+
+Both halves are kept: the sequence comparison for "the manager honours what it
+is told", the census for "these three panes still tell it something".
+
+This is the second batch running where an assertion quietly excluded the thing
+that moves. `~/.claude/testing.md` gained that note last batch; the new part is
+that **comparing a thing against itself** - stated order against drawn order -
+has the same shape and is harder to see.
+
+### Verification
+
+Both platforms build clean.
+
+    -test Core         282 passed, 2 failed, exit 2   (281 before)
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**CJ - a pane losing its stated order bites**, on the third version of the
+assertion: Test Results' `toolBarItems()` override removed gives `Compared
+lists have different sizes` on the census. Against versions 1 and 2 it did not
+bite at all.
+
+### What is next
+
+1. **The remaining panes**: Application Output, Task/Issues, Terminal, Squish,
+   Todo and VcsBase. Todo's scanning scope is a three-way exclusive choice
+   whose state lives in a plain settings struct rather than an aspect; its
+   keyword filters are a dynamic list; Test Results' output toggle changes its
+   own icon per state; and the spacers, status labels and filter fields are
+   display rather than settings and still have no answer.
+2. **Automatic login in the macOS VM** - Qt is staged, the runner works.
+3. **Terminal**, the last of the three widget panes.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

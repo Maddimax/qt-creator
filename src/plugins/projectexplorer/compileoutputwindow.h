@@ -48,7 +48,7 @@ public:
     ~CompileOutputWindow() override;
 
     QWidget *outputWidget(QWidget *) override;
-    QList<QWidget *> toolBarWidgets() const override;
+    QList<ToolBarItem> toolBarItems() const override;
     void clearContents() override;
     bool canFocus() const override;
     bool hasFocus() const override;
@@ -80,8 +80,8 @@ private:
     void updateFromSettings();
     Core::OutputPaneView *m_outputWindow;
     ShowOutputTaskHandler *m_handler;
-    QToolButton *m_cancelBuildButton;
-    QToolButton * const m_settingsButton;
+    QAction *m_cancelBuildAction = nullptr;
+    QAction *m_settingsAction = nullptr;
 };
 
 } // namespace Internal

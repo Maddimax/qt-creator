@@ -392,6 +392,16 @@ QList<Utils::BaseAspect *> IOutputPane::toolBarAspects() const
 {
     return {};
 }
+QList<IOutputPane::ToolBarItem> IOutputPane::baseToolBarItems() const
+{
+    QList<ToolBarItem> items;
+    for (QWidget * const widget : IOutputPane::toolBarWidgets())
+        items << ToolBarItem::forWidget(widget);
+    for (const Id command : IOutputPane::toolBarCommands())
+        items << ToolBarItem::forCommand(command);
+    return items;
+}
+
 QList<IOutputPane::ToolBarItem> IOutputPane::toolBarItems() const
 {
     QList<ToolBarItem> items;
@@ -1113,6 +1123,11 @@ void OutputPaneManager::setupButtons()
                         toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
                     toggle->setDefaultAction(aspect->action());
                     toolBar->addWidget(toggle);
+                } else if (QAction * const action = item.action()) {
+                    auto * const button = new QToolButton;
+                    button->setObjectName(action->objectName());
+                    button->setDefaultAction(action);
+                    toolBar->addWidget(button);
                 } else if (const Id commandId = item.command(); commandId.isValid()) {
                     QToolButton * const button
                         = Command::createToolButtonWithShortcutToolTip(commandId);
@@ -2081,6 +2096,88 @@ private slots:
         // rather than asked for: outputWidget() reparents, which is the side
         // effect this whole test is about, so calling it here would be the
         // test causing what it is looking for.
+    }
+
+    void testEveryPaneGetsTheToolbarOrderItAskedFor()
+    {
+        // Every pane that states an order, not whichever one happens to
+        // interleave: control CH of entry 214 did not bite because reverting
+        // a single pane left another satisfying the test.
+        //
+        // The sequence compared holds the pane's own widgets *and* the buttons
+        // built for its toggles and commands. Leaving the latter out compares
+        // only things that do not move relative to each other, which is how
+        // the first two versions of this passed with the ordering disabled.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QStringList wrong;
+        int checked = 0;
+
+        for (int row = 0; row < panes.size(); ++row) {
+            IOutputPane * const pane = panes.at(row);
+            QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+            if (!toolBar)
+                continue;
+
+            // What the pane asked for, as things that can be recognised again.
+            QStringList asked;
+            QList<QWidget *> askedWidgets;
+            for (const IOutputPane::ToolBarItem &item : pane->toolBarItems()) {
+                if (QWidget * const w = item.widget()) {
+                    askedWidgets << w;
+                    asked << QString("widget#%1").arg(askedWidgets.size() - 1);
+                } else if (Utils::BaseAspect * const aspect = item.aspect()) {
+                    if (!aspect->settingsKey().isEmpty())
+                        asked << QString::fromUtf8(aspect->settingsKey().view());
+                } else if (QAction * const action = item.action()) {
+                    if (!action->objectName().isEmpty())
+                        asked << action->objectName();
+                } else if (item.command().isValid()) {
+                    asked << item.command().toString();
+                }
+            }
+            // Only worth comparing where a named button and a widget are both
+            // in there: otherwise nothing in the sequence can move.
+            if (askedWidgets.isEmpty() || asked.size() == askedWidgets.size())
+                continue;
+
+            QStringList got;
+            for (QWidget * const w : toolBar->findChildren<QWidget *>(
+                     QString(), Qt::FindDirectChildrenOnly)) {
+                const int widgetIndex = askedWidgets.indexOf(w);
+                if (widgetIndex >= 0)
+                    got << QString("widget#%1").arg(widgetIndex);
+                else if (!w->objectName().isEmpty() && asked.contains(w->objectName()))
+                    got << w->objectName();
+            }
+
+            ++checked;
+            if (got != asked) {
+                wrong << QString("%1 asked for [%2] and got [%3]")
+                             .arg(pane->displayName(), asked.join(" "), got.join(" "));
+            }
+        }
+
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
+
+        // A census, because the comparison above cannot catch a pane losing
+        // its stated order: it compares what the pane asks for against what
+        // was drawn, and both change together. What does change is how many
+        // panes put one of their own widgets *after* a toggle or a command -
+        // which is the thing a fixed kind order cannot do.
+        QStringList interleaving;
+        for (IOutputPane * const pane : panes) {
+            bool seenNonWidget = false;
+            for (const IOutputPane::ToolBarItem &item : pane->toolBarItems()) {
+                if (!item.widget())
+                    seenNonWidget = true;
+                else if (seenNonWidget && !interleaving.contains(pane->displayName()))
+                    interleaving << pane->displayName();
+            }
+        }
+        QCOMPARE(interleaving, QStringList({"Compile Output", "Test Results",
+                                            "QML Debugger Console"}));
+        QVERIFY2(checked >= 2,
+                 qPrintable(QString("only %1 pane could be checked").arg(checked)));
     }
 
     void testAPaneDecidesTheOrderOfItsOwnToolbar()
