@@ -136,7 +136,7 @@ private:
     void updateCloseActions();
 
     QWidget *outputWidget(QWidget *) final;
-    QList<QWidget *> toolBarWidgets() const final;
+    QList<ToolBarItem> toolBarItems() const final;
     void clearContents() final;
     bool canFocus() const final;
     bool hasFocus() const final;
@@ -163,10 +163,9 @@ private:
     QAction *m_closeAllTabsAction;
     QAction *m_closeOtherTabsAction;
     QAction *m_closeAllNonRunningTabsAction;
-    QToolButton *m_reRunButton;
-    QToolButton *m_stopButton;
-    QToolButton *m_attachButton;
-    QToolButton * const m_settingsButton;
+    QAction *m_reRunAction;
+    QAction *m_attachAction;
+    QAction * const m_settingsAction;
     QWidget *m_formatterWidget;
     ShowOutputTaskHandler * const m_handler;
     bool m_paneVisible = false;

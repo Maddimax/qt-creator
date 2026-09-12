@@ -399,10 +399,9 @@ AppOutputPane::AppOutputPane() :
     m_closeAllTabsAction(new QAction(Tr::tr("Close All Tabs"), this)),
     m_closeOtherTabsAction(new QAction(Tr::tr("Close Other Tabs"), this)),
     m_closeAllNonRunningTabsAction(new QAction(Tr::tr("Close All Non-Running Tabs"), this)),
-    m_reRunButton(new QToolButton),
-    m_stopButton(new QToolButton),
-    m_attachButton(new QToolButton),
-    m_settingsButton(new QToolButton),
+    m_reRunAction(new QAction(this)),
+    m_attachAction(new QAction(this)),
+    m_settingsAction(new QAction(this)),
     m_formatterWidget(new QWidget),
     m_handler(new ShowOutputTaskHandler(this,
         Tr::tr("Show &App Output"),
@@ -418,10 +417,11 @@ AppOutputPane::AppOutputPane() :
     setObjectName("AppOutputPane"); // Used in valgrind engine
 
     // Rerun
-    m_reRunButton->setIcon(Utils::Icons::RUN_SMALL_TOOLBAR.icon());
-    m_reRunButton->setToolTip(Tr::tr("Re-run this run-configuration."));
-    m_reRunButton->setEnabled(false);
-    connect(m_reRunButton, &QToolButton::clicked,
+    m_reRunAction->setObjectName("AppOutput.ReRun");
+    m_reRunAction->setIcon(Utils::Icons::RUN_SMALL_TOOLBAR.icon());
+    m_reRunAction->setToolTip(Tr::tr("Re-run this run-configuration."));
+    m_reRunAction->setEnabled(false);
+    connect(m_reRunAction, &QAction::triggered,
             this, &AppOutputPane::reRunRunControl);
 
     // Stop
@@ -432,26 +432,26 @@ AppOutputPane::AppOutputPane() :
     Core::Command *cmd = Core::ActionManager::registerAction(m_stopAction, Constants::STOP);
     cmd->setDescription(m_stopAction->toolTip());
 
-    m_stopButton->setDefaultAction(cmd->action());
-
     connect(m_stopAction, &QAction::triggered,
             this, &AppOutputPane::stopRunControl);
 
     // Attach
-    m_attachButton->setToolTip(msgAttachDebuggerTooltip());
-    m_attachButton->setEnabled(false);
-    m_attachButton->setIcon(Icons::DEBUG_START_SMALL_TOOLBAR.icon());
+    m_attachAction->setToolTip(msgAttachDebuggerTooltip());
+    m_attachAction->setObjectName("AppOutput.AttachDebugger");
+    m_attachAction->setEnabled(false);
+    m_attachAction->setIcon(Icons::DEBUG_START_SMALL_TOOLBAR.icon());
 
-    connect(m_attachButton, &QToolButton::clicked,
+    connect(m_attachAction, &QAction::triggered,
             this, &AppOutputPane::attachToRunControl);
 
     connect(this, &IOutputPane::zoomInRequested, this, &AppOutputPane::zoomIn);
     connect(this, &IOutputPane::zoomOutRequested, this, &AppOutputPane::zoomOut);
     connect(this, &IOutputPane::resetZoomRequested, this, &AppOutputPane::resetZoom);
 
-    m_settingsButton->setToolTip(Core::ICore::msgShowSettings());
-    m_settingsButton->setIcon(Utils::Icons::SETTINGS_TOOLBAR.icon());
-    connect(m_settingsButton, &QToolButton::clicked, this, [] {
+    m_settingsAction->setToolTip(Core::ICore::msgShowSettings());
+    m_settingsAction->setIcon(Utils::Icons::SETTINGS_TOOLBAR.icon());
+    m_settingsAction->setObjectName("AppOutput.Settings");
+    connect(m_settingsAction, &QAction::triggered, this, [] {
         Core::ICore::showSettings(OPTIONS_PAGE_ID);
     });
 
@@ -578,10 +578,16 @@ QWidget *AppOutputPane::outputWidget(QWidget *)
     return m_tabWidget;
 }
 
-QList<QWidget *> AppOutputPane::toolBarWidgets() const
+QList<Core::IOutputPane::ToolBarItem> AppOutputPane::toolBarItems() const
 {
-    return QList<QWidget *>{m_reRunButton, m_stopButton, m_attachButton, m_settingsButton,
-                m_formatterWidget} + IOutputPane::toolBarWidgets();
+    QList<ToolBarItem> items{ToolBarItem::forAction(m_reRunAction),
+                             ToolBarItem::forCommand(Constants::STOP),
+                             ToolBarItem::forAction(m_attachAction),
+                             ToolBarItem::forAction(m_settingsAction),
+                             ToolBarItem::forWidget(m_formatterWidget)};
+    for (const ToolBarItem &item : baseToolBarItems())
+        items << item;
+    return items;
 }
 
 void AppOutputPane::clearContents()
@@ -1152,24 +1158,24 @@ void AppOutputPane::enableButtons(const RunControl *rc)
     if (rc) {
         const bool actionsEnabled = rc->outputPaneActionsEnabled();
         const bool isRunning = rc->isRunning();
-        m_reRunButton->setEnabled(rc->isStopped() && actionsEnabled);
-        m_reRunButton->setIcon(rc->icon().icon());
+        m_reRunAction->setEnabled(rc->isStopped() && actionsEnabled);
+        m_reRunAction->setIcon(rc->icon().icon());
         m_stopAction->setEnabled(isRunning && actionsEnabled);
         if (actionsEnabled && isRunning && debuggerPlugin()
                 && rc->applicationProcessHandle().isValid()) {
-            m_attachButton->setEnabled(true);
+            m_attachAction->setEnabled(true);
             const QString tip = Tr::tr("PID %1").arg(rc->applicationProcessHandle().pid());
-            m_attachButton->setToolTip(msgAttachDebuggerTooltip(tip));
+            m_attachAction->setToolTip(msgAttachDebuggerTooltip(tip));
         } else {
-            m_attachButton->setEnabled(false);
-            m_attachButton->setToolTip(msgAttachDebuggerTooltip());
+            m_attachAction->setEnabled(false);
+            m_attachAction->setToolTip(msgAttachDebuggerTooltip());
         }
         setZoomButtonsEnabled(true);
     } else {
-        m_reRunButton->setEnabled(false);
-        m_reRunButton->setIcon(Utils::Icons::RUN_SMALL_TOOLBAR.icon());
-        m_attachButton->setEnabled(false);
-        m_attachButton->setToolTip(msgAttachDebuggerTooltip());
+        m_reRunAction->setEnabled(false);
+        m_reRunAction->setIcon(Utils::Icons::RUN_SMALL_TOOLBAR.icon());
+        m_attachAction->setEnabled(false);
+        m_attachAction->setToolTip(msgAttachDebuggerTooltip());
         m_stopAction->setEnabled(false);
         setZoomButtonsEnabled(false);
     }

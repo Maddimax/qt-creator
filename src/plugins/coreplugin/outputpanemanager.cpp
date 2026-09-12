@@ -1157,19 +1157,25 @@ void OutputPaneManager::setupButtons()
                     QToolButton * const button
                         = Command::createToolButtonWithShortcutToolTip(commandId);
                     button->setObjectName(commandId.toString());
-                    if (commandId == Constants::ZOOM_IN)
-                        button->setIcon(Utils::Icons::PLUS_TOOLBAR.icon());
-                    else if (commandId == Constants::ZOOM_OUT)
-                        button->setIcon(Utils::Icons::MINUS_TOOLBAR.icon());
-                    connect(button, &QToolButton::clicked, outPane, [outPane, commandId] {
-                        if (commandId == Constants::ZOOM_IN)
-                            emit outPane->zoomInRequested(1);
-                        else if (commandId == Constants::ZOOM_OUT)
-                            emit outPane->zoomOutRequested(1);
-                    });
-                    button->setEnabled(outPane->zoomEnabled());
-                    connect(outPane, &IOutputPane::zoomEnabledChanged, button,
-                            &QWidget::setEnabled);
+                    // Only the zoom commands are the pane's own: they carry no
+                    // icon of their own, they act through the pane rather than
+                    // through their action, and they follow the pane's zoom
+                    // state. Doing any of that to another command would hand
+                    // it a button that ignores whether the command is enabled.
+                    const bool zoomIn = commandId == Constants::ZOOM_IN;
+                    if (zoomIn || commandId == Constants::ZOOM_OUT) {
+                        button->setIcon(zoomIn ? Utils::Icons::PLUS_TOOLBAR.icon()
+                                               : Utils::Icons::MINUS_TOOLBAR.icon());
+                        connect(button, &QToolButton::clicked, outPane, [outPane, zoomIn] {
+                            if (zoomIn)
+                                emit outPane->zoomInRequested(1);
+                            else
+                                emit outPane->zoomOutRequested(1);
+                        });
+                        button->setEnabled(outPane->zoomEnabled());
+                        connect(outPane, &IOutputPane::zoomEnabledChanged, button,
+                                &QWidget::setEnabled);
+                    }
                     toolBar->addWidget(button);
                 }
             }
@@ -2131,16 +2137,23 @@ private slots:
         // being converted at the time.
         const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
         QStringList wrong;
-        int checked = 0;
+        QStringList named;
         for (int row = 0; row < panes.size(); ++row) {
             QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
             if (!toolBar)
                 continue;
             for (const IOutputPane::ToolBarItem &item : panes.at(row)->toolBarItems()) {
                 QAction * const action = item.action();
-                if (!action || action->objectName().isEmpty())
+                if (!action)
                     continue;
-                ++checked;
+                // Reported rather than skipped: an unnamed button is one
+                // nobody can find, and skipping it left the check passing on
+                // exactly the panes it could not see.
+                if (action->objectName().isEmpty()) {
+                    wrong << panes.at(row)->displayName() + ": an unnamed action";
+                    continue;
+                }
+                named << action->objectName();
                 auto * const button = toolBar->findChild<QToolButton *>(action->objectName());
                 if (!button) {
                     wrong << action->objectName() + ": no button";
@@ -2152,8 +2165,97 @@ private slots:
             }
         }
         QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
-        QVERIFY2(checked >= 2,
-                 qPrintable(QString("only %1 named action is handed over").arg(checked)));
+        // Written here rather than counted, for the reason above: a count is
+        // satisfied by whichever panes still work.
+        QStringList expected{"AppOutput.AttachDebugger", "AppOutput.ReRun",
+                             "AppOutput.Settings", "CompileOutput.CancelBuild",
+                             "CompileOutput.Settings", "Issues.FilterByCategories",
+                             "Issues.ParseExternalOutput", "Squish.CollapseAll",
+                             "Squish.ExpandAll", "Squish.Filter"};
+        named.sort();
+        QCOMPARE(named, expected);
+    }
+
+    void testEveryPaneHandsOverAsManyThingsAsItDid()
+    {
+        // Control CU of entry 219 dropped one of Application Output's own
+        // widgets and nothing went red. The order check compares what a pane
+        // asks for against what was drawn, so both moved; and the pane still
+        // interleaves, because the filter line edit it gets from the base
+        // class arrives after its actions either way.
+        //
+        // A widget has no name to census, so this counts instead: how many
+        // things each pane hands over, and how many of them are widgets. It
+        // is written down for the same reason the name censuses are, and it
+        // is the only check that reaches a pane with nothing named at all.
+        const QStringList expected{
+            "Issues=6,1",
+            "Search Results=10,8",
+            "Application Output=8,2",
+            "Compile Output=5,1",
+            "Terminal=8,6",
+            "To-Do Entries=12,10",
+            "Version Control=2,0",
+            "Lua=2,0",
+            "Test Results=12,9",
+            "QML Debugger Console=7,2",
+            "Squish=5,0",
+            "General Messages=3,1"};
+
+        QStringList census;
+        for (IOutputPane * const pane : IOutputPane::allOutputPanes()) {
+            const QList<IOutputPane::ToolBarItem> items = pane->toolBarItems();
+            const int widgets = Utils::count(items, [](const IOutputPane::ToolBarItem &item) {
+                return item.widget() != nullptr;
+            });
+            census << QString("%1=%2,%3").arg(pane->displayName()).arg(items.size()).arg(widgets);
+        }
+        QCOMPARE(census, expected);
+    }
+
+    void testAToolbarButtonForACommandThatIsNotZoomKeepsItsOwnEnabledState()
+    {
+        // Every command's button was built the way the zoom commands need it:
+        // enabled from the pane's zoom state, and re-enabled whenever that
+        // changes. A pane handing over any other command got a button that
+        // ignores whether the command itself is enabled - which is how
+        // Application Output's Stop button would have looked enabled while
+        // nothing was running.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QStringList others;
+        for (int row = 0; row < panes.size(); ++row) {
+            IOutputPane * const pane = panes.at(row);
+            QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+            if (!toolBar)
+                continue;
+            for (const IOutputPane::ToolBarItem &item : pane->toolBarItems()) {
+                const Id commandId = item.command();
+                if (!commandId.isValid() || commandId == Constants::ZOOM_IN
+                    || commandId == Constants::ZOOM_OUT) {
+                    continue;
+                }
+                others << commandId.toString();
+
+                auto * const button = toolBar->findChild<QToolButton *>(commandId.toString());
+                QVERIFY2(button, qPrintable(commandId.toString() + ": no button"));
+                QAction * const action = button->defaultAction();
+                QVERIFY2(action, qPrintable(commandId.toString() + ": the button carries nothing"));
+
+                const bool wasEnabled = pane->zoomEnabled();
+                const QScopeGuard restore([pane, wasEnabled] {
+                    pane->setZoomButtonsEnabled(wasEnabled); });
+
+                // Asked both ways round, because a button that happens to
+                // agree with the zoom state once proves nothing.
+                for (const bool zoom : {true, false}) {
+                    pane->setZoomButtonsEnabled(zoom);
+                    QCOMPARE(button->isEnabled(), action->isEnabled());
+                }
+            }
+        }
+        // Written here: a pane quietly dropping the command would otherwise
+        // leave this test checking nothing and still passing.
+        QCOMPARE(others, QStringList({"ProjectExplorer.Stop"}));
     }
 
     void testAToolbarButtonForAnActionWithAMenuOpensItOnAnyClick()
@@ -2351,8 +2453,8 @@ private slots:
                     interleaving << pane->displayName();
             }
         }
-        QCOMPARE(interleaving, QStringList({"Issues", "Compile Output", "Test Results",
-                                            "QML Debugger Console"}));
+        QCOMPARE(interleaving, QStringList({"Issues", "Application Output", "Compile Output",
+                                            "Test Results", "QML Debugger Console"}));
         QVERIFY2(checked >= 2,
                  qPrintable(QString("only %1 pane could be checked").arg(checked)));
     }

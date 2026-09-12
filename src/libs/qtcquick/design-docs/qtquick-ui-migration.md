@@ -57311,3 +57311,156 @@ Each was a separate build and run.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
    three `ProjectExplorer` failures measured above, entry 196's uncovered
    widget auto-scroll, entry 199's QML root with no `controller` property.
+
+## 2026-09-12 — A command that is not zoom, and a control that did not bite (batch 219)
+
+Application Output, the first of the four panes entry 218 left. Converting it
+needed a gap closed first, and one of its three controls stayed quiet, which
+turned out to be the most useful thing in the batch.
+
+### The gap this batch closed
+
+**`ToolBarItem::forCommand()` only worked for the zoom commands.** The manager
+built every command's button like this:
+
+    button->setEnabled(outPane->zoomEnabled());
+    connect(outPane, &IOutputPane::zoomEnabledChanged, button, &QWidget::setEnabled);
+
+For zoom that is right — the pane says whether zooming applies and both buttons
+follow. For any other command it is wrong twice over: the button ignores
+whether the *command* is enabled, and the pane's zoom state then drives it for
+the rest of the session. The icon and the click handler were already keyed on
+the command id; only the enabled state was applied to everything.
+
+Nothing had noticed because no pane handed over a command that is not zoom.
+Application Output's Stop button is one — a real `Core::Command`, registered
+under `ProjectExplorer.Stop`, whose action starts disabled and is enabled only
+while something is running. Handed over unchanged, it would have been drawn
+enabled with nothing running.
+
+The zoom-specific wiring is now inside the `zoomIn || zoomOut` branch, and
+`forCommand()` means what its name says.
+
+### Application Output
+
+Four buttons became three actions and one command:
+
+| was | is |
+| --- | --- |
+| `m_reRunButton` | `QAction` `AppOutput.ReRun` |
+| `m_stopButton` | `ToolBarItem::forCommand(Constants::STOP)` |
+| `m_attachButton` | `QAction` `AppOutput.AttachDebugger` |
+| `m_settingsButton` | `QAction` `AppOutput.Settings` |
+
+The stop button needed no action of its own: it was already
+`m_stopButton->setDefaultAction(cmd->action())`, so handing over the command id
+and letting `Command::createToolButtonWithShortcutToolTip()` build it is the
+same button with a better tooltip. `enableButtons()` sets the state on the
+actions now instead of on the buttons; the pane was already doing that for
+Stop, which is why the pattern was known to work here.
+
+`m_formatterWidget` stays a widget, and is the reason this pane now interleaves.
+
+### The control that did not bite
+
+**CU dropped `m_formatterWidget` from the pane's list, and the suite stayed
+green at 288.** Both of the checks that should have caught it were blind for
+the same reason, and they are different reasons from each other:
+
+- `testEveryPaneGetsTheToolbarOrderItAskedFor` compares what the pane asks for
+  against what was drawn. Remove an item and both sides lose it.
+- the interleaving census asks which panes put a widget *after* a non-widget.
+  Application Output still does — its filter line edit comes from
+  `baseToolBarItems()`, after the actions, whether or not the pane lists a
+  widget of its own.
+
+So a pane could silently stop handing over any of its own widgets. Entry 217
+said the answer for things with no name is an expectation written in the test;
+a widget has no name to write. What it has is a count:
+
+    "Issues=6,1", "Search Results=10,8", "Application Output=8,2",
+    "Compile Output=5,1", "Terminal=8,6", "To-Do Entries=12,10",
+    "Version Control=2,0", "Lua=2,0", "Test Results=12,9",
+    "QML Debugger Console=7,2", "Squish=5,0", "General Messages=3,1"
+
+`testEveryPaneHandsOverAsManyThingsAsItDid` — items and, of those, widgets. It
+is a change detector and that is the job. Re-run against CU it says
+
+    Actual   (census): "Application Output=7,1"
+    Expected (expected): "Application Output=8,2"
+
+It is also **the first check that reaches Version Control and Lua**, the two
+panes that hand over nothing but the zoom commands, which entry 218 item 2
+listed as unwatched. Not their order — their shape. The order of a pane with
+nothing named is still open.
+
+One honest note on writing it: eleven of the twelve numbers were right from the
+batch-217 census dump and Test Results was not — 9 widgets, not 10. The test
+said which line and both values, so it cost one run. A census is worth having
+partly because getting it wrong is cheap.
+
+### A test that was filtering the defect away
+
+While writing control CT — drop `m_reRunAction`'s object name — I found
+`testAToolbarButtonBuiltForAnActionCarriesIt` began with
+
+    if (!action || action->objectName().isEmpty())
+        continue;
+
+which is the trap from `~/.claude/testing.md` in its own guard: an unnamed
+action was skipped, so the test passed on exactly the panes it could not see,
+and CT would have been quiet. It now reports an unnamed action as a failure and
+compares the names it found against a written list. Under CT:
+
+    (Application Output: an unnamed action)
+
+### A correction to entry 216
+
+Entry 216's commit says it styled the buttons built for "a pane's named toggles
+and commands". Only the toggles and, later, the actions were styled — the
+command branch has no `setPanelWidget` call, and checking `a03a5e6a958^` it
+never had one, so nothing regressed and nothing was fixed there. The zoom
+buttons are unstyled today exactly as they always were. Left alone rather than
+"fixed", because whether they should be panel-styled is a visual question that
+no test here can answer.
+
+### Measurements
+
+    -test Core              289 passed, 2 failed, exit 2   (the two ShortcutSettings)
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   530 passed, 3 failed, 4 skipped, exit 3 (measured in 218)
+
+Committed baseline before this batch was Core 287/2.
+
+### Negative controls
+
+**CS — the manager wires every command to the zoom state again.** Bit:
+
+    testAToolbarButtonForACommandThatIsNotZoomKeepsItsOwnEnabledState()
+    Compared values are not the same
+
+**CT — the re-run action loses its object name.** Bit, after the test stopped
+skipping unnamed actions. Before that change it was silent, which is the whole
+reason the change was made.
+
+**CU — Application Output stops listing its formatter widget.** Quiet on the
+first run, against 288 green. That is what produced
+`testEveryPaneHandsOverAsManyThingsAsItDid`; re-run afterwards it bites with
+both numbers.
+
+Each was a separate build and run. CU was run twice, before and after the test
+that catches it.
+
+### What is next
+
+1. **The remaining panes**: Terminal, To-Do Entries, VcsBase. Terminal has six
+   widgets, Todo ten, VcsBase none.
+2. **The order of a pane with nothing named** is still unwatched; the count
+   census sees its shape but not its sequence. VcsBase and Lua are the cases.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
+   three `ProjectExplorer` failures from entry 218, entry 196's uncovered
+   widget auto-scroll, entry 199's QML root with no `controller` property.
