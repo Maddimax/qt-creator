@@ -117,7 +117,7 @@ public:
     static SearchResultWindow *instance();
 
     QWidget *outputWidget(QWidget *) override;
-    QList<QWidget*> toolBarWidgets() const override;
+    QList<ToolBarItem> toolBarItems() const override;
 
     void visibilityChanged(bool visible) override;
     bool hasFocus() const override;

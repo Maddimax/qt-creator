@@ -57733,3 +57733,141 @@ Then, still open:
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
    three `ProjectExplorer` failures from entry 218, entry 196's uncovered
    widget auto-scroll, entry 199's QML root with no `controller` property.
+
+## 2026-09-12 — Search Results, and the one button that stays a widget (batch 222)
+
+The last loaded pane on the old path, and the largest: eight widgets.
+
+### The gap this batch closed
+
+**No pane that loads still overrides `toolBarWidgets()`.** Search Results was
+the last, and its eight widgets are now three actions and five widgets.
+
+Three converted cleanly:
+
+| was | is |
+| --- | --- |
+| `m_expandCollapseButton` | `SearchResults.ExpandAll`, the action it already carried |
+| `m_newSearchButton` | `SearchResults.NewSearch` |
+| `m_relativePathsButton` | `SearchResults.RelativePaths`, the action it already carried |
+
+Two of the three were pure deletions — the buttons existed only to hold an
+action that `ActionBuilder` had already made. The third looked harder than it
+was. `Command::toolButtonWithAppendedShortcut(action, cmd)` is
+
+    auto button = new QToolButton;
+    button->setDefaultAction(action);
+    if (cmd)
+        cmd->augmentActionWithShortcutToolTip(action);
+
+— the shortcut is appended to **the action's** tooltip, not the button's. So
+`augmentActionWithShortcutToolTip()` on its own, which is public, does the
+whole job and the button was never load-bearing. Read out of `command.cpp`
+rather than assumed, because "this button has a special tooltip" reads like
+something only a button can have.
+
+### The one that stays a widget, and why that is the right answer
+
+`m_filterButton` is still `ToolBarItem::forWidget()`. It opens a filter popup:
+
+    m_searchResultWidgets.at(visibleSearchIndex())->showFilterWidget(m_filterButton);
+    ...
+    const auto optionsWidget = new FilterWidget(parent, m_filter->createWidget());
+
+The button is the popup's parent, which is how the popup knows where to sit. A
+pane that hands over an action cannot ask which button the manager built for
+it, so a pane needing the widget keeps the widget. That is what `forWidget()`
+is for, and it is worth saying out loud after six batches of converting things
+away from it: the goal was never "no widgets", it was "no widgets standing in
+for something that isn't one".
+
+Adding a way to ask the manager for the button would close this too. It is not
+worth it for one caller, and it would hand every pane a back-channel to the
+toolbar's internals.
+
+### The lister stopped doing things
+
+`toolBarWidgets()` created the history label and the recent-searches combo box
+the first time it was called:
+
+    if (!m_historyLabel)
+        m_historyLabel = new QLabel(Tr::tr("History:"));
+    if (!m_recentSearchesBox) { ... }
+
+which is the standing rule for this work in its plainest form - a closure that
+lists should not also build. Both now happen in the private constructor beside
+the spacers and the buttons, and the `QTC_ASSERT(m_recentSearchesBox, return)`
+guards scattered around the class are now always true rather than sometimes.
+
+### Measurements
+
+    -test Core              291 passed, 2 failed, exit 2   (the two ShortcutSettings)
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   530 passed, 3 failed, 4 skipped, exit 3
+    -test Todo              11 passed, 0 failed, exit 0
+
+**This batch adds no new test**, and the count is unchanged at 291 for that
+reason. The coverage is in four censuses that grew, and all four predicted the
+new values correctly before the run:
+
+    "Search Results=10,5"                         (was 10,8)
+    + SearchResults.ExpandAll / NewSearch / RelativePaths
+    + {"SearchResults.RelativePaths", "../"}      (its icon is null; it draws text)
+    + "Search Results" in the interleaving list
+
+### Negative controls
+
+**DB — the recent-searches box is not listed.** Bit: `"Search Results=9,4"`
+against `"Search Results=10,5"`.
+
+**DC — the relative-paths action loses its `setIconText("../")`.** Bit, and the
+failure is the reason the check exists:
+
+    Actual   : ("SearchResults.RelativePaths", "Show Paths in Relation to Active Project")
+    Expected : ("SearchResults.RelativePaths", "../")
+
+A toolbar button drawing that whole sentence is what the text census was
+written for, one batch before the pane that could produce it was converted.
+
+**DD — the new-search action loses its object name.** Bit:
+`(Search Results: an unnamed action)`.
+
+Each was a separate build and run.
+
+### What is next, with the ground checked
+
+Removing `toolBarWidgets()`, `toolBarAspects()` and `toolBarCommands()` from
+`IOutputPane` is now one batch, and these are the four things in the way -
+grepped rather than guessed:
+
+1. **Test Results and Console carry dead overrides.** Verified this batch:
+   both override `toolBarItems()` and list every item explicitly, neither calls
+   the old accessors, and `baseToolBarItems()` calls
+   `IOutputPane::toolBarWidgets()` qualified. Four declarations and their
+   definitions, all unreachable.
+2. **Lua overrides `toolBarWidgets()` to return `{}`.** Also dead.
+3. **One real caller from outside a pane**, and it is a test:
+   `outputpaneview.cpp:802` walks `general->toolBarWidgets()` looking for the
+   filter line edit, calling it "the only way in from outside". It moves to
+   `toolBarItems()`.
+4. **`src/plugins/profiler/` has its own `toolBarWidgets()`** on
+   `ProfilerTraceBackend` - same name, unrelated class, three implementations.
+   A grep-and-delete would take them with it. Do not touch them.
+5. **Serial Terminal** still overrides the old one and is **not built in this
+   configuration**, so it appears in no census and nothing here would catch a
+   mistake in it. Converting it is the one part of this that cannot be
+   verified on this branch; the honest options are to leave its override alone
+   or to convert it and say plainly that it is unmeasured.
+
+Then, still open:
+
+1. **The order of a pane that changes its own stated order** is invisible,
+   because asked and drawn move together. Last known hole, probably not worth
+   closing.
+2. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+3. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
+   three `ProjectExplorer` failures from entry 218, entry 196's uncovered
+   widget auto-scroll, entry 199's QML root with no `controller` property.

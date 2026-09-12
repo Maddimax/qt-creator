@@ -77,16 +77,14 @@ namespace Internal {
         void handleRelativePathsToolButton(bool checked);
         void updateFilterButton();
         int indexOfSearchToEvict() const;
-        QList<QWidget *> toolBarWidgets();
+        QList<IOutputPane::ToolBarItem> toolBarItems();
 
         SearchResultWindow *q;
         QList<Internal::SearchResultWidget *> m_searchResultWidgets;
-        QToolButton *m_expandCollapseButton = nullptr;
         QToolButton *m_filterButton;
-        QToolButton *m_newSearchButton;
-        QToolButton *m_relativePathsButton = nullptr;
         QAction *m_expandCollapseAction = nullptr;
         QAction *m_relativePathsAction = nullptr;
+        QAction *m_newSearchAction = nullptr;
         static const bool m_initiallyExpand;
         static const bool m_initiallyRelativePaths;
         QWidget *m_spacer;
@@ -128,11 +126,7 @@ namespace Internal {
         expandCollapse.bindContextAction(&m_expandCollapseAction);
         expandCollapse.setCommandAttribute(Command::CA_UpdateText);
 
-        m_expandCollapseButton = new QToolButton(m_widget);
-        m_expandCollapseButton->setDefaultAction(m_expandCollapseAction);
-        Utils::StyleHelper::setPanelWidget(m_expandCollapseButton);
-
-        m_relativePathsButton = new QToolButton(m_widget);
+        m_expandCollapseAction->setObjectName("SearchResults.ExpandAll");
 
         ActionBuilder(window, "Find.RelativePaths")
             .setText(Tr::tr("Show Paths in Relation to Active Project"))
@@ -141,19 +135,35 @@ namespace Internal {
             .setEnabled(false)
             .bindContextAction(&m_relativePathsAction)
             .setCommandAttribute(Command::CA_UpdateText);
-        m_relativePathsButton->setDefaultAction(m_relativePathsAction);
+        m_relativePathsAction->setObjectName("SearchResults.RelativePaths");
 
+        // Still a widget, and the only one left that has to be: the filter
+        // popup is parented on this button to sit under it, and a pane cannot
+        // ask for the button the toolbar built.
         m_filterButton = new QToolButton(m_widget);
         m_filterButton->setText(Tr::tr("Filter Results"));
         m_filterButton->setIcon(Utils::Icons::FILTER.icon());
         m_filterButton->setEnabled(false);
 
-        QAction *newSearchAction = new QAction(Tr::tr("New Search"), this);
-        newSearchAction->setIcon(Utils::Icons::NEWSEARCH_TOOLBAR.icon());
+        m_newSearchAction = new QAction(Tr::tr("New Search"), this);
+        m_newSearchAction->setIcon(Utils::Icons::NEWSEARCH_TOOLBAR.icon());
+        m_newSearchAction->setObjectName("SearchResults.NewSearch");
         Command *cmd = ActionManager::command(Constants::ADVANCED_FIND);
-        m_newSearchButton = Command::toolButtonWithAppendedShortcut(newSearchAction, cmd);
-        if (QTC_GUARD(cmd && cmd->action()))
-            connect(m_newSearchButton, &QToolButton::triggered, cmd->action(), &QAction::trigger);
+        if (QTC_GUARD(cmd && cmd->action())) {
+            // What toolButtonWithAppendedShortcut() did: it augments the
+            // action, so nothing about the tooltip needed a button.
+            cmd->augmentActionWithShortcutToolTip(m_newSearchAction);
+            connect(m_newSearchAction, &QAction::triggered, cmd->action(), &QAction::trigger);
+        }
+
+        m_historyLabel = new QLabel(Tr::tr("History:"));
+
+        m_recentSearchesBox = new QComboBox;
+        m_recentSearchesBox->setProperty(Utils::StyleHelper::C_DRAW_LEFT_BORDER, true);
+        m_recentSearchesBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        m_recentSearchesBox->addItem(Tr::tr("New Search"));
+        connect(m_recentSearchesBox, &QComboBox::activated,
+                this, &SearchResultWindowPrivate::setCurrentIndexWithFocus);
 
         connect(m_expandCollapseAction, &QAction::toggled,
                 this, &SearchResultWindowPrivate::handleExpandCollapseToolButton);
@@ -181,14 +191,14 @@ namespace Internal {
                 m_widget->currentWidget()->setFocus();
             m_expandCollapseAction->setEnabled(false);
             m_relativePathsAction->setEnabled(false);
-            m_newSearchButton->setEnabled(false);
+            m_newSearchAction->setEnabled(false);
         } else {
             if (focus)
                 m_searchResultWidgets.at(visibleSearchIndex())->setFocusInternally();
             m_searchResultWidgets.at(visibleSearchIndex())->notifyVisibilityChanged(true);
             m_expandCollapseAction->setEnabled(true);
             m_relativePathsAction->setEnabled(true);
-            m_newSearchButton->setEnabled(true);
+            m_newSearchAction->setEnabled(true);
         }
         q->navigateStateChanged();
         updateFilterButton();
@@ -431,9 +441,12 @@ QWidget *SearchResultWindow::outputWidget(QWidget *)
 /*!
     \internal
 */
-QList<QWidget*> SearchResultWindow::toolBarWidgets() const
+QList<Core::IOutputPane::ToolBarItem> SearchResultWindow::toolBarItems() const
 {
-    return d->toolBarWidgets();
+    QList<ToolBarItem> items = d->toolBarItems();
+    for (const ToolBarItem &item : baseToolBarItems())
+        items << item;
+    return items;
 }
 
 /*!
@@ -492,7 +505,7 @@ SearchResult *SearchResultWindow::startNewSearch(const QString &label,
     auto widget = new SearchResultWidget;
     connect(widget, &SearchResultWidget::filterInvalidated, this, [this, widget] {
         if (widget == d->m_searchResultWidgets.at(d->visibleSearchIndex()))
-            d->handleExpandCollapseToolButton(d->m_expandCollapseButton->isChecked());
+            d->handleExpandCollapseToolButton(d->m_expandCollapseAction->isChecked());
     });
     connect(widget, &SearchResultWidget::filterChanged,
             d, &SearchResultWindowPrivate::updateFilterButton);
@@ -542,7 +555,7 @@ void SearchResultWindow::clearContents()
     d->m_relativePathsAction->setEnabled(false);
     navigateStateChanged();
 
-    d->m_newSearchButton->setEnabled(false);
+    d->m_newSearchAction->setEnabled(false);
 }
 
 /*!
@@ -648,26 +661,17 @@ int SearchResultWindowPrivate::indexOfSearchToEvict() const
     return -1;
 }
 
-QList<QWidget *> SearchResultWindowPrivate::toolBarWidgets()
+QList<IOutputPane::ToolBarItem> SearchResultWindowPrivate::toolBarItems()
 {
-    if (!m_historyLabel)
-        m_historyLabel = new QLabel(Tr::tr("History:"));
-    if (!m_recentSearchesBox) {
-        m_recentSearchesBox = new QComboBox;
-        m_recentSearchesBox->setProperty(Utils::StyleHelper::C_DRAW_LEFT_BORDER, true);
-        m_recentSearchesBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
-        m_recentSearchesBox->addItem(Tr::tr("New Search"));
-        connect(m_recentSearchesBox, &QComboBox::activated,
-                this, &SearchResultWindowPrivate::setCurrentIndexWithFocus);
-    }
-    return {m_expandCollapseButton,
-            m_filterButton,
-            m_newSearchButton,
-            m_relativePathsButton,
-            m_spacer,
-            m_historyLabel,
-            m_spacer2,
-            m_recentSearchesBox};
+    using ToolBarItem = IOutputPane::ToolBarItem;
+    return {ToolBarItem::forAction(m_expandCollapseAction),
+            ToolBarItem::forWidget(m_filterButton),
+            ToolBarItem::forAction(m_newSearchAction),
+            ToolBarItem::forAction(m_relativePathsAction),
+            ToolBarItem::forWidget(m_spacer),
+            ToolBarItem::forWidget(m_historyLabel),
+            ToolBarItem::forWidget(m_spacer2),
+            ToolBarItem::forWidget(m_recentSearchesBox)};
 }
 
 /*!

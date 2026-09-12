@@ -2175,7 +2175,9 @@ private slots:
         QStringList expected{"AppOutput.AttachDebugger", "AppOutput.ReRun",
                              "AppOutput.Settings", "CompileOutput.CancelBuild",
                              "CompileOutput.Settings", "Issues.FilterByCategories",
-                             "Issues.ParseExternalOutput", "Squish.CollapseAll",
+                             "Issues.ParseExternalOutput", "SearchResults.ExpandAll",
+                             "SearchResults.NewSearch", "SearchResults.RelativePaths",
+                             "Squish.CollapseAll",
                              "Squish.ExpandAll", "Squish.Filter", "Terminal.Close",
                              "Terminal.LockKeyboard", "Terminal.New", "Terminal.Settings",
                              "Terminal.Variables", "Todo.Filter.BUG", "Todo.Filter.FIXME",
@@ -2200,7 +2202,7 @@ private slots:
         // is the only check that reaches a pane with nothing named at all.
         const QStringList expected{
             "Issues=6,1",
-            "Search Results=10,8",
+            "Search Results=10,5",
             "Application Output=8,2",
             "Compile Output=5,1",
             "Terminal=8,0",
@@ -2340,6 +2342,7 @@ private slots:
         // what each of them says. Reading the text back off the action asks
         // the same accessor the button asked.
         const QList<QPair<QString, QString>> expected{
+            {"SearchResults.RelativePaths", "../"},
             {"Terminal.Variables", "%{...}"},
             {"Todo.Scope.CurrentDocument", "Current Document"},
             {"Todo.Scope.ActiveProject", "Active Project"},
@@ -2582,8 +2585,8 @@ private slots:
                     interleaving << pane->displayName();
             }
         }
-        QCOMPARE(interleaving, QStringList({"Issues", "Application Output", "Compile Output",
-                                            "To-Do Entries", "Test Results",
+        QCOMPARE(interleaving, QStringList({"Issues", "Search Results", "Application Output",
+                                            "Compile Output", "To-Do Entries", "Test Results",
                                             "QML Debugger Console"}));
         QVERIFY2(checked >= 2,
                  qPrintable(QString("only %1 pane could be checked").arg(checked)));
