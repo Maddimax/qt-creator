@@ -192,10 +192,17 @@ void WorkingDirectoryAspect::setEnvironment(EnvironmentAspect *envAspect)
     m_envAspect = envAspect;
     if (!m_envAspect)
         return;
-    connect(m_envAspect, &EnvironmentAspect::environmentChanged, this, [this] {
-        FilePathAspect::setEnvironment(m_envAspect->environment());
+    // Asked for when something draws, not every time it changes. This aspect
+    // outlives the widgets it fills, and evaluating the environment reaches
+    // into device and kit machinery, so a torn-down run settings panel used to
+    // pay for an answer with nobody left to give it to.
+    const Lazy<Environment> environment([this] {
+        return m_envAspect ? m_envAspect->environment() : Environment();
     });
-    FilePathAspect::setEnvironment(m_envAspect->environment());
+    connect(m_envAspect, &EnvironmentAspect::environmentChanged, this, [this, environment] {
+        FilePathAspect::setEnvironment(environment);
+    });
+    FilePathAspect::setEnvironment(environment);
 }
 
 /*!

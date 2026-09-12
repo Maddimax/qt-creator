@@ -1419,11 +1419,14 @@ private slots:
         QVERIFY(parent == nullptr); // the fetcher really ran
     }
 
-    // The connection belongs to the chooser, so a panel that is gone stops
-    // asking for the environment instead of evaluating it for nobody.
+    // A torn-down panel stops asking for the environment instead of
+    // evaluating it for nobody. Measured as what one change *costs*, not as a
+    // running total: an EnvironmentAspect re-reads its own base environment
+    // whenever it says it changed, whether or not anything is attached to it,
+    // so a total can never come back to where it was and the comparison this
+    // made could not hold on any platform.
     void testWorkingDirectoryAspectStopsAskingOnceTornDown()
     {
-        auto parent = new QWidget;
         int fetches = 0;
 
         EnvironmentAspect envAspect;
@@ -1432,6 +1435,13 @@ private slots:
             return Utils::Environment();
         });
 
+        // What a change costs with nothing attached at all.
+        const int beforeBare = fetches;
+        emit envAspect.environmentChanged();
+        const int bareCost = fetches - beforeBare;
+        QVERIFY2(bareCost > 0, "the environment aspect does not read its own base environment");
+
+        auto parent = new QWidget;
         WorkingDirectoryAspect workingDir;
         workingDir.setEnvironment(&envAspect);
 
@@ -1440,14 +1450,21 @@ private slots:
         layout.attachTo(parent);
         QVERIFY(parent->findChild<Utils::PathChooser *>());
 
-        // Taken before the teardown, so that destroying the widgets may not
-        // ask for the environment either.
-        const int fetchesWhileAlive = fetches;
+        // With the chooser up, a change costs more than the bare one: the
+        // chooser re-reads the environment it expands paths against.
+        const int beforeLive = fetches;
+        emit envAspect.environmentChanged();
+        const int liveCost = fetches - beforeLive;
+        QVERIFY2(liveCost > bareCost,
+                 qPrintable(QString("a drawn chooser cost %1, the same as no chooser at all")
+                                .arg(liveCost)));
 
         delete parent;
-        emit envAspect.environmentChanged();
 
-        QCOMPARE(fetches, fetchesWhileAlive);
+        const int beforeDead = fetches;
+        emit envAspect.environmentChanged();
+        const int deadCost = fetches - beforeDead;
+        QCOMPARE(deadCost, bareCost);
     }
 };
 

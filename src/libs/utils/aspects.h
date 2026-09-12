@@ -1089,7 +1089,7 @@ public:
     void setValidatePlaceHolder(bool validatePlaceHolder);
     void setOpenTerminalHandler(const std::function<void()> &openTerminal);
     void setExpectedKind(const PathChooserKind &expectedKind);
-    void setEnvironment(const Environment &env);
+    void setEnvironment(const Lazy<Environment> &env);
     void setBaseDirectory(const Lazy<FilePath> &baseDirectory);
     void setInitialBrowsePathBackup(const FilePath &initialBrowsePathBackup);
 

@@ -58161,3 +58161,154 @@ the parked list is now the queue. In the order I would take them:
 4. The rest, with numbers: entry 174's page scroll, entry 173's crash, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-13 — A regression this branch shipped, found by a red test nobody read (batch 225)
+
+Entry 224 put the three `ProjectExplorer` failures at the top of the queue,
+carried as a number since entry 218. Two of the three are gone, and one of them
+was a regression this branch introduced and then ignored for weeks.
+
+### The gap this batch closed
+
+**`WorkingDirectoryAspect` went back to evaluating the environment for widgets
+that no longer exist**, undoing a fix that had been made, reviewed and tested
+upstream.
+
+`245509ae83d` (hjk, reviewed) had moved the `EnvironmentAspect::environmentChanged`
+connection off the aspect and onto the path chooser, because
+
+> The working directory aspect outlives the widgets it fills, so the connection
+> it made kept firing after the run settings panel was torn down: it evaluated
+> the environment - device and kit machinery included - only to find the
+> chooser gone and drop the answer.
+
+and added `testWorkingDirectoryAspectStopsAskingOnceTornDown` to hold it.
+
+`8d33064ba40 ProjectExplorer: Make the working directory a path aspect` - later,
+on this branch - moved the connection into `setEnvironment()` with the **aspect**
+as context again. The test went red and stayed red, and became one of the three
+numbers quoted in every batch since.
+
+The old fix is not available any more: that conversion removed the aspect's own
+chooser (`18eb57c55a6 Utils: Stop handing out FilePathAspect's path chooser`),
+so there is no widget to hang the connection on. The answer is not to find a
+context object but to **stop evaluating eagerly at all**:
+
+    Environment m_environment;   ->   Lazy<Environment> m_environment;
+
+`Utils::Lazy<T>` was already in the file - `m_baseDirectory` is one, resolved
+with `.value()` at the same three call sites - and it does not cache, so each
+read is current. `FilePathAspect::setEnvironment()` now takes a
+`Lazy<Environment>`, and `WorkingDirectoryAspect` hands over a closure instead
+of a value. A change to the environment re-sets the closure and emits; nothing
+reads it unless something is drawn.
+
+### The test could not have passed either
+
+Fixing the aspect took the count from 4 to 3 against an expected 2, so it was
+still red. Instrumenting rather than theorising, in two steps:
+
+    alive 2, afterDelete 2, afterEmit 3
+
+so the remaining fetch was on the emit, not during destruction. Then the
+decisive one - emit *before any `WorkingDirectoryAspect` exists at all*:
+
+    bare emit 1->2 | alive 3, afterDelete 3, afterEmit 4
+
+**An `EnvironmentAspect` re-reads its own base environment whenever it says it
+changed**, with nothing attached to it. So
+
+    QCOMPARE(fetches, fetchesWhileAlive);
+
+compares a running total against a number it can never return to. The test
+could not pass on any platform with any fix; it had been measuring the
+environment aspect as well as the thing it was about.
+
+It now measures what a change *costs*, three times: with nothing attached, with
+the chooser drawn, and after teardown.
+
+    QVERIFY(bareCost > 0);              // the environment aspect reads its own base
+    QVERIFY(liveCost > bareCost);       // a drawn chooser costs more
+    QCOMPARE(deadCost, bareCost);       // a torn-down one costs nothing extra
+
+The middle assertion is the one the old test did not have, and it is what stops
+this passing by the aspect never reading the environment at all.
+
+### The qbs row was an environmental precondition wearing a failure
+
+`ProjectTest::testSourceToBinaryMapping(qbs)` failed with "the qbs build
+failed, so there is nothing to map", while its `qmake` sibling **skipped** with
+"The test requires at least one kit with a toolchain".
+
+    docker run ... bash -lc "which qbs"   ->   no qbs binary
+
+There is no qbs in the image, so the build cannot succeed, ever. The mapping is
+what the test is about; the build is a precondition, and the test already
+skips for two other missing preconditions. It now skips for this one too, with
+the reason printed, so it reads as "not checked here" rather than as a defect.
+
+### What is left, and why it stays
+
+`RunWorkerConflictTest::testConflict` still fails, and should.
+
+It is upstream (`3606a50e191`, hjk, 2025-06-11) and its own comment says it
+"needs to be run with all potentially conflicting factories loaded". It is a
+survey: it enumerates every run mode, device type and run configuration, and
+reports where more than one factory claims the combination. With `-load all` it
+finds twenty-two, all in plugins this branch has never touched:
+
+    RunConfiguration.NormalRunMode / GenericLinuxOsType / QmlRunConfiguration.Qml
+      -> RemoteLinuxRunWorkerFactory, ProcessRunnerFactory
+    RunConfiguration.QmlProfilerRunMode / DockerDeviceType / AndroidRunConfiguration
+      -> AndroidQmlToolingSupportFactory, DockerQmlToolingWorkerFactory
+    ... twenty more ...
+
+The test body carries a `// TODO: !!` at the `canCreate()` call. Clearing this
+means changing factory registration conditions across RemoteLinux, Qdb, Docker,
+Android, QmlProjectManager, QmlProfiler, QmlPreview and the application manager
+integration - real work, upstream, and nothing to do with drawing UI in Qt
+Quick. Left alone deliberately, recorded here so the next batch does not
+rediscover it.
+
+### Measurements
+
+    -test Core              293 passed, 0 failed, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Todo              11 passed, 0 failed, exit 0
+
+ProjectExplorer was 530/3/4 and is 531/1/5: one test fixed, one turned into an
+honest skip, one left with its reasons written down. `aspects.h` changed, so
+both builds were full rebuilds.
+
+### Negative controls
+
+**DK — `WorkingDirectoryAspect` evaluates the environment eagerly again**, the
+regression exactly as `8d33064ba40` left it. Bit:
+
+    testWorkingDirectoryAspectStopsAskingOnceTornDown() Compared values are not the same
+
+That is the control that matters here: the rewritten test catches the defect
+the original could only half-see, and the original could not have been made to
+pass by fixing the code alone.
+
+No control for the qbs skip: a `QSKIP` for a missing precondition has nothing
+to disable, and inventing one would be the sketch-of-a-control that entry 215
+already learned not to write.
+
+### What is next
+
+1. **The `TextEditor` flake** — 751/1/3, exit 1, on every run. Now the only
+   red left that this branch owns. It was chased once (0/18 at tip, diagnosed
+   as heap corruption, not reproduced), and the method that worked twice now -
+   read the failure properly, instrument, and do not assume the test is right -
+   has not been tried on it.
+2. **Automatic login in the macOS VM** — Qt is staged, the runner works, and
+   entry 224's control DJ showed there are assertions only a macOS run can
+   exercise.
+3. The rest, with numbers: entry 174's page scroll, entry 173's crash, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property, and `IOutputPane::toolBarWidgets()` once Qt
+   SerialPort exists in one of the two Qt builds.

@@ -1629,7 +1629,7 @@ public:
     QStringList m_commandVersionArguments;
     Key m_historyCompleterKey;
     PathChooserKind m_expectedKind = PathChooserKind::File;
-    Environment m_environment;
+    Lazy<Environment> m_environment;
     Lazy<FilePath> m_baseDirectory;
     FilePath m_initialBrowsePathBackup;
     StringAspect::ValueAcceptor m_valueAcceptor;
@@ -1702,7 +1702,7 @@ FilePath FilePathAspect::resolvedVolatileValue() const
     return Utils::expandPath(FilePath::fromUserInput(TypedAspect::volatileValue()),
                              macroExpander(),
                              d->m_baseDirectory.value(),
-                             d->m_environment,
+                             d->m_environment.value(),
                              d->m_expectedKind);
 }
 
@@ -1853,7 +1853,7 @@ AsyncValidationFunction FilePathAspect::defaultValidationFunction() const
         const FilePath expanded = Utils::expandPath(FilePath::fromUserInput(text),
                                                     macroExpander(),
                                                     d->m_baseDirectory.value(),
-                                                    d->m_environment,
+                                                    d->m_environment.value(),
                                                     d->m_expectedKind);
         if (expanded.isEmpty()) {
             return QtFuture::makeReadyFuture(AsyncValidationResult(
@@ -2060,7 +2060,7 @@ void FilePathAspect::setExpectedKind(const PathChooserKind &expectedKind)
     }
 }
 
-void FilePathAspect::setEnvironment(const Environment &env)
+void FilePathAspect::setEnvironment(const Lazy<Environment> &env)
 {
     d->m_environment = env;
     emit controlConfigurationChanged();
@@ -2174,7 +2174,7 @@ QString FilePathAspect::validationMessage(const QVariant &candidate) const
 
 Environment FilePathAspect::environment() const
 {
-    return d->m_environment;
+    return d->m_environment.value();
 }
 
 Lazy<FilePath> FilePathAspect::baseDirectory() const
