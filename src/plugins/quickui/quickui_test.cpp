@@ -14427,6 +14427,16 @@ void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()
     pane->flash();
     QVERIFY2(flash->property("running").toBool(), "a pane asked to be noticed and nothing moved");
 
+    // The arrow that opens the manage menu is the shell's, not a pane's: it
+    // is drawn once, after every button, and it is not one of them.
+    QQuickItem * const manage = drawnItemNamed(row, "outputPaneManageButton");
+    QVERIFY2(manage, "the row offers no way to manage which panes have buttons");
+    QVERIFY2(!buttons.contains(manage), "the manage arrow was counted as a pane's button");
+    QQuickItem * const lastButton = buttons.last();
+    QVERIFY2(manage->x() >= lastButton->x() + lastButton->width(),
+             qPrintable(QString("the manage arrow is at %1, the last button ends at %2")
+                            .arg(manage->x()).arg(lastButton->x() + lastButton->width())));
+
     // The census: the shell's own row is the Qt Quick one. The status bar
     // builds its row once, at startup, so a test cannot change which kind it
     // gets - it can only say which kind is there, and this is the line that
@@ -14436,6 +14446,10 @@ void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()
     QVERIFY2(shellRow, "the status bar holds no output pane buttons at all");
     QVERIFY2(shellRow->findChild<QQuickWidget *>(),
              "the shell's button row is the widget one, which this line has to say");
+    // And it is the whole row: the manage arrow is drawn inside it, so a
+    // second one left beside it would be two arrows on screen.
+    QVERIFY(shellRow->layout());
+    QCOMPARE(shellRow->layout()->count(), 1);
 }
 
 QObject *createQuickUiTest()

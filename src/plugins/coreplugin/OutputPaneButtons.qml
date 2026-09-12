@@ -158,12 +158,48 @@ Row {
                 }
             }
 
-            // The menu that says which panes have a button at all, on the
-            // buttons themselves as well as on the arrow at the end of the
-            // row - the widget buttons answer a right-click the same way.
             TapHandler {
                 acceptedButtons: Qt.RightButton
                 onTapped: root.controller.showMenu()
+            }
+        }
+    }
+
+    // Declared after the Repeater, so it follows every button the model has.
+    AbstractButton {
+        id: manage
+
+        objectName: "outputPaneManageButton"
+        leftPadding: Spacing.PaddingHXs
+        rightPadding: Spacing.PaddingHXs
+
+        onClicked: root.controller.showMenu()
+
+        background: Rectangle {
+            color: manage.hovered ? Tokens.backgroundMuted : "transparent"
+            radius: Spacing.RadiusS
+        }
+
+        contentItem: Canvas {
+            implicitWidth: Spacing.PrimitiveM
+            implicitHeight: Spacing.PrimitiveXl
+
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.reset()
+                ctx.fillStyle = Tokens.textMuted
+                ctx.beginPath()
+                ctx.moveTo(width / 2, 0)
+                ctx.lineTo(width, height * 0.4)
+                ctx.lineTo(0, height * 0.4)
+                ctx.closePath()
+                ctx.fill()
+                ctx.beginPath()
+                ctx.moveTo(0, height * 0.6)
+                ctx.lineTo(width, height * 0.6)
+                ctx.lineTo(width / 2, height)
+                ctx.closePath()
+                ctx.fill()
             }
         }
     }

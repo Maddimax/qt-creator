@@ -741,6 +741,15 @@ void OutputPaneButtonModel::reset()
 
 // OutputPaneButtons
 
+// The Qt Quick row draws the buttons, and the arrow that manages them, from
+// the model above. QTC_WIDGET_OUTPUT_BUTTONS asks for the QToolButtons
+// instead, and a build with no front end to host QML gets them without asking.
+static bool useQuickButtonRow()
+{
+    return !Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_OUTPUT_BUTTONS")
+           && hasQmlViewFactory();
+}
+
 QWidget *OutputPaneManager::createButtonRow()
 {
     OutputPaneManager * const manager = instance();
@@ -847,7 +856,6 @@ OutputPaneManager::OutputPaneManager(QWidget *parent) :
     QWidget(parent),
     m_buttonModel(new OutputPaneButtonModel(this)),
     m_titleLabel(new QLabel),
-    m_manageButton(new OutputPaneManageButton),
     m_outputWidgetPane(new QStackedWidget),
     m_opToolBarWidgets(new QStackedWidget)
 {
@@ -975,11 +983,14 @@ void OutputPaneManager::initialize()
     const int currentIdx = m_instance->currentIndex();
     if (QTC_GUARD(currentIdx >= 0 && currentIdx < g_outputPanes.size()))
         m_instance->m_titleLabel->setText(g_outputPanes[currentIdx].pane->displayName());
-    m_instance->m_buttonsWidget->layout()->addWidget(m_instance->m_manageButton);
-    connect(m_instance->m_manageButton,
-            &OutputPaneManageButton::menuRequested,
-            m_instance,
-            &OutputPaneManager::popupMenu);
+    if (!useQuickButtonRow()) {
+        m_instance->m_manageButton = new OutputPaneManageButton;
+        m_instance->m_buttonsWidget->layout()->addWidget(m_instance->m_manageButton);
+        connect(m_instance->m_manageButton,
+                &OutputPaneManageButton::menuRequested,
+                m_instance,
+                &OutputPaneManager::popupMenu);
+    }
 
     updateMaximizeButton(false); // give it an initial name
 
@@ -1030,15 +1041,9 @@ void OutputPaneManager::setupButtons()
     // Sorted and about to be renumbered, so nothing a row said still holds.
     model->reset();
 
-    // The Qt Quick row draws the whole row from the model above, and is what a
-    // reader gets. QTC_WIDGET_OUTPUT_BUTTONS asks for the QToolButtons below,
-    // and a build with no front end to host QML gets them without asking.
     // Asked here and built after the loop, because what a row draws - its
     // number, its tooltip - is only settled once the loop has been through it.
-    // The manage button at the end of the row stays a widget either way: it is
-    // the shell's, not a pane's.
-    const bool quickRow = !Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_OUTPUT_BUTTONS")
-                          && hasQmlViewFactory();
+    const bool quickRow = useQuickButtonRow();
 
     int shortcutNumber = 1;
     const Id baseId = "QtCreator.Pane.";
@@ -1842,8 +1847,15 @@ private slots:
         OutputPaneManager::setupButtons();
 
         QCOMPARE(layout->count(), before);
-        QCOMPARE(layout->itemAt(layout->count() - 1)->widget(),
-                 static_cast<QWidget *>(OutputPaneManager::instance()->m_manageButton));
+
+        // Whichever row is built, the arrow that manages it comes last: the
+        // Quick row draws its own, the widget row has a QToolButton beside it.
+        OutputPaneManager * const manager = OutputPaneManager::instance();
+        QWidget * const last = layout->itemAt(layout->count() - 1)->widget();
+        if (manager->m_manageButton)
+            QCOMPARE(last, static_cast<QWidget *>(manager->m_manageButton));
+        else
+            QCOMPARE(last, manager->m_quickButtonRow);
     }
 
     void testTheButtonDrawsWhatTheModelSays()

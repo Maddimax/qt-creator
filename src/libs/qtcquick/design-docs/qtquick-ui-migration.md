@@ -54695,3 +54695,93 @@ model speaks at a time it never used to.
    there has been no desktop session to look at one in.
 5. Parked: entry 174's page scroll, entry 173's crash, the two
    `ShortcutSettingsTest` failures.
+
+## 2026-09-12 — The manage arrow joins the row it manages (batch 192)
+
+**Gap closed: the last widget in the status bar's button row.** After batch
+191 the row was a `QQuickWidget` with one `QToolButton` sitting beside it -
+`OutputPaneManageButton`, the arrow that opens the menu saying which panes
+have a button at all. It is now a delegate at the end of
+`OutputPaneButtons.qml`, and the widget is built only when the widget row is.
+
+### What it took
+
+Nothing new in the seam. The menu was already reachable from the Quick side -
+the button delegates have offered it on right-click since batch 189 - so the
+arrow is an `AbstractButton` whose `onClicked` calls the same
+`controller.showMenu()`. The drawing is a `Canvas` with two triangles, the
+pattern `style/ComboBox.qml` already uses for its indicator, filled with
+`Tokens.textMuted`; the widget drew `PE_IndicatorArrowUp` and
+`PE_IndicatorArrowDown` through `QStyle`, which QML has no access to.
+
+Placement is declaration order: the delegate is written after the `Repeater`,
+and a `Row` lays its children out in the order they are declared with the
+Repeater's items spliced in at its own position. That is the whole mechanism,
+and it is why the test asserts a coordinate rather than existence.
+
+`m_manageButton` moved out of the constructor's initialiser list and into
+`initialize()`, behind the same switch the row uses - extracted as
+`useQuickButtonRow()` now that two places ask. In the Quick state the pointer
+stays null, which is what the Core test's new branch reads.
+
+### What is not covered, said plainly
+
+**Clicking the arrow is not tested, on either side.** `popupMenu()` ends in
+`menu.exec(QCursor::pos())`, which blocks until a reader dismisses it, so no
+test can press the thing and return. That was already true of the widget
+button and of the right-click handler on every pane button; this batch does
+not make it worse and does not fix it. What is tested is that the arrow is
+there, that it is not one of the pane buttons, and that it is drawn after all
+of them.
+
+Making it testable means splitting `popupMenu()` into "fill a menu" and "show
+it", so a test can read the entries and trigger one without a window. That is
+worth doing - the manage menu is the *only* way to get a hidden pane's button
+back, and nothing anywhere asserts what it offers - but it is a separate
+change from moving the arrow, and it is listed below rather than smuggled in
+here.
+
+### Verification
+
+Both platforms build clean.
+
+    -test QuickUi      220 passed, 0 failed, exit 0
+    -test Core         259 passed, 2 failed, exit 2
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+Unchanged from entry 191: the same three known failures, no new tests (the
+assertions went into the existing row test). Both switch states measured:
+
+    QTC_WIDGET_OUTPUT_BUTTONS=1  -test QuickUi   219 passed, 1 failed (census)
+    QTC_WIDGET_OUTPUT_BUTTONS=1  -test Core      2 failed (the known two)
+
+### Negative controls
+
+**AL - presence bites.** The delegate deleted from the QML: `'manage' returned
+FALSE. (the row offers no way to manage which panes have buttons)`.
+
+**AM - placement bites, with presence still passing.** The delegate moved
+*before* the `Repeater`: `'manage->x() >= lastButton->x() + lastButton->width()'
+returned FALSE. (the manage arrow is at 0, the last button ends at 132.734)`.
+This is the control that matters: a test that only looked for the object would
+have stayed green with the arrow drawn at the wrong end of the row.
+
+**AN - two arrows bite.** The `if (!useQuickButtonRow())` guard forced true, so
+the shell builds the `QToolButton` beside the Quick row that already draws
+one: the new `shellRow->layout()->count() == 1` line fails. Without it,
+nothing in either suite would have noticed a reader seeing the arrow twice -
+the row test builds its own row and never looks at the status bar's, and the
+census only asks what kind the row is.
+
+### What is next
+
+1. **Split `popupMenu()`** into filling a menu and showing it, and test what
+   the manage menu offers. It is the only route back for a hidden pane's
+   button and it is entirely uncovered.
+2. **The three widget output panes** - Terminal, Search Results, Lua.
+3. **The output toolbar**, still blocked on `IOutputPane::toolBarWidgets()`
+   returning `QWidget *`.
+4. **macOS verification**, still owed for every Quick pane since entry 168.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, and entry 191's one-off TextEditor
+   truncation.
