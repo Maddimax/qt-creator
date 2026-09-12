@@ -55949,3 +55949,88 @@ delegate would have shipped by believing the old roles.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — Search Results is a Qt Quick pane (batch 205)
+
+**Gap closed: the results tree draws in Qt Quick, and the pane is one scene.**
+The second of the two batches entry 203 predicted. `SearchResultsPane.qml`
+holds the row from batch 203 and a `TreeView` under it, over the search's own
+filter model; the `QTreeView` and the whole widget strip are built and hidden
+behind `QTC_WIDGET_SEARCH_RESULTS`.
+
+### One scene, not two
+
+The obvious move was a second `QQuickWidget` for the tree beneath the row's.
+Entry 169 warns about scene density - sidebars plus output pane plus editor is
+already three or four live scenes - so the row's QML is now *instantiated by*
+the pane's rather than hosted separately. `SearchResultsRow` is a component in
+the same module, so this cost one line and the row keeps its own tests.
+
+The pane fills its dock, where the row alone was measured by what it asked for.
+
+### What made the tree possible
+
+Only what batch 204 did. The delegate's four presentation decisions became
+roles, so the QML delegate cuts the line with `substring()` at offsets that are
+already in drawn coordinates, and never learns what a tab is worth.
+`roleNames()` had to be added - a widget model has no use for it - and names
+`checkState` too, which `QAbstractItemModel::roleNames()` does not include.
+
+### The crash, and what it was
+
+The first run died before any test: `0 passed`, exit 255. The pane was being
+built at the top of the constructor, and `controller.results` is read **as the
+scene loads** - before `m_searchResultTreeView` exists. A null dereference
+inside QML loading, which reports as the process simply going away.
+
+The fix is ordering: decide whether to go Quick at the top, because the widgets
+need to know whether to hide themselves, and build the scene after the tree it
+reads. Worth writing down because every pane after this one has the same
+shape - **a scene reads its controller during `setSource()`, not afterwards**,
+so anything the controller reaches for has to exist by then.
+
+### Verification
+
+Both platforms build clean. `SearchResultsPane.qml` is new; coreplugin's
+`.qbs` takes QML by wildcard, so **no `.qbs` edit and no re-resolve**. No QML
+warning names either file.
+
+    -test Core         277 passed, 2 failed, exit 2
+    -test QuickUi      223 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+    QTC_WIDGET_SEARCH_RESULTS=1  -test QuickUi   222 passed, 1 failed (census)
+    QTC_WIDGET_SEARCH_RESULTS=1  -test Core      2 failed (the known two)
+
+### Negative controls
+
+**BT - the tree's model bites.** `model: null` in the QML: `(the tree was
+given no model)`. The census now adds a result and waits for the tree to list
+it, so a pane that draws an empty tree fails rather than passing on the
+strength of a `QQuickWidget` existing.
+
+**BU - the census bites.** `QTC_WIDGET_SEARCH_RESULTS=1`: `(the search results
+row is the widget one, which this line has to say)`.
+
+### What is still widgets in this pane
+
+The message strip and the info bar below the tree, and the hidden widget
+strip and tree themselves. The focus question entry 203 parked is still
+parked: `hasFocusInternally()`, `setFocusInternally()` and the tab order
+reach into `m_replaceTextEdit`, which is now never shown. **That is a real
+gap, not a deferral** - a reader tabbing into this pane lands on a hidden
+widget - and it is the first thing the next batch should measure.
+
+### What is next
+
+1. **Focus in the Quick pane.** The widget strip is hidden and still owns the
+   focus chain. Measure what a Tab actually reaches before deciding the shape.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**, the interface problem batch 202 solved once.
+4. **macOS verification**, owed since entry 168, now including three Quick
+   panes nobody has looked at.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

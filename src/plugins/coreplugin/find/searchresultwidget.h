@@ -12,6 +12,7 @@
 
 QT_BEGIN_NAMESPACE
 class QAbstractItemModel;
+class QModelIndex;
 class QFrame;
 class QLabel;
 class QLineEdit;
@@ -153,6 +154,8 @@ class SearchResultRow : public QObject
     Q_PROPERTY(bool additionalOptionChecked READ additionalOptionChecked
                    WRITE setAdditionalOptionChecked NOTIFY changed)
     Q_PROPERTY(QString additionalNote READ additionalNote NOTIFY changed)
+    // The results themselves, which belong to the search and not to this.
+    Q_PROPERTY(QAbstractItemModel *results READ results CONSTANT)
 
 public:
     SearchResultRow(SearchResultHeader *header, SearchResultWidget *widget,
@@ -180,9 +183,15 @@ public:
 
     // The three things the row can be asked to do. Relayed to the widget,
     // which is where cancelling and repeating a search already live.
+    QAbstractItemModel *results() const;
+
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void searchAgain();
     Q_INVOKABLE void replace();
+
+    // What a reader does to a result: open it, or take it out of a replace.
+    Q_INVOKABLE void activate(const QModelIndex &index);
+    Q_INVOKABLE void setChecked(const QModelIndex &index, bool checked);
 
 signals:
     void changed();
@@ -219,6 +228,8 @@ public:
     bool supportsReplace() const;
     void triggerReplace() { doReplace(); }
     void cancelSearch() { cancel(); }
+    QAbstractItemModel *resultsModel() const;
+    void activateResult(const QModelIndex &index);
     void requestSearchAgain() { searchAgain(); }
 
     void setTextToReplace(const QString &textToReplace);

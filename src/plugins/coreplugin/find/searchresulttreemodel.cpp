@@ -42,6 +42,7 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
 
     QModelIndex next(const QModelIndex &idx, bool includeGenerated = false, bool *wrapped = nullptr) const;
     QModelIndex prev(const QModelIndex &idx, bool includeGenerated = false, bool *wrapped = nullptr) const;
@@ -213,6 +214,23 @@ int SearchResultTreeModel::columnCount(const QModelIndex &parent) const
 SearchResultTreeItem *SearchResultTreeModel::treeItemAtIndex(const QModelIndex &idx)
 {
     return static_cast<SearchResultTreeItem*>(idx.internalPointer());
+}
+
+// Named so that a view which asks by name - a QML one - gets the same answers
+// the delegate asks for by number.
+QHash<int, QByteArray> SearchResultTreeModel::roleNames() const
+{
+    QHash<int, QByteArray> names = QAbstractItemModel::roleNames();
+    names[Qt::CheckStateRole] = "checkState";
+    names[ItemDataRoles::DrawnTextRole] = "drawnText";
+    names[ItemDataRoles::DrawnHighlightStartRole] = "drawnHighlightStart";
+    names[ItemDataRoles::DrawnHighlightLengthRole] = "drawnHighlightLength";
+    names[ItemDataRoles::DrawnFunctionTextRole] = "drawnFunctionText";
+    names[ItemDataRoles::ResultBeginLineNumberRole] = "lineNumber";
+    names[ItemDataRoles::IsGroupingItemRole] = "isGroupingItem";
+    names[ItemDataRoles::ResultHighlightBackgroundColor] = "highlightBackground";
+    names[ItemDataRoles::ResultHighlightForegroundColor] = "highlightForeground";
+    return names;
 }
 
 QVariant SearchResultTreeModel::data(const QModelIndex &idx, int role) const

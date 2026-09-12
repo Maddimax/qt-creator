@@ -14429,10 +14429,32 @@ void QuickUiTest::testTheSearchResultsRowIsAQtQuickOne()
     QVERIFY2(pane->findChild<QQuickWidget *>(),
              "the search results row is the widget one, which this line has to say");
 
-    // And it is the row above the results, not the results: those are still a
-    // QTreeView, and this line is what will have to change when they are not.
-    QVERIFY2(pane->findChild<QAbstractItemView *>(),
-             "the results are drawn by something other than an item view now");
+    // And the results with it: the whole pane is one scene, so there is no
+    // QTreeView left drawing anything. This line is what has to change if a
+    // widget view comes back.
+    const QList<QAbstractItemView *> itemViews = pane->findChildren<QAbstractItemView *>();
+    for (QAbstractItemView * const view : itemViews) {
+        QVERIFY2(!view->isVisibleTo(pane),
+                 "an item view is still drawing the results beside the Qt Quick one");
+    }
+
+    // And the Qt Quick tree is drawing them instead, from the search's own
+    // model rather than a copy of it.
+    auto * const quick = pane->findChild<QQuickWidget *>();
+    QVERIFY(quick);
+    QTRY_VERIFY(quick->rootObject());
+    QQuickItem * const tree = quick->rootObject()->findChild<QQuickItem *>("searchResultsTree");
+    QVERIFY2(tree, "the pane draws no results at all");
+
+    Utils::SearchResultItem item;
+    item.setFilePath(Utils::FilePath::fromString("/src/a.cpp"));
+    item.setLineText("needle here");
+    item.setMainRange(1, 0, 6);
+    search->addResult(item);
+
+    auto * const model = tree->property("model").value<QAbstractItemModel *>();
+    QVERIFY2(model, "the tree was given no model");
+    QTRY_VERIFY2(model->rowCount() > 0, "a result was added and the tree lists nothing");
 }
 
 void QuickUiTest::testTheLuaPaneIsAQtQuickOne()

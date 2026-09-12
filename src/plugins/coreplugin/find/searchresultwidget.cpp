@@ -111,6 +111,24 @@ void SearchResultRow::setAdditionalOptionChecked(bool checked)
 
 QString SearchResultRow::additionalNote() const { return m_header->additionalNote(); }
 
+QAbstractItemModel *SearchResultRow::results() const
+{
+    return m_widget->resultsModel();
+}
+
+void SearchResultRow::activate(const QModelIndex &index)
+{
+    m_widget->activateResult(index);
+}
+
+void SearchResultRow::setChecked(const QModelIndex &index, bool checked)
+{
+    if (index.isValid()) {
+        m_widget->resultsModel()->setData(index, checked ? Qt::Checked : Qt::Unchecked,
+                                          Qt::CheckStateRole);
+    }
+}
+
 void SearchResultRow::cancel()
 {
     m_widget->cancelSearch();
@@ -134,19 +152,13 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     layout->setSpacing(0);
     setLayout(layout);
 
-    // The Qt Quick row draws the whole strip from the header below, and is
-    // what a reader gets. QTC_WIDGET_SEARCH_RESULTS asks for the widgets, and
-    // a build with no front end to host QML gets them without asking.
-    m_quickRow = nullptr;
-    if (!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_SEARCH_RESULTS")
-        && Core::hasQmlViewFactory()) {
-        auto * const row = new SearchResultRow(&m_header, this);
-        m_quickRow = Core::createQmlView(
-            QUrl("qrc:/qt/qml/QtCreator/Core/SearchResultsRow.qml"), row,
-            Core::QmlViewSizing::SizeToScene);
-        if (!m_quickRow)
-            delete row;
-    }
+    // The Qt Quick pane draws the row and the results alike, and is what a
+    // reader gets. QTC_WIDGET_SEARCH_RESULTS asks for the widgets, and a
+    // build with no front end to host QML gets them without asking. Decided
+    // here, built after the tree below: the scene reads the results model as
+    // it loads, so there has to be one.
+    const bool quick = !Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_SEARCH_RESULTS")
+                       && Core::hasQmlViewFactory();
 
     QFrame *topWidget = new QFrame;
     QPalette pal;
@@ -158,13 +170,11 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
         topWidget->setLineWidth(1);
     }
     topWidget->setAutoFillBackground(true);
-    topWidget->setVisible(!m_quickRow);
+    topWidget->setVisible(!quick);
     auto topLayout = new QVBoxLayout(topWidget);
     topLayout->setContentsMargins(2, 2, 2, 2);
     topLayout->setSpacing(2);
     topWidget->setLayout(topLayout);
-    if (m_quickRow)
-        layout->addWidget(m_quickRow);
     layout->addWidget(topWidget);
 
     auto topFindWidget = new QWidget(topWidget);
@@ -201,7 +211,18 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     connect(m_searchResultTreeView, &SearchResultTreeView::filterChanged,
             this, &SearchResultWidget::filterChanged);
 
-    layout->addWidget(m_searchResultTreeView);
+    m_searchResultTreeView->setVisible(!quick);
+    layout->addWidget(m_searchResultTreeView, quick ? 0 : 1);
+
+    if (quick) {
+        auto * const row = new SearchResultRow(&m_header, this);
+        m_quickRow = Core::createQmlView(
+            QUrl("qrc:/qt/qml/QtCreator/Core/SearchResultsPane.qml"), row);
+        if (m_quickRow)
+            layout->insertWidget(0, m_quickRow, 1);
+        else
+            delete row;
+    }
 
     m_infoBarDisplay.setTarget(layout, 2);
     m_infoBarDisplay.setInfoBar(&m_infoBar);
@@ -439,6 +460,17 @@ QAbstractItemModel *SearchResultWidget::resultsModelForTesting() const
     return m_searchResultTreeView->model();
 }
 #endif
+
+QAbstractItemModel *SearchResultWidget::resultsModel() const
+{
+    return m_searchResultTreeView ? m_searchResultTreeView->model() : nullptr;
+}
+
+void SearchResultWidget::activateResult(const QModelIndex &index)
+{
+    if (index.isValid())
+        m_searchResultTreeView->emitJumpToSearchResult(index);
+}
 
 void SearchResultWidget::setTabWidth(int tabWidth)
 {
