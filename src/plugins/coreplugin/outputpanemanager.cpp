@@ -354,14 +354,6 @@ IOutputPane::IOutputPane(QObject *parent)
     QTC_ASSERT(!g_managerConstructed, return);
     g_outputPanes.append(OutputPaneData(this));
 
-    m_zoomInButton = Command::createToolButtonWithShortcutToolTip(Constants::ZOOM_IN);
-    m_zoomInButton->setIcon(Utils::Icons::PLUS_TOOLBAR.icon());
-    connect(m_zoomInButton, &QToolButton::clicked, this, [this] { emit zoomInRequested(1); });
-
-    m_zoomOutButton = Command::createToolButtonWithShortcutToolTip(Constants::ZOOM_OUT);
-    m_zoomOutButton->setIcon(Utils::Icons::MINUS_TOOLBAR.icon());
-    connect(m_zoomOutButton, &QToolButton::clicked, this, [this] { emit zoomOutRequested(1); });
-
     // reinitialize the output pane buttons if a lazy loaded plugin adds a pane
     if (OutputPaneManager::initialized())
         QMetaObject::invokeMethod(this, &OutputPaneManager::setupButtons, Qt::QueuedConnection);
@@ -379,8 +371,6 @@ IOutputPane::~IOutputPane()
     delete g_outputPanes.at(i).button;
     g_outputPanes.removeAt(i);
 
-    delete m_zoomInButton;
-    delete m_zoomOutButton;
 }
 
 QList<QWidget *> IOutputPane::toolBarWidgets() const
@@ -388,7 +378,12 @@ QList<QWidget *> IOutputPane::toolBarWidgets() const
     QList<QWidget *> widgets;
     if (m_filterOutputLineEdit)
         widgets << m_filterOutputLineEdit;
-    return widgets << m_zoomInButton << m_zoomOutButton;
+    return widgets;
+}
+
+QList<Id> IOutputPane::toolBarCommands() const
+{
+    return {Constants::ZOOM_IN, Constants::ZOOM_OUT};
 }
 
 /*!
@@ -565,8 +560,10 @@ void IOutputPane::setupContext(const Context &context, QWidget *widget)
 
 void IOutputPane::setZoomButtonsEnabled(bool enabled)
 {
-    m_zoomInButton->setEnabled(enabled);
-    m_zoomOutButton->setEnabled(enabled);
+    if (m_zoomEnabled == enabled)
+        return;
+    m_zoomEnabled = enabled;
+    emit zoomEnabledChanged(m_zoomEnabled);
 }
 
 void IOutputPane::updateFilter()
@@ -1085,6 +1082,28 @@ void OutputPaneManager::setupButtons()
             const QList<QWidget *> toolBarWidgets = outPane->toolBarWidgets();
             for (QWidget *toolButton : toolBarWidgets)
                 toolBar->addWidget(toolButton);
+            // Built here from what the pane named, so that a toolbar which is
+            // not a QToolBar has something to draw rather than a widget to
+            // host. The icons belong to the commands, not to the pane.
+            for (const Id commandId : outPane->toolBarCommands()) {
+                QToolButton * const button
+                    = Command::createToolButtonWithShortcutToolTip(commandId);
+                button->setObjectName(commandId.toString());
+                if (commandId == Constants::ZOOM_IN)
+                    button->setIcon(Utils::Icons::PLUS_TOOLBAR.icon());
+                else if (commandId == Constants::ZOOM_OUT)
+                    button->setIcon(Utils::Icons::MINUS_TOOLBAR.icon());
+                connect(button, &QToolButton::clicked, outPane, [outPane, commandId] {
+                    if (commandId == Constants::ZOOM_IN)
+                        emit outPane->zoomInRequested(1);
+                    else if (commandId == Constants::ZOOM_OUT)
+                        emit outPane->zoomOutRequested(1);
+                });
+                button->setEnabled(outPane->zoomEnabled());
+                connect(outPane, &IOutputPane::zoomEnabledChanged, button,
+                        &QWidget::setEnabled);
+                toolBar->addWidget(button);
+            }
             auto stretch = new QWidget;
             stretch->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
             toolBar->addWidget(stretch);
@@ -1949,6 +1968,43 @@ private slots:
             QCOMPARE(last, static_cast<QWidget *>(manager->m_manageButton));
         else
             QCOMPARE(last, manager->m_quickButtonRow);
+    }
+
+    void testThePaneNamesItsZoomButtonsRatherThanBuildingThem()
+    {
+        // Every pane used to construct its own pair of zoom QToolButtons -
+        // thirteen pairs of the same two - and reach into them to enable
+        // them. A toolbar that is not a QToolBar cannot host a widget, so the
+        // pane names the commands and says whether they apply.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QVERIFY(!panes.isEmpty());
+        IOutputPane * const pane = panes.first();
+
+        QVERIFY2(pane->toolBarCommands().contains(Utils::Id(Constants::ZOOM_IN)),
+                 "a pane offers no way to zoom in");
+        QVERIFY2(pane->toolBarCommands().contains(Utils::Id(Constants::ZOOM_OUT)),
+                 "a pane offers no way to zoom out");
+
+        // And the toolbar built one from that name.
+        QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(0);
+        QVERIFY2(toolBar, "the first pane has no toolbar");
+        auto * const zoomIn = toolBar->findChild<QToolButton *>(Constants::ZOOM_IN);
+        QVERIFY2(zoomIn, "nothing in the toolbar answers to the zoom-in command");
+
+        const bool wasEnabled = pane->zoomEnabled();
+        const QScopeGuard restore([pane, wasEnabled] {
+            pane->setZoomButtonsEnabled(wasEnabled); });
+
+        pane->setZoomButtonsEnabled(true);
+        QVERIFY(zoomIn->isEnabled());
+        pane->setZoomButtonsEnabled(false);
+        QVERIFY2(!zoomIn->isEnabled(),
+                 "the pane said zooming does not apply and the button stayed on");
+
+        // Said once: the pane's answer is state, so repeating it is silent.
+        QSignalSpy changes(pane, &IOutputPane::zoomEnabledChanged);
+        pane->setZoomButtonsEnabled(false);
+        QVERIFY2(changes.isEmpty(), "a pane that changed nothing told the toolbar anyway");
     }
 
     void testTheButtonDrawsWhatTheModelSays()

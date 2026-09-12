@@ -56320,3 +56320,87 @@ attention, and this one is a real bug that will bite a reader eventually.
 5. Parked: entry 174's page scroll, entry 173's crash, the two
    `ShortcutSettingsTest` failures, entry 196's uncovered widget auto-scroll,
    entry 199's QML root with no `controller` property.
+
+## 2026-09-12 — The corruption would not reproduce, and the zoom buttons stopped being widgets (batch 209)
+
+Two halves: a measurement that retired entry 208's top item, and the first
+real step on the output toolbar.
+
+### The heap corruption does not reproduce at tip
+
+Entry 208 put `malloc(): smallbin double linked list corrupted` at the top of
+the list. Before hunting it, a repro was needed. There is not one:
+
+| | Runs | Did not finish |
+| --- | --- | --- |
+| `-test TextEditor,QuickTextEditorTest` | 10 | 0 |
+| `-test TextEditor` | 8 | 0 |
+
+Eighteen runs against the current tip, none of them bad. The two occurrences
+on record - entry 191 and entry 208 - were on different binaries, and the
+class on its own never fails, so whatever it is needs the whole suite to have
+run first.
+
+**No repro, no hunt.** Measuring rates before deciding how many green runs
+mean anything is this project's own rule, and eighteen clean runs against a
+fault that has shown twice in a session is not a fix - it is an inability to
+start. Recorded as "not reproducible at tip, 0/18", which is worth more than
+the fear was, and it stays parked with the numbers attached rather than with
+an adjective.
+
+What would change that: catching one with `QTC_LOG_TO_FILE` and a core dump,
+or a run under ASan on the day it happens rather than a campaign now.
+
+### The zoom buttons are named, not built
+
+`IOutputPane::toolBarWidgets()` handing back `QWidget *` is what blocks a Qt
+Quick toolbar. Its **base** contribution was two `QToolButton`s - and every
+one of the thirteen panes constructed its own pair, because they are built in
+`IOutputPane`'s constructor. Thirteen copies of the same two buttons, each of
+which a toolbar that is not a `QToolBar` would have to host.
+
+They are `Command::createToolButtonWithShortcutToolTip(ZOOM_IN)` and the same
+for out - which is to say they are nothing but a command id. So
+`toolBarCommands()` returns the two ids and the manager builds the buttons
+once, per pane's toolbar, from the name.
+
+`setZoomButtonsEnabled()` reached into those two widgets, so it became state:
+`zoomEnabled()` with a `zoomEnabledChanged()` beside it, which is the same
+move batches 188, 194, 200 and 201 made for the row, the REPL and the search
+header. The three callers outside Core did not change.
+
+**This does not unblock the toolbar yet** - nine panes still hand over about
+thirty widgets of their own - but it is the pattern applied to the part every
+pane shares, and it takes two widgets per pane out of the interface.
+
+### Verification
+
+Both platforms build clean.
+
+    -test Core         278 passed, 2 failed, exit 2   (277 before)
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**CA - the enablement bites.** The toolbar's connection to
+`zoomEnabledChanged` removed: `(the pane said zooming does not apply and the
+button stayed on)`.
+
+**CB - the naming bites.** `toolBarCommands()` returning nothing: `(a pane
+offers no way to zoom in)`. The test checks both the name and the button the
+manager built from it, so either half going missing shows up.
+
+### What is next
+
+1. **The nine panes' own toolbar widgets.** The shape is demonstrated twice
+   now - batch 202 for the replace option, this one for the zoom pair. Each
+   pane's buttons are commands, toggles or a filter field, and each is
+   mechanical once the descriptive type covers toggles.
+2. **Terminal**, the last of the three widget panes.
+3. **macOS verification**, owed since entry 168.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip, twice in a
+   session on older binaries), entry 174's page scroll, entry 173's crash, the
+   two `ShortcutSettingsTest` failures, entry 196's uncovered widget
+   auto-scroll, entry 199's QML root with no `controller` property.

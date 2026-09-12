@@ -10,6 +10,10 @@
 
 namespace Core {
 
+#ifdef WITH_TESTS
+namespace Internal { class OutputPaneButtonModelTest; }
+#endif
+
 class Context;
 
 class CORE_EXPORT IOutputPane : public QObject
@@ -24,6 +28,12 @@ public:
 
     virtual QWidget *outputWidget(QWidget *parent) = 0;
     virtual QList<QWidget *> toolBarWidgets() const;
+
+    // The commands this pane's toolbar offers, named rather than built. Every
+    // pane gets the two zoom ones, and they used to be a pair of QToolButtons
+    // per pane - thirteen pairs of the same two buttons, which is thirteen
+    // widgets a toolbar that is not a QToolBar would have to host.
+    virtual QList<Utils::Id> toolBarCommands() const;
     Utils::Id id() const;
     QString displayName() const;
     // The text this pane shows, one entry per view it holds. Empty for a pane
@@ -69,7 +79,13 @@ public slots:
     void flash() { emit flashButton(); }
     void setIconBadgeNumber(int number) { emit setBadgeNumber(number); }
 
+    // Whether zooming applies to what this pane is showing. A pane used to
+    // reach into two buttons it owned; the toolbar reads this instead.
+    bool zoomEnabled() const { return m_zoomEnabled; }
+
 signals:
+    void zoomEnabledChanged(bool enabled);
+
     void showPage(int flags);
     void hidePage();
     void togglePage(int flags);
@@ -116,8 +132,10 @@ private:
     QString m_displayName;
     int m_priority = -1;
     QString m_filterActionSuffix;
-    QToolButton *m_zoomInButton;
-    QToolButton *m_zoomOutButton;
+#ifdef WITH_TESTS
+    friend class Internal::OutputPaneButtonModelTest;
+#endif
+    bool m_zoomEnabled = true;
     QAction *m_filterActionRegexp = nullptr;
     QAction *m_filterActionCaseSensitive = nullptr;
     QAction *m_invertFilterAction = nullptr;
