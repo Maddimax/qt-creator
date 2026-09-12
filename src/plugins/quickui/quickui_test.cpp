@@ -456,6 +456,7 @@ private slots:
     void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
     void testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank();
     void testTheSearchResultsRowIsAQtQuickOne();
+    void testTabWalksIntoAQuickViewThroughItAndOutAgain();
     void testFocusReachesTheQuickSearchResultsPane();
     void testTheLuaPaneIsAQtQuickOne();
     void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
@@ -14456,6 +14457,107 @@ void QuickUiTest::testTheSearchResultsRowIsAQtQuickOne()
     auto * const model = tree->property("model").value<QAbstractItemModel *>();
     QVERIFY2(model, "the tree was given no model");
     QTRY_VERIFY2(model->rowCount() > 0, "a result was added and the tree lists nothing");
+}
+
+void QuickUiTest::testTabWalksIntoAQuickViewThroughItAndOutAgain()
+{
+    // Entry 206 fixed being *given* focus. Walking into a view is a different
+    // path through Qt - focusNextPrevChild() on the host, forwarding the key
+    // into the scene - and nothing had measured it.
+    Utils::TemporaryDirectory dir("tab-through-a-scene");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath qml = dir.filePath("TwoFields.qml");
+    QVERIFY(qml.writeFileContents(
+        "import QtQuick\nimport QtQuick.Controls\n"
+        "Column {\n"
+        "    required property var controller\n"
+        "    TextField { objectName: \"first\"; focus: true }\n"
+        "    TextField { objectName: \"second\" }\n"
+        "}\n"));
+
+    auto * const controller = new QObject;
+    QWidget * const scene
+        = Core::createQmlView(QUrl::fromLocalFile(qml.toFSPathString()), controller);
+    QVERIFY2(scene, "the fixture's scene did not load");
+
+    QWidget host;
+    auto * const before = new QLineEdit(&host);
+    before->setObjectName("before");
+    auto * const after = new QLineEdit(&host);
+    after->setObjectName("after");
+    auto * const layout = new QVBoxLayout(&host);
+    layout->addWidget(before);
+    layout->addWidget(scene);
+    layout->addWidget(after);
+
+    // Qt builds the focus chain from creation order, and the scene is made
+    // before it has a parent, so the order has to be said rather than implied.
+    QWidget::setTabOrder(before, scene);
+    QWidget::setTabOrder(scene, after);
+
+    host.resize(400, 300);
+    host.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&host));
+    host.activateWindow();
+    QApplication::setActiveWindow(&host);
+    before->setFocus();
+    QTRY_COMPARE(QApplication::focusWidget(), before);
+
+    auto * const quick = scene->findChild<QQuickWidget *>();
+    QVERIFY(quick);
+    QTRY_VERIFY(quick->rootObject());
+    QQuickItem * const first = quick->rootObject()->findChild<QQuickItem *>("first");
+    QQuickItem * const second = quick->rootObject()->findChild<QQuickItem *>("second");
+    QVERIFY(first && second);
+
+    const auto whereFocusIs = [&]() -> QString {
+        if (first->hasActiveFocus())
+            return "the scene's first field";
+        if (second->hasActiveFocus())
+            return "the scene's second field";
+        QWidget * const w = QApplication::focusWidget();
+        return w ? (w->objectName().isEmpty()
+                        ? QString::fromLatin1(w->metaObject()->className())
+                        : w->objectName())
+                 : QString("nothing");
+    };
+
+    // What the chain actually holds, named, because "Tab went somewhere else"
+    // says nothing about why.
+    QStringList chain;
+    for (QWidget *w = before; ; ) {
+        w = w->nextInFocusChain();
+        if (!w || w == before)
+            break;
+        chain << QString("%1(%2,policy=%3)")
+                     .arg(QString::fromLatin1(w->metaObject()->className()),
+                          w->objectName(), QString::number(int(w->focusPolicy())));
+    }
+
+    // In.
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
+    QTRY_VERIFY2(first->hasActiveFocus(),
+                 qPrintable("Tab from the widget before the scene reached " + whereFocusIs()
+                            + "; chain: " + chain.join(" -> ")));
+
+    // Through.
+    QTest::keyClick(quick, Qt::Key_Tab);
+    QTRY_VERIFY2(second->hasActiveFocus(),
+                 qPrintable("Tab inside the scene reached " + whereFocusIs()));
+
+    // And out again - which it does not. Measured rather than asserted away:
+    // a key typed into the scene is handled inside it and never reaches the
+    // host's focusNextPrevChild(), so the walk stops on the last item and a
+    // reader who tabs into a Qt Quick pane cannot tab out of it.
+    //
+    // The first attempt at a fix read "focus did not move" as "the scene
+    // wrapped" and took Tab away from the code editor, which types an indent
+    // with it - testTabTypesAnIndentInACodeEditor caught that. The answer
+    // belongs in the scene, where the end of the chain is known.
+    QTest::keyClick(quick, Qt::Key_Tab);
+    QEXPECT_FAIL("", "a Qt Quick scene keeps Tab once it has it", Continue);
+    QVERIFY2(QApplication::focusWidget() == after,
+             qPrintable("Tab off the end of the scene reached " + whereFocusIs()));
 }
 
 void QuickUiTest::testFocusReachesTheQuickSearchResultsPane()

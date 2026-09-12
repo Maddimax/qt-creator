@@ -56130,3 +56130,100 @@ are different paths through Qt. Worth its own measurement rather than a guess.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — Tab walks into a Qt Quick view, and cannot walk out (batch 207)
+
+**Gap closed: a Qt Quick view is a tab stop.** Entry 206 asked for this to be
+measured the way focus was - assert which widget, not whether - and the
+measurement found one thing to fix and one thing that is harder than it looks.
+
+### What Tab did
+
+Three questions, asked of a fixture that is a line edit, a scene with two
+fields, and another line edit:
+
+| | Before | After |
+| --- | --- | --- |
+| walks **into** the scene | no - straight past it | yes |
+| walks **through** it | - | yes |
+| walks **out** of it | - | **no** |
+
+The first is fixed. `QtcQuick::QuickWidget` is a plain `QWidget` wrapping a
+`QQuickWidget`, and a plain `QWidget` is `Qt::NoFocus`, which tab navigation
+skips however focusable the scene inside is. `setFocusPolicy(Qt::StrongFocus)`
+on the wrapper is the whole fix, and like the focus proxy in entry 206 it has
+been missing for every view behind the seam since batch 178.
+
+### The one that is not fixed, and why it is recorded rather than guessed
+
+Tab off the end of a scene stays on the last item. A reader who tabs into a
+Qt Quick pane cannot tab out of it.
+
+`TabAwareQuickWidget::focusNextPrevChild()` looks like the place, and it is
+not: a key **typed into the scene** is handled inside the scene and accepted
+there, so the host's `focusNextPrevChild()` is never called. It is only
+reached when the widget layer is asked to move focus, which is not what
+happens once focus is already in the scene.
+
+An attempt at detecting the wrap from that override read "focus did not move"
+as "the scene has run out" - and took Tab away from the **code editor**, which
+types an indent with it. `testTabTypesAnIndentInACodeEditor` went red, which
+is the existing suite doing its job on a change it was never written for.
+Narrowing it to "focus moved, and moved back to where the walk began" fixed
+the editor and still did not make Tab leave, because of the layering above.
+
+So the answer belongs in the scene, where the end of the chain is known, and
+what Backtab and a single-item scene should do are design questions rather
+than details. **Not guessed at the end of a batch.**
+
+The third assertion is in the suite as a `QEXPECT_FAIL(..., Continue)` with
+that reasoning beside it. It is the honest shape: the measurement stays, and
+the day the scene learns to let go, `QEXPECT_FAIL` reports an unexpected pass
+and the test asks to be updated.
+
+### A fixture bug worth naming
+
+The first run said Tab skipped the scene - and it did, but partly because the
+fixture was wrong. Qt builds the focus chain in **widget creation order**, and
+the scene is created by `Core::createQmlView()` before it has a parent, so it
+landed at the end of the chain whatever the layout said. The chain dump in the
+failure message is what showed it:
+
+    chain: QLineEdit(after,policy=11) -> QtcQuick::QuickWidget(,policy=0) -> ...
+
+Two facts in one line: the order was wrong *and* the wrapper was `NoFocus`.
+Printing the chain rather than the landing widget is what separated them, and
+the dump stays in the test.
+
+### Verification
+
+Both platforms build clean.
+
+    -test QuickUi      225 passed, 0 failed, exit 0   (224 before)
+    -test Core         277 passed, 2 failed, exit 2
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**BX - the focus policy bites.** `setFocusPolicy()` removed: `(Tab from the
+widget before the scene reached after; chain: ... QtcQuick::QuickWidget(,policy=0) ...)`.
+The chain in the message says why, not just that.
+
+**And the editor caught the bad fix**, as above. Recorded as a control
+because that is what it functioned as: a change to the seam, a suite that was
+not written for it going red, and the change withdrawn.
+
+### What is next
+
+1. **Letting Tab leave a scene**, in the scene rather than the host. A design
+   question: what the last item is, what Backtab does, and whether a pane
+   should ever trap Tab.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**, the interface problem batch 202 solved once.
+4. **macOS verification**, owed since entry 168, now including three Quick
+   panes nobody has looked at.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

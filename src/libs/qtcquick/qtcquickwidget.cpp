@@ -62,6 +62,9 @@ QuickWidget::QuickWidget(QWidget *parent)
     // it stops on a plain QWidget, so a view that was asked for focus has it
     // and still receives no keys.
     setFocusProxy(m_quickWidget);
+    // And it has to be a tab stop to be walked into: a plain QWidget is
+    // NoFocus, which tab navigation skips however focusable the scene is.
+    setFocusPolicy(Qt::StrongFocus);
 }
 
 void QuickWidget::setSource(const QUrl &url)
