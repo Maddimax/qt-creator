@@ -58312,3 +58312,135 @@ already learned not to write.
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property, and `IOutputPane::toolBarWidgets()` once Qt
    SerialPort exists in one of the two Qt builds.
+
+## 2026-09-13 — The TextEditor red was not a flake (batch 226)
+
+Entry 225 left one red this branch owns: `-test TextEditor`, 751/1/3, exit 1,
+on every run. The plan carried it as "the TextEditor corruption (0/18 at tip,
+diagnosed as heap corruption, not reproduced)" and, separately, as "entry 174's
+page scroll". **They are the same line in the log, and it is the second one.**
+Reading the failure was the whole first step:
+
+    testAPageIsAScreenOfRowsNotOfLines() ... (scrolled 128, wanted about 176)
+
+Not intermittent. Not corruption. The same number every time.
+
+### The gap this batch closed
+
+**With wrapping on, putting the caret on a later row of a wrapped line scrolled
+the view back to where that line starts.**
+
+Four measurements, each answering the next question:
+
+1. `h=200 lh=16 pageRows=11 contentH=6416` - 401 rows for 100 lines, so every
+   line wraps into exactly four rows, and the wanted 176 is 2.75 lines while
+   the observed 128 is 2 whole lines. Something was working in lines.
+2. `area=200 rpp=11 rightAfter=128` - `textAreaHeight()` is the full height and
+   `rowsPerPage()` returns the 11 the test wants, and yet the scroll was
+   already 128 when the key press returned. The page arithmetic was right.
+3. `PAGEPROBE asked 176 got 176` then `settle enter scrollY 176 ... settle
+   leave scrollY 128` - the scroll happened correctly and the *settle* undid
+   part of it. The settle puts the caret back on the screen row it was on, via
+   `setTextCursor()`, which calls `ensureCursorVisible()`.
+4. `ECVPROBE blockRow 8 row 8 wrapping true layout true lineCount 1 top 128
+   scrollY 176 above true` - and there it is.
+
+`ensureCursorVisible()` worked out which row of a wrapped block the caret was
+on like this:
+
+    const QTextLayout * const layout = cursor.block().layout();
+    if (layout && layout->lineCount() > 0) {
+        const QTextLine line = layout->lineForTextPosition(...);
+        if (line.isValid())
+            row += line.lineNumber();
+    }
+
+with a comment saying that without it "a caret several rows into a wrapped one
+pulls the view a row too far back every time". **`lineCount` is 1.** It is
+always 1. This view works out its own line breaks and shapes them into layouts
+of its own - `updatePolish()` builds a separate `QTextLayout shaping` per block
+and the rows live in `m_lines` and in the `TextEditorLayout` - so the
+document's block layout has one line however many rows the view draws. The
+branch could never add anything, and the row stayed at the block's first, which
+is above the scroll, so the view jumped back to it.
+
+It reads as a fix and has never once done anything. The comment describes the
+symptom it was meant to cure, which is the symptom that remained.
+
+The caret's row is asked of the thing that drew it instead:
+
+    const QRectF caret = rectangleAt(m_cursorPosition);
+    if (!caret.isNull()) {
+        top = caret.top() + m_scrollY;
+        span = caret.height();
+    }
+
+`rectangleAt()` goes through `locate()` into `m_lines`, which are the view's
+own rows, and is viewport-relative - established by measurement, not by
+reading: the page handler passes its `top` to `positionAt()`, and with
+`scrollY` at 176 a `y` of 0 came back as position 567, which is row 11.
+
+This is not only a page-key bug. Any caret landing past the first row of a
+wrapped line whose start is above the viewport top pulled the view back by up
+to a line's worth of rows.
+
+### What the red was *not*
+
+`-test TextEditor` is now **752 passed, 0 failed, 3 skipped, exit 0**, and the
+count went up by one because a test started passing, not because one was added.
+
+One other failure appeared once during this batch -
+`QuickTextEditorTest::testTypingALineOfCppLeavesTheSameFileInEitherView(quick:
+a bracket inside a string)`. Measured rather than assumed:
+
+- 5 runs of that test on its own, after the fix: 5 passes.
+- 3 full-suite runs after the fix: 3 passes.
+- 3 full-suite runs with the fix reverted (control DL): 3 passes.
+
+So it is real but rare - seen once in about a dozen runs - it is not what the
+plan was calling the flake, it only appears in a full-suite run and not in
+isolation, and **this batch did not fix it**; the three pre-fix runs say so.
+Recorded with its numbers rather than claimed.
+
+The "heap corruption" the plan carried since entry 174 was never this. Whatever
+it was, it has not been seen in any run in this window; the line in the totals
+that kept the memory alive was the page scroll all along.
+
+### Measurements
+
+    -test TextEditor        752 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+**Five of the six suites are green.** The one that is not is
+`RunWorkerConflictTest::testConflict`, which entry 225 recorded as upstream and
+out of scope with its reasons.
+
+### Negative controls
+
+**DL — `ensureCursorVisible()` asks the block's own layout again**, written
+back as it was. Bit on 3 of 3 full-suite runs with exactly the original text:
+
+    (scrolled 128, wanted about 176)
+
+Three runs rather than one, because the thing being re-established is that this
+failure is deterministic - the plan had it filed as a flake, and one run
+agreeing proves nothing about that either way.
+
+### What is next
+
+1. **`testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a bracket inside
+   a string)`**, with the numbers above: full-suite only, roughly 1 in 12, and
+   not caused by this batch. The next attempt should start by finding what
+   earlier test it depends on - run the suite with `-test TextEditor` split in
+   halves - rather than by staring at the typing code.
+2. **Automatic login in the macOS VM** — Qt is staged, the runner works, and
+   entry 224's control DJ and this batch's geometry both have assertions that
+   only a macOS run exercises.
+3. The rest, with numbers: entry 173's crash, entry 196's uncovered widget
+   auto-scroll, entry 199's QML root with no `controller` property,
+   `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
+   Qt builds, and `RunWorkerConflictTest::testConflict` upstream.

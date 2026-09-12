@@ -1727,22 +1727,25 @@ void TextViewport::ensureCursorVisible()
     QTextCursor cursor(text);
     cursor.setPosition(qBound(0, m_cursorPosition, text->characterCount() - 1));
     // Where the caret sits on screen, which is a row and not a line number.
-    int row = rowOfBlock(cursor.block());
+    const int row = rowOfBlock(cursor.block());
+    qreal top = yOfRow(row);
+    qreal span = rowSpan(row);
     if (m_wrapping) {
-        // Which row of the block the caret is on. Without this the scroll is
-        // measured to the top of the line, so a caret several rows into a
-        // wrapped one pulls the view a row too far back every time.
-        const QTextLayout * const layout = cursor.block().layout();
-        if (layout && layout->lineCount() > 0) {
-            const QTextLine line = layout->lineForTextPosition(
-                m_cursorPosition - cursor.block().position());
-            if (line.isValid())
-                row += line.lineNumber();
+        // The row of the block the caret is on, taken from the row it was
+        // drawn on. The block's own QTextLayout cannot say: this view works
+        // out its own line breaks and shapes them into layouts of its own, so
+        // the document's layout has one line per block however many rows the
+        // view draws for it. Measuring to the top of the block instead pulls
+        // the view back to where the line starts, losing up to a line's worth
+        // of rows every time the caret lands past the first of them.
+        const QRectF caret = rectangleAt(m_cursorPosition);
+        if (!caret.isNull()) {
+            top = caret.top() + m_scrollY;
+            span = caret.height();
         }
     }
-    const qreal top = yOfRow(row);
     const bool above = top < m_scrollY;
-    const bool below = top + rowSpan(row) > m_scrollY + textAreaHeight();
+    const bool below = top + span > m_scrollY + textAreaHeight();
     if (!above && !below)
         return;
 
@@ -1752,9 +1755,9 @@ void TextViewport::ensureCursorVisible()
     // The reader's setting, or this view's own - a language driving the view
     // can ask for centring for as long as it is in charge.
     if (m_centerOnScroll || displaySettings().centerCursorOnScroll())
-        setScrollY(top - (textAreaHeight() - rowSpan(row)) / 2);
+        setScrollY(top - (textAreaHeight() - span) / 2);
     else
-        setScrollY(above ? top : top + rowSpan(row) - textAreaHeight());
+        setScrollY(above ? top : top + span - textAreaHeight());
 }
 
 void TextViewport::setRowSpacers(const Utils::Id &id, const QList<Gap> &gaps)
