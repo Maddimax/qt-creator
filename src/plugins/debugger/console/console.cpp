@@ -74,8 +74,6 @@ Console::Console()
     vbox->addWidget(m_consoleView);
     vbox->addWidget(new Core::FindToolBarPlaceHolder(m_consoleWidget));
 
-    m_showDebugButton = new QToolButton(m_consoleWidget);
-
     m_showDebug.setDefaultValue(true);
     m_showDebug.setSettingsKey(CONSOLE, SHOW_LOG);
     m_showDebug.setLabelText(Tr::tr("Show debug, log, and info messages."));
@@ -84,9 +82,6 @@ Console::Console()
     m_showDebug.setIcon(Icons::INFO_TOOLBAR.icon());
     connect(&m_showDebug, &BoolAspect::changed,
             proxyModel, [this, proxyModel] { proxyModel->setShowLogs(m_showDebug()); });
-    m_showDebugButton->setDefaultAction(m_showDebug.action());
-
-    m_showWarningButton = new QToolButton(m_consoleWidget);
 
     m_showWarning.setDefaultValue(true);
     m_showWarning.setSettingsKey(CONSOLE, SHOW_WARNING);
@@ -96,9 +91,6 @@ Console::Console()
     m_showWarning.setIcon(Icons::WARNING_TOOLBAR.icon());
     connect(&m_showWarning, &BoolAspect::changed,
             proxyModel, [this, proxyModel] { proxyModel->setShowWarnings(m_showWarning()); });
-    m_showWarningButton->setDefaultAction(m_showWarning.action());
-
-    m_showErrorButton = new QToolButton(m_consoleWidget);
 
     m_showError.setDefaultValue(true);
     m_showError.setSettingsKey(CONSOLE, SHOW_ERROR);
@@ -108,7 +100,6 @@ Console::Console()
     m_showError.setIcon(Icons::CRITICAL_TOOLBAR.icon());
     connect(&m_showError, &BoolAspect::changed,
             proxyModel, [this, proxyModel] { proxyModel->setShowErrors(m_showError()); });
-    m_showErrorButton->setDefaultAction(m_showError.action());
 
     m_spacer = new QWidget(m_consoleWidget);
     m_spacer->setMinimumWidth(30);
@@ -132,10 +123,16 @@ QWidget *Console::outputWidget(QWidget *)
     return m_consoleWidget;
 }
 
+QList<Utils::BaseAspect *> Console::toolBarAspects() const
+{
+    return {const_cast<Utils::BoolAspect *>(&m_showDebug),
+            const_cast<Utils::BoolAspect *>(&m_showWarning),
+            const_cast<Utils::BoolAspect *>(&m_showError)};
+}
+
 QList<QWidget *> Console::toolBarWidgets() const
 {
-     return {m_showDebugButton, m_showWarningButton, m_showErrorButton,
-             m_spacer, m_statusLabel};
+     return {m_spacer, m_statusLabel};
 }
 
 void Console::clearContents()

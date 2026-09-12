@@ -6,6 +6,7 @@
 #include "core_global.h"
 
 #include <utils/fancylineedit.h>
+#include <utils/aspects.h>
 #include <utils/id.h>
 
 namespace Core {
@@ -34,6 +35,12 @@ public:
     // per pane - thirteen pairs of the same two buttons, which is thirteen
     // widgets a toolbar that is not a QToolBar would have to host.
     virtual QList<Utils::Id> toolBarCommands() const;
+
+    // The settings this pane's toolbar toggles. An aspect already carries its
+    // icon, its tooltip, its value and where that value is saved, and this
+    // branch draws aspects in either toolkit - so a pane says which ones
+    // rather than building a QToolButton around each.
+    virtual QList<Utils::BaseAspect *> toolBarAspects() const;
     Utils::Id id() const;
     QString displayName() const;
     // The text this pane shows, one entry per view it holds. Empty for a pane

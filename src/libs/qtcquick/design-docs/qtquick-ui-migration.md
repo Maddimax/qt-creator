@@ -56404,3 +56404,88 @@ manager built from it, so either half going missing shows up.
    session on older binaries), entry 174's page scroll, entry 173's crash, the
    two `ShortcutSettingsTest` failures, entry 196's uncovered widget
    auto-scroll, entry 199's QML root with no `controller` property.
+
+## 2026-09-12 — A pane names its toggles as aspects (batch 210)
+
+**Gap closed: a toolbar toggle is a setting, not a button.** Entry 209 said the
+next step needed "a descriptive type that covers toggles". It does not: the
+type already exists and is `Utils::BaseAspect`.
+
+### What reading the panes found
+
+Console's three toggles are `Utils::BoolAspect`s, and the `QToolButton` around
+each one is
+
+    m_showDebugButton->setDefaultAction(m_showDebug.action());
+
+The aspect already carries the icon, the tooltip, the label, the value and the
+settings key it is saved under - everything a button needs and everything a QML
+`IconToggleDelegate` needs. The `QToolButton` adds nothing except being a
+widget, which is the one thing that blocks a toolbar drawn any other way.
+
+So `IOutputPane::toolBarAspects()` returns the aspects and the manager makes
+the button. Console's three `QToolButton` members are gone. Inventing a
+descriptor struct would have been a second way of saying what an aspect
+already says - this branch has had an aspect-to-QML renderer since the
+settings pages.
+
+### A defect found on the way, measured and left
+
+The test first indexed the toolbar stack by the pane's own row, and the button
+was not there - it was four rows further on. A probe in `setupButtons()` said
+why, and it is not what "drift" suggested:
+
+    PROBE pane Version Control: i=6 idx=6 toolbars=13
+    PROBE pane Test Results:    i=8 idx=8 toolbars=14
+    PROBE pane Squish:          i=10 idx=10 toolbars=15
+
+`i == idx` throughout - the pane list and the *content* stack stay in step.
+What grows is the **toolbar** stack: on a second `setupButtons()`, several
+panes answer `outputWidget()` with a **new widget**, take the "never seen this
+pane" branch, and get a second toolbar inserted. The stack went 12 to 16 in one
+pass, and the extra entries are orphans nothing will ever show.
+
+A first fix - move the widgets when `idx != i` - addressed a mechanism that is
+not happening and was **reverted rather than shipped**, which is the lesson
+from entries 197 and 198 applied without having to relearn it. The real fix is
+either to make those panes' `outputWidget()` idempotent or to rebuild the
+toolbar stack from scratch each pass, and it wants its own batch with the
+probe pointed at *which* panes and *why*.
+
+The test looks for the button in any toolbar and says so in a comment, rather
+than encoding the defect as if it were the design.
+
+### Verification
+
+Both platforms build clean.
+
+    -test Core         279 passed, 2 failed, exit 2   (278 before)
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**CC - the naming bites.** Console's `toolBarAspects()` returning nothing:
+`(no output pane names a toggle, so nothing here is being tested)`.
+
+**CD - the building bites.** The manager's loop over the aspects removed:
+`(no toolbar holds a button for Console/showLog)`. The test checks the aspect
+is checkable, that a button was built from it, and that the button follows the
+aspect's value, so any of the three going missing shows up.
+
+### What is next
+
+1. **The toolbar stack growing on a second pass**, above. It is a real defect
+   with a measured signature and no fix yet.
+2. **The remaining eight panes' toolbar widgets.** Console is converted; the
+   others are the same shape - Todo and Test Results are toggles too, Compile
+   Output is two commands, and what is left after that is a spacer, a status
+   label and a filter field, which are display rather than settings and want a
+   different answer.
+3. **Terminal**, the last of the three widget panes.
+4. **macOS verification**, owed since entry 168.
+5. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

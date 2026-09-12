@@ -34,6 +34,7 @@ public:
 
     QWidget *outputWidget(QWidget *) override;
     QList<QWidget *> toolBarWidgets() const override;
+    QList<Utils::BaseAspect *> toolBarAspects() const override;
     void clearContents() override;
     bool canFocus() const override;
     bool hasFocus() const override;
@@ -58,9 +59,6 @@ public:
     void writeSettings() const;
 
 private:
-    QToolButton *m_showDebugButton;
-    QToolButton *m_showWarningButton;
-    QToolButton *m_showErrorButton;
     Utils::BoolAspect m_showDebug;
     Utils::BoolAspect m_showWarning;
     Utils::BoolAspect m_showError;

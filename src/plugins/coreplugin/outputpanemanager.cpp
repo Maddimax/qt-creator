@@ -386,6 +386,11 @@ QList<Id> IOutputPane::toolBarCommands() const
     return {Constants::ZOOM_IN, Constants::ZOOM_OUT};
 }
 
+QList<Utils::BaseAspect *> IOutputPane::toolBarAspects() const
+{
+    return {};
+}
+
 /*!
     Returns the ID of the output pane.
 */
@@ -1084,7 +1089,14 @@ void OutputPaneManager::setupButtons()
                 toolBar->addWidget(toolButton);
             // Built here from what the pane named, so that a toolbar which is
             // not a QToolBar has something to draw rather than a widget to
-            // host. The icons belong to the commands, not to the pane.
+            // host. An aspect brings its own icon, tooltip and value.
+            for (Utils::BaseAspect * const aspect : outPane->toolBarAspects()) {
+                auto * const toggle = new QToolButton;
+                toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
+                toggle->setDefaultAction(aspect->action());
+                toolBar->addWidget(toggle);
+            }
+            // The icons belong to the commands, not to the pane.
             for (const Id commandId : outPane->toolBarCommands()) {
                 QToolButton * const button
                     = Command::createToolButtonWithShortcutToolTip(commandId);
@@ -2005,6 +2017,48 @@ private slots:
         QSignalSpy changes(pane, &IOutputPane::zoomEnabledChanged);
         pane->setZoomButtonsEnabled(false);
         QVERIFY2(changes.isEmpty(), "a pane that changed nothing told the toolbar anyway");
+    }
+
+    void testAPaneNamesItsTogglesAsAspectsRatherThanButtons()
+    {
+        // A toggle in an output pane's toolbar is a setting: it has an icon, a
+        // tooltip, a value and somewhere that value is saved, and an aspect
+        // carries all four. A pane that hands over a QToolButton instead has
+        // nothing a toolbar which is not a QToolBar can draw.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        IOutputPane *withToggles = nullptr;
+        for (IOutputPane * const pane : panes) {
+            if (!pane->toolBarAspects().isEmpty())
+                withToggles = pane;
+        }
+        QVERIFY2(withToggles, "no output pane names a toggle, so nothing here is being tested");
+
+        Utils::BaseAspect * const aspect = withToggles->toolBarAspects().first();
+        QVERIFY2(aspect->action(), "the aspect offers nothing for a toolbar to put a button on");
+        QVERIFY2(aspect->action()->isCheckable(),
+                 "a toggle in a toolbar that cannot be toggled");
+
+        // And a toolbar built one from it, carrying the aspect's own state.
+        // Searched for rather than indexed by the pane's row: the toolbar
+        // stack does not stay in step with the pane list, which is recorded
+        // in the plan as its own defect and is not what this test is about.
+        const QString key = QString::fromUtf8(aspect->settingsKey().view());
+        QToolButton *toggle = nullptr;
+        for (int i = 0; i < m_instance->m_opToolBarWidgets->count(); ++i) {
+            if (auto * const found
+                = m_instance->m_opToolBarWidgets->widget(i)->findChild<QToolButton *>(key)) {
+                toggle = found;
+            }
+        }
+        QVERIFY2(toggle, qPrintable("no toolbar holds a button for " + key));
+        QCOMPARE(toggle->defaultAction(), aspect->action());
+
+        auto * const boolAspect = dynamic_cast<Utils::BoolAspect *>(aspect);
+        QVERIFY(boolAspect);
+        const bool was = boolAspect->value();
+        const QScopeGuard restore([boolAspect, was] { boolAspect->setValue(was); });
+        boolAspect->setValue(!was);
+        QCOMPARE(toggle->isChecked(), !was);
     }
 
     void testTheButtonDrawsWhatTheModelSays()
