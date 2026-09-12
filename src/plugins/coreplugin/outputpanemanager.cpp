@@ -393,6 +393,18 @@ QList<Utils::BaseAspect *> IOutputPane::toolBarAspects() const
 {
     return {};
 }
+static QString toolbarItemName(const IOutputPane::ToolBarItem &item)
+{
+    if (Utils::BaseAspect * const aspect = item.aspect()) {
+        if (!aspect->settingsKey().isEmpty())
+            return QString::fromUtf8(aspect->settingsKey().view());
+        return aspect->id().toString();
+    }
+    if (QAction * const action = item.action())
+        return action->objectName();
+    return item.command().toString();
+}
+
 QList<IOutputPane::ToolBarItem> IOutputPane::baseToolBarItems() const
 {
     QList<ToolBarItem> items;
@@ -1121,8 +1133,7 @@ void OutputPaneManager::setupButtons()
                 } else if (Utils::BaseAspect * const aspect = item.aspect()) {
                     auto * const toggle = new QToolButton;
                     Utils::StyleHelper::setPanelWidget(toggle);
-                    if (!aspect->settingsKey().isEmpty())
-                        toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
+                    toggle->setObjectName(toolbarItemName(item));
                     toggle->setDefaultAction(aspect->action());
                     toolBar->addWidget(toggle);
                 } else if (QAction * const action = item.action()) {
@@ -2102,6 +2113,127 @@ private slots:
         // rather than asked for: outputWidget() reparents, which is the side
         // effect this whole test is about, so calling it here would be the
         // test causing what it is looking for.
+    }
+
+    void testAToolbarButtonBuiltForAnActionCarriesIt()
+    {
+        // Entry 216 saw a button named after an action with no default action
+        // on it, two lines after the manager sets both. Asked of every named
+        // action any pane hands over, rather than of the one pane that was
+        // being converted at the time.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QStringList wrong;
+        int checked = 0;
+        for (int row = 0; row < panes.size(); ++row) {
+            QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+            if (!toolBar)
+                continue;
+            for (const IOutputPane::ToolBarItem &item : panes.at(row)->toolBarItems()) {
+                QAction * const action = item.action();
+                if (!action || action->objectName().isEmpty())
+                    continue;
+                ++checked;
+                auto * const button = toolBar->findChild<QToolButton *>(action->objectName());
+                if (!button) {
+                    wrong << action->objectName() + ": no button";
+                } else if (button->defaultAction() != action) {
+                    wrong << action->objectName() + ": the button carries "
+                             + (button->defaultAction()
+                                    ? button->defaultAction()->objectName() : "nothing");
+                }
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
+        QVERIFY2(checked >= 2,
+                 qPrintable(QString("only %1 named action is handed over").arg(checked)));
+    }
+
+    void testEveryPaneToolbarEndsWithTheZoomButtons()
+    {
+        // Asked of the base class, not of the pane: a pane that states its own
+        // order has to append baseToolBarItems() to keep what it never listed,
+        // and nothing made it. Console stopped showing zoom for four commits
+        // because a test derived from the pane agrees with whatever it lists.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QStringList wrong;
+        for (int row = 0; row < panes.size(); ++row) {
+            QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+            if (!toolBar)
+                continue;
+            QStringList zooms;
+            for (QWidget * const w : toolBar->findChildren<QWidget *>(
+                     QString(), Qt::FindDirectChildrenOnly)) {
+                if (w->objectName() == Constants::ZOOM_IN || w->objectName() == Constants::ZOOM_OUT)
+                    zooms << w->objectName();
+            }
+            const QStringList expected{Constants::ZOOM_IN, Constants::ZOOM_OUT};
+            if (zooms != expected) {
+                wrong << QString("%1 has [%2]")
+                             .arg(panes.at(row)->displayName(), zooms.join(" "));
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
+    }
+
+    void testAToolbarButtonBuiltForAnAspectCarriesIt()
+    {
+        // The names are listed here rather than read back from the aspects,
+        // because the manager takes them from the same place a test would:
+        // ask the aspect and the two move together, which is how an aspect
+        // with no name at all sat behind a nameless button.
+        const QStringList expected{"AutoTest.ShowDurations", "Console/showLog",
+                                   "Console/showWarning", "Console/showError"};
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QStringList named;
+        QStringList wrong;
+        for (int row = 0; row < panes.size(); ++row) {
+            QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+            if (!toolBar)
+                continue;
+            for (const IOutputPane::ToolBarItem &item : panes.at(row)->toolBarItems()) {
+                Utils::BaseAspect * const aspect = item.aspect();
+                if (!aspect)
+                    continue;
+                const QString name = toolbarItemName(item);
+                if (name.isEmpty()) {
+                    wrong << panes.at(row)->displayName() + ": an unnamed toggle";
+                    continue;
+                }
+                named << name;
+                auto * const button = toolBar->findChild<QToolButton *>(name);
+                if (!button)
+                    wrong << name + ": no button";
+                else if (button->defaultAction() != aspect->action())
+                    wrong << name + ": the button carries another action";
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
+        named.sort();
+        QStringList sortedExpected = expected;
+        sortedExpected.sort();
+        QCOMPARE(named, sortedExpected);
+    }
+
+    void testEachRowOfTheToolbarStackIsThatPanesOwnToolbar()
+    {
+        // Entry 216 found a button in "Squish's toolbar" that the manager
+        // could not have built that way, and guessed the row might not
+        // address the pane it is asked about. The pane keeps a pointer to the
+        // toolbar built for it, so the two can simply be compared.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QCOMPARE(g_outputPanes.size(), panes.size());
+        QStringList wrong;
+        for (int row = 0; row < panes.size(); ++row) {
+            QWidget * const atRow = m_instance->m_opToolBarWidgets->widget(row);
+            QWidget * const itsOwn = g_outputPanes.at(row).toolBar;
+            if (atRow != itsOwn) {
+                wrong << QString("row %1 (%2) holds %3")
+                             .arg(row).arg(panes.at(row)->displayName(),
+                                  atRow ? QString("another pane's toolbar")
+                                        : QString("nothing"));
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
     }
 
     void testEveryPaneGetsTheToolbarOrderItAskedFor()

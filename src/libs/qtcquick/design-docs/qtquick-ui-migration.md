@@ -56980,3 +56980,176 @@ plainly rather than dressed up.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — The census answered the wrong question and found two real bugs (batch 217)
+
+Entry 216 left two things at the top of the queue: understand the named button
+that carried no default action, and find a way to watch a pane whose toolbar
+has no widgets. The first turned out to have no bug behind it. The second
+produced the two defects this batch fixes, both of which had already shipped.
+
+### The named button with no default action does not reproduce
+
+Three measurements retired it.
+
+`testEachRowOfTheToolbarStackIsThatPanesOwnToolbar` compares
+`m_opToolBarWidgets->widget(row)` against `g_outputPanes.at(row).toolBar` for
+every pane. Entry 216 guessed the row might not address the pane being asked
+about — after entry 211's stack-growth bug that was a reasonable guess. It
+passes. Every row holds its own pane's toolbar.
+
+`testAToolbarButtonBuiltForAnActionCarriesIt` asks, for every named action any
+pane hands over, that a button of that name exists in that pane's toolbar and
+that `defaultAction()` is that action. It passes.
+
+The third measurement is the one that mattered, and it is the one entry 216
+should have taken first: **dump what the panes actually are.** A throwaway
+`QVERIFY2(false, census)` in that test printed every pane and every item kind:
+
+    Issues=[w,w,w,w,cmd:QtCreator.ZoomIn,cmd:QtCreator.ZoomOut]
+    Search Results=[w,w,w,w,w,w,w,w,cmd:ZoomIn,cmd:ZoomOut]
+    Application Output=[w,w,w,w,w,w,cmd:ZoomIn,cmd:ZoomOut]
+    Compile Output=[act:CompileOutput.CancelBuild,act:CompileOutput.Settings,w,cmd:…]
+    Terminal=[w,w,w,w,w,w,cmd:ZoomIn,cmd:ZoomOut]
+    To-Do Entries=[w,w,w,w,w,w,w,w,w,w,cmd:ZoomIn,cmd:ZoomOut]
+    Version Control=[cmd:ZoomIn,cmd:ZoomOut]
+    Lua=[cmd:ZoomIn,cmd:ZoomOut]
+    Test Results=[w,w,w,w,w,w,asp:,w,w,w,cmd:ZoomIn,cmd:ZoomOut]
+    QML Debugger Console=[asp:Console/showLog,asp:Console/showWarning,asp:Console/showError,w,w]
+    Squish=[act:Squish.Filter,act:Squish.ExpandAll,act:Squish.CollapseAll,cmd:…]
+    General Messages=[w,cmd:ZoomIn,cmd:ZoomOut]
+
+Squish *is* loaded in a `-test Core` run, its three actions *are* checked by
+the test above, and all three carry their action. The entry-216 observation was
+made while the conversion was half-applied and is not a property of any code
+that exists. Five runs went into it. Ten minutes of printing the state would
+have closed it — which is the working rule I already have written down, applied
+to a plan entry instead of to a debugging session.
+
+Two lines of that census are bugs.
+
+### Console lost its zoom buttons four commits ago
+
+`QML Debugger Console=[asp,asp,asp,w,w]` — no `ZoomIn`, no `ZoomOut`. Every
+other pane has them.
+
+Before `a03a5e6a958`, the manager appended the zoom buttons itself, to every
+pane, unconditionally; `zoomEnabled()` only decided whether they were
+*enabled*. Letting a pane state its own order moved that responsibility onto
+the pane: a pane that overrides `toolBarItems()` has to append
+`baseToolBarItems()` to keep what it never listed. Compile Output, Test Results
+and Squish do. Console does not, and has not since the commit that gave it the
+choice. Console has no zoom handler either, so the buttons did nothing before
+and do nothing now — but they were there, and I removed them without saying so.
+
+`testEveryPaneToolbarEndsWithTheZoomButtons` is the guard, and it is the shape
+entry 216 asked for: **the expectation comes from the base class, not from the
+pane.** Every pane's toolbar holds `QtCreator.ZoomIn` then `QtCreator.ZoomOut`,
+full stop. A test derived from `toolBarItems()` can never catch this, because a
+pane that forgets the base items also never asks for them, and asked and got
+agree.
+
+### Test Results' toggle had no name at all
+
+`Test Results=[…,asp:,…]` — the empty string after `asp:` is
+`m_showDuration.settingsKey()`. The aspect is session-scoped: it is saved
+through `SessionManager::setSessionValue(SV_SHOW_DURATIONS, …)` and has no
+settings key by design. The manager named an aspect's button after its settings
+key, so this one got no name, and an unnamed `QToolButton` is exactly the thing
+that has bitten three times now — entry 212, entry 216, and this.
+
+`BaseAspect::id()` is the name an aspect has when it has no settings key, so
+`toolbarItemName()` now falls back to it and the aspect carries
+`"AutoTest.ShowDurations"`. The rule lives in one function used by both the
+manager and the test, so the two cannot drift.
+
+The test for it, `testAToolbarButtonBuiltForAnAspectCarriesIt`, does what entry
+216 proposed and item 2 of its queue described: **the names are written in the
+test**, not read back from the aspects.
+
+    const QStringList expected{"AutoTest.ShowDurations", "Console/showLog",
+                               "Console/showWarning", "Console/showError"};
+
+Asking the aspect for the name the manager also asks the aspect for is the
+"both move together" trap in its purest form — it is what let an aspect with no
+name at all sit behind a nameless button through two batches that were
+explicitly looking for nameless buttons. A literal list cannot move with the
+code. It is a census, it will need editing when a pane gains a toggle, and that
+edit is the point.
+
+### What this says about the queue
+
+Entry 216 item 2 asked for "a way to verify a pane whose toolbar has no
+widgets". Two answers came out, and they are different from each other:
+
+- **From the base class.** Anything every pane must have — the zoom buttons —
+  is an expectation that needs no census and no pane-specific knowledge. This
+  is the strong form and should be preferred wherever something is universal.
+- **From a literal list in the test.** Anything pane-specific needs a written
+  expectation, maintained by hand. Weaker, noisier, and still the only
+  independent reference for "this pane's toolbar is these things in this
+  order".
+
+Squish, Version Control and Lua — the three panes with no widgets at all — are
+now covered by the first form for their zoom buttons and by
+`testAToolbarButtonBuiltForAnActionCarriesIt` for their named actions. That is
+not a full order check for them, but it is no longer nothing, and it is what
+entry 216 said was missing before the next pane could be converted.
+
+### Changes
+
+- `outputpanemanager.cpp`: `toolbarItemName()` names an item from its settings
+  key, its aspect id, its action's object name or its command — one rule, used
+  by the manager and by the tests.
+- `console.cpp`: `Console::toolBarItems()` appends `baseToolBarItems()`.
+- `testresultspane.cpp`: `m_showDuration.setId("AutoTest.ShowDurations")`.
+- Four new tests in `OutputPaneButtonModelTest`.
+
+### Measurements
+
+    -test Core         286 passed, 2 failed, exit 2   (the two ShortcutSettings)
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+Committed baseline before this batch was Core 282/2. Built on macOS natively
+and on Linux in Docker; tests run in the Ubuntu VM.
+
+### Negative controls
+
+**CM — Console drops `baseToolBarItems()` again.** Bit, and named the pane:
+
+    testEveryPaneToolbarEndsWithTheZoomButtons() (QML Debugger Console has [])
+
+**CN — `m_showDuration` loses its id.** Bit, and named the pane:
+
+    testAToolbarButtonBuiltForAnAspectCarriesIt() (Test Results: an unnamed toggle)
+
+**CO — the manager stops calling `setDefaultAction()` on an aspect's button.**
+Bit on all four aspects, which is the point of checking the button carries the
+aspect rather than only that it is named:
+
+    (AutoTest.ShowDurations: the button carries another action; Console/showLog:
+     …; Console/showWarning: …; Console/showError: …)
+
+Each control was a separate build and run, not a sketch. The two tests written
+earlier in the batch have no control, because both passed on unmodified code
+and their job was to answer a question, not to guard a fix — which is why they
+are reported above as measurements rather than as coverage.
+
+### What is next
+
+1. **The remaining panes**: Application Output, Task/Issues, Terminal, Todo,
+   VcsBase. The tooling gap entry 216 named is closed enough to proceed: a
+   converted pane's zoom is watched by the base-class test, its named actions
+   and toggles by the two "carries it" tests, and its order by the interleaving
+   census where it keeps widgets.
+2. **The order of a pane with no widgets at all** is still unwatched. The
+   literal-list form above would extend to it — "Squish asks for Filter,
+   ExpandAll, CollapseAll, ZoomIn, ZoomOut in that order" — and is worth
+   writing the next time such a pane is touched, rather than speculatively.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

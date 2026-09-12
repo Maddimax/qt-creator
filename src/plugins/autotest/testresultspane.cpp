@@ -352,6 +352,7 @@ void TestResultsPane::createToolButtons()
     connect(m_outputToggleButton, &QToolButton::clicked, this, &TestResultsPane::toggleOutputStyle);
     const auto stopwatch = Utils::Icon({{":/utils/images/stopwatch.png",
                                          Utils::Theme::IconsBaseColor}});
+    m_showDuration.setId("AutoTest.ShowDurations");
     m_showDuration.setDefaultValue(true);
     m_showDuration.setLabelText(Tr::tr("Show Durations"));
     m_showDuration.setToolTip(Tr::tr("Show Durations"));
