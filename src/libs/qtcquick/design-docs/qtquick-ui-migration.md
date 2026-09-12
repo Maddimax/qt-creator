@@ -54436,3 +54436,90 @@ line and **no `.qbs` edit** - that file globs `*.qml`.
 5. macOS, still one desktop login away, for two defaulted sidebars.
 6. Parked: entry 174's page scroll, entry 173's crash, the two
    `ShortcutSettingsTest` failures.
+
+## 2026-09-09 — The branch moved to current master, and what that cost (batch 190)
+
+**No gap closed: this is the base moving.** The branch was rebased from the
+2026-08-14 master it had sat on since batch 168 onto `fc3e39e7887`
+(2026-09-08). 1345 commits replayed over 590 upstream ones, with 245 files
+touched by both sides. Recorded here because the plan is the source of truth
+and every entry above it was written against the old base.
+
+### The shape of it
+
+A trial merge measured the overlap first: **77 files, 117 conflict hunks**. The
+rebase itself stopped about 120 times, because the same file re-conflicts
+across successive commits. Most stops were two sides appending to one list - a
+test registration, a CMake source, an include block - and both sides were
+kept. Three kinds were not mechanical:
+
+**Upstream improved code this branch had moved.** The improvement has to be
+carried to the new location or it is silently dropped. Five of these: a
+device-pixel-ratio fix in `drawIconWithShadow` (now in
+`stylehelperpainting`), `volatileFromMap` on the checkable-aspect composite
+(which `aspects.cpp` already called, so it would not even have linked),
+`mergeStartParametersSourcePathMap` (stranded in a file this branch deletes),
+the QTCREATORBUG-31149 comment-paragraph fix in `rewrapParagraph` (extracted
+into `textoperations.cpp`), and a new `setBackgroundColor`.
+
+**Upstream added settings to widget pages this branch had already ported.**
+The aspects survive the merge; the *page* does not draw them, because a ported
+page names its aspects one by one. Four of these needed a delegate adding:
+the VCS spell-check pair, System's "Disable atomic saving", HarmonyOS's "Run
+without installing", and the MCP tool selection's Export/Import - for which
+upstream's two button handlers were extracted into named functions, so a QML
+page can call the same dialogs instead of a second copy of them.
+
+**Upstream restructured what this branch was rewriting.** Here upstream's
+newer answer usually wins: CMake file-argument editing no longer opens an
+editor at all, so "open it in whichever view" had nothing to do;
+`get_completions` moved into the MCP server and became generic, so this
+branch's C++-only tool went and its document-based access was ported into the
+general one; iOS device info is upstream's richer list. Instant blame was the
+worst of them - five upstream feature commits against one abstraction commit -
+and was resolved by taking upstream's file and re-applying the abstraction.
+
+### What this cost, said plainly
+
+- **`SpellCheckLanguageAspect::fixupComboBox` is gone.** It overrode a widget
+  hook this branch removed, so the language combo box loses its 20-character
+  minimum width. There is no aspect-level equivalent; it wants a presentation
+  hint if it matters.
+- **The instant-blame test was not ported.** Upstream's architecture changed
+  under it. The production change was ported; upstream's own instant-blame
+  tests remain.
+- **`editor_get_completions` now works from the document**, which is this
+  branch's promise, but the port is unverified by a test of ours - the test
+  that would have covered it was the C++-only one that went.
+- Two upstream "format the preview only when shown" optimisations were
+  dropped as moot: a QML page builds nothing until it is shown, so the
+  `m_isShown` guards went with the widgets they guarded. That reasoning is an
+  argument, not a measurement.
+
+### Two commits own the fallout
+
+Neither belongs to any one commit of the series, so they sit on top:
+`Make the branch build on current master` (includes a moved API now needs,
+names that changed on one side, and the two things above that could not simply
+be kept) and `McpServer: Attach the QML module to the renamed target` -
+upstream renamed the plugin target from `mcpserver` to `McpServer`, so the
+`if(TARGET ...)` guard around this branch's QML module was quietly false and
+the settings page was never built in. **The page-rendering test caught that**,
+which is the argument for having it.
+
+### Verification
+
+    -test QuickUi      220 passed, 0 failed, exit 0
+    -test Core         257 passed, 2 failed, exit 2
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+Both platforms build clean from scratch. The pass counts rose (Core 226 to
+257, TextEditor 726 to 751) because upstream brought its own tests. The three
+failures are the ones already recorded: entry 174's page-scroll clamp and
+entry 188's two `ShortcutSettingsTest` failures, all unchanged by the rebase.
+
+**One lesson worth keeping.** A branch this size does not get cheaper to
+rebase by waiting: 3.5 weeks of upstream cost 117 hunks and a day. The
+overlap is in the files both sides *refactor*, not in the files this branch
+adds - the Quick editor, the QtcQuick library and this document conflicted
+with nothing.
