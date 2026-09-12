@@ -54885,3 +54885,104 @@ kind of machinery from anything in these suites.
 3. **macOS verification**, still owed for every Quick pane since entry 168.
 4. Parked: entry 174's page scroll, entry 173's crash, the two
    `ShortcutSettingsTest` failures, entry 191's one-off TextEditor truncation.
+
+## 2026-09-12 — The Lua REPL gets a model, and loses a marker in its text (batch 194)
+
+**Gap closed: the first of the three widget output panes has its state out of
+the widget.** Same precondition as batch 188 did for the button row, and for
+the same reason: a QML delegate exists while the view feels like drawing it,
+so anything a row *is* has to live outside it.
+
+The Lua pane is a `QListView` REPL. Rung 3 of entry 169 named Terminal and
+Search Results as the hard ones; Lua was the surprise nobody had mentioned,
+and it is the smallest, so it goes first.
+
+### Two things were wrong, and both were only visible once written down
+
+**Whether a line was an error lived inside the line.** `ilua.lua` printed
+`"__ERROR__" .. err`, and the delegate did `text.startsWith("__ERROR__")` on
+every paint, then `mid(9)` to take the marker back off - in two places, the
+painter and the editor it makes for selection. A line of ordinary REPL output
+that happened to begin with those nine characters would have been coloured as
+an error and silently truncated. That is unlikely rather than impossible, and
+it is not the reason to fix it: the reason is that a QML view cannot do string
+surgery in a delegate and should not have to.
+
+There is now a `LuaReplModel` with `IsErrorRole`, named `isError` in
+`roleNames()` so a QML view can read it by name, and a second Lua binding -
+`printError` - so the marker does not exist anywhere. The script's two error
+sites call it; `__ERROR__` appears nowhere in the tree.
+
+**Every printed line reset the whole list.** The old model was a
+`QStringListModel` and each `print` did
+
+    m_model.setStringList(m_model.stringList() << msgs);
+
+`setStringList()` is a `beginResetModel`/`endResetModel` pair, so every line
+the REPL spoke threw away the view's state - including the reader's selection,
+in a pane whose delegate exists specifically to let text be selected. It also
+copied the whole list per line. `append()` inserts one row.
+
+### What the tests drive
+
+Not the model on its own: `LuaReplView` is constructed, `resetTerminal()` boots
+the real `ilua.lua`, and the test feeds it through the same
+`handleRequestResult()` the input line uses. So `return 6 * 7` has to come back
+containing `42` and not flagged, and `this is not lua(` has to come back
+flagged - which is the whole claim, end to end through Lua.
+
+The no-reset test is a `QSignalSpy` on `modelReset` and `rowsInserted` around
+one evaluation. That assertion could not have been written against the old
+model at all, which is a fair summary of what this batch bought.
+
+### Verification
+
+Both platforms build clean. No new files, so no `.qbs` edit.
+
+    -test Lua          9 passed, 0 failed, exit 0    (4 before: 5 new)
+    -test QuickUi      220 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Core         262 passed, 2 failed, exit 2
+
+Unchanged apart from Lua. The three failures are the ones already recorded.
+`-test Lua` had not been run by any batch before this one; it was green.
+
+### Negative controls
+
+**AS - the error flag bites.** The script's two `printError` calls put back to
+`print`: `'failed.data(LuaReplModel::IsErrorRole).toBool()' returned FALSE.
+(broken code was reported as ordinary output: "[string "this is not lua("]:1:
+syntax error near 'is'")`. The message carries the real traceback, which also
+shows the marker is gone from the text a reader sees.
+
+**AT - the insert bites.** `append()` made to reset the model, as
+`setStringList` did: `'resets.isEmpty()' returned FALSE. (printing a line reset
+the whole list)`.
+
+**AU - the role name bites.** `isError` dropped from `roleNames()`: `(a view
+that reads roles by name cannot tell the errors apart)`.
+
+### What is next
+
+1. **The Lua REPL as a Quick view**, now that there is something to draw from:
+   a `Core::createQmlView()` seam like the button row's, a census, and
+   `QTC_WIDGET_LUA_PANE`. The input line below the list is part of it - a
+   `FancyLineEdit` with a history completer, which is the piece with no QML
+   equivalent yet and worth measuring before promising.
+2. **Search Results** and **Terminal**, the two entry 169 called hard.
+3. **The output toolbar**, still blocked on `IOutputPane::toolBarWidgets()`
+   returning `QWidget *`.
+4. **macOS verification**, still owed since entry 168.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's one-off TextEditor truncation.
+
+### A note on where this is going, for the owner
+
+The standing instruction each batch names the goal as "a C++ file opens in the
+Quick editor". That is **not** what the last seven batches have been doing:
+since entry 169 the plan has been the *shell* phase, which the owner set, and
+the C++ mime flip has not moved in that time. The two are not the same
+project. If the editor flip is the priority, the next batch should go back to
+the CppEditor gap list rather than to Search Results - and this document
+should say which of the two is the live one, because right now the standing
+instruction and the plan point in different directions.

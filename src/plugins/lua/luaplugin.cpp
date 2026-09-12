@@ -32,11 +32,11 @@
 #include <QPainter>
 #include <QMenu>
 #include <QToolBar>
-#include <QStringListModel>
 #include <QStyledItemDelegate>
 #include <coreplugin/editormanager/ieditor.h>
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
+#include <QSignalSpy>
 #include <QTest>
 
 using namespace Core;
@@ -47,6 +47,7 @@ namespace Lua::Internal {
 
 #ifdef WITH_TESTS
 QObject *createLuaTextEditorTest();
+QObject *createLuaReplTest();
 #endif
 
 const char M_SCRIPT[] = "Lua.Script";
@@ -93,6 +94,63 @@ public:
     }
 };
 
+// What the REPL has said so far. Whether a line is an error is a role, not a
+// marker inside the text, so that a line of output is never mistaken for one.
+class LuaReplModel : public QAbstractListModel
+{
+public:
+    enum Roles { IsErrorRole = Qt::UserRole };
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : m_lines.size();
+    }
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (!index.isValid() || index.row() >= m_lines.size())
+            return {};
+        switch (role) {
+        case Qt::DisplayRole:
+            return m_lines.at(index.row()).text;
+        case IsErrorRole:
+            return m_lines.at(index.row()).isError;
+        default:
+            return {};
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        QHash<int, QByteArray> names = QAbstractListModel::roleNames();
+        names[IsErrorRole] = "isError";
+        return names;
+    }
+
+    void append(const QString &text, bool isError)
+    {
+        beginInsertRows({}, m_lines.size(), m_lines.size());
+        m_lines.append({text, isError});
+        endInsertRows();
+    }
+
+    void clear()
+    {
+        beginResetModel();
+        m_lines.clear();
+        endResetModel();
+    }
+
+private:
+    struct Line
+    {
+        QString text;
+        bool isError = false;
+    };
+
+    QList<Line> m_lines;
+};
+
 class ItemDelegate : public QStyledItemDelegate
 {
 public:
@@ -103,7 +161,7 @@ public:
     {
         auto label = new QLabel(parent);
         const QString text = index.data().toString();
-        label->setText(text.startsWith("__ERROR__") ? text.mid(9) : text);
+        label->setText(text);
         label->setFont(option.font);
         label->setTextInteractionFlags(
             Qt::TextInteractionFlag::TextSelectableByMouse
@@ -119,10 +177,7 @@ public:
         QStyleOptionViewItem opt = option;
         initStyleOption(&opt, index);
 
-        bool isError = opt.text.startsWith("__ERROR__");
-
-        if (isError)
-            opt.text = opt.text.mid(9);
+        const bool isError = index.data(LuaReplModel::IsErrorRole).toBool();
 
         if (opt.state & QStyle::State_Selected) {
             painter->fillRect(opt.rect, opt.palette.highlight());
@@ -144,7 +199,7 @@ class LuaReplView : public QListView
     std::unique_ptr<LuaState> m_luaState;
     sol::function m_readCallback;
 
-    QStringListModel m_model;
+    LuaReplModel m_model;
 
 public:
     LuaReplView(QWidget *parent = nullptr)
@@ -153,6 +208,8 @@ public:
         setModel(&m_model);
         setItemDelegate(new ItemDelegate(this));
     }
+
+    const LuaReplModel *model() const { return &m_model; }
 
     void showEvent(QShowEvent *) override
     {
@@ -171,7 +228,7 @@ public:
 
     void resetTerminal()
     {
-        m_model.setStringList({});
+        m_model.clear();
         m_readCallback = {};
 
         QFile f(":/lua/scripts/ilua.lua");
@@ -180,7 +237,12 @@ public:
         m_luaState = runScript(ilua, "ilua.lua", [this](sol::state &lua) {
             lua["print"] = [this](sol::variadic_args va) {
                 const QString msgs = variadicToStringList(va).join("\t").replace("\r\n", "\n");
-                m_model.setStringList(m_model.stringList() << msgs);
+                m_model.append(msgs, false);
+                scrollToBottom();
+            };
+            lua["printError"] = [this](sol::variadic_args va) {
+                const QString msgs = variadicToStringList(va).join("\t").replace("\r\n", "\n");
+                m_model.append(msgs, true);
                 scrollToBottom();
             };
             lua["LuaCopyright"] = LUA_COPYRIGHT;
@@ -311,6 +373,7 @@ public:
     {
 #ifdef WITH_TESTS
         addTestCreator(createLuaTextEditorTest);
+        addTestCreator(createLuaReplTest);
 #endif
         IOptionsPage::registerCategory(
             "ZY.Lua", Tr::tr("Lua"), ":/lua/images/settingscategory_lua.png");
@@ -628,6 +691,71 @@ private slots:
         QCOMPARE(blockNumber, 1);
     }
 };
+
+class LuaReplTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheReplSaysWhichOfItsLinesAreErrors()
+    {
+        LuaReplView repl;
+        repl.resetTerminal();
+        const LuaReplModel * const model = repl.model();
+
+        // The banner, printed by the script itself, is ordinary output.
+        QVERIFY2(model->rowCount() > 0, "the REPL said nothing at all on being started");
+        const int banner = model->rowCount() - 1;
+        QVERIFY2(!model->index(banner).data(LuaReplModel::IsErrorRole).toBool(),
+                 "the REPL's own greeting is reported as an error");
+
+        repl.handleRequestResult("return 6 * 7");
+        QCOMPARE(model->rowCount(), banner + 2);
+        const QModelIndex answer = model->index(model->rowCount() - 1);
+        QVERIFY2(answer.data().toString().contains("42"),
+                 qPrintable("the REPL answered \"" + answer.data().toString() + "\""));
+        QVERIFY(!answer.data(LuaReplModel::IsErrorRole).toBool());
+
+        // Code that does not compile: the one thing a REPL has to report
+        // differently from what a script printed on purpose.
+        repl.handleRequestResult("this is not lua(");
+        const QModelIndex failed = model->index(model->rowCount() - 1);
+        QVERIFY2(failed.data(LuaReplModel::IsErrorRole).toBool(),
+                 qPrintable("broken code was reported as ordinary output: \""
+                            + failed.data().toString() + "\""));
+        QVERIFY2(!failed.data().toString().contains("__ERROR__"),
+                 "the marker that used to say this is still in the text a reader sees");
+    }
+
+    void testAPrintedLineDoesNotThrowAwayTheOnesBeforeIt()
+    {
+        // Every print used to rebuild the whole list, so a reader who had
+        // selected a line lost the selection each time the REPL spoke.
+        LuaReplView repl;
+        repl.resetTerminal();
+        const LuaReplModel * const model = repl.model();
+
+        QSignalSpy resets(model, &QAbstractItemModel::modelReset);
+        QSignalSpy inserts(model, &QAbstractItemModel::rowsInserted);
+
+        repl.handleRequestResult("return 1");
+
+        QVERIFY2(resets.isEmpty(), "printing a line reset the whole list");
+        QVERIFY2(!inserts.isEmpty(), "a line arrived without the view being told where");
+    }
+
+    void testAModelRowNamesItsErrorFlagForAViewThatAsksByName()
+    {
+        LuaReplModel model;
+        QVERIFY2(model.roleNames().values().contains("isError"),
+                 "a view that reads roles by name cannot tell the errors apart");
+    }
+};
+
+QObject *createLuaReplTest()
+{
+    return new LuaReplTest;
+}
 
 QObject *createLuaTextEditorTest()
 {

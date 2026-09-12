@@ -26,7 +26,7 @@ local function eval(code)
     if not asReturn then
         --If the code without the return did not compile either we print an error
         if not asFunc then
-            print("__ERROR__" .. errFunc)
+            printError(errFunc)
             return
         end
         asReturn = asFunc
@@ -37,7 +37,7 @@ local function eval(code)
 
     --result[1] contains true or false depending on whether the function ran successfully
     if not result[1] then
-        print("__ERROR__" .. result[2])
+        printError(result[2])
     --numberOfReturnValues is the real number of values returned from xpcall
     elseif numberOfReturnValues > 1 then
         --We concatenate all the return values into a single string
