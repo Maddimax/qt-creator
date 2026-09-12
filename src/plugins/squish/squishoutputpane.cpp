@@ -114,9 +114,14 @@ QWidget *SquishOutputPane::outputWidget(QWidget *parent)
     return m_outputPane;
 }
 
-QList<QWidget *> SquishOutputPane::toolBarWidgets() const
+QList<Core::IOutputPane::ToolBarItem> SquishOutputPane::toolBarItems() const
 {
-    return {m_filterButton, m_expandAll, m_collapseAll};
+    QList<ToolBarItem> items{ToolBarItem::forAction(m_filterAction),
+                             ToolBarItem::forAction(m_expandAllAction),
+                             ToolBarItem::forAction(m_collapseAllAction)};
+    for (const ToolBarItem &item : baseToolBarItems())
+        items << item;
+    return items;
 }
 
 void SquishOutputPane::clearContents()
@@ -313,30 +318,28 @@ void SquishOutputPane::clearOldResults()
 
 void SquishOutputPane::createToolButtons()
 {
-    m_expandAll = new QToolButton(m_resultsView);
-    Utils::StyleHelper::setPanelWidget(m_expandAll);
-    m_expandAll->setIcon(Utils::Icons::EXPAND_TOOLBAR.icon());
-    m_expandAll->setToolTip(Tr::tr("Expand All"));
+    m_expandAllAction = new QAction(Utils::Icons::EXPAND_TOOLBAR.icon(),
+                                    Tr::tr("Expand All"), this);
+    m_expandAllAction->setObjectName("Squish.ExpandAll");
 
-    m_collapseAll = new QToolButton(m_resultsView);
-    Utils::StyleHelper::setPanelWidget(m_collapseAll);
-    m_collapseAll->setIcon(Utils::Icons::COLLAPSE_TOOLBAR.icon());
-    m_collapseAll->setToolTip(Tr::tr("Collapse All"));
+    m_collapseAllAction = new QAction(Utils::Icons::COLLAPSE_TOOLBAR.icon(),
+                                      Tr::tr("Collapse All"), this);
+    m_collapseAllAction->setObjectName("Squish.CollapseAll");
 
-    m_filterButton = new QToolButton(m_resultsView);
-    Utils::StyleHelper::setPanelWidget(m_filterButton);
-    m_filterButton->setIcon(Utils::Icons::FILTER.icon());
-    m_filterButton->setToolTip(Tr::tr("Filter Test Results"));
-    m_filterButton->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
-    m_filterButton->setAutoRaise(true);
-    m_filterButton->setPopupMode(QToolButton::InstantPopup);
-    m_filterMenu = new QMenu(m_filterButton);
+    // The menu hangs off the action rather than off a button, so that a
+    // toolbar which is not a QToolBar still has the whole thing.
+    m_filterAction = new QAction(Utils::Icons::FILTER.icon(),
+                                 Tr::tr("Filter Test Results"), this);
+    m_filterAction->setObjectName("Squish.Filter");
+    // Owned where the button that used to hold it lived; setMenu() does not
+    // take ownership.
+    m_filterMenu = new QMenu(m_resultsView);
     initializeFilterMenu();
-    m_filterButton->setMenu(m_filterMenu);
+    m_filterAction->setMenu(m_filterMenu);
 
-    connect(m_expandAll, &QToolButton::clicked,
+    connect(m_expandAllAction, &QAction::triggered,
             this, &SquishOutputPane::expandAllRequested);
-    connect(m_collapseAll, &QToolButton::clicked,
+    connect(m_collapseAllAction, &QAction::triggered,
             this, &SquishOutputPane::collapseAllRequested);
     connect(m_filterMenu, &QMenu::triggered, this, &SquishOutputPane::onFilterMenuTriggered);
 }

@@ -56893,3 +56893,90 @@ bite at all.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — Squish was converted and then not shipped (batch 216)
+
+**Gap closed: none in the panes. What this found is that the conversion of a
+pane cannot currently be verified once the pane has no toolbar widgets left.**
+
+### What was tried
+
+Squish's three toolbar buttons - expand all, collapse all, and a filter with a
+menu - were converted to `ToolBarItem::forAction()`, which would have left it
+with no widgets in its toolbar at all. It built and every suite stayed green.
+
+Then the controls:
+
+- **CK**: Squish's `toolBarItems()` returning nothing. **Did not bite.**
+- **CL**: Squish asking for the three in reverse order. **Did not bite.**
+
+Entry 215's per-pane comparison skips a pane with no widgets, because it
+compares the pane's own widgets by identity and has nothing to anchor on
+without them. Broadening it to compare any two named items helped the first
+case and not the second - for a pane whose toolbar is *only* named items, the
+test compares what the pane **asks for** against what was **drawn**, and both
+change together. There is no independent reference left.
+
+**So the conversion was reverted rather than shipped.** Three panes are
+converted and covered; a fourth that no test can watch is not worth having.
+
+### And an observation that has no explanation yet
+
+While the menu button was being covered, the test found, in Squish's toolbar,
+a `QToolButton` **named after the action but with no default action on it**:
+
+    pane Squish, action Squish.Filter: button's action is none, its menu none
+
+The manager sets the object name and the default action two lines apart, so
+that combination is one this code does not produce. Five runs went into it and
+it is not understood. It is the first thing to settle before converting this
+pane - a named button nobody built is a better lead than it looks, and it may
+be about which toolbar a pane's row addresses rather than about Squish.
+
+### What was kept
+
+- **The buttons the manager builds are panel-styled** like every other button
+  in the row. They were not, so since batch 210 Console's three toggles have
+  sat next to panel-styled command buttons looking like different controls.
+- **The per-pane order comparison now covers a pane with no widgets**, which is
+  right even though it is not sufficient.
+
+The popup-mode handling for an action carrying a menu went with Squish: it was
+only ever exercised by that pane, and shipping code nothing runs is what the
+last few batches have been unlearning.
+
+### Verification
+
+Both platforms build clean.
+
+    -test Core         282 passed, 2 failed, exit 2
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**CK and CL, both quiet, and that is the result.** Recorded as the finding
+rather than worked around: two controls that cannot bite say the change cannot
+be watched, and the answer was to not make the change.
+
+Nothing else in this batch has a control, because the panel styling is a
+property of a widget nothing asserts and the test broadening is a test. Said
+plainly rather than dressed up.
+
+### What is next
+
+1. **The named button with no default action**, above. Until that is
+   understood, converting a pane whose toolbar has no widgets is guesswork.
+2. **A way to verify such a pane at all.** The obvious one is an expectation
+   written in the test rather than derived from the pane - "Squish's toolbar
+   holds these three buttons in this order" - which is how the interleaving
+   census already works and is the only independent reference available.
+3. **The remaining panes**: Application Output, Task/Issues, Terminal, Todo,
+   VcsBase - and of those, only ones that keep some widgets can be watched
+   today.
+4. **Automatic login in the macOS VM** - Qt is staged, the runner works.
+5. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

@@ -25,6 +25,7 @@
 #include <utils/proxyaction.h>
 #include <utils/qtcassert.h>
 #include <utils/stylehelper.h>
+#include <utils/stylehelperpainting.h>
 #include <utils/theme/theme.h>
 #include <utils/utilsicons.h>
 #include <utils/widgets.h>
@@ -1119,6 +1120,7 @@ void OutputPaneManager::setupButtons()
                     toolBar->addWidget(w);
                 } else if (Utils::BaseAspect * const aspect = item.aspect()) {
                     auto * const toggle = new QToolButton;
+                    Utils::StyleHelper::setPanelWidget(toggle);
                     if (!aspect->settingsKey().isEmpty())
                         toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
                     toggle->setDefaultAction(aspect->action());
@@ -1127,6 +1129,10 @@ void OutputPaneManager::setupButtons()
                     auto * const button = new QToolButton;
                     button->setObjectName(action->objectName());
                     button->setDefaultAction(action);
+                    // Styled like every other button in the row: the ones
+                    // built here had none, so a named toggle sat next to a
+                    // panel-styled command looking like a different control.
+                    Utils::StyleHelper::setPanelWidget(button);
                     toolBar->addWidget(button);
                 } else if (const Id commandId = item.command(); commandId.isValid()) {
                     QToolButton * const button
@@ -2135,9 +2141,10 @@ private slots:
                     asked << item.command().toString();
                 }
             }
-            // Only worth comparing where a named button and a widget are both
-            // in there: otherwise nothing in the sequence can move.
-            if (askedWidgets.isEmpty() || asked.size() == askedWidgets.size())
+            // Two things or more, of any kind: a pane whose toolbar is all
+            // named buttons still has an order, and skipping it for having no
+            // widgets left its whole conversion uncovered.
+            if (asked.size() < 2)
                 continue;
 
             QStringList got;

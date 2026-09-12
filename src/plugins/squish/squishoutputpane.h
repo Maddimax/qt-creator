@@ -45,7 +45,7 @@ public:
 
     // IOutputPane interface
     QWidget *outputWidget(QWidget *parent) override;
-    QList<QWidget *> toolBarWidgets() const override;
+    QList<ToolBarItem> toolBarItems() const override;
     void clearContents() override;
     void visibilityChanged(bool visible) override;
     void setFocus() override;
@@ -96,9 +96,9 @@ private:
     SquishResultModel *m_model;
     SquishResultFilterModel *m_filterModel;
     Core::OutputPaneView *m_runnerServerLog;
-    QToolButton *m_expandAll;
-    QToolButton *m_collapseAll;
-    QToolButton *m_filterButton;
+    QAction *m_expandAllAction = nullptr;
+    QAction *m_collapseAllAction = nullptr;
+    QAction *m_filterAction = nullptr;
     QMenu *m_filterMenu;
 };
 
