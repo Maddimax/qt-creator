@@ -56569,3 +56569,85 @@ all once something has reparented it.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — macOS is blocked on something else than the plan said, and a second pane names its toggle (batch 212)
+
+### The macOS item, finally measured
+
+Entry 168 parked macOS verification as "one desktop login away", and forty
+batches have repeated that. It is wrong, and now there are facts:
+
+- The macOS VM **exists** (`utmctl`: `A26A271F-… macOS`, stopped). Started for
+  this and stopped again afterwards, as found.
+- It **has a desktop session**: `stat -f %Su /dev/console` answers `mt`, which
+  is exactly the check `runtests-macos.sh` makes before refusing. The login
+  the plan has been waiting for is there.
+- Running the suites gives **exit 127** for each: `no such file or directory:
+  /Users/mt/qtc-test/Qt Creator.app/Contents/MacOS/Qt Creator`.
+- The bundle rsync works - a dry run moves 833 MB - but the guest has **no Qt
+  at all**. `~/Qt-6.11.2/macos/lib`, which the runner puts in
+  `DYLD_FRAMEWORK_PATH`, does not exist, and there is no Qt anywhere else in
+  that home or in `/Applications`. The bundle links its frameworks by
+  `@rpath`, so without them it cannot start.
+- There is room: 14 GiB free.
+
+**So macOS verification is blocked on staging Qt 6.11.2 in the VM, not on a
+login.** That is a one-time copy of a few GB into someone's virtual machine,
+which is not a thing to do unasked in the middle of a batch - but it is a
+single concrete step rather than an indefinite wait, and it is the whole of
+what stands between this branch and its second platform.
+
+### And a second pane names its toggle
+
+Test Results' "Show Durations" is now a `BoolAspect` like Console's three. It
+is the same shape - icon, tooltip, checkable, a `toggled` connection - and the
+session value it restores goes through the aspect instead of through
+`setChecked()`.
+
+The test now insists **two** panes use the interface. One pane can be a
+coincidence; two is the interface being used.
+
+Two details fell out of doing it twice:
+
+- `m_showDuration` saves nothing of its own (the session already saves it under
+  its own key), so it has **no settings key** - and the manager was naming the
+  button after that key. An empty object name matches the first unnamed widget
+  anyone looks for, so the test found a different button and compared the wrong
+  action. The manager names a button only where there is a name.
+- The header member was declared `QToolButton *m_showDurationButton = nullptr;`
+  and the edit that was supposed to replace it matched a pattern without the
+  initialiser, so it silently did nothing and the build said "undeclared
+  identifier" three files later. A `python` replace that matches nothing exits
+  0 and looks like success.
+
+### Verification
+
+Both platforms build clean; tests still only on Linux, for the reason above.
+
+    -test Core         280 passed, 2 failed, exit 2
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+**CG - the second pane bites.** Test Results' `toolBarAspects()` returning
+nothing: `(only 1 pane names a toggle; the point of naming them is that more
+than one can)`. That is the assertion this batch added, and it is what stops
+the interface being "a thing Console does".
+
+### What is next
+
+1. **Stage Qt in the macOS VM**, or say it is not worth it. Everything else
+   about the second platform is ready, and this has been the oldest item on the
+   list since entry 168 - wrongly described for all of it.
+2. **The remaining panes' toolbar widgets.** What is left is not all toggles:
+   Todo's scanning scope is a three-way exclusive choice (a `SelectionAspect`),
+   its keyword filters are a dynamic list, Test Results' output toggle changes
+   its own icon per state, and the spacer, the status label and the filter
+   field are display rather than settings.
+3. **Terminal**, the last of the three widget panes.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

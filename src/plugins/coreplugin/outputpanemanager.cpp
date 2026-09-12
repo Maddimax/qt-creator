@@ -1098,7 +1098,11 @@ void OutputPaneManager::setupButtons()
             // host. An aspect brings its own icon, tooltip and value.
             for (Utils::BaseAspect * const aspect : outPane->toolBarAspects()) {
                 auto * const toggle = new QToolButton;
-                toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
+                // Named only where there is a name: an aspect that saves
+                // nothing has no key, and an empty object name matches the
+                // first unnamed widget anybody looks for.
+                if (!aspect->settingsKey().isEmpty())
+                    toggle->setObjectName(QString::fromUtf8(aspect->settingsKey().view()));
                 toggle->setDefaultAction(aspect->action());
                 toolBar->addWidget(toggle);
             }
@@ -2079,14 +2083,26 @@ private slots:
         // carries all four. A pane that hands over a QToolButton instead has
         // nothing a toolbar which is not a QToolBar can draw.
         const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
-        IOutputPane *withToggles = nullptr;
+        QList<IOutputPane *> withToggles;
         for (IOutputPane * const pane : panes) {
             if (!pane->toolBarAspects().isEmpty())
-                withToggles = pane;
+                withToggles << pane;
         }
-        QVERIFY2(withToggles, "no output pane names a toggle, so nothing here is being tested");
+        QVERIFY2(withToggles.size() >= 2,
+                 qPrintable(QString("only %1 pane names a toggle; the point of naming "
+                                    "them is that more than one can")
+                                .arg(withToggles.size())));
 
-        Utils::BaseAspect * const aspect = withToggles->toolBarAspects().first();
+        // One that saves something, so the button built from it has a name
+        // to be found by.
+        Utils::BaseAspect *aspect = nullptr;
+        for (IOutputPane * const pane : withToggles) {
+            for (Utils::BaseAspect * const candidate : pane->toolBarAspects()) {
+                if (!aspect && !candidate->settingsKey().isEmpty())
+                    aspect = candidate;
+            }
+        }
+        QVERIFY2(aspect, "no named toggle is saved anywhere, so none can be found by name");
         QVERIFY2(aspect->action(), "the aspect offers nothing for a toolbar to put a button on");
         QVERIFY2(aspect->action()->isCheckable(),
                  "a toggle in a toolbar that cannot be toggled");

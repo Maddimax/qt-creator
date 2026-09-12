@@ -350,14 +350,16 @@ void TestResultsPane::createToolButtons()
     m_outputToggleButton->setToolTip(Tr::tr("Switch Between Visual and Text Display"));
     m_outputToggleButton->setEnabled(true);
     connect(m_outputToggleButton, &QToolButton::clicked, this, &TestResultsPane::toggleOutputStyle);
-    m_showDurationButton = new QToolButton(m_treeView);
-    auto icon = Utils::Icon({{":/utils/images/stopwatch.png", Utils::Theme::IconsBaseColor}});
-    m_showDurationButton->setIcon(icon.icon());
-    m_showDurationButton->setToolTip(Tr::tr("Show Durations"));
-    m_showDurationButton->setCheckable(true);
-    m_showDurationButton->setChecked(true);
-    connect(m_showDurationButton, &QToolButton::toggled,
-            this, [this](bool checked) { m_treeView->setShowDuration(checked); });
+    const auto stopwatch = Utils::Icon({{":/utils/images/stopwatch.png",
+                                         Utils::Theme::IconsBaseColor}});
+    m_showDuration.setDefaultValue(true);
+    m_showDuration.setLabelText(Tr::tr("Show Durations"));
+    m_showDuration.setToolTip(Tr::tr("Show Durations"));
+    m_showDuration.setIcon(stopwatch.icon());
+    m_showDuration.setValue(true);
+    connect(&m_showDuration, &Utils::BoolAspect::changed, this, [this] {
+        m_treeView->setShowDuration(m_showDuration());
+    });
 }
 
 static TestResultsPane *s_instance = nullptr;
@@ -452,10 +454,15 @@ QStringList TestResultsPane::outputTexts() const
     return {m_textOutput->toPlainText()};
 }
 
+QList<Utils::BaseAspect *> TestResultsPane::toolBarAspects() const
+{
+    return {const_cast<Utils::BoolAspect *>(&m_showDuration)};
+}
+
 QList<QWidget *> TestResultsPane::toolBarWidgets() const
 {
     QList<QWidget *> result = {m_expandCollapse, m_runAll, m_runSelected, m_runFailed,
-                               m_runFile, m_stopTestRun, m_showDurationButton,
+                               m_runFile, m_stopTestRun,
                                m_outputToggleButton, m_filterButton};
     for (QWidget *widget : IOutputPane::toolBarWidgets())
         result.append(widget);
@@ -917,7 +924,7 @@ static constexpr char SV_MESSAGE_FILTER[] = "AutoTest.MessageFilter";
 void TestResultsPane::onSessionLoaded()
 {
     const bool showDurations = SessionManager::sessionValue(SV_SHOW_DURATIONS, true).toBool();
-    m_showDurationButton->setChecked(showDurations);
+    m_showDuration.setValue(showDurations);
     const QVariantList enabledFilters = SessionManager::sessionValue(SV_MESSAGE_FILTER).toList();
 
     if (enabledFilters.isEmpty()) {
@@ -934,7 +941,7 @@ void TestResultsPane::onSessionLoaded()
 
 void TestResultsPane::onAboutToSaveSession()
 {
-    SessionManager::setSessionValue(SV_SHOW_DURATIONS, m_showDurationButton->isChecked());
+    SessionManager::setSessionValue(SV_SHOW_DURATIONS, m_showDuration());
     SessionManager::setSessionValue(SV_MESSAGE_FILTER, m_filterModel->enabledFiltersAsSetting());
 }
 

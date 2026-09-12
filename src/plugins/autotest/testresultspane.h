@@ -9,6 +9,8 @@
 #include <coreplugin/find/itemviewfind.h>
 #include <coreplugin/ioutputpane.h>
 
+#include <utils/aspects.h>
+
 #include <qtcquick/qtcquickwidget.h>
 
 #include <utils/filepath.h>
@@ -115,6 +117,7 @@ public:
     QWidget *outputWidget(QWidget *parent) override;
     QStringList outputTexts() const override;
     QList<QWidget *> toolBarWidgets() const override;
+    QList<Utils::BaseAspect *> toolBarAspects() const override;
     void clearContents() override;
     void setFocus() override;
     bool hasFocus() const override;
@@ -181,7 +184,7 @@ private:
     QToolButton *m_stopTestRun = nullptr;
     QToolButton *m_filterButton = nullptr;
     QToolButton *m_outputToggleButton = nullptr;
-    QToolButton *m_showDurationButton = nullptr;
+    Utils::BoolAspect m_showDuration;
     Core::OutputPaneView *m_textOutput = nullptr;
     QMenu *m_filterMenu = nullptr;
     bool m_autoScroll = false;
