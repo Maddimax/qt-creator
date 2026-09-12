@@ -54986,3 +54986,126 @@ project. If the editor flip is the priority, the next batch should go back to
 the CppEditor gap list rather than to Search Results - and this document
 should say which of the two is the live one, because right now the standing
 instruction and the plan point in different directions.
+
+## 2026-09-12 — The goal is already met; two things the C++ census did not check (batch 195)
+
+**Gap closed: two of the twelve things `CppEditorFactory` configures were
+checked by nothing.** And a correction to what the census claims about itself.
+
+### First, the goal, measured today rather than remembered
+
+The standing instruction each batch names the goal as "a C++ file opens in the
+Qt Quick editor". **It does, and has since entry ~148.** Re-run on this tree,
+not quoted from that entry:
+
+| | Result |
+| --- | --- |
+| `testWhichFactoriesAreQuick` | PASS |
+| `testWhichLanguagesOpenInTheQuickEditor` | PASS |
+| `testEveryQuickLanguageGetsWhatItsFactoryConfigures` | PASS |
+| `testAQuickCppEditorHasEverythingTheFactoryConfigures` | PASS |
+
+The instruction's premise - "CppEditorFactory claims the C++ mime types
+directly and beats the Quick factory's parent-mime claim" - is stale. The flip
+was never done by mime type: `setUsesQuickEditor(true)` on the factory is what
+did it, so both claims stay where they were and the factory chooses the view.
+`QTC_WIDGET_CPP_EDITOR` is the way back.
+
+### What the census did not check
+
+`CppEditorFactory` configures twelve things. The census checked five, and its
+comment said it existed "so that adding a sixth thing to the factory and
+forgetting the Qt Quick side is a failure rather than a discovery". **A written
+list of five cannot do that**, and the comment now says what the test really
+gives: only `testEveryQuickLanguageGetsWhatItsFactoryConfigures()` is driven by
+the factory, and only for the settings it knows to ask about.
+
+Two settings had no check anywhere, and both now do:
+
+- **`addEditorContext(CXX_LANGUAGE_ID)`.** Every C++ command is registered
+  against that context, so an editor that does not carry it is one none of
+  them reach. The only test touching editor contexts used a synthetic factory
+  to prove a *split* half keeps them - nothing asked whether a real C++ editor
+  has one.
+- **`setContextMenuId(M_CONTEXT)`.** A widget subclass names its menu in
+  `contextMenuEvent()`; a view that is not one is told by the factory. The
+  equivalent was tested for `.pro` files and for a synthetic factory, never
+  for C++.
+
+### The half of this batch that produced no code, and why it is written down
+
+Most of the time went into a gap that is not one. Reading the factory against
+the Quick view, `setParenthesesMatchingEnabled(true)` looked exactly like the
+instruction's worry: a setting C++ makes that `updateParenthesesMatch()` never
+reads. I wired it through - factory getter, a flag on `TextViewport`, the gate
+- and **an existing test went red**:
+`testTheBracketBesideTheCaretIsPairedWithItsMatch` opens a `.json` file, whose
+factory never asks for matching, and requires the pair to light up.
+
+That is the control doing its job, and the change was reverted. Two further
+measurements settled it:
+
+- A plain-text file gets no matching in the Quick view **already**, because the
+  gate is whether the highlighter recorded any brackets. No flag needed.
+- `TextEditorWidget::setDisplaySettings()` does
+  `setParenthesesMatchingEnabled(ds.m_highlightMatchingParentheses)`, so the
+  display setting overwrites the factory value on every settings application.
+  **The flag is dead in the widget too.**
+
+**All of which this document already said**, at two places - entry ~66 records
+the overwrite, and entry ~139 has a section headed "The parenthesis flag is a
+difference, not a gap" giving a stronger version of the same argument. I
+rediscovered a closed question because I read the code before reading the
+plan.
+
+**The lesson, and it is the plan's own purpose:** before investigating
+anything that looks like a gap between the two views, grep this document for
+the symbol. It is 54,000 lines of exactly that question being asked and
+answered. A `grep setParenthesesMatchingEnabled` would have cost ten seconds
+and saved the larger part of a batch.
+
+No test was added for it: the guard that caught me is the guard that was
+needed, and it was already there.
+
+### Verification
+
+Both platforms build clean.
+
+    -test CppEditor,SymbolJumpTest   12 passed, 0 failed, exit 0
+    -test TextEditor                 751 passed, 1 failed, 3 skipped, exit 1
+    -test QuickUi                    220 passed, 0 failed, exit 0
+
+Unchanged; the one failure is entry 174's page-scroll clamp.
+
+### Negative controls
+
+**AV - the language context bites.** `addEditorContext(CXX_LANGUAGE_ID)`
+removed from the factory: `(the editor is not in the C++ language context)`.
+
+**AW - the context menu bites.** `setContextMenuId(M_CONTEXT)` removed:
+`(the factory names no C++ context menu for a view to open)`.
+
+**And the one that bit without being asked**: the existing
+`testTheBracketBesideTheCaretIsPairedWithItsMatch`, against a production change
+that should not have been made. Recorded as a control because that is what it
+functioned as.
+
+### What is next
+
+The C++ goal is met and guarded, so the live queue is the shell phase of entry
+169, where batches 178-194 have been. In order:
+
+1. **The Lua REPL as a Quick view** (entry 194): the model is ready; the input
+   line's history completer is the piece with no QML equivalent yet.
+2. **Search Results** and **Terminal**.
+3. **The output toolbar**, blocked on `IOutputPane::toolBarWidgets()`.
+4. **macOS verification**, owed since entry 168.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's one-off TextEditor truncation.
+
+**For the owner:** the standing instruction and this plan have pointed in
+different directions for seven batches now. Entry 194 said so; this entry adds
+the measurement that settles it - the editor goal is done. If the shell phase
+is the work, the instruction is worth rewriting to say so, because its closing
+paragraph about closing CppEditor gaps before flipping the switch describes a
+flip that already happened.

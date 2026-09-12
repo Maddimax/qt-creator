@@ -9,6 +9,7 @@
 #include "cppcodemodelsettings.h"
 #include "cppcompletionassist.h"
 #include "cppeditorwidget.h"
+#include "cppeditorconstants.h"
 #include "cppeditortr.h"
 #include "cppfilesettingspage.h"
 #include "cpphighlighter.h"
@@ -19,6 +20,7 @@
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/messagemanager.h>
 
+#include <projectexplorer/projectexplorerconstants.h>
 #include <projectexplorer/projectmanager.h>
 #include <projectexplorer/projecttree.h>
 #include <projectexplorer/projectnodes.h>
@@ -1263,12 +1265,14 @@ private slots:
                  "the editor has no selection expander, so Ctrl+U walks brackets");
     }
 
-    // The census for the goal this work is for. Everything CppEditor
-    // configures on a TextEditorWidget has to have somewhere to go on the Qt
-    // Quick side, and this is that list asked of one editor at once. Each of
-    // the five has its own test elsewhere; this one is here so that adding a
-    // sixth thing to the factory and forgetting the Qt Quick side is a
-    // failure rather than a discovery.
+    // The census for the goal this work is for: everything CppEditorFactory
+    // configures, asked of one editor at once, so that a regression in any of
+    // them shows up here as well as in its own test.
+    //
+    // It is a written list, so it cannot notice a *new* factory setting going
+    // unread - only testEveryQuickLanguageGetsWhatItsFactoryConfigures() is
+    // driven by the factory itself, and only for the settings it knows to ask
+    // about. Adding something to CppEditorFactory means adding it here too.
     void testAQuickCppEditorHasEverythingTheFactoryConfigures()
     {
         Utils::TemporaryDirectory dir("cpp-quick-census");
@@ -1292,6 +1296,18 @@ private slots:
                  "the C++ file opened in a widget editor, so this tests nothing");
         auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
         QVERIFY(document);
+
+        // The language context. Every C++ command is registered against it,
+        // so an editor that does not carry it is one none of them reach.
+        QVERIFY2(editor->context().contains(
+                     Utils::Id(ProjectExplorer::Constants::CXX_LANGUAGE_ID)),
+                 "the editor is not in the C++ language context");
+
+        // The menu a right click offers beside what every editor offers.
+        // CppEditorWidget named it in contextMenuEvent(); a view that is not
+        // one is told by the factory instead.
+        QVERIFY2(factory->contextMenuId() == Utils::Id(CppEditor::Constants::M_CONTEXT),
+                 "the factory names no C++ context menu for a view to open");
 
         // Completion.
         QVERIFY2(document->completionAssistProvider(),
