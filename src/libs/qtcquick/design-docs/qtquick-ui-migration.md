@@ -56489,3 +56489,83 @@ aspect's value, so any of the three going missing shows up.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — One pane, one toolbar (batch 211)
+
+**Gap closed: the defect entry 210 measured and left.** Every
+`setupButtons()` pass built a second toolbar for four of the twelve panes and
+orphaned the first. The stack went 12 to 16 in one pass, and it grows again
+every time a lazily loaded plugin brings a pane.
+
+### The cause, which the probe had not yet reached
+
+`setupButtons()` decided whether it had seen a pane before by asking whether
+the pane's widget was in the stack:
+
+    QWidget *widget = outPane->outputWidget(m_instance);
+    int idx = m_instance->m_outputWidgetPane->indexOf(widget);
+    if (idx < 0) { ...connections, toolbar... }
+
+And `outputWidget()` **reparents**. Version Control, Test Results and Squish
+all do some form of
+
+    m_outputWidget->setParent(parent);
+    return m_outputWidget;
+
+with `parent` being the manager, not the stack - and `setParent()` takes a
+widget out of the `QStackedWidget` it was in. So asking the stack right after
+asking the pane always says "never seen it", and the pane gets another toolbar
+and another set of `showPage`/`hidePage`/`togglePage` connections.
+
+**The question was being asked of something the previous line had just
+changed.** The answer is to keep the fact rather than infer it:
+`OutputPaneData::toolBar` is built once and is what says the pane is set up.
+Both stacks are then re-seated at the pane's row on every pass, because
+`insertWidget()` moves a widget it already holds.
+
+### The test caused what it was looking for
+
+The first version compared, per row,
+`m_outputWidgetPane->indexOf(pane->outputWidget(m_instance))` against the row -
+and failed, because calling `outputWidget()` is exactly the reparenting that
+empties the stack. The test triggered the defect while measuring it.
+
+It records the widgets before the second pass and compares them afterwards.
+Worth remembering generally: **asking a pane for its widget is not a read.**
+
+### Verification
+
+Both platforms build clean.
+
+    -test Core         280 passed, 2 failed, exit 2   (279 before)
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+Both name the damage in numbers, which is why the assertion prints counts
+rather than comparing them.
+
+**CE - the shipped behaviour.** Deciding by stack membership again:
+`(before: 12 panes, 16 toolbars, 12 contents)` - four orphans, which is the
+defect exactly as entry 210 measured it.
+
+**CF - the re-seating.** The two `insertWidget()` calls removed:
+`(before: 12 panes, 0 toolbars, 8 contents)`, and four other tests fall over
+with it. Putting the widget back is what makes a pane show its own contents at
+all once something has reparented it.
+
+### What is next
+
+1. **The remaining eight panes' toolbar widgets.** Console is converted;
+   Todo and Test Results are toggles of the same shape, Compile Output is two
+   commands. What is left after those is a spacer, a status label and a filter
+   field - display rather than settings, and they want a different answer than
+   an aspect.
+2. **Terminal**, the last of the three widget panes.
+3. **macOS verification**, owed since entry 168.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

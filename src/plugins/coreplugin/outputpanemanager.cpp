@@ -325,6 +325,8 @@ public:
     Id id;
     OutputPaneToggleButton *button = nullptr;
     QAction *action = nullptr;
+    // Built once, and the flag that says this pane has been set up before.
+    QPointer<QWidget> toolBar;
     // The command's own action, not the context one: it is the one whose
     // tooltip says which keys reach the pane.
     QPointer<QAction> commandAction;
@@ -1053,9 +1055,13 @@ void OutputPaneManager::setupButtons()
         OutputPaneData &data = g_outputPanes[i];
         IOutputPane *outPane = data.pane;
         QWidget *widget = outPane->outputWidget(m_instance);
-        int idx = m_instance->m_outputWidgetPane->indexOf(widget);
-        if (idx < 0) {
-            idx = m_instance->m_outputWidgetPane->insertWidget(i, widget);
+        // Not "is this widget in the stack": several panes reparent theirs to
+        // the manager in outputWidget(), which takes it back out again, so on
+        // a second pass they look like panes nobody has ever seen - and got a
+        // second toolbar each, with the first left in the stack as an orphan.
+        const int idx = i;
+        if (!data.toolBar) {
+            m_instance->m_outputWidgetPane->insertWidget(i, widget);
 
             connect(outPane, &IOutputPane::showPage, m_instance, [idx](int flags) {
                 m_instance->showPage(idx, flags);
@@ -1120,9 +1126,13 @@ void OutputPaneManager::setupButtons()
             stretch->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
             toolBar->addWidget(stretch);
 
-            m_instance->m_opToolBarWidgets->insertWidget(i, toolBar);
+            data.toolBar = toolBar;
         }
-        QTC_CHECK(idx == i);
+        // Moved rather than added where they are already there, so that the
+        // pane's row addresses the same pane in all three.
+        m_instance->m_outputWidgetPane->insertWidget(i, widget);
+        m_instance->m_opToolBarWidgets->insertWidget(i, data.toolBar);
+        QTC_CHECK(m_instance->m_outputWidgetPane->indexOf(widget) == i);
 
         minTitleWidth = qMax(minTitleWidth, titleFm.horizontalAdvance(outPane->displayName()));
 
@@ -2017,6 +2027,49 @@ private slots:
         QSignalSpy changes(pane, &IOutputPane::zoomEnabledChanged);
         pane->setZoomButtonsEnabled(false);
         QVERIFY2(changes.isEmpty(), "a pane that changed nothing told the toolbar anyway");
+    }
+
+    void testASecondPassLeavesOnePaneOneToolbar()
+    {
+        // setupButtons() asked "is this widget in the stack" to decide whether
+        // it had seen a pane before - and several panes reparent their widget
+        // to the manager in outputWidget(), which takes it out of the stack.
+        // So on every pass they looked new and got another toolbar, with the
+        // last one orphaned. The stack grew 12 to 16 in a single pass.
+        const int panes = IOutputPane::allOutputPanes().size();
+        QVERIFY(panes > 0);
+        const auto counts = [] {
+            return QString("%1 panes, %2 toolbars, %3 contents")
+                .arg(IOutputPane::allOutputPanes().size())
+                .arg(m_instance->m_opToolBarWidgets->count())
+                .arg(m_instance->m_outputWidgetPane->count());
+        };
+        QVERIFY2(m_instance->m_opToolBarWidgets->count() == panes
+                     && m_instance->m_outputWidgetPane->count() == panes,
+                 qPrintable("before: " + counts()));
+
+        QWidgetList contentsBefore;
+        QWidgetList toolBarsBefore;
+        for (int row = 0; row < panes; ++row) {
+            contentsBefore << m_instance->m_outputWidgetPane->widget(row);
+            toolBarsBefore << m_instance->m_opToolBarWidgets->widget(row);
+        }
+
+        OutputPaneManager::setupButtons();
+
+        QVERIFY2(m_instance->m_opToolBarWidgets->count() == panes
+                     && m_instance->m_outputWidgetPane->count() == panes,
+                 qPrintable("after: " + counts()));
+
+        for (int row = 0; row < panes; ++row) {
+            QCOMPARE(m_instance->m_outputWidgetPane->widget(row), contentsBefore.at(row));
+            QCOMPARE(m_instance->m_opToolBarWidgets->widget(row), toolBarsBefore.at(row));
+        }
+
+        // Each row holds what it held, rather than having shuffled. Recorded
+        // rather than asked for: outputWidget() reparents, which is the side
+        // effect this whole test is about, so calling it here would be the
+        // test causing what it is looking for.
     }
 
     void testAPaneNamesItsTogglesAsAspectsRatherThanButtons()
