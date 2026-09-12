@@ -57153,3 +57153,161 @@ are reported above as measurements rather than as coverage.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — A menu behind an action, and the Issues pane (batch 218)
+
+Entry 217 left the remaining panes at the top of the queue. Converting the
+first of them turned up a shipped behaviour regression in the pane converted
+two batches ago, so that came first.
+
+### The gap this batch closed
+
+**A button built from an action with a menu was the wrong kind of button.**
+
+Squish's filter button used to be made by the pane:
+
+    m_filterButton->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
+    m_filterButton->setPopupMode(QToolButton::InstantPopup);
+    m_filterButton->setMenu(m_filterMenu);
+
+One button, no arrow, opens the menu wherever you click it. Entry 216 replaced
+it with a `QAction` carrying the menu, and the manager builds the button:
+
+    button->setDefaultAction(action);
+
+`QToolButton::setDefaultAction()` ends with, in Qt's own words, a "### Qt7
+Fixme":
+
+    if (!hadMenu && !d->popupModeSetByUser) {
+        if (action->menu()) {
+            setPopupMode(QToolButton::MenuButtonPopup);
+
+So the button became a **split** button: an arrow section that opens the menu
+and a main section that triggers the action — and Squish's filter action has no
+`triggered` handler, so clicking most of the button did nothing at all. Plus an
+arrow where there had been none. That shipped in `3442c7876e1`.
+
+The manager now says what it means, after `setDefaultAction()` so that
+`popupModeSetByUser` is on the manager's side of the argument:
+
+    if (action->menu()) {
+        button->setPopupMode(QToolButton::InstantPopup);
+        button->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
+    }
+
+One detail for whoever writes the next test here: **`button->menu()` is null**
+even when the menu works. `QToolButton::menu()` reads `d->menuAction`, which
+only `setMenu()` sets; a menu that arrives via the default action is found
+through `d->hasMenu()` and `defaultAction()->menu()` instead. Asserting
+`button->menu() == action->menu()` would fail on correct code. The guard
+asserts the popup mode and the arrow property, which is exactly what regressed.
+
+### The Issues pane
+
+`TaskWindow` handed over four widgets. Three are now items:
+
+| was | is |
+| --- | --- |
+| `m_externalButton` | `QAction` `Issues.ParseExternalOutput` |
+| `m_filterWarningsButton` | `BoolAspect` with id `Issues.ShowWarnings` |
+| `m_categoriesButton` | `QAction` `Issues.FilterByCategories`, with the menu |
+
+The warnings filter is the second session-scoped aspect on the branch — it is
+saved through `SessionManager::setValue(SESSION_FILTER_WARNINGS, …)` and has no
+settings key — so it is named by `BaseAspect::id()`, the fallback entry 217
+added for Test Results. It worked first try, which is the point of having
+added it.
+
+`createFilterButton()` is gone; it had one caller.
+
+### The mistake the order test caught
+
+The fourth widget was `filterWidget()`, and I listed it:
+
+    {forAction(external), forAspect(warnings), forAction(categories),
+     forWidget(filterWidget())}  + baseToolBarItems()
+
+`IOutputPane::baseToolBarItems()` **already returns the filter line edit** —
+`IOutputPane::toolBarWidgets()` is not empty, it returns `m_filterOutputLineEdit`
+when there is one. So the pane listed it twice, and `QToolBar` drew it once:
+
+    Issues asked for [… widget#0 widget#1 ZoomIn ZoomOut]
+           and got   [… widget#0 ZoomIn ZoomOut]
+
+This is the exact mirror of the Console bug in entry 217. A pane overriding
+`toolBarItems()` has to append `baseToolBarItems()` for what it does not list,
+and must not list what that already gives it. Between the two of them, that
+seam has now produced a bug in both directions in consecutive batches — worth
+remembering when the next pane is converted, because nothing about the
+signature says which items are already accounted for.
+
+It cost one run, because `testEveryPaneGetsTheToolbarOrderItAskedFor` reported
+both sequences. That is the payoff from entry 215's third attempt at it.
+
+### Two tests changed, on purpose
+
+`testEveryPaneGetsTheToolbarOrderItAskedFor` named an item by reaching for
+`settingsKey()`, `objectName()` or the command itself — a fourth copy of the
+naming rule, and one that skipped an aspect with no settings key. It now calls
+`toolbarItemName()`, the function entry 217 introduced for exactly this. Under
+control CQ the Issues line reads `… Issues.ShowWarnings …`, so the aspect is
+now part of the order being compared rather than invisible to it.
+
+Two censuses grew, which is what a census is for:
+
+- aspect names: `Issues.ShowWarnings` joins the four from entry 217.
+- interleaving panes: `{"Issues", "Compile Output", "Test Results", "QML
+  Debugger Console"}`. Issues interleaves because its filter line edit arrives
+  from the base class, after three non-widgets.
+
+### Measurements
+
+    -test Core              287 passed, 2 failed, exit 2   (the two ShortcutSettings)
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   530 passed, 3 failed, 4 skipped, exit 3
+
+Committed baseline before this batch was Core 286/2.
+
+**The three ProjectExplorer failures are not from this batch.** Measured, not
+assumed: the same three files were reverted to `HEAD~`, rebuilt and rerun, and
+the suite gave 530 passed, 3 failed, 4 skipped with the same three names —
+`RunWorkerConflictTest::testConflict`,
+`RunConfigurationTest::testWorkingDirectoryAspectStopsAskingOnceTornDown`, and
+`ProjectTest::testSourceToBinaryMapping(qbs)` (whose message says the qbs build
+failed). That is a new number for the parked list; this is the first batch to
+run that suite.
+
+### Negative controls
+
+**CP — the manager stops setting the popup mode.** Bit on both panes that have
+a menu, and on both symptoms:
+
+    (Issues.FilterByCategories: opens from an arrow, not the button;
+     Issues.FilterByCategories: draws an arrow;
+     Squish.Filter: opens from an arrow, not the button; Squish.Filter: draws an arrow)
+
+**CQ — Issues re-lists `filterWidget()`**, the mistake above, put back
+deliberately. Bit, printing both sequences.
+
+**CR — the categories action loses its menu.** Bit on the written census
+(`Compared lists have different sizes`), which is the check that stops a pane
+quietly dropping a menu and taking its own coverage with it.
+
+Each was a separate build and run.
+
+### What is next
+
+1. **The remaining panes**: Application Output, Terminal, Todo, VcsBase.
+   Application Output and Terminal have six widgets each, Todo ten, VcsBase
+   none. The machinery now covers a converted pane's zoom, its named actions
+   and toggles, any menu it hands over, and its order.
+2. **The order of a pane with no widgets at all** is still unwatched, and
+   VcsBase is one. The literal-list form from entry 217 is what to write when
+   it is touched.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
+   three `ProjectExplorer` failures measured above, entry 196's uncovered
+   widget auto-scroll, entry 199's QML root with no `controller` property.

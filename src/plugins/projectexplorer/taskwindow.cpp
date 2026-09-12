@@ -20,6 +20,7 @@
 #include <coreplugin/session.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/fileinprojectfinder.h>
 #include <utils/hostosinfo.h>
 #include <utils/itemviews.h>
@@ -67,25 +68,12 @@ public:
     QList<QAction *> m_handlerActions;
     QtcQuick::ActionModel *m_contextActions = nullptr;
     const Core::Context m_taskWindowContext{Core::Context(Core::Constants::C_PROBLEM_PANE)};
-    QToolButton *m_filterWarningsButton = nullptr;
-    QToolButton *m_categoriesButton = nullptr;
-    QToolButton *m_externalButton = nullptr;
+    Utils::BoolAspect m_filterWarnings;
+    QAction *m_categoriesAction = nullptr;
+    QAction *m_externalAction = nullptr;
     QMenu *m_categoriesMenu = nullptr;
     int m_visibleIssuesCount = 0;
 };
-
-static QToolButton *createFilterButton(const QIcon &icon, const QString &toolTip,
-                                       QObject *receiver, std::function<void(bool)> lambda)
-{
-    auto button = new QToolButton;
-    button->setIcon(icon);
-    button->setToolTip(toolTip);
-    button->setCheckable(true);
-    button->setChecked(true);
-    button->setEnabled(true);
-    QObject::connect(button, &QToolButton::toggled, receiver, lambda);
-    return button;
-}
 
 TaskWindow::TaskWindow() : d(std::make_unique<TaskWindowPrivate>())
 {
@@ -106,26 +94,36 @@ TaskWindow::TaskWindow() : d(std::make_unique<TaskWindowPrivate>())
         return d->m_handlerActions;
     });
 
-    d->m_filterWarningsButton = createFilterButton(
-                Utils::Icons::WARNING_TOOLBAR.icon(),
-                Tr::tr("Show Warnings"), this, [this](bool show) { setShowWarnings(show); });
+    // Kept in the session rather than in the settings, so the aspect is named
+    // by its id: an aspect with no settings key gets an unnamed button.
+    d->m_filterWarnings.setId("Issues.ShowWarnings");
+    d->m_filterWarnings.setIcon(Utils::Icons::WARNING_TOOLBAR.icon());
+    d->m_filterWarnings.setLabelText(Tr::tr("Show Warnings"));
+    d->m_filterWarnings.setToolTip(Tr::tr("Show Warnings"));
+    d->m_filterWarnings.setDefaultValue(true);
+    d->m_filterWarnings.setValue(true);
+    connect(&d->m_filterWarnings, &Utils::BoolAspect::changed, this, [this] {
+        setShowWarnings(d->m_filterWarnings());
+    });
 
-    d->m_externalButton = new QToolButton;
-    d->m_externalButton->setIcon(Utils::Icons::OPENFILE_TOOLBAR.icon());
-    d->m_externalButton->setToolTip(Tr::tr("Create Issues From External Build Output..."));
-    connect(d->m_externalButton, &QToolButton::clicked, this, &executeParseIssuesDialog);
+    d->m_externalAction = new QAction(Utils::Icons::OPENFILE_TOOLBAR.icon(),
+                                      Tr::tr("Create Issues From External Build Output..."), this);
+    d->m_externalAction->setObjectName("Issues.ParseExternalOutput");
+    connect(d->m_externalAction, &QAction::triggered, this, &executeParseIssuesDialog);
 
-    d->m_categoriesButton = new QToolButton;
-    d->m_categoriesButton->setIcon(Utils::Icons::FILTER.icon());
-    d->m_categoriesButton->setToolTip(Tr::tr("Filter by categories"));
-    d->m_categoriesButton->setProperty(StyleHelper::C_NO_ARROW, true);
-    d->m_categoriesButton->setPopupMode(QToolButton::InstantPopup);
+    d->m_categoriesAction = new QAction(Utils::Icons::FILTER.icon(),
+                                        Tr::tr("Filter by categories"), this);
+    d->m_categoriesAction->setObjectName("Issues.FilterByCategories");
 
-    d->m_categoriesMenu = new QMenu(d->m_categoriesButton);
+    // Owned here, because setMenu() does not take ownership and the button
+    // that used to be its parent is gone.
+    d->m_categoriesMenu = new QMenu;
     connect(d->m_categoriesMenu, &QMenu::aboutToShow, this, &TaskWindow::updateCategoriesMenu);
     Utils::addToolTipsToMenu(d->m_categoriesMenu);
 
-    d->m_categoriesButton->setMenu(d->m_categoriesMenu);
+    d->m_categoriesAction->setMenu(d->m_categoriesMenu);
+
+
 
     setupFilterUi("IssuesPane.Filter", "ProjectExplorer::Internal::TaskWindow");
     setFilteringEnabled(true);
@@ -165,8 +163,7 @@ TaskWindow::TaskWindow() : d(std::make_unique<TaskWindowPrivate>())
 
 TaskWindow::~TaskWindow()
 {
-    delete d->m_externalButton;
-    delete d->m_filterWarningsButton;
+    delete d->m_categoriesMenu;
     delete d->m_filter;
     delete d->m_model;
 }
@@ -195,9 +192,14 @@ void TaskWindow::delayedInitialization()
     setupTaskHandlers(this, d->m_taskWindowContext, registerTaskHandlerAction, getTasksForHandler);
 }
 
-QList<QWidget*> TaskWindow::toolBarWidgets() const
+QList<Core::IOutputPane::ToolBarItem> TaskWindow::toolBarItems() const
 {
-    return {d->m_externalButton, d->m_filterWarningsButton, d->m_categoriesButton, filterWidget()};
+    QList<ToolBarItem> items{ToolBarItem::forAction(d->m_externalAction),
+                             ToolBarItem::forAspect(&d->m_filterWarnings),
+                             ToolBarItem::forAction(d->m_categoriesAction)};
+    for (const ToolBarItem &item : baseToolBarItems())
+        items << item;
+    return items;
 }
 
 QWidget *TaskWindow::outputWidget(QWidget *parent)
@@ -256,7 +258,7 @@ void TaskWindow::loadSettings()
     if (value.isValid()) {
         bool includeWarnings = value.toBool();
         d->m_filter->setFilterIncludesWarnings(includeWarnings);
-        d->m_filterWarningsButton->setChecked(d->m_filter->filterIncludesWarnings());
+        d->m_filterWarnings.setValue(d->m_filter->filterIncludesWarnings());
     }
 }
 

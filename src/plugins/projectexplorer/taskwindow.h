@@ -67,7 +67,7 @@ signals:
     void selectedRowsChanged();
 
 public:
-    QList<QWidget *> toolBarWidgets() const override;
+    QList<ToolBarItem> toolBarItems() const override;
 
     void clearContents() override;
     void visibilityChanged(bool visible) override;

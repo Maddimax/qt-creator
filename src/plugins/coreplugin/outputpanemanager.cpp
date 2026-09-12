@@ -1140,6 +1140,14 @@ void OutputPaneManager::setupButtons()
                     auto * const button = new QToolButton;
                     button->setObjectName(action->objectName());
                     button->setDefaultAction(action);
+                    if (action->menu()) {
+                        // setDefaultAction() picks MenuButtonPopup, which is
+                        // the split button with an arrow where only the arrow
+                        // half opens anything. The panes that hand over a menu
+                        // all drew one button that opens it on any click.
+                        button->setPopupMode(QToolButton::InstantPopup);
+                        button->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
+                    }
                     // Styled like every other button in the row: the ones
                     // built here had none, so a named toggle sat next to a
                     // panel-styled command looking like a different control.
@@ -2148,6 +2156,41 @@ private slots:
                  qPrintable(QString("only %1 named action is handed over").arg(checked)));
     }
 
+    void testAToolbarButtonForAnActionWithAMenuOpensItOnAnyClick()
+    {
+        // QToolButton::setDefaultAction() chooses MenuButtonPopup for an
+        // action that has a menu - a split button with an arrow, where only
+        // the arrow half opens anything. Every pane that hands over a menu
+        // drew a single button that opens it, so the manager has to say so.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QStringList withMenus;
+        QStringList wrong;
+        for (int row = 0; row < panes.size(); ++row) {
+            QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+            if (!toolBar)
+                continue;
+            for (const IOutputPane::ToolBarItem &item : panes.at(row)->toolBarItems()) {
+                QAction * const action = item.action();
+                if (!action || !action->menu())
+                    continue;
+                withMenus << panes.at(row)->displayName();
+                auto * const button = toolBar->findChild<QToolButton *>(action->objectName());
+                if (!button) {
+                    wrong << action->objectName() + ": no button";
+                    continue;
+                }
+                if (button->popupMode() != QToolButton::InstantPopup)
+                    wrong << action->objectName() + ": opens from an arrow, not the button";
+                if (!button->property(Utils::StyleHelper::C_NO_ARROW).toBool())
+                    wrong << action->objectName() + ": draws an arrow";
+            }
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
+        // Written here rather than counted, so that a pane losing its menu is
+        // a failure instead of one less thing to check.
+        QCOMPARE(withMenus, QStringList({"Issues", "Squish"}));
+    }
+
     void testEveryPaneToolbarEndsWithTheZoomButtons()
     {
         // Asked of the base class, not of the pane: a pane that states its own
@@ -2182,7 +2225,8 @@ private slots:
         // ask the aspect and the two move together, which is how an aspect
         // with no name at all sat behind a nameless button.
         const QStringList expected{"AutoTest.ShowDurations", "Console/showLog",
-                                   "Console/showWarning", "Console/showError"};
+                                   "Console/showWarning", "Console/showError",
+                                   "Issues.ShowWarnings"};
         const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
         QStringList named;
         QStringList wrong;
@@ -2263,14 +2307,8 @@ private slots:
                 if (QWidget * const w = item.widget()) {
                     askedWidgets << w;
                     asked << QString("widget#%1").arg(askedWidgets.size() - 1);
-                } else if (Utils::BaseAspect * const aspect = item.aspect()) {
-                    if (!aspect->settingsKey().isEmpty())
-                        asked << QString::fromUtf8(aspect->settingsKey().view());
-                } else if (QAction * const action = item.action()) {
-                    if (!action->objectName().isEmpty())
-                        asked << action->objectName();
-                } else if (item.command().isValid()) {
-                    asked << item.command().toString();
+                } else if (!toolbarItemName(item).isEmpty()) {
+                    asked << toolbarItemName(item);
                 }
             }
             // Two things or more, of any kind: a pane whose toolbar is all
@@ -2313,7 +2351,7 @@ private slots:
                     interleaving << pane->displayName();
             }
         }
-        QCOMPARE(interleaving, QStringList({"Compile Output", "Test Results",
+        QCOMPARE(interleaving, QStringList({"Issues", "Compile Output", "Test Results",
                                             "QML Debugger Console"}));
         QVERIFY2(checked >= 2,
                  qPrintable(QString("only %1 pane could be checked").arg(checked)));
