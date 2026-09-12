@@ -24,6 +24,11 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
+#ifdef WITH_TESTS
+#include <QSignalSpy>
+#include <QTest>
+#endif
+
 static const int SEARCHRESULT_WARNING_LIMIT = 200000;
 static const char SIZE_WARNING_ID[] = "sizeWarningLabel";
 
@@ -176,6 +181,10 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     setShowReplaceUI(m_replaceSupported);
     setSupportPreserveCase(true);
 
+    connect(&m_header, &SearchResultHeader::changed,
+            this, &SearchResultWidget::updateMatchesFoundLabel);
+    updateMatchesFoundLabel();
+
     connect(m_searchResultTreeView, &SearchResultTreeView::jumpToSearchResult,
             this, &SearchResultWidget::handleJumpToSearchResult);
     connect(m_replaceTextEdit, &QLineEdit::returnPressed,
@@ -219,8 +228,8 @@ void SearchResultWidget::setAdditionalReplaceWidget(QWidget *widget)
 
 void SearchResultWidget::addResults(const SearchResultItems &items, SearchResult::AddMode mode)
 {
-    bool firstItems = (m_count == 0);
-    m_count += items.size();
+    bool firstItems = (m_header.matchCount() == 0);
+    m_header.addMatches(items.size());
     m_searchResultTreeView->addResults(items, mode);
     updateMatchesFoundLabel();
     if (firstItems) {
@@ -237,7 +246,7 @@ void SearchResultWidget::addResults(const SearchResultItems &items, SearchResult
             ->select(m_searchResultTreeView->model()->index(0, 0, QModelIndex()),
                      QItemSelectionModel::Select);
         emit navigateStateChanged();
-    } else if (m_count <= SEARCHRESULT_WARNING_LIMIT) {
+    } else if (m_header.matchCount() <= SEARCHRESULT_WARNING_LIMIT) {
         return;
     } else {
         Id sizeWarningId(SIZE_WARNING_ID);
@@ -256,7 +265,7 @@ void SearchResultWidget::addResults(const SearchResultItems &items, SearchResult
 
 int SearchResultWidget::count() const
 {
-    return m_count;
+    return m_header.matchCount();
 }
 
 void SearchResultWidget::setSupportsReplace(bool replaceSupported, const QString &group)
@@ -316,7 +325,7 @@ void SearchResultWidget::setFocusInternally()
 
 bool SearchResultWidget::canFocusInternally() const
 {
-    return m_isShowingReplaceUI || m_count > 0;
+    return m_isShowingReplaceUI || m_header.matchCount() > 0;
 }
 
 void SearchResultWidget::notifyVisibilityChanged(bool visible)
@@ -356,7 +365,7 @@ void SearchResultWidget::collapseAll()
 
 void SearchResultWidget::goToNext()
 {
-    if (m_count == 0)
+    if (m_header.matchCount() == 0)
         return;
     QModelIndex idx = m_searchResultTreeView->model()->next(m_searchResultTreeView->currentIndex());
     if (idx.isValid()) {
@@ -378,24 +387,17 @@ void SearchResultWidget::goToPrevious()
 
 void SearchResultWidget::restart()
 {
-    m_replaceButton->setEnabled(false);
     m_searchResultTreeView->clear();
-    m_searching = true;
-    m_count = 0;
     Id sizeWarningId(SIZE_WARNING_ID);
     m_infoBar.removeInfo(sizeWarningId);
     m_infoBar.unsuppressInfo(sizeWarningId);
-    m_cancelButton->setVisible(true);
-    m_searchAgainButton->setVisible(false);
-    m_messageWidget->setVisible(false);
-    updateMatchesFoundLabel();
+    m_header.startSearch();
     emit restarted();
 }
 
 void SearchResultWidget::setSearchAgainSupported(bool supported)
 {
-    m_searchAgainSupported = supported;
-    m_searchAgainButton->setVisible(supported && !m_cancelButton->isVisible());
+    m_header.setSearchAgainSupported(supported);
 }
 
 void SearchResultWidget::setSearchAgainEnabled(bool enabled)
@@ -428,15 +430,7 @@ void SearchResultWidget::finishSearch(bool canceled, const QString &reason)
     Id sizeWarningId(SIZE_WARNING_ID);
     m_infoBar.removeInfo(sizeWarningId);
     m_infoBar.unsuppressInfo(sizeWarningId);
-    m_replaceButton->setEnabled(m_count > 0);
-    m_preserveCaseCheck->setEnabled(m_count > 0);
-    m_cancelButton->setVisible(false);
-    if (canceled)
-        m_messageLabel->setText(reason.isEmpty() ? Tr::tr("Search was canceled.") : reason);
-    m_messageWidget->setVisible(canceled);
-    m_searchAgainButton->setVisible(m_searchAgainSupported);
-    m_searching = false;
-    updateMatchesFoundLabel();
+    m_header.finishSearch(canceled, reason);
 }
 
 void SearchResultWidget::sendRequestPopup()
@@ -511,16 +505,174 @@ SearchResultItems SearchResultWidget::items(bool checkedOnly) const
     return result;
 }
 
+QString SearchResultHeader::matchesFound() const
+{
+    if (m_count > 0)
+        return Tr::tr("%n matches found.", nullptr, m_count);
+    return m_searching ? Tr::tr("Searching...") : Tr::tr("No matches found.");
+}
+
+void SearchResultHeader::setSearchAgainSupported(bool supported)
+{
+    if (m_searchAgainSupported == supported)
+        return;
+    m_searchAgainSupported = supported;
+    emit changed();
+}
+
+void SearchResultHeader::startSearch()
+{
+    m_searching = true;
+    m_count = 0;
+    m_message.clear();
+    emit changed();
+}
+
+void SearchResultHeader::addMatches(int count)
+{
+    if (count <= 0)
+        return;
+    m_count += count;
+    emit changed();
+}
+
+void SearchResultHeader::finishSearch(bool canceled, const QString &reason)
+{
+    m_searching = false;
+    // A search that was stopped says so; one that ran out of things to look
+    // at has nothing to add to the count.
+    m_message = canceled ? (reason.isEmpty() ? Tr::tr("Search was canceled.") : reason)
+                         : QString();
+    emit changed();
+}
+
+// The one place the header's answers reach the widgets that draw them.
 void SearchResultWidget::updateMatchesFoundLabel()
 {
-    if (m_count > 0) {
-        m_matchesFoundLabel->setText(Tr::tr("%n matches found.", nullptr, m_count));
-    } else if (m_searching) {
-        m_matchesFoundLabel->setText(Tr::tr("Searching..."));
-    } else {
-        m_matchesFoundLabel->setText(Tr::tr("No matches found."));
-    }
+    m_matchesFoundLabel->setText(m_header.matchesFound());
+    m_cancelButton->setVisible(m_header.canCancel());
+    m_searchAgainButton->setVisible(m_header.canSearchAgain());
+    m_replaceButton->setEnabled(m_header.canReplace());
+    m_preserveCaseCheck->setEnabled(m_header.canReplace());
+    if (!m_header.message().isEmpty())
+        m_messageLabel->setText(m_header.message());
+    m_messageWidget->setVisible(!m_header.message().isEmpty());
 }
+
+#ifdef WITH_TESTS
+
+class SearchResultHeaderTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testWhatTheHeaderSaysAboutTheSearch()
+    {
+        SearchResultHeader header;
+        header.startSearch();
+        QVERIFY(header.isSearching());
+        QCOMPARE(header.matchesFound(), Tr::tr("Searching..."));
+
+        header.addMatches(3);
+        QCOMPARE(header.matchCount(), 3);
+        // Found something, and still looking: the count wins over the verb,
+        // because it is the count a reader is waiting for.
+        QVERIFY(header.isSearching());
+        QCOMPARE(header.matchesFound(), Tr::tr("%n matches found.", nullptr, 3));
+
+        header.finishSearch(false, {});
+        QVERIFY(!header.isSearching());
+        QCOMPARE(header.matchesFound(), Tr::tr("%n matches found.", nullptr, 3));
+
+        header.startSearch();
+        header.finishSearch(false, {});
+        QCOMPARE(header.matchCount(), 0);
+        QCOMPARE(header.matchesFound(), Tr::tr("No matches found."));
+    }
+
+    void testSearchAgainIsOfferedOnlyWhenTheSearchHasStopped()
+    {
+        // The rule used to be written three times, and one of them asked the
+        // Cancel button whether it was visible - so what could be repeated
+        // depended on what had been drawn.
+        SearchResultHeader header;
+        header.setSearchAgainSupported(true);
+        header.startSearch();
+        QVERIFY2(!header.canSearchAgain(), "a running search offers to be run again");
+        QVERIFY2(header.canCancel(), "a running search cannot be cancelled");
+
+        header.finishSearch(false, {});
+        QVERIFY2(header.canSearchAgain(), "a finished search cannot be repeated");
+        QVERIFY2(!header.canCancel(), "a finished search still offers to be cancelled");
+
+        // And a filter that does not support it is never offered it.
+        SearchResultHeader without;
+        without.startSearch();
+        without.finishSearch(false, {});
+        QVERIFY(!without.canSearchAgain());
+    }
+
+    void testOnlyACancelledSearchHasSomethingToSay()
+    {
+        SearchResultHeader header;
+        header.startSearch();
+        header.finishSearch(false, {});
+        QVERIFY2(header.message().isEmpty(), "a search that simply ended reported a problem");
+
+        header.startSearch();
+        header.finishSearch(true, {});
+        QCOMPARE(header.message(), Tr::tr("Search was canceled."));
+
+        // A caller with a better reason than the default gets to give it.
+        header.startSearch();
+        header.finishSearch(true, QString("Too many files."));
+        QCOMPARE(header.message(), QString("Too many files."));
+
+        // And starting again clears it, or the row keeps explaining a search
+        // that is no longer the one on screen.
+        header.startSearch();
+        QVERIFY2(header.message().isEmpty(), "the last search's reason outlived it");
+    }
+
+    void testReplaceWaitsForSomethingToReplace()
+    {
+        SearchResultHeader header;
+        header.startSearch();
+        QVERIFY(!header.canReplace());
+        header.addMatches(1);
+        QVERIFY(header.canReplace());
+        header.startSearch();
+        QVERIFY2(!header.canReplace(), "a new search kept the last one's matches");
+    }
+
+    void testTheRowIsToldWheneverAnyOfThatChanges()
+    {
+        // The widgets are redrawn from one slot, so anything that changes an
+        // answer above has to say so or the row goes stale.
+        SearchResultHeader header;
+        QSignalSpy changes(&header, &SearchResultHeader::changed);
+        header.startSearch();
+        QCOMPARE(changes.size(), 1);
+        header.addMatches(2);
+        QCOMPARE(changes.size(), 2);
+        header.setSearchAgainSupported(true);
+        QCOMPARE(changes.size(), 3);
+        header.finishSearch(true, {});
+        QCOMPARE(changes.size(), 4);
+        // Nothing changed, so nothing is said.
+        header.setSearchAgainSupported(true);
+        QCOMPARE(changes.size(), 4);
+        header.addMatches(0);
+        QCOMPARE(changes.size(), 4);
+    }
+};
+
+QObject *createSearchResultHeaderTest()
+{
+    return new SearchResultHeaderTest;
+}
+
+#endif // WITH_TESTS
 
 } // namespace Core::Internal
 

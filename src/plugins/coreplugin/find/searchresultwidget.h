@@ -24,6 +24,52 @@ namespace Core {
 namespace Internal {
 class SearchResultTreeView;
 
+// What the row above the results says about the search: how far it has got,
+// how many matches it found, and which of the buttons beside it apply. A
+// widget cannot hold it, because the rules below are written once here and
+// were written three times - once by reading another button's visibility -
+// when each of them lived on the widget that drew it.
+class SearchResultHeader : public QObject
+{
+    Q_OBJECT
+
+public:
+    bool isSearching() const { return m_searching; }
+    int matchCount() const { return m_count; }
+
+    // One sentence with three forms, rather than three places that each know
+    // part of when to say which.
+    QString matchesFound() const;
+
+    // A search that is running can be cancelled and cannot be repeated; one
+    // that has finished is the other way round.
+    bool canCancel() const { return m_searching; }
+    bool canSearchAgain() const { return m_searchAgainSupported && !m_searching; }
+    bool canReplace() const { return m_count > 0; }
+
+    // What went wrong, where anything did. Empty is the ordinary case.
+    QString message() const { return m_message; }
+
+    void setSearchAgainSupported(bool supported);
+
+    void startSearch();
+    void addMatches(int count);
+    void finishSearch(bool canceled, const QString &reason);
+
+signals:
+    void changed();
+
+private:
+    bool m_searching = true;
+    bool m_searchAgainSupported = false;
+    int m_count = 0;
+    QString m_message;
+};
+
+#ifdef WITH_TESTS
+QObject *createSearchResultHeaderTest();
+#endif
+
 class SearchResultWidget : public QWidget
 {
     Q_OBJECT
@@ -38,7 +84,7 @@ public:
     void addResults(const Utils::SearchResultItems &items, SearchResult::AddMode mode);
 
     int count() const;
-    bool isSearching() const { return m_searching; }
+    bool isSearching() const { return m_header.isSearching(); }
 
     void setSupportsReplace(bool replaceSupported, const QString &group);
     bool supportsReplace() const;
@@ -109,8 +155,7 @@ private:
     void updateMatchesFoundLabel();
 
     SearchResultTreeView *m_searchResultTreeView = nullptr;
-    bool m_searching = true;
-    int m_count = 0;
+    SearchResultHeader m_header;
     QString m_dontAskAgainGroup;
     QFrame *m_messageWidget = nullptr;
     Utils::InfoBar m_infoBar;
@@ -130,7 +175,6 @@ private:
     QLabel *m_matchesFoundLabel = nullptr;
     bool m_preserveCaseSupported = true;
     bool m_isShowingReplaceUI = false;
-    bool m_searchAgainSupported = false;
     bool m_replaceSupported = false;
 };
 

@@ -27,6 +27,7 @@
 #include "externaltool_test.h"
 #include "fileutils.h"
 #include "find/findplugin.h"
+#include "find/searchresultwidget.h"
 #include "foldernavigationwidget.h"
 #include "icore.h"
 #include "idocument.h"
@@ -537,6 +538,7 @@ Result<> CorePlugin::initialize(const QStringList &arguments)
     addTestCreator(createActionManagerTest);
     addTestCreator(OutputText::createOutputTextTest);
     addTestCreator(createItemViewFindTest);
+    addTestCreator(Internal::createSearchResultHeaderTest);
     addTestCreator(createOutputPaneViewTest);
     addTestCreator(Internal::createOutputPaneButtonModelTest);
     addTestCreator(createDocumentManagerTest);

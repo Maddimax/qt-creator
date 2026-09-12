@@ -55527,3 +55527,82 @@ never silent - is true, whoever does the talking.
 4. Parked: entry 174's page scroll, entry 173's crash, the two
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll.
+
+## 2026-09-12 — The Search Results header comes out of the buttons (batch 200)
+
+**Gap closed: the first half of the Search Results pane has its state out of
+the widgets.** Entry 199 said this pane is not the shape the last three were -
+it already has a tree model, and what is stuck in the widget is the *row above
+the results*. `SearchResultHeader` now holds it.
+
+### The rule that was written three times
+
+"Search Again" is offered when the filter supports repeating and the search has
+stopped. That was three statements, in three places:
+
+    restart()                 m_searchAgainButton->setVisible(false);
+    setSearchAgainSupported() setVisible(supported && !m_cancelButton->isVisible());
+    finishSearch()            setVisible(m_searchAgainSupported);
+
+The middle one asks **the Cancel button whether it is visible** to find out
+whether a search is running. What a reader may do depended on what had been
+drawn - which is the same class of thing as entry 188's `isPaneVisible()`
+being `isVisibleTo(parentWidget())`, and it is why a QML row cannot be bolted
+on without this step. It is one rule now, `canSearchAgain()`, and the widgets
+are redrawn from a single slot connected in the constructor.
+
+Two more moved with it: `canReplace()` (`m_count > 0`, previously written at
+two call sites) and `matchesFound()` - one sentence with three forms, which
+`updateMatchesFoundLabel()` used to choose between inline.
+
+### What the message turned out to be
+
+`finishSearch(canceled, reason)` set the message label only when cancelled and
+left it otherwise, relying on the next `restart()` to clear it. Written as
+state, the question "what does the row say when a search simply ends?" has to
+be answered, and the answer is "nothing" - so `finishSearch()` clears it.
+
+That clear is **not reachable through the widget**: `startSearch()` always
+comes first, which is why control BI did not bite at first. The assertion was
+strengthened to ask the object what it promises - two finishes in a row is a
+legal sequence, and the second one is not cancelled - rather than only what the
+current caller happens to do. Then it bit, naming the stale text.
+
+### Verification
+
+Both platforms build clean. No new files, so no `.qbs` edit.
+
+    -test Core         269 passed, 2 failed, exit 2   (262 before: five new)
+    -test QuickUi      222 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+The three failures are the ones already recorded.
+
+### Negative controls
+
+**BH - the Search Again rule bites.** `canSearchAgain()` reduced to
+`m_searchAgainSupported`: `(a running search offers to be run again)`. That is
+the shipped behaviour of the middle line above whenever the Cancel button's
+visibility disagreed with the search state.
+
+**BI - the message bites, after the assertion was made honest.** The clear on a
+normal finish removed: `(a search that ended normally still says "Too many
+files.")`.
+
+**BJ - the change signal bites.** `emit changed()` dropped from
+`addMatches()`: the count reaches no widget, so the row would sit on
+"Searching..." while matches arrived.
+
+### What is next
+
+1. **The rest of the Search Results header**: the replace row's own state -
+   `m_isShowingReplaceUI`, `m_preserveCaseSupported`, the text to replace -
+   and the description (`setInfo()`'s label, tooltip and term). Same shape as
+   this batch, and then there is something for QML to draw.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**, blocked on `IOutputPane::toolBarWidgets()`.
+4. **macOS verification**, owed since entry 168, now including the Lua pane.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, and entry 199's note that a QML root
+   with no `controller` property loads and is useless.
