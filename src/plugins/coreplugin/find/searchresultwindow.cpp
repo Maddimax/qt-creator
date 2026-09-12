@@ -832,19 +832,24 @@ void SearchResult::setSearchAgainSupported(bool supported)
 /*!
     Returns a UI for a global search and replace action.
 */
-QWidget *SearchResult::additionalReplaceWidget() const
+void SearchResult::setAdditionalReplaceOption(const QString &label, const QString &toolTip)
 {
-    return m_widget->additionalReplaceWidget();
+    m_widget->setAdditionalReplaceOption(label, toolTip);
+}
+
+bool SearchResult::additionalReplaceOptionChecked() const
+{
+    return m_widget->additionalReplaceOptionChecked();
+}
+
+void SearchResult::setAdditionalReplaceNote(const QString &note)
+{
+    m_widget->setAdditionalReplaceNote(note);
 }
 
 /*!
     Sets a \a widget as UI for a global search and replace action.
 */
-void SearchResult::setAdditionalReplaceWidget(QWidget *widget)
-{
-    m_widget->setAdditionalReplaceWidget(widget);
-}
-
 /*!
     Adds a single result line to the \uicontrol {Search Results} output pane.
 

@@ -55,8 +55,12 @@ public:
     QString textToReplace() const;
     int count() const;
     void setSearchAgainSupported(bool supported);
-    QWidget *additionalReplaceWidget() const;
-    void setAdditionalReplaceWidget(QWidget *widget);
+    // One more thing a replace may be asked to do, named rather than drawn
+    // by the caller: it used to hand over a QWidget and cast it back to a
+    // QCheckBox to read the answer.
+    void setAdditionalReplaceOption(const QString &label, const QString &toolTip = {});
+    bool additionalReplaceOptionChecked() const;
+    void setAdditionalReplaceNote(const QString &note);
     void makeNonInteractive(const std::function<void()> &callback);
     bool isInteractive() const { return !m_finishedHandler; }
     Utils::SearchResultItems allItems() const;

@@ -151,10 +151,13 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     m_replaceTextEdit->setMinimumWidth(120);
     setTabOrder(m_replaceTextEdit, m_searchResultTreeView);
     m_preserveCaseCheck = new QCheckBox(m_topReplaceWidget);
+    m_preserveCaseCheck->setObjectName("preserveCase");
     m_preserveCaseCheck->setText(Tr::tr("Preser&ve case"));
     m_preserveCaseCheck->setEnabled(false);
-    m_additionalReplaceWidget = new QWidget(m_topReplaceWidget);
-    m_additionalReplaceWidget->setVisible(false);
+    m_additionalNoteLabel = new Utils::InfoLabel({}, Utils::InfoLabelType::Information,
+                                                 m_topReplaceWidget);
+    m_additionalOptionCheck = new QCheckBox(m_topReplaceWidget);
+    m_additionalOptionCheck->setObjectName("additionalReplaceOption");
     m_replaceButton = new QToolButton(m_topReplaceWidget);
     m_replaceButton->setToolTip(Tr::tr("Replace all occurrences."));
     m_replaceButton->setText(Tr::tr("&Replace"));
@@ -175,7 +178,8 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     topReplaceLayout->addWidget(m_replaceLabel);
     topReplaceLayout->addWidget(m_replaceTextEdit);
     topReplaceLayout->addWidget(m_preserveCaseCheck);
-    topReplaceLayout->addWidget(m_additionalReplaceWidget);
+    topReplaceLayout->addWidget(m_additionalNoteLabel);
+    topReplaceLayout->addWidget(m_additionalOptionCheck);
     topReplaceLayout->addWidget(m_replaceButton);
     topReplaceLayout->addStretch(2);
     setShowReplaceUI(m_header.supportsReplace());
@@ -189,6 +193,8 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
             &SearchResultHeader::setTextToReplace);
     connect(m_preserveCaseCheck, &QCheckBox::toggled, &m_header,
             &SearchResultHeader::setPreserveCaseChecked);
+    connect(m_additionalOptionCheck, &QCheckBox::toggled, &m_header,
+            &SearchResultHeader::setAdditionalOptionChecked);
     updateHeader();
 
     connect(m_searchResultTreeView, &SearchResultTreeView::jumpToSearchResult,
@@ -214,18 +220,20 @@ void SearchResultWidget::setInfo(const QString &label, const QString &toolTip, c
     m_header.setInfo(label, toolTip, term);
 }
 
-QWidget *SearchResultWidget::additionalReplaceWidget() const
+void SearchResultWidget::setAdditionalReplaceOption(const QString &label,
+                                                    const QString &toolTip)
 {
-    return m_additionalReplaceWidget;
+    m_header.setAdditionalOption(label, toolTip);
 }
 
-void SearchResultWidget::setAdditionalReplaceWidget(QWidget *widget)
+bool SearchResultWidget::additionalReplaceOptionChecked() const
 {
-    if (QLayoutItem *item = m_topReplaceWidget->layout()->replaceWidget(m_additionalReplaceWidget,
-                                                                        widget))
-        delete item;
-    delete m_additionalReplaceWidget;
-    m_additionalReplaceWidget = widget;
+    return m_header.additionalOptionChecked();
+}
+
+void SearchResultWidget::setAdditionalReplaceNote(const QString &note)
+{
+    m_header.setAdditionalNote(note);
 }
 
 void SearchResultWidget::addResults(const SearchResultItems &items, SearchResult::AddMode mode)
@@ -556,6 +564,31 @@ void SearchResultHeader::setSupportsPreserveCase(bool supported)
     emit changed();
 }
 
+void SearchResultHeader::setAdditionalOption(const QString &label, const QString &toolTip)
+{
+    if (m_additionalOptionLabel == label && m_additionalOptionToolTip == toolTip)
+        return;
+    m_additionalOptionLabel = label;
+    m_additionalOptionToolTip = toolTip;
+    emit changed();
+}
+
+void SearchResultHeader::setAdditionalOptionChecked(bool checked)
+{
+    if (m_additionalOptionChecked == checked)
+        return;
+    m_additionalOptionChecked = checked;
+    emit changed();
+}
+
+void SearchResultHeader::setAdditionalNote(const QString &note)
+{
+    if (m_additionalNote == note)
+        return;
+    m_additionalNote = note;
+    emit changed();
+}
+
 void SearchResultHeader::setPreserveCaseChecked(bool checked)
 {
     if (m_preserveCaseChecked == checked)
@@ -618,6 +651,11 @@ void SearchResultWidget::updateHeader()
     m_searchTerm->setVisible(!m_header.term().isEmpty());
     m_topReplaceWidget->setVisible(m_header.isShowingReplaceUi());
     m_preserveCaseCheck->setVisible(m_header.supportsPreserveCase());
+    m_additionalOptionCheck->setText(m_header.additionalOptionLabel());
+    m_additionalOptionCheck->setToolTip(m_header.additionalOptionToolTip());
+    m_additionalOptionCheck->setVisible(m_header.hasAdditionalOption());
+    m_additionalNoteLabel->setText(m_header.additionalNote());
+    m_additionalNoteLabel->setVisible(!m_header.additionalNote().isEmpty());
     m_cancelButton->setVisible(m_header.canCancel());
     m_searchAgainButton->setVisible(m_header.canSearchAgain());
     m_replaceButton->setEnabled(m_header.canReplace());
@@ -781,8 +819,8 @@ private slots:
         SearchResultWidget widget;
         const QList<QLineEdit *> edits = widget.findChildren<QLineEdit *>();
         QCOMPARE(edits.size(), 1);
-        const QList<QCheckBox *> boxes = widget.findChildren<QCheckBox *>();
-        QCOMPARE(boxes.size(), 1);
+        auto * const preserveCase = widget.findChild<QCheckBox *>("preserveCase");
+        QVERIFY(preserveCase);
 
         widget.setSupportsReplace(true, {});
         widget.setSupportPreserveCase(true);
@@ -790,9 +828,56 @@ private slots:
         edits.first()->setText("typed");
         QCOMPARE(widget.textToReplace(), QString("typed"));
 
-        boxes.first()->setChecked(true);
+        preserveCase->setChecked(true);
         QVERIFY2(widget.headerForTesting().preserveCase(),
                  "ticking the box beside the field reaches nothing");
+
+        // And the extra option the caller named, which is the one that used
+        // to be a QWidget handed in from another plugin.
+        auto * const extra = widget.findChild<QCheckBox *>("additionalReplaceOption");
+        QVERIFY(extra);
+        widget.setAdditionalReplaceOption("Rename 2 files", "a.cpp\nb.cpp");
+        QCOMPARE(extra->text(), QString("Rename 2 files"));
+        QVERIFY2(extra->isVisibleTo(&widget), "the option was named and is not drawn");
+        extra->setChecked(true);
+        QVERIFY2(widget.additionalReplaceOptionChecked(),
+                 "ticking the extra option reaches nothing");
+    }
+
+    void testTheExtraThingAReplaceCanBeAskedToDo()
+    {
+        // Three callers used to build a QCheckBox, hand it over as a QWidget
+        // and cast it back to read one bool. The row carries it now.
+        SearchResultHeader header;
+        QVERIFY2(!header.hasAdditionalOption(), "a search offers a nameless extra option");
+        QVERIFY2(!header.additionalOptionChecked(),
+                 "an option nobody asked for is answered yes");
+
+        header.setAdditionalOption("Rename 3 files", "a.cpp\nb.cpp\nc.cpp");
+        QVERIFY(header.hasAdditionalOption());
+        QCOMPARE(header.additionalOptionLabel(), QString("Rename 3 files"));
+        QCOMPARE(header.additionalOptionToolTip(), QString("a.cpp\nb.cpp\nc.cpp"));
+        QVERIFY2(!header.additionalOptionChecked(), "the option starts out answered yes");
+
+        header.setAdditionalOptionChecked(true);
+        QVERIFY(header.additionalOptionChecked());
+
+        // Taken away with nothing left ticked behind it: the next search must
+        // not rename files because the last one was told to.
+        header.setAdditionalOption({}, {});
+        QVERIFY(!header.hasAdditionalOption());
+        QVERIFY2(!header.additionalOptionChecked(),
+                 "an option that is no longer offered is still answered yes");
+    }
+
+    void testTheNoteBesideTheReplaceRow()
+    {
+        SearchResultHeader header;
+        QVERIFY(header.additionalNote().isEmpty());
+        header.setAdditionalNote("Search Again to update results");
+        QCOMPARE(header.additionalNote(), QString("Search Again to update results"));
+        header.setAdditionalNote({});
+        QVERIFY(header.additionalNote().isEmpty());
     }
 
     void testTheRowIsToldWheneverAnyOfThatChanges()

@@ -33,48 +33,22 @@ using namespace Utils;
 namespace LanguageClient {
 
 namespace {
-class ReplaceWidget : public QWidget
+static void updateRenameOption(Core::SearchResult *search,
+                               const Utils::FilePaths &filesToRename)
 {
-    Q_OBJECT
-public:
-    ReplaceWidget()
-    {
-        m_infoLabel.setText(Tr::tr("Search Again to update results and re-enable Replace"));
-        m_infoLabel.setVisible(false);
-        m_renameFilesCheckBox.setVisible(false);
-        const auto layout = new QHBoxLayout(this);
-        layout->addWidget(&m_infoLabel);
-        layout->addWidget(&m_renameFilesCheckBox);
+    if (filesToRename.isEmpty()) {
+        search->setAdditionalReplaceOption({}, {});
+        return;
     }
+    const QStringList filesForUser
+        = Utils::transform<QStringList>(filesToRename, [](const Utils::FilePath &fp) {
+              return fp.toUserOutput();
+          });
+    search->setAdditionalReplaceOption(
+        Tr::tr("Re&name %n files", nullptr, filesToRename.size()),
+        Tr::tr("Files:\n%1").arg(filesForUser.join('\n')));
+}
 
-    void showLabel(bool show)
-    {
-        m_infoLabel.setVisible(show);
-        if (show)
-            updateCheckBox({});
-    }
-
-    void updateCheckBox(const Utils::FilePaths &filesToRename)
-    {
-        if (filesToRename.isEmpty()) {
-            m_renameFilesCheckBox.hide();
-            return;
-        }
-        m_renameFilesCheckBox.setText(Tr::tr("Re&name %n files", nullptr, filesToRename.size()));
-        const auto filesForUser = Utils::transform<QStringList>(filesToRename,
-                                                                [](const Utils::FilePath &fp) {
-                                                                    return fp.toUserOutput();
-                                                                });
-        m_renameFilesCheckBox.setToolTip(Tr::tr("Files:\n%1").arg(filesForUser.join('\n')));
-        m_renameFilesCheckBox.setVisible(true);
-    }
-
-    bool shouldRenameFiles() const { return m_renameFilesCheckBox.isChecked(); }
-
-private:
-    QLabel m_infoLabel;
-    QCheckBox m_renameFilesCheckBox;
-};
 } // anonymous namespace
 
 SymbolSupport::SymbolSupport(Client *client)
@@ -347,8 +321,7 @@ static Utils::SearchResultItems generateSearchResultItems(
     if (renaming) {
         userData.append(Utils::transform(fileRenameCandidates, &Utils::FilePath::toUrlishString));
         search->setUserData(userData);
-        const auto extraWidget = qobject_cast<ReplaceWidget *>(search->additionalReplaceWidget());
-        extraWidget->updateCheckBox(fileRenameCandidates);
+        updateRenameOption(search, fileRenameCandidates);
     }
     return result;
 }
@@ -624,8 +597,6 @@ Core::SearchResult *SymbolSupport::createSearch(const TextDocumentPositionParams
         placeholder,
         Core::SearchResultWindow::SearchAndReplace);
     search->setUserData(QVariantList{oldSymbolName, preferLowerCaseFileNames});
-    const auto extraWidget = new ReplaceWidget;
-    search->setAdditionalReplaceWidget(extraWidget);
     search->setTextToReplace(placeholder);
     if (callback)
         search->makeNonInteractive(callback);
@@ -636,6 +607,8 @@ Core::SearchResult *SymbolSupport::createSearch(const TextDocumentPositionParams
     connect(search, &Core::SearchResult::replaceTextChanged, this, [this, search, positionParams]() {
         search->setUserData(search->userData().toList().first(2));
         search->setReplaceEnabled(false);
+        search->setAdditionalReplaceNote(
+            Tr::tr("Search Again to update results and re-enable Replace"));
         search->restart();
         requestRename(positionParams, search);
     });
@@ -699,7 +672,7 @@ void SymbolSupport::handleRenameResponse(Core::SearchResult *search,
             }
             search->addResults(additionalItems, Core::SearchResult::AddSortedByPosition);
         }
-        qobject_cast<ReplaceWidget *>(search->additionalReplaceWidget())->showLabel(false);
+        search->setAdditionalReplaceNote({});
         search->setReplaceEnabled(true);
         search->finishSearch(false);
     } else {
@@ -731,9 +704,7 @@ void SymbolSupport::applyRename(const Utils::SearchResultItems &checkedItems,
     for (auto it = editsForDocuments.begin(), end = editsForDocuments.end(); it != end; ++it)
         applyTextEdits(m_client, it.key(), it.value());
 
-    const auto extraWidget = qobject_cast<ReplaceWidget *>(search->additionalReplaceWidget());
-    QTC_ASSERT(extraWidget, return);
-    if (!extraWidget->shouldRenameFiles())
+    if (!search->additionalReplaceOptionChecked())
         return;
     const QVariantList userData = search->userData().toList();
     QTC_ASSERT(userData.size() == 3, return);

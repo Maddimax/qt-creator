@@ -55697,3 +55697,89 @@ alone: `(a filter that cannot preserve case was asked to anyway)`.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — The replace row stops taking a QWidget from its callers (batch 202)
+
+**Gap closed: `SearchResult::additionalReplaceWidget()` is gone.** Entry 201
+said the next batch was the Qt Quick row. It is not, and the reason is worth
+more than the row would have been: the replace row takes a **`QWidget *` built
+by another plugin**, which is the same widgets-inside-Quick problem that blocks
+the output toolbar and `Perspective`'s docks. Found by reading the callers
+before writing any QML.
+
+### What the interface was
+
+    QWidget *additionalReplaceWidget() const;
+    void setAdditionalReplaceWidget(QWidget *widget);
+
+Three callers - CppEditor's find references, clangd's, and LanguageClient's -
+each built a `QCheckBox` (LanguageClient a `QWidget` holding a label *and* a
+check box), handed it over, and later `qobject_cast` it back to call
+`setText()`, `setToolTip()`, `setVisible()` and `isChecked()`. Four things, all
+of them state, passed through a pointer to a widget.
+
+It is now two named things on the row:
+
+    void setAdditionalReplaceOption(const QString &label, const QString &toolTip);
+    bool additionalReplaceOptionChecked() const;
+    void setAdditionalReplaceNote(const QString &note);
+
+`ReplaceWidget` in `languageclientsymbolsupport.cpp` is deleted outright - a
+whole `QWidget` subclass that existed to carry two strings and a bool across a
+plugin boundary.
+
+### The safety property that came out of writing it down
+
+`additionalOptionChecked()` is `hasAdditionalOption() && m_checked`. Before,
+the check box kept its tick when it was hidden, and whether it was read
+depended on the caller remembering to look at `isVisible()` - which none of
+them did; they relied on the box being hidden meaning nobody could tick it.
+Written as state the question is unavoidable, and control BN is the answer:
+without the gate, a search that no longer offers to rename files still reports
+yes, **and files get renamed that nobody asked about**.
+
+### Two things this batch got wrong first
+
+- **The survey was truncated.** `grep ... | head` found two callers, and the
+  third - LanguageClient, with four sites and the richer widget - turned up
+  only when the build broke. A survey that decides the shape of an interface
+  should not be piped through `head`.
+- **Adding a second `QCheckBox` broke an existing test** that asserted
+  `findChildren<QCheckBox *>().size() == 1`. That is the "never assert a widget
+  count" lesson from `~/.claude/testing.md` arriving from the other direction:
+  the count was right when written and became wrong because the row grew. Both
+  boxes have object names now and the test asks for the one it means.
+
+### Verification
+
+Both platforms build clean; the whole tree, not just Core, because three other
+plugins changed.
+
+    -test Core         275 passed, 2 failed, exit 2   (273 before: two new)
+    -test QuickUi      222 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+### Negative controls
+
+**BN - the withdrawn option bites.** The `hasAdditionalOption()` gate removed:
+`(an option that is no longer offered is still answered yes)`. This is the one
+with teeth - it is the difference between renaming files and not.
+
+**BO - the write-back bites.** The extra check box's `toggled` connection
+removed: `(ticking the extra option reaches nothing)`.
+
+### What is next
+
+1. **A Qt Quick row for Search Results** - now actually unblocked. Everything
+   it draws is state: the description, the count sentence, the three button
+   rules, the message, the replace row, the extra option and its note.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**. `IOutputPane::toolBarWidgets()` is the same problem
+   this batch just solved once; the shape is now demonstrated, and the panes
+   that supply toolbar widgets can be converted the same way - name what the
+   button is, rather than hand over the button.
+4. **macOS verification**, owed since entry 168.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

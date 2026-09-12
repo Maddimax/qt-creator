@@ -148,9 +148,6 @@ ClangdFindReferences::ClangdFindReferences(ClangdClient *client, TextDocument *d
         d->search->setFilter(new CppSearchResultFilter);
     if (d->replacementData) {
         d->search->setTextToReplace(d->replacementData->newSymbolName);
-        const auto renameFilesCheckBox = new QCheckBox;
-        renameFilesCheckBox->setVisible(false);
-        d->search->setAdditionalReplaceWidget(renameFilesCheckBox);
         const bool preferLowerCase = CppEditor::preferLowerCaseFileNames(client->project());
         const auto renameHandler = [search = d->search, preferLowerCase](
                                        const QString &newSymbolName,
@@ -263,9 +260,7 @@ void ClangdFindReferences::Private::handleRenameRequest(
     if (!filePaths.isEmpty())
         SearchResultWindow::instance()->hide();
 
-    const auto renameFilesCheckBox = qobject_cast<QCheckBox *>(search->additionalReplaceWidget());
-    QTC_ASSERT(renameFilesCheckBox, return);
-    if (!renameFilesCheckBox->isChecked())
+    if (!search->additionalReplaceOptionChecked())
         return;
 
     ProjectExplorerPlugin::renameFilesForSymbol(
@@ -377,15 +372,12 @@ void ClangdFindReferences::Private::finishSearch()
         search->finishSearch(canceled);
         search->disconnect(q);
         if (replacementData) {
-            const auto renameCheckBox = qobject_cast<QCheckBox *>(
-                        search->additionalReplaceWidget());
-            QTC_CHECK(renameCheckBox);
             const QSet<Utils::FilePath> files = replacementData->fileRenameCandidates;
-            renameCheckBox->setText(Tr::tr("Re&name %n files", nullptr, files.size()));
             const QStringList filesForUser = Utils::transform<QStringList>(files,
                         [](const Utils::FilePath &fp) { return fp.toUserOutput(); });
-            renameCheckBox->setToolTip(Tr::tr("Files:\n%1").arg(filesForUser.join('\n')));
-            renameCheckBox->setVisible(true);
+            search->setAdditionalReplaceOption(
+                Tr::tr("Re&name %n files", nullptr, files.size()),
+                Tr::tr("Files:\n%1").arg(filesForUser.join('\n')));
             search->setUserData(QVariant::fromValue(*replacementData));
         }
     }

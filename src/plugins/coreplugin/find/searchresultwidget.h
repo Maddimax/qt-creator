@@ -74,6 +74,25 @@ public:
     // Which is what a replace actually asks for.
     bool preserveCase() const { return m_preserveCaseSupported && m_preserveCaseChecked; }
 
+    // One more thing a replace can be asked to do, named by whoever started
+    // the search - renaming the files a symbol was in, for both of the two
+    // that use it. It was a QWidget the caller built and handed over, and
+    // then cast back to a QCheckBox to read this one bool.
+    bool hasAdditionalOption() const { return !m_additionalOptionLabel.isEmpty(); }
+    QString additionalOptionLabel() const { return m_additionalOptionLabel; }
+    QString additionalOptionToolTip() const { return m_additionalOptionToolTip; }
+    bool additionalOptionChecked() const
+    {
+        return hasAdditionalOption() && m_additionalOptionChecked;
+    }
+    void setAdditionalOption(const QString &label, const QString &toolTip);
+    void setAdditionalOptionChecked(bool checked);
+
+    // And a note beside it, for a filter that has something to say about why
+    // replacing is the way it is.
+    QString additionalNote() const { return m_additionalNote; }
+    void setAdditionalNote(const QString &note);
+
     void setSearchAgainSupported(bool supported);
 
     // Asked for once: a search being stopped cannot be stopped again, and the
@@ -95,12 +114,16 @@ private:
     bool m_showingReplaceUi = false;
     bool m_preserveCaseSupported = true;
     bool m_preserveCaseChecked = false;
+    bool m_additionalOptionChecked = false;
     int m_count = 0;
     QString m_message;
     QString m_label;
     QString m_toolTip;
     QString m_term;
     QString m_textToReplace;
+    QString m_additionalOptionLabel;
+    QString m_additionalOptionToolTip;
+    QString m_additionalNote;
 };
 
 #ifdef WITH_TESTS
@@ -115,8 +138,11 @@ public:
     ~SearchResultWidget() override;
 
     void setInfo(const QString &label, const QString &toolTip, const QString &term);
-    QWidget *additionalReplaceWidget() const;
-    void setAdditionalReplaceWidget(QWidget *widget);
+    // One extra thing a replace may be asked to do. A label and a tooltip
+    // rather than a widget, so that whichever view draws the row can.
+    void setAdditionalReplaceOption(const QString &label, const QString &toolTip);
+    bool additionalReplaceOptionChecked() const;
+    void setAdditionalReplaceNote(const QString &note);
 
     void addResults(const Utils::SearchResultItems &items, SearchResult::AddMode mode);
 
@@ -207,7 +233,8 @@ private:
     QToolButton *m_replaceButton = nullptr;
     QToolButton *m_searchAgainButton = nullptr;
     QCheckBox *m_preserveCaseCheck = nullptr;
-    QWidget *m_additionalReplaceWidget = nullptr;
+    QCheckBox *m_additionalOptionCheck = nullptr;
+    Utils::InfoLabel *m_additionalNoteLabel = nullptr;
     QWidget *m_descriptionContainer = nullptr;
     QLabel *m_label = nullptr;
     QLabel *m_searchTerm = nullptr;

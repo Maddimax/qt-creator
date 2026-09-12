@@ -447,10 +447,7 @@ void CppFindReferences::findAll_helper(SearchResult *search, CPlusPlus::Symbol *
 
 void CppFindReferences::setupSearch(Core::SearchResult *search)
 {
-    auto renameFilesCheckBox = new QCheckBox;
-    renameFilesCheckBox->setVisible(false);
-    search->setAdditionalReplaceWidget(renameFilesCheckBox);
-    connect(search, &SearchResult::replaceButtonClicked, this, [this, search, renameFilesCheckBox](
+    connect(search, &SearchResult::replaceButtonClicked, this, [this, search](
         const QString &text, const SearchResultItems &items, bool preserveCase) {
         const FilePaths filePaths = TextEditor::BaseFileFind::replaceAll(text, items, preserveCase);
         if (!filePaths.isEmpty()) {
@@ -462,7 +459,7 @@ void CppFindReferences::setupSearch(Core::SearchResult *search)
         if (parameters.filesToRename.isEmpty())
             return;
 
-        if (!renameFilesCheckBox->isChecked())
+        if (!search->additionalReplaceOptionChecked())
             return;
 
         ProjectExplorerPlugin::renameFilesForSymbol(parameters.prettySymbolName, text,
@@ -601,12 +598,9 @@ static void searchFinished(SearchResult *search, const QFuture<CPlusPlus::Usage>
         const QStringList filesToRename
                 = Utils::transform<QList>(parameters.filesToRename, &FilePath::toUserOutput);
 
-        auto renameCheckBox = qobject_cast<QCheckBox *>(search->additionalReplaceWidget());
-        if (renameCheckBox) {
-            renameCheckBox->setText(Tr::tr("Re&name %n files", nullptr, filesToRename.size()));
-            renameCheckBox->setToolTip(Tr::tr("Files:\n%1").arg(filesToRename.join('\n')));
-            renameCheckBox->setVisible(true);
-        }
+        search->setAdditionalReplaceOption(
+            Tr::tr("Re&name %n files", nullptr, filesToRename.size()),
+            Tr::tr("Files:\n%1").arg(filesToRename.join('\n')));
     }
 }
 
