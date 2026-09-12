@@ -453,6 +453,7 @@ private slots:
     void testTheBookmarksSidebarOffersTheWidgetsRightClickMenu();
     void testDraggingABookmarkCarriesItAndReordersTheList();
     void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
+    void testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank();
     void testTheLuaPaneIsAQtQuickOne();
     void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
@@ -14335,6 +14336,79 @@ void QuickUiTest::testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong()
 // found in the status bar, because the shell builds its row once at startup
 // and a test cannot get in before that - which is what the exported factory
 // is for.
+void QuickUiTest::testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank()
+{
+    // The seam used to hand back a host whose scene had failed, which draws
+    // nothing and says nothing - the hardest kind of broken to find from the
+    // plugin that asked. Every caller already falls back to its widget view
+    // when this answers nullptr, and deletes the controller it was given.
+    Utils::TemporaryDirectory dir("qml-that-will-not-load");
+    QVERIFY(dir.isValid());
+
+    // All three written before any of them is loaded: the QML type loader
+    // caches what a directory held when it first read it, and answers "File
+    // name case mismatch" for anything that appears afterwards.
+    const Utils::FilePath broken = dir.filePath("Broken.qml");
+    QVERIFY(broken.writeFileContents("import QtQuick\nNoSuchTypeAnywhere { }\n"));
+    const Utils::FilePath noController = dir.filePath("NoController.qml");
+    QVERIFY(noController.writeFileContents("import QtQuick\nItem { objectName: \"bare\" }\n"));
+    const Utils::FilePath fine = dir.filePath("Fine.qml");
+    QVERIFY(fine.writeFileContents(
+        "import QtQuick\nItem { required property var controller; objectName: \"fine\" }\n"));
+
+    QStringList complaints;
+    static QStringList *collected = nullptr;
+    static QtMessageHandler previous = nullptr;
+    collected = &complaints;
+    previous = qInstallMessageHandler(
+        [](QtMsgType type, const QMessageLogContext &context, const QString &message) {
+            if (type == QtWarningMsg && collected)
+                *collected << message;
+            if (previous)
+                previous(type, context, message);
+        });
+    const QScopeGuard restoreHandler([] {
+        collected = nullptr;
+        qInstallMessageHandler(previous);
+    });
+
+    auto * const controller = new QObject;
+    QPointer<QObject> survives(controller);
+    QWidget * const refused
+        = Core::createQmlView(QUrl::fromLocalFile(broken.toFSPathString()), controller);
+    QVERIFY2(!refused, "a scene that failed to load was handed back as a view");
+    QVERIFY2(survives, "the controller went with the host, so the caller's delete is a double one");
+    QVERIFY2(!survives->parent(), "the controller is still parented to a host that is gone");
+    delete controller;
+
+    QVERIFY2(Utils::anyOf(complaints, [](const QString &c) { return c.contains("Broken.qml"); }),
+             qPrintable("nothing said why the view was refused: " + complaints.join("; ")));
+
+    // A root with no controller property is *not* refused: the seam hands the
+    // controller over with setInitialProperties(), and failing that is a
+    // warning rather than a load error. The view comes back and is useless.
+    // Pinned as it is rather than fixed here - refusing it would be a second
+    // rule about what a scene must declare, and this one is at least loud.
+    complaints.clear();
+    auto * const bareController = new QObject;
+    const std::unique_ptr<QWidget> bare(
+        Core::createQmlView(QUrl::fromLocalFile(noController.toFSPathString()), bareController));
+    QVERIFY2(bare, "a scene with no controller property is refused now, so this note is stale");
+    QVERIFY2(Utils::anyOf(complaints,
+                          [](const QString &c) { return c.contains("controller"); }),
+             qPrintable("a view that cannot be given its controller said nothing: "
+                        + complaints.join("; ")));
+
+    // And a scene that does load still comes back, with the controller
+    // parented to it - which is the half that keeps the refusal honest.
+    complaints.clear();
+    auto * const goodController = new QObject;
+    const std::unique_ptr<QWidget> accepted(
+        Core::createQmlView(QUrl::fromLocalFile(fine.toFSPathString()), goodController));
+    QVERIFY2(accepted, qPrintable("a scene that loads was refused: " + complaints.join("; ")));
+    QCOMPARE(goodController->parent(), accepted.get());
+}
+
 void QuickUiTest::testTheLuaPaneIsAQtQuickOne()
 {
     // The census for the Lua REPL. The pane builds its widget once, on first

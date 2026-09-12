@@ -51,6 +51,16 @@ private:
             host->quickWidget()->setInitialProperties(
                 {{"controller", QVariant::fromValue(controller)}});
             host->setSource(source);
+            // A scene that failed to load draws nothing, so the caller gets a
+            // blank box where its view should be. Refuse instead: every caller
+            // already falls back to its widget view. Qt has already said what
+            // was wrong with it. The controller goes back unparented, because
+            // that is what those fallbacks delete.
+            if (host->quickWidget()->status() == QQuickWidget::Error) {
+                controller->setParent(nullptr);
+                delete host;
+                return nullptr;
+            }
             return host;
         });
         // The panes draw output into a QTextDocument and need something to

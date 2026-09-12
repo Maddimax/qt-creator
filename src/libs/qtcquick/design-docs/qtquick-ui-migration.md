@@ -55444,3 +55444,86 @@ measurements themselves are unsound. **The cheap check - hash the artefact on
 both machines - was never run, because the rig had been trusted since batch
 170.** Anything that sits between the code and the test is part of the
 experiment.
+
+## 2026-09-12 — A Qt Quick view that will not load is refused (batch 199)
+
+**Gap closed: `createQmlView()` no longer hands back a scene that failed.**
+Entry 198 left this as "worth doing when convenient, with a measurement this
+time". The rig fix from that batch is what made it measurable.
+
+### What it does now
+
+`QQuickWidget::setSource()` on a scene with an error leaves a host that draws
+nothing. The seam handed that back, so the pane that asked got a blank box and
+no way to tell. It now checks `status()` and answers `nullptr`.
+
+**Every one of the four callers already handled that**, and three of them
+already delete the controller on the null path - `openeditorsview.cpp`,
+`bookmarkmanager.cpp`, `outputpanemanager.cpp` and `luaplugin.cpp` all fall
+back to their widget view. Those branches were dead code until now, because
+the seam never refused anything. So the change is small and the fallback it
+turns on has been written for four batches.
+
+The controller goes back **unparented**, because that is what those fallbacks
+delete. Without it every one of them is a double free, which is what control
+BF measures.
+
+### Three things the test found that reading would not have
+
+- **The QML type loader caches a directory listing.** The fixture wrote
+  `Broken.qml`, loaded it, then wrote `Fine.qml` - and Qt answered
+  `File name case mismatch` for the second, because the directory had already
+  been read. All fixture files are now written before any of them is loaded.
+  This is not about case at all; the message is misleading.
+- **A root with no `controller` property is not an error.**
+  `setInitialProperties()` failing is a warning, so the scene loads and the
+  view comes back useless. The test now pins that as it is rather than
+  asserting the tidier answer: refusing it would be a second rule about what a
+  scene must declare, and Qt is at least loud about this one. Worth knowing
+  before writing the next pane - it is the same class as batch 197's
+  `Fonts.code1`, where a broken binding leaves a default behind and nothing
+  fails.
+- **The error logging added with the refusal was redundant**, and the control
+  is what said so: removing the `qWarning` loop left the test green, because
+  `QQuickWidget` already logs the errors itself. It was deleted. A control
+  that does not bite means the fix is unnecessary, the test is wrong, or it is
+  not the whole cause - this was the first of the three, which is the rarest
+  and the easiest to argue away.
+
+### Verification
+
+Both platforms build clean.
+
+    -test QuickUi      222 passed, 0 failed, exit 0   (221 before)
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+    -test Core         262 passed, 2 failed, exit 2
+
+### Negative controls
+
+**BE - the refusal bites.** The `status() == Error` branch disabled: `(a scene
+that failed to load was handed back as a view)`.
+
+**BF - the unparenting bites.** `controller->setParent(nullptr)` removed, so
+the controller dies with the host: `(the controller went with the host, so the
+caller's delete is a double one)`. This is the one that matters - without it
+the change would crash all four callers the first time a QML file broke.
+
+**BG - did not bite, and the code was wrong.** The `qWarning` loop removed and
+the diagnostic assertion stayed green, because Qt already reports it. The loop
+was removed rather than the assertion: what the test says - that a refusal is
+never silent - is true, whoever does the talking.
+
+### What is next
+
+1. **Search Results**, and then **Terminal**. Search Results is not the shape
+   the last three panes were: it already has a tree model, and what is stuck
+   in the widget is the *header* - `m_searching`, `m_count`, the replace UI's
+   visibility and the four `*Supported` flags, the message label, the search
+   term. That is a batch-188-shaped extraction and probably two batches before
+   any QML exists.
+2. **The output toolbar**, blocked on `IOutputPane::toolBarWidgets()`.
+3. **macOS verification**, owed since entry 168, now including the Lua pane.
+4. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll.
