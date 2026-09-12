@@ -57871,3 +57871,148 @@ Then, still open:
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
    three `ProjectExplorer` failures from entry 218, entry 196's uncovered
    widget auto-scroll, entry 199's QML root with no `controller` property.
+
+## 2026-09-12 — Two of the three accessors go; the third is blocked (batch 223)
+
+Entry 222 left a checked recipe for removing `toolBarWidgets()`,
+`toolBarAspects()` and `toolBarCommands()` from `IOutputPane`. Two of the three
+are gone. The third is not, and the reason is worth more than the removal
+would have been.
+
+### The gap this batch closed
+
+**An aspect or a command can now only reach a toolbar as a `ToolBarItem`.**
+`IOutputPane::toolBarAspects()` and `IOutputPane::toolBarCommands()` are gone,
+along with the five overrides that were already unreachable:
+
+- Test Results: `toolBarWidgets()` and `toolBarAspects()`
+- Console: `toolBarWidgets()` and `toolBarAspects()`
+- Lua: `toolBarWidgets()` returning `{}`
+
+All five were dead exactly as entry 222 measured: their classes override
+`toolBarItems()` and list everything explicitly.
+
+Two tests were reading the interface rather than the toolbar and moved to
+`toolBarItems()`: the zoom-command test here, and the General Messages filter
+test in `outputpaneview.cpp` that entry 222 found — the last caller of
+`toolBarWidgets()` from outside a pane.
+
+### Why `toolBarWidgets()` stays
+
+Serial Terminal overrides it, with six widgets, and **cannot be compiled in any
+configuration on this machine**:
+
+    add_qtc_plugin(SerialTerminal CONDITION TARGET Qt::SerialPort ...)
+
+- macOS: `Qt6SerialPort_DIR-NOTFOUND` in the CMake cache.
+- Linux/Docker: the Qt at `linux-arm64/Qt/6.11.1` ships `qtserialport_*.qm`
+  translations and no module.
+- `~/projects/qt/qt5/qtserialport` has sources but was never configured, so
+  there are no generated headers and not even `-fsyntax-only` is possible.
+
+The conversion itself is six lines. I did not do it, and the reason is
+specific rather than general: **I made exactly this mistake two hours ago.**
+Converting Search Results in entry 222, `ToolBarItem` inside a private class
+that does not derive from `IOutputPane` did not compile, and the compiler is
+the only thing that caught it. A change of this shape is not typo-proof by
+inspection, and shipping an uncompilable one into a plugin other people build
+is a cost paid by someone who cannot see why.
+
+So the accessor keeps one caller and says so in a comment.
+
+### A control that cannot bite, reported rather than worked around
+
+**DG would have been**: make the default `toolBarItems()` call
+`IOutputPane::toolBarWidgets()` qualified instead of the virtual — silently
+dropping Serial Terminal's six widgets. It cannot bite. After this batch no
+loaded pane both uses the default `toolBarItems()` and overrides
+`toolBarWidgets()`, so nothing exercises the virtual dispatch.
+
+Keeping it watched would mean constructing an `IOutputPane` in a test, and
+
+    QTC_ASSERT(!g_managerConstructed, return);
+
+means such a pane never registers, and its destructor then trips a second soft
+assert looking for itself. A test that deliberately prints two assertion
+failures to keep a dead extension point honest is worse than saying plainly
+that the extension point is unwatched. **It is unwatched.** That is the second
+reason `toolBarWidgets()` should go the moment Serial Terminal can be built,
+and the recipe is in the previous section.
+
+### A control that found a real defect in this batch's own change
+
+**DF** reversed the zoom pair and bit — on nine panes. Not twelve.
+
+Version Control, Lua and General Messages were missing, and the reason is that
+I had written the zoom pair out **twice**: once in `baseToolBarItems()`, for
+the nine panes that append it, and once in the default `toolBarItems()`, for
+the three that do not override it. Reversing one left the other right.
+
+Two places that must agree and nothing making them is how the toolbar got into
+this in the first place, so the pair is now stated once:
+
+    static QList<IOutputPane::ToolBarItem> zoomItems()
+    {
+        return {IOutputPane::ToolBarItem::forCommand(Constants::ZOOM_IN),
+                IOutputPane::ToolBarItem::forCommand(Constants::ZOOM_OUT)};
+    }
+
+Re-run against that, DF names all twelve. The control did not confirm the
+change — it corrected it, which is the point of running one that is meant to
+bite everywhere and counting where it did.
+
+The default `toolBarItems()` still cannot simply append `baseToolBarItems()`,
+because for a pane that does not override `toolBarWidgets()` that would add the
+filter line edit twice — the mistake of entry 218, in the one place it is still
+possible to make.
+
+### Measurements
+
+    -test Core              291 passed, 2 failed, exit 2   (the two ShortcutSettings)
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   530 passed, 3 failed, 4 skipped, exit 3
+    -test Todo              11 passed, 0 failed, exit 0
+
+Unchanged at 291, which is what a removal that changes no behaviour should
+look like. The censuses did not move either: no pane's item count, name list,
+text list or interleaving changed, which is the evidence that the five deleted
+overrides really were dead.
+
+### Negative controls
+
+**DE — `baseToolBarItems()` forgets the filter line edit**, the part inlined
+from the deleted `IOutputPane::toolBarWidgets()` call. Bit:
+
+    "Issues=5,0" against "Issues=6,1"
+
+**DF — the zoom pair comes out the other way round.** Bit on nine panes before
+the duplication above was removed, and on all twelve after.
+
+**DG — the virtual dispatch onto `toolBarWidgets()`.** Cannot bite; reported
+above rather than worked around.
+
+Each was a separate build and run; DF was run twice.
+
+### What is next
+
+1. **`toolBarWidgets()`**, once Serial Terminal can be built. That needs
+   Qt SerialPort present in one of the two Qt builds, which is a change outside
+   this repository and so not something to do inside a batch. Until then the
+   six-line conversion is written but unverifiable, and the interface keeps one
+   caller.
+2. **The order of a pane that changes its own stated order** is invisible,
+   because asked and drawn move together. Last known hole in the toolbar work,
+   probably not worth closing.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
+   three `ProjectExplorer` failures from entry 218, entry 196's uncovered
+   widget auto-scroll, entry 199's QML root with no `controller` property.
+
+With 1 blocked and 2 not worth closing, **the output pane toolbar work is
+done** as far as this branch can take it. Every pane that loads states its
+toolbar as items; aspects and commands have no other way in; and what each
+pane hands over is watched by six censuses that have between them caught a
+shipped regression in four of the last seven batches.

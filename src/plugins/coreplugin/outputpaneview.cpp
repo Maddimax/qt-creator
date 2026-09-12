@@ -799,8 +799,8 @@ private slots:
         // tool bar - the only way in from outside, and the only thing that
         // calls its updateFilter().
         Utils::FancyLineEdit *filterEdit = nullptr;
-        for (QWidget * const widget : general->toolBarWidgets()) {
-            if (auto * const edit = qobject_cast<Utils::FancyLineEdit *>(widget))
+        for (const Core::IOutputPane::ToolBarItem &item : general->toolBarItems()) {
+            if (auto * const edit = qobject_cast<Utils::FancyLineEdit *>(item.widget()))
                 filterEdit = edit;
         }
         QVERIFY2(filterEdit, "the pane offers no way to filter it");

@@ -385,15 +385,6 @@ QList<QWidget *> IOutputPane::toolBarWidgets() const
     return widgets;
 }
 
-QList<Id> IOutputPane::toolBarCommands() const
-{
-    return {Constants::ZOOM_IN, Constants::ZOOM_OUT};
-}
-
-QList<Utils::BaseAspect *> IOutputPane::toolBarAspects() const
-{
-    return {};
-}
 static QString toolbarItemName(const IOutputPane::ToolBarItem &item)
 {
     if (Utils::BaseAspect * const aspect = item.aspect()) {
@@ -406,26 +397,29 @@ static QString toolbarItemName(const IOutputPane::ToolBarItem &item)
     return item.command().toString();
 }
 
+static QList<IOutputPane::ToolBarItem> zoomItems()
+{
+    return {IOutputPane::ToolBarItem::forCommand(Constants::ZOOM_IN),
+            IOutputPane::ToolBarItem::forCommand(Constants::ZOOM_OUT)};
+}
+
 QList<IOutputPane::ToolBarItem> IOutputPane::baseToolBarItems() const
 {
     QList<ToolBarItem> items;
-    for (QWidget * const widget : IOutputPane::toolBarWidgets())
-        items << ToolBarItem::forWidget(widget);
-    for (const Id command : IOutputPane::toolBarCommands())
-        items << ToolBarItem::forCommand(command);
-    return items;
+    if (m_filterOutputLineEdit)
+        items << ToolBarItem::forWidget(m_filterOutputLineEdit);
+    return items + zoomItems();
 }
 
 QList<IOutputPane::ToolBarItem> IOutputPane::toolBarItems() const
 {
     QList<ToolBarItem> items;
+    // The virtual one, not this class's: it is what Serial Terminal overrides,
+    // and for a pane that does not it is the filter line edit, which is why
+    // this cannot simply append baseToolBarItems().
     for (QWidget * const widget : toolBarWidgets())
         items << ToolBarItem::forWidget(widget);
-    for (Utils::BaseAspect * const aspect : toolBarAspects())
-        items << ToolBarItem::forAspect(aspect);
-    for (const Id command : toolBarCommands())
-        items << ToolBarItem::forCommand(command);
-    return items;
+    return items + zoomItems();
 }
 
 
@@ -2064,10 +2058,12 @@ private slots:
         QVERIFY(!panes.isEmpty());
         IOutputPane * const pane = panes.first();
 
-        QVERIFY2(pane->toolBarCommands().contains(Utils::Id(Constants::ZOOM_IN)),
-                 "a pane offers no way to zoom in");
-        QVERIFY2(pane->toolBarCommands().contains(Utils::Id(Constants::ZOOM_OUT)),
-                 "a pane offers no way to zoom out");
+        QStringList commands;
+        for (const IOutputPane::ToolBarItem &item : pane->toolBarItems()) {
+            if (item.command().isValid())
+                commands << item.command().toString();
+        }
+        QCOMPARE(commands, QStringList({Constants::ZOOM_IN, Constants::ZOOM_OUT}));
 
         // And the toolbar built one from that name.
         QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(0);
@@ -2646,8 +2642,14 @@ private slots:
         // nothing a toolbar which is not a QToolBar can draw.
         const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
         QList<IOutputPane *> withToggles;
+        QList<Utils::BaseAspect *> toggles;
         for (IOutputPane * const pane : panes) {
-            if (!pane->toolBarAspects().isEmpty())
+            const qsizetype before = toggles.size();
+            for (const IOutputPane::ToolBarItem &item : pane->toolBarItems()) {
+                if (Utils::BaseAspect * const aspect = item.aspect())
+                    toggles << aspect;
+            }
+            if (toggles.size() > before)
                 withToggles << pane;
         }
         QVERIFY2(withToggles.size() >= 2,
@@ -2658,11 +2660,9 @@ private slots:
         // One that saves something, so the button built from it has a name
         // to be found by.
         Utils::BaseAspect *aspect = nullptr;
-        for (IOutputPane * const pane : withToggles) {
-            for (Utils::BaseAspect * const candidate : pane->toolBarAspects()) {
-                if (!aspect && !candidate->settingsKey().isEmpty())
-                    aspect = candidate;
-            }
+        for (Utils::BaseAspect * const candidate : toggles) {
+            if (!aspect && !candidate->settingsKey().isEmpty())
+                aspect = candidate;
         }
         QVERIFY2(aspect, "no named toggle is saved anywhere, so none can be found by name");
         QVERIFY2(aspect->action(), "the aspect offers nothing for a toolbar to put a button on");

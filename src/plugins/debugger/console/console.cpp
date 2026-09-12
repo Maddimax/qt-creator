@@ -137,18 +137,6 @@ QList<Core::IOutputPane::ToolBarItem> Console::toolBarItems() const
     return items;
 }
 
-QList<Utils::BaseAspect *> Console::toolBarAspects() const
-{
-    return {const_cast<Utils::BoolAspect *>(&m_showDebug),
-            const_cast<Utils::BoolAspect *>(&m_showWarning),
-            const_cast<Utils::BoolAspect *>(&m_showError)};
-}
-
-QList<QWidget *> Console::toolBarWidgets() const
-{
-     return {m_spacer, m_statusLabel};
-}
-
 void Console::clearContents()
 {
     m_consoleItemModel->clear();

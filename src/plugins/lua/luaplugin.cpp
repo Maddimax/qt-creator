@@ -438,7 +438,6 @@ public:
     void goToNext() override {}
     void goToPrev() override {}
 
-    QList<QWidget *> toolBarWidgets() const override { return {}; }
 };
 
 class LuaPlugin : public IPlugin

@@ -116,8 +116,6 @@ public:
     // IOutputPane interface
     QWidget *outputWidget(QWidget *parent) override;
     QStringList outputTexts() const override;
-    QList<QWidget *> toolBarWidgets() const override;
-    QList<Utils::BaseAspect *> toolBarAspects() const override;
     QList<ToolBarItem> toolBarItems() const override;
     void clearContents() override;
     void setFocus() override;

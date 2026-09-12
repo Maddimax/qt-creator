@@ -473,19 +473,6 @@ QList<Core::IOutputPane::ToolBarItem> TestResultsPane::toolBarItems() const
     return items;
 }
 
-QList<Utils::BaseAspect *> TestResultsPane::toolBarAspects() const
-{
-    return {const_cast<Utils::BoolAspect *>(&m_showDuration)};
-}
-
-QList<QWidget *> TestResultsPane::toolBarWidgets() const
-{
-    // The order is in toolBarItems(); this stays for anyone asking what
-    // widgets the pane has rather than how its toolbar is laid out.
-    return {m_expandCollapse, m_runAll, m_runSelected, m_runFailed,
-            m_runFile, m_stopTestRun, m_outputToggleButton, m_filterButton};
-}
-
 void TestResultsPane::clearContents()
 {
     m_pendingRunner.reset();

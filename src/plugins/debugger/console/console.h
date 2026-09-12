@@ -33,8 +33,6 @@ public:
     ~Console() override;
 
     QWidget *outputWidget(QWidget *) override;
-    QList<QWidget *> toolBarWidgets() const override;
-    QList<Utils::BaseAspect *> toolBarAspects() const override;
     QList<ToolBarItem> toolBarItems() const override;
     void clearContents() override;
     bool canFocus() const override;

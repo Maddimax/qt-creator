@@ -28,13 +28,15 @@ public:
     static const QList<IOutputPane *> allOutputPanes();
 
     virtual QWidget *outputWidget(QWidget *parent) = 0;
+    // The one way left to add a widget without stating an item, and it has
+    // one caller: Serial Terminal, which is not built in any configuration
+    // this branch can test.
     virtual QList<QWidget *> toolBarWidgets() const;
 
     // The commands this pane's toolbar offers, named rather than built. Every
     // pane gets the two zoom ones, and they used to be a pair of QToolButtons
     // per pane - thirteen pairs of the same two buttons, which is thirteen
     // widgets a toolbar that is not a QToolBar would have to host.
-    virtual QList<Utils::Id> toolBarCommands() const;
     // One entry of a pane's toolbar, in the order the pane wants them. The
     // three lists above cannot express that between them: a pane's own
     // widgets, its toggles and its commands interleave - Console's toggles
@@ -97,7 +99,6 @@ public:
     // icon, its tooltip, its value and where that value is saved, and this
     // branch draws aspects in either toolkit - so a pane says which ones
     // rather than building a QToolButton around each.
-    virtual QList<Utils::BaseAspect *> toolBarAspects() const;
     Utils::Id id() const;
     QString displayName() const;
     // The text this pane shows, one entry per view it holds. Empty for a pane
