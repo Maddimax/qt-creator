@@ -56651,3 +56651,80 @@ the interface being "a thing Console does".
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
    entry 196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — Qt is staged in the macOS VM; one blocker left, and it is not the one on the list (batch 213)
+
+**Gap closed: the macOS VM has the Qt it needs.** Entry 212 found that the
+second platform was blocked on staging Qt, not on a login, and left the choice
+of whether to do it. Done, and it cost far less than the size suggested.
+
+### 4.1 GB was 196 MB
+
+`/Users/mtillmanns/Qt/6.11.2/macos/lib` is 4.1 GB, which is why this looked
+like a decision rather than a step. **91 of those gigabytes-worth are `.dSYM`
+bundles** - debug symbols, which nothing needs in order to run. Excluding
+those, plus `Headers`, the static `.a` archives and the `cmake` and
+`pkgconfig` trees:
+
+| | Size |
+| --- | --- |
+| `lib` | 188 MB |
+| `plugins` | 36 MB |
+| `qml` | 42 MB |
+| **total staged** | **266 MB** |
+
+It is at `~/Qt-6.11.2/macos`, which is exactly the path
+`runtests-macos.sh` already puts in `DYLD_FRAMEWORK_PATH`, and it persists
+across VM restarts. **That blocker is gone for good.**
+
+### The remaining blocker, measured rather than assumed
+
+The run still does not happen, and the reason has moved:
+
+    the macOS VM has no desktop session (console user is 'root').
+
+Which is the check the runner has always made. But entry 212 recorded `mt`
+there, and so did the first check of *this* batch - and after twenty minutes
+of copying, three readings fifteen seconds apart all said `root`.
+
+So the session is not absent, it is **transient**: the VM comes up with one
+and loses it. A login window or a locked screen makes the console user `root`,
+and Qt then aborts with "Cannot create window: no screens available". The
+window in which a test run would work is the first minute or two after boot.
+
+That is a different problem from "log in there", and it has a one-line answer
+in the guest: **enable automatic login and switch off the screen lock**. Until
+that is done, a macOS run has to be started immediately after boot and will
+stop working partway through a long suite - which is worse than not running,
+because it looks like a flake.
+
+### What this batch did not do
+
+No product code changed, so there is nothing to control - saying that plainly
+is the point, as entry 148 did. The Linux suites were run afterwards to show
+the tree is where it was:
+
+    -test QuickUi      226 passed, 0 failed, exit 0
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+`runtests-macos.sh` is the owner's, outside this repository, so it was left
+alone. If it is ever edited, the useful change is for its refusal to say
+whether Qt is staged as well as whether someone is logged in - the two look
+identical from the outside and this branch has now been wrong about which one
+it was for forty batches.
+
+### What is next
+
+1. **Automatic login in the macOS VM**, and then actually run the suites
+   there. Everything else is ready: the bundle syncs, Qt is staged, the
+   runner works.
+2. **The remaining panes' toolbar widgets**, which are no longer all toggles:
+   Todo's scanning scope is a three-way exclusive choice (a `SelectionAspect`),
+   its keyword filters are a dynamic list, Test Results' output toggle changes
+   its own icon per state, and the spacer, the status label and the filter
+   field are display rather than settings.
+3. **Terminal**, the last of the three widget panes.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures,
+   entry 196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.
