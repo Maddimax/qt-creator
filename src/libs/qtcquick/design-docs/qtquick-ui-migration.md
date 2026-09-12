@@ -55109,3 +55109,95 @@ the measurement that settles it - the editor goal is done. If the shell phase
 is the work, the instruction is worth rewriting to say so, because its closing
 paragraph about closing CppEditor gaps before flipping the switch describes a
 flip that already happened.
+
+## 2026-09-12 — The Lua REPL comes out of the QListView (batch 196)
+
+**Gap closed: the REPL engine is no longer inside a widget, and the one part
+of this pane with "no QML equivalent" turns out not to need one.** Batch 194
+gave the output lines a model; this takes the Lua state, the prompt and the
+waiting-for-input state out of `LuaReplView` and into a `LuaRepl` that has no
+view at all. The `QListView` is now nineteen lines over it.
+
+### What was actually stuck in the widget
+
+Three things, and only the first was obvious:
+
+- **The Lua state.** `m_luaState` and `m_readCallback` lived on the QListView,
+  so there was no REPL until something drew one, and `showEvent` was what
+  started it.
+- **`scrollToBottom()` was called from inside the Lua bindings.** `print` did
+  the model append *and* the scrolling, so what the terminal says and what a
+  view does about it were the same statement. The engine now emits
+  `linePrinted()` and the view connects to it - which is this branch's
+  standing rule about what a closure lists versus what it does, applied to a
+  Lua binding.
+- **Whether the REPL is waiting, and what with, were not stored anywhere.**
+  The prompt existed only as the argument of `inputRequested`, caught by
+  whichever view happened to be connected at the time. A view opened later had
+  no way to find out, and a second view on the same REPL would never learn the
+  prompt. Both are state now: `isWaitingForInput()` and `prompt()`, with the
+  prompt cleared while an answer is being worked out - which is what tells the
+  input field to stop taking typing, and was previously done by the view
+  setting its own read-only flag on the way past.
+
+### The history completer needed no equivalent
+
+Entry 194 named `FancyLineEdit::setHistoryCompleter()` as "the piece with no
+QML equivalent yet and worth measuring before promising". Measured:
+`Utils::HistoryCompleter` is a `QCompleter` whose private **is** a
+`QAbstractListModel`, installed with `setModel(d)` and reachable through the
+public `QCompleter::model()`. A QML view can bind to the same entries and
+offer the same recall. There is a test asserting exactly that, so the claim is
+pinned rather than remembered.
+
+Two things worth saying about it: the history is shared through a settings key,
+not through the widget, so both views recall the same lines; and the entries
+are what `addEntry()` was given, so nothing about them is widget-shaped.
+
+### Verification
+
+Both platforms build clean. No new files, so no `.qbs` edit - and Lua's qbs
+picks QML up by wildcard anyway, so the next batch will not need one either.
+
+    -test Lua          11 passed, 0 failed, exit 0   (9 before: 2 new)
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test QuickUi      220 passed, 0 failed, exit 0
+
+Every REPL test now runs with **no view constructed at all**, which is the
+thing this batch was for.
+
+### Negative controls
+
+**AX - the prompt bites.** `setPrompt({})` removed from `submit()`, so the
+prompt never goes empty while an answer is being worked out: `(the prompt
+changed 1 times, so it never went empty)`. That is the bit an input field reads
+to stop taking typing.
+
+**AZ - the scroll cue bites.** `emit linePrinted()` removed: `(no view would
+know to follow the new line down)`.
+
+**BA - the history bites.** The assertion pointed at an entry that was never
+added: red on the comparison.
+
+**AY - a control that did not bite, and the control was what was wrong.**
+Removing the *view's* `connect(..., &QListView::scrollToBottom)` changed
+nothing, because the test asserts the engine **emits** the cue, not that the
+widget acts on it. Recorded rather than quietly replaced, because it names a
+real hole: **nothing covers the widget view's auto-scroll.** It is one
+`connect` and it is not worth a shown-window test on a `QListView` - but it is
+uncovered, and after the Quick view exists the same line will need saying
+twice.
+
+### What is next
+
+1. **The Quick REPL view.** Everything it reads now exists: the line model with
+   `isError`, the prompt, `isWaitingForInput()`, the history model, and
+   `submit()`. What is left is a controller with those as properties, a QML
+   file over `Core::createQmlView()`, `QTC_WIDGET_LUA_PANE`, and a census -
+   the shape batches 189 and 191 used for the button row.
+2. **Search Results** and **Terminal**, the two entry 169 called hard.
+3. **The output toolbar**, blocked on `IOutputPane::toolBarWidgets()`.
+4. **macOS verification**, owed since entry 168.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's one-off TextEditor truncation,
+   and the widget REPL's uncovered auto-scroll above.

@@ -18,6 +18,7 @@
 
 #include <texteditor/texteditor.h>
 
+#include <utils/historycompleter.h>
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
 #include <utils/qtcprocess.h>
@@ -192,78 +193,103 @@ public:
     }
 };
 
-class LuaReplView : public QListView
+// The REPL itself: the Lua state, what it has said, and whether it is waiting
+// to be told something. No view, because whether the terminal is waiting and
+// what it is waiting with are what a view draws rather than what it owns.
+class LuaRepl : public QObject
 {
     Q_OBJECT
 
-    std::unique_ptr<LuaState> m_luaState;
-    sol::function m_readCallback;
-
-    LuaReplModel m_model;
-
 public:
-    LuaReplView(QWidget *parent = nullptr)
-        : QListView(parent)
-    {
-        setModel(&m_model);
-        setItemDelegate(new ItemDelegate(this));
-    }
+    LuaReplModel *model() { return &m_model; }
 
-    const LuaReplModel *model() const { return &m_model; }
+    bool isWaitingForInput() const { return m_readCallback.valid(); }
+    QString prompt() const { return m_prompt; }
+    bool isStarted() const { return m_luaState != nullptr; }
 
-    void showEvent(QShowEvent *) override
+    void submit(const QString &text)
     {
-        if (m_luaState) {
-            return;
-        }
-        resetTerminal();
-    }
-
-    void handleRequestResult(const QString &result)
-    {
-        auto cb = m_readCallback;
+        QTC_ASSERT(isWaitingForInput(), return);
+        const sol::function callback = m_readCallback;
         m_readCallback = {};
-        cb(result);
+        setPrompt({});
+        callback(text);
     }
 
-    void resetTerminal()
+    void reset()
     {
         m_model.clear();
         m_readCallback = {};
+        setPrompt({});
 
         QFile f(":/lua/scripts/ilua.lua");
         QTC_CHECK(f.open(QIODevice::ReadOnly));
         const auto ilua = QString::fromUtf8(f.readAll());
         m_luaState = runScript(ilua, "ilua.lua", [this](sol::state &lua) {
-            lua["print"] = [this](sol::variadic_args va) {
-                const QString msgs = variadicToStringList(va).join("\t").replace("\r\n", "\n");
-                m_model.append(msgs, false);
-                scrollToBottom();
-            };
-            lua["printError"] = [this](sol::variadic_args va) {
-                const QString msgs = variadicToStringList(va).join("\t").replace("\r\n", "\n");
-                m_model.append(msgs, true);
-                scrollToBottom();
-            };
+            lua["print"] = [this](sol::variadic_args va) { say(va, false); };
+            lua["printError"] = [this](sol::variadic_args va) { say(va, true); };
             lua["LuaCopyright"] = LUA_COPYRIGHT;
 
             sol::table async = lua.script("return require('async')", "_ilua_").get<sol::table>();
             sol::function wrap = async["wrap"];
 
             lua["readline_cb"] = [this](const QString &prompt, sol::function callback) {
-                scrollToBottom();
-                emit inputRequested(prompt);
                 m_readCallback = callback;
+                setPrompt(prompt);
             };
 
             lua["readline"] = wrap(lua["readline_cb"]);
         });
-
-        QListView::reset();
     }
 
 signals:
-    void inputRequested(const QString &prompt);
+    void promptChanged(const QString &prompt);
+    // A line arrived, which is a view's cue to follow it down.
+    void linePrinted();
+
+private:
+    void say(sol::variadic_args va, bool isError)
+    {
+        m_model.append(variadicToStringList(va).join("\t").replace("\r\n", "\n"), isError);
+        emit linePrinted();
+    }
+
+    void setPrompt(const QString &prompt)
+    {
+        if (m_prompt == prompt)
+            return;
+        m_prompt = prompt;
+        emit promptChanged(m_prompt);
+    }
+
+    std::unique_ptr<LuaState> m_luaState;
+    sol::function m_readCallback;
+    QString m_prompt;
+    LuaReplModel m_model;
+};
+
+class LuaReplView : public QListView
+{
+    Q_OBJECT
+
+public:
+    LuaReplView(LuaRepl *repl, QWidget *parent = nullptr)
+        : QListView(parent)
+        , m_repl(repl)
+    {
+        setModel(m_repl->model());
+        setItemDelegate(new ItemDelegate(this));
+        connect(m_repl, &LuaRepl::linePrinted, this, &QListView::scrollToBottom);
+    }
+
+    void showEvent(QShowEvent *) override
+    {
+        if (!m_repl->isStarted())
+            m_repl->reset();
+    }
+
+private:
+    LuaRepl *m_repl;
 };
 
 class LineEdit : public FancyLineEdit
@@ -278,7 +304,7 @@ class LuaPane : public Core::IOutputPane
 
 protected:
     QWidget *m_ui{nullptr};
-    LuaReplView *m_terminal{nullptr};
+    LuaRepl m_repl;
 
 public:
     LuaPane(QObject *parent = nullptr)
@@ -294,44 +320,40 @@ public:
         using namespace Layouting;
 
         if (!m_ui && parent) {
-            m_terminal = new LuaReplView;
+            auto * const terminal = new LuaReplView(&m_repl);
             LineEdit *inputEdit = new LineEdit;
             QLabel *prompt = new QLabel;
-
-            // clang-format off
-            m_ui = Column {
-                noMargin,
-                spacing(0),
-                m_terminal,
-                Row { prompt, inputEdit },
-            }.emerge();
-            // clang-format on
 
             inputEdit->setReadOnly(true);
             inputEdit->setHistoryCompleter(Utils::Key("LuaREPL.InputHistory"), false, 200);
 
-            // We need to use a QueuedConnection here so that we don't interfere with the history
-            // completer. Otherwise it will get out of sync between selecting an item and copying
-            // it into the text input field.
+            // Queued, so that it does not interfere with the history
+            // completer: otherwise selecting an item and copying it into the
+            // field get out of sync.
             connect(
                 inputEdit,
                 &QLineEdit::returnPressed,
                 this,
                 [this, inputEdit] {
                     inputEdit->setReadOnly(true);
-                    m_terminal->handleRequestResult(inputEdit->text());
+                    m_repl.submit(inputEdit->text());
                     inputEdit->clear();
                 },
                 Qt::QueuedConnection);
 
-            connect(
-                m_terminal,
-                &LuaReplView::inputRequested,
-                this,
-                [prompt, inputEdit](const QString &p) {
-                    prompt->setText(p);
-                    inputEdit->setReadOnly(false);
-                });
+            connect(&m_repl, &LuaRepl::promptChanged, this, [prompt, inputEdit](const QString &p) {
+                prompt->setText(p);
+                inputEdit->setReadOnly(p.isEmpty());
+            });
+
+            // clang-format off
+            m_ui = Column {
+                noMargin,
+                spacing(0),
+                terminal,
+                Row { prompt, inputEdit },
+            }.emerge();
+            // clang-format on
         }
 
         return m_ui;
@@ -339,11 +361,7 @@ public:
 
     void visibilityChanged(bool) override {};
 
-    void clearContents() override
-    {
-        if (m_terminal)
-            m_terminal->resetTerminal();
-    }
+    void clearContents() override { m_repl.reset(); }
     void setFocus() override { outputWidget(nullptr)->setFocus(); }
     bool hasFocus() const override { return true; }
     bool canFocus() const override { return true; }
@@ -699,26 +717,25 @@ class LuaReplTest final : public QObject
 private slots:
     void testTheReplSaysWhichOfItsLinesAreErrors()
     {
-        LuaReplView repl;
-        repl.resetTerminal();
+        // No view anywhere in this test: the REPL is the Lua state and what
+        // it has said, and neither of those needs drawing.
+        LuaRepl repl;
+        repl.reset();
         const LuaReplModel * const model = repl.model();
 
-        // The banner, printed by the script itself, is ordinary output.
         QVERIFY2(model->rowCount() > 0, "the REPL said nothing at all on being started");
         const int banner = model->rowCount() - 1;
         QVERIFY2(!model->index(banner).data(LuaReplModel::IsErrorRole).toBool(),
                  "the REPL's own greeting is reported as an error");
 
-        repl.handleRequestResult("return 6 * 7");
+        repl.submit("return 6 * 7");
         QCOMPARE(model->rowCount(), banner + 2);
         const QModelIndex answer = model->index(model->rowCount() - 1);
         QVERIFY2(answer.data().toString().contains("42"),
                  qPrintable("the REPL answered \"" + answer.data().toString() + "\""));
         QVERIFY(!answer.data(LuaReplModel::IsErrorRole).toBool());
 
-        // Code that does not compile: the one thing a REPL has to report
-        // differently from what a script printed on purpose.
-        repl.handleRequestResult("this is not lua(");
+        repl.submit("this is not lua(");
         const QModelIndex failed = model->index(model->rowCount() - 1);
         QVERIFY2(failed.data(LuaReplModel::IsErrorRole).toBool(),
                  qPrintable("broken code was reported as ordinary output: \""
@@ -727,21 +744,50 @@ private slots:
                  "the marker that used to say this is still in the text a reader sees");
     }
 
+    void testTheReplSaysWhenItIsWaitingAndWhatWith()
+    {
+        // Whether the terminal wants typing, and the prompt to show beside the
+        // field, used to exist only as the argument of a signal whichever view
+        // happened to be listening caught. A view that opens later - or a
+        // second one on the same REPL - has to be able to ask.
+        LuaRepl repl;
+        QVERIFY2(!repl.isWaitingForInput(), "a REPL that has not started is asking for input");
+        QVERIFY(repl.prompt().isEmpty());
+
+        QSignalSpy prompts(&repl, &LuaRepl::promptChanged);
+        repl.reset();
+
+        QVERIFY2(repl.isWaitingForInput(), "the REPL started and never asked for a line");
+        QVERIFY2(!repl.prompt().isEmpty(), "the REPL is waiting with nothing to show beside it");
+        QVERIFY2(!prompts.isEmpty(), "nothing was told that the REPL started waiting");
+
+        const QString waitingWith = repl.prompt();
+        repl.submit("return 1");
+        QVERIFY2(repl.isWaitingForInput(), "the REPL answered and never asked again");
+        QCOMPARE(repl.prompt(), waitingWith);
+        // Empty in between, which is what tells a field to stop taking typing
+        // while the answer is being worked out.
+        QVERIFY2(prompts.size() >= 3,
+                 qPrintable(QString("the prompt changed %1 times, so it never went empty")
+                                .arg(prompts.size())));
+    }
+
     void testAPrintedLineDoesNotThrowAwayTheOnesBeforeIt()
     {
         // Every print used to rebuild the whole list, so a reader who had
         // selected a line lost the selection each time the REPL spoke.
-        LuaReplView repl;
-        repl.resetTerminal();
-        const LuaReplModel * const model = repl.model();
+        LuaRepl repl;
+        repl.reset();
 
-        QSignalSpy resets(model, &QAbstractItemModel::modelReset);
-        QSignalSpy inserts(model, &QAbstractItemModel::rowsInserted);
+        QSignalSpy resets(repl.model(), &QAbstractItemModel::modelReset);
+        QSignalSpy inserts(repl.model(), &QAbstractItemModel::rowsInserted);
+        QSignalSpy printed(&repl, &LuaRepl::linePrinted);
 
-        repl.handleRequestResult("return 1");
+        repl.submit("return 1");
 
         QVERIFY2(resets.isEmpty(), "printing a line reset the whole list");
         QVERIFY2(!inserts.isEmpty(), "a line arrived without the view being told where");
+        QVERIFY2(!printed.isEmpty(), "no view would know to follow the new line down");
     }
 
     void testAModelRowNamesItsErrorFlagForAViewThatAsksByName()
@@ -749,6 +795,23 @@ private slots:
         LuaReplModel model;
         QVERIFY2(model.roleNames().values().contains("isError"),
                  "a view that reads roles by name cannot tell the errors apart");
+    }
+
+    void testTheInputHistoryIsAModelAViewCanRead()
+    {
+        // The input line is a FancyLineEdit with a history completer, which
+        // was the one part of this pane with no obvious QML equivalent. It
+        // needs none: the completer keeps its history in a model, so a view
+        // that is not a QLineEdit can offer the same recall from the same
+        // entries.
+        auto * const completer
+            = new Utils::HistoryCompleter(Utils::Key("LuaREPL.InputHistoryTest"), 200, this);
+        QAbstractItemModel * const history = completer->model();
+        QVERIFY2(history, "the history is not readable as a model at all");
+        const int before = history->rowCount();
+        completer->addEntry("return 6 * 7");
+        QCOMPARE(history->rowCount(), before + 1);
+        QCOMPARE(history->index(0, 0).data().toString(), QString("return 6 * 7"));
     }
 };
 
