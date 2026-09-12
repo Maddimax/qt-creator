@@ -31,6 +31,7 @@
 #include <utils/widgets.h>
 
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QComboBox>
 #include <QDebug>
@@ -2177,7 +2178,10 @@ private slots:
                              "Issues.ParseExternalOutput", "Squish.CollapseAll",
                              "Squish.ExpandAll", "Squish.Filter", "Terminal.Close",
                              "Terminal.LockKeyboard", "Terminal.New", "Terminal.Settings",
-                             "Terminal.Variables"};
+                             "Terminal.Variables", "Todo.Filter.BUG", "Todo.Filter.FIXME",
+                             "Todo.Filter.NOTE", "Todo.Filter.TODO", "Todo.Filter.WARNING",
+                             R"(Todo.Filter.\todo)", "Todo.Scope.ActiveProject",
+                             "Todo.Scope.CurrentDocument", "Todo.Scope.Subproject"};
         named.sort();
         QCOMPARE(named, expected);
     }
@@ -2200,7 +2204,7 @@ private slots:
             "Application Output=8,2",
             "Compile Output=5,1",
             "Terminal=8,0",
-            "To-Do Entries=12,10",
+            "To-Do Entries=12,1",
             "Version Control=2,0",
             "Lua=2,0",
             "Test Results=12,9",
@@ -2264,6 +2268,15 @@ private slots:
         QCOMPARE(others, QStringList({"ProjectExplorer.Stop"}));
     }
 
+    IOutputPane *todoPane() const
+    {
+        for (IOutputPane * const pane : IOutputPane::allOutputPanes()) {
+            if (pane->displayName() == "To-Do Entries")
+                return pane;
+        }
+        return nullptr;
+    }
+
     QWidget *toolBarOf(const QString &displayName) const
     {
         const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
@@ -2274,20 +2287,80 @@ private slots:
         return nullptr;
     }
 
+    void testTheToDoToolbarIsTogglesAndAChoiceOfOne()
+    {
+        // Its scope buttons were a QButtonGroup, which the pane could keep
+        // because it owned the buttons. It hands over actions now and the
+        // manager builds the buttons, so the exclusivity has to live on the
+        // actions or the three of them become three independent toggles.
+        QWidget * const toolBar = toolBarOf("To-Do Entries");
+        QVERIFY2(toolBar, "the To-Do pane has no toolbar");
+
+        const QStringList scope{"Todo.Scope.CurrentDocument", "Todo.Scope.ActiveProject",
+                                "Todo.Scope.Subproject"};
+        QActionGroup *group = nullptr;
+        for (const QString &name : scope) {
+            auto * const button = toolBar->findChild<QToolButton *>(name);
+            QVERIFY2(button, qPrintable(name + ": no button"));
+            QAction * const action = button->defaultAction();
+            QVERIFY2(action, qPrintable(name + ": the button carries nothing"));
+            QVERIFY2(action->isCheckable(), qPrintable(name + ": not a toggle"));
+            QVERIFY2(action->actionGroup(), qPrintable(name + ": in no group"));
+            if (group)
+                QVERIFY2(action->actionGroup() == group, qPrintable(name + ": in another group"));
+            group = action->actionGroup();
+        }
+        QVERIFY2(group->isExclusive(), "the scope is a group that allows more than one");
+
+        // And the keyword filters are toggles, which is the whole of what
+        // they do: updateKeywordFilter() reads isChecked() off each of them.
+        int filters = 0;
+        for (const IOutputPane::ToolBarItem &item : todoPane()->toolBarItems()) {
+            QAction * const action = item.action();
+            if (!action || !action->objectName().startsWith("Todo.Filter."))
+                continue;
+            ++filters;
+            QVERIFY2(action->isCheckable(),
+                     qPrintable(action->objectName() + ": not a toggle"));
+            QVERIFY2(action->actionGroup() == nullptr,
+                     qPrintable(action->objectName() + ": in a group, so only one can be on"));
+        }
+        QCOMPARE(filters, 6);
+    }
+
     void testAToolbarButtonDrawsTheTextItsActionMeant()
     {
-        // A QToolButton takes its text from QAction::iconText(), and an
-        // iconText that was never set is derived from text() by stripping
-        // mnemonics *and* ellipses. Terminal's macro button is called
-        // "%{...}", which comes back out of that as "%{}".
+        // An action with no icon has nothing to draw but its text, and a
+        // QToolButton takes that from QAction::iconText() - which, where it
+        // was never set, is text() with mnemonics *and every ellipsis*
+        // stripped out of it. Terminal's macro button is called "%{...}" and
+        // comes back out of that as "%{}".
         //
-        // The expected text is written here because reading it back from the
-        // action is reading it out of the same accessor the button used.
-        QWidget * const toolBar = toolBarOf("Terminal");
-        QVERIFY2(toolBar, "the Terminal pane has no toolbar");
-        auto * const button = toolBar->findChild<QToolButton *>("Terminal.Variables");
-        QVERIFY2(button, "nothing in Terminal's toolbar inserts a macro variable");
-        QCOMPARE(button->text(), QString("%{...}"));
+        // Both halves are written down: which buttons draw text at all, and
+        // what each of them says. Reading the text back off the action asks
+        // the same accessor the button asked.
+        const QList<QPair<QString, QString>> expected{
+            {"Terminal.Variables", "%{...}"},
+            {"Todo.Scope.CurrentDocument", "Current Document"},
+            {"Todo.Scope.ActiveProject", "Active Project"},
+            {"Todo.Scope.Subproject", "Subproject"}};
+
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QList<QPair<QString, QString>> drawn;
+        for (int row = 0; row < panes.size(); ++row) {
+            QWidget * const toolBar = m_instance->m_opToolBarWidgets->widget(row);
+            if (!toolBar)
+                continue;
+            for (const IOutputPane::ToolBarItem &item : panes.at(row)->toolBarItems()) {
+                QAction * const action = item.action();
+                if (!action || !action->icon().isNull())
+                    continue;
+                auto * const button = toolBar->findChild<QToolButton *>(action->objectName());
+                QVERIFY2(button, qPrintable(action->objectName() + ": no button"));
+                drawn << qMakePair(action->objectName(), button->text());
+            }
+        }
+        QCOMPARE(drawn, expected);
     }
 
     void testAToolbarButtonOpensItsMenuTheWayThePaneAskedFor()
@@ -2510,7 +2583,8 @@ private slots:
             }
         }
         QCOMPARE(interleaving, QStringList({"Issues", "Application Output", "Compile Output",
-                                            "Test Results", "QML Debugger Console"}));
+                                            "To-Do Entries", "Test Results",
+                                            "QML Debugger Console"}));
         QVERIFY2(checked >= 2,
                  qPrintable(QString("only %1 pane could be checked").arg(checked)));
     }

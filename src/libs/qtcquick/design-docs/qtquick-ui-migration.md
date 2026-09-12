@@ -57600,3 +57600,136 @@ Each was a separate build and run.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
    three `ProjectExplorer` failures from entry 218, entry 196's uncovered
    widget auto-scroll, entry 199's QML root with no `controller` property.
+
+## 2026-09-12 — To-Do, where the toolbar was the state (batch 221)
+
+The last pane on entry 220's list, and the biggest: ten widgets, of which nine
+were toggles.
+
+### The gap this batch closed
+
+**To-Do was the pane whose toolbar *was* its state.** Every other pane so far
+kept its state somewhere and drew buttons for it. This one read the state back
+off the buttons:
+
+    for (const QToolButton *btn: m_filterButtons)
+        if (btn->isChecked())
+            keywords.append(btn->property(FILTER_KEYWORD_NAME).toString());
+
+and kept the scope in a `QButtonGroup`. Both only work while the pane owns the
+buttons. Handing over items means the manager builds them, so the checked-ness
+and the exclusivity have to live on the actions instead — `QAction::isChecked()`
+and a `QActionGroup`, which needs no interface change but does need saying.
+
+Nine actions: six keyword filters (checkable, in no group, each carrying its
+`FILTER_KEYWORD_NAME` property) and three scope actions (checkable, in one
+exclusive `QActionGroup`). The spacer stays a widget. `To-Do Entries=12,1`,
+down from `12,10`.
+
+### Two things that would have been easy to get wrong
+
+**The group is connected on `triggered`, not `toggled`.** `setScanningScope()`
+checks one of the three, and `scanningScopeChanged()` calls `setScanningScope()`.
+`setChecked()` emits `toggled` but not `triggered`, so the old
+`QButtonGroup::buttonClicked` connection could not come back round; `toggled`
+would have, through the group unchecking the previous one. `QActionGroup` only
+offers `triggered`, so the right answer is also the only available one — but
+the comment says why, because someone converting the next pane may reach for
+`QAction::toggled` where there is a choice.
+
+**The scope buttons draw text and have no icon.** A `QToolButton` takes its
+text from `iconText()` (entry 220), and `StyleHelper::setPanelWidget()` only
+sets a property — it does not touch `toolButtonStyle` — so the text survives.
+Checked rather than assumed, because a button that silently draws nothing is
+exactly the kind of thing no census here would have seen.
+
+`testAToolbarButtonDrawsTheTextItsActionMeant` now covers **every** action with
+a null icon, not just Terminal's, with both halves written down:
+
+    {"Terminal.Variables", "%{...}"},
+    {"Todo.Scope.CurrentDocument", "Current Document"},
+    {"Todo.Scope.ActiveProject", "Active Project"},
+    {"Todo.Scope.Subproject", "Subproject"}
+
+Those four are the complete set — every other action any pane hands over has an
+icon, which the census now states rather than leaves to be discovered.
+
+### A stale binary, caught by habit
+
+The first build of the new test failed:
+
+    error: invalid use of incomplete type 'class QActionGroup'
+
+and the test run that followed reported **290 passed, 2 failed** — the previous
+binary, unchanged, looking exactly like a pass. The build script's output is
+grepped for `error:` separately from the run for that reason. It is the trap
+from `~/.claude/testing.md` recurring one more level down, and the only thing
+that caught it was looking at the build line before the totals.
+
+### Measurements
+
+    -test Core              291 passed, 2 failed, exit 2   (the two ShortcutSettings)
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   530 passed, 3 failed, 4 skipped, exit 3
+    -test Todo              11 passed, 0 failed, exit 0
+
+Committed baseline before this batch was Core 290/2. Unlike Terminal, To-Do has
+a real suite of its own and it stayed green.
+
+Every census was right first try again except none - the three that had to move
+(item counts, action names, interleaving panes) were predicted correctly and
+only needed the new values written in.
+
+### Negative controls
+
+**CY — the scope actions are in no group.** Bit:
+
+    testTheToDoToolbarIsTogglesAndAChoiceOfOne() (Todo.Scope.CurrentDocument: in no group)
+
+**CZ — the keyword filters are not checkable**, so `updateKeywordFilter()`
+would read `false` off all six for ever. Bit:
+
+    (Todo.Filter.TODO: not a toggle)
+
+**DA — the spacer is not listed.** Bit twice, which is the point of having both
+a count and a shape census:
+
+    "To-Do Entries=11,0" against "To-Do Entries=12,1"
+    interleaving size 5 against 6
+
+Each was a separate build and run.
+
+### What is next
+
+Entry 220 said that after To-Do "every output pane states its toolbar as items".
+That is **not true**, and the check is worth writing down:
+
+    grep -rl "toolBarWidgets() const override" src/plugins/
+
+- **Search Results** still hands over eight widgets the old way (`10,8` in the
+  count census). It is the last loaded pane on the old path, and the largest
+  one left.
+- **Serial Terminal** also overrides `toolBarWidgets()`, and is **not built in
+  this configuration at all** - it appears in none of the censuses, so nothing
+  here watches it. Converting it would be unverifiable by the tests on this
+  branch, which is worth knowing before starting rather than after.
+- **Test Results and Console carry dead overrides.** Both override
+  `toolBarItems()`, and the manager calls only that; `baseToolBarItems()` calls
+  `IOutputPane::toolBarWidgets()` qualified, so it takes the base version. Their
+  `toolBarWidgets()` and `toolBarAspects()` overrides are unreachable code that
+  still reads as live. Four declarations and their definitions.
+- Only once those are gone can `toolBarWidgets()`, `toolBarAspects()` and
+  `toolBarCommands()` come off `IOutputPane`. That is two batches away, not one.
+
+Then, still open:
+
+1. **The order of a pane that changes its own stated order** is invisible,
+   because asked and drawn move together. This is the last known hole and it
+   may not be worth closing.
+2. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+3. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
+   three `ProjectExplorer` failures from entry 218, entry 196's uncovered
+   widget auto-scroll, entry 199's QML root with no `controller` property.

@@ -12,10 +12,8 @@
 
 QT_BEGIN_NAMESPACE
 class QAbstractItemModel;
-class QToolButton;
-class QButtonGroup;
+class QActionGroup;
 class QModelIndex;
-class QAbstractButton;
 class QSortFilterProxyModel;
 QT_END_NAMESPACE
 
@@ -23,8 +21,6 @@ namespace Todo::Internal {
 
 class TodoItem;
 class TodoItemsModel;
-
-using QToolButtonList = QList<QToolButton *>;
 
 class TodoOutputPane : public Core::IOutputPane
 {
@@ -41,7 +37,7 @@ public:
     ~TodoOutputPane() override;
 
     QWidget *outputWidget(QWidget *parent) override;
-    QList<QWidget*> toolBarWidgets() const override;
+    QList<ToolBarItem> toolBarItems() const override;
     void clearContents() override;
     void setFocus() override;
     bool hasFocus() const override;
@@ -72,7 +68,7 @@ signals:
 private:
     void todoItemClicked(const TodoItem &item);
     void scanningScopeChanged(ScanningScope scanningScope);
-    void scopeButtonClicked(QAbstractButton *button);
+    void scopeActionTriggered(QAction *action);
     void todoTreeViewClicked(const QModelIndex &index);
     void updateTodoCount();
     void updateKeywordFilter();
@@ -80,14 +76,12 @@ private:
 
     void createTreeView();
     void freeTreeView();
-    void createScopeButtons();
-    void freeScopeButtons();
+    void createToolBarItems();
+    void freeToolBarItems();
 
     QModelIndex selectedModelIndex();
     int nextRow() const;
     int previousRow() const;
-
-    QToolButton *createCheckableToolButton(const QString &text, const QString &toolTip, const QIcon &icon);
 
     // What draws the list. A QQuickWidget, built on demand and owned by
     // whoever asked for it.
@@ -97,15 +91,15 @@ private:
     // header, so nothing could say what the order was without one.
     int m_sortColumn = 0;
     Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
-    QToolButton *m_currentFileButton;
-    QToolButton *m_wholeProjectButton;
-    QToolButton *m_subProjectButton;
+    QAction *m_currentFileAction;
+    QAction *m_wholeProjectAction;
+    QAction *m_subProjectAction;
     QWidget *m_spacer;
-    QButtonGroup *m_scopeButtons;
+    QActionGroup *m_scopeActions;
     QList<TodoItem> *items;
     TodoItemsModel *m_todoItemsModel;
     QSortFilterProxyModel *m_filteredTodoItemsModel;
-    QToolButtonList m_filterButtons;
+    QList<QAction *> m_filterActions;
 };
 
 TodoOutputPane &todoOutputPane();

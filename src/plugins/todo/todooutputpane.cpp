@@ -9,13 +9,14 @@
 #include "todoitemsprovider.h"
 #include "todotr.h"
 
+#include <utils/qtcassert.h>
+
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
 
 #include <QIcon>
 #include <QHeaderView>
-#include <QToolButton>
-#include <QButtonGroup>
+#include <QActionGroup>
 #include <QSortFilterProxyModel>
 #include <qtcquick/qtcquickwidget.h>
 
@@ -37,7 +38,7 @@ TodoOutputPane::TodoOutputPane(TodoItemsModel *todoItemsModel, QObject *parent) 
     setPriorityInStatusBar(10);
 
     createTreeView();
-    createScopeButtons();
+    createToolBarItems();
 
     setScanningScope(todoSettings().scanningScope);
 
@@ -50,7 +51,7 @@ TodoOutputPane::TodoOutputPane(TodoItemsModel *todoItemsModel, QObject *parent) 
 TodoOutputPane::~TodoOutputPane()
 {
     freeTreeView();
-    freeScopeButtons();
+    freeToolBarItems();
 }
 
 QWidget *TodoOutputPane::outputWidget(QWidget *parent)
@@ -64,16 +65,22 @@ QWidget *TodoOutputPane::outputWidget(QWidget *parent)
     return m_view;
 }
 
-QList<QWidget*> TodoOutputPane::toolBarWidgets() const
+QList<Core::IOutputPane::ToolBarItem> TodoOutputPane::toolBarItems() const
 {
-    QWidgetList widgets;
+    QList<ToolBarItem> items;
 
-    for (QToolButton *btn: m_filterButtons)
-        widgets << btn;
+    for (QAction * const action : m_filterActions)
+        items << ToolBarItem::forAction(action);
 
-    widgets << m_spacer << m_currentFileButton << m_wholeProjectButton << m_subProjectButton;
+    items << ToolBarItem::forWidget(m_spacer)
+          << ToolBarItem::forAction(m_currentFileAction)
+          << ToolBarItem::forAction(m_wholeProjectAction)
+          << ToolBarItem::forAction(m_subProjectAction);
 
-    return widgets;
+    for (const ToolBarItem &item : baseToolBarItems())
+        items << item;
+
+    return items;
 }
 
 void TodoOutputPane::clearContents()
@@ -133,13 +140,13 @@ void TodoOutputPane::goToPrev()
 void TodoOutputPane::setScanningScope(ScanningScope scanningScope)
 {
     if (scanningScope == ScanningScopeCurrentFile)
-        m_currentFileButton->setChecked(true);
+        m_currentFileAction->setChecked(true);
     else if (scanningScope == ScanningScopeSubProject)
-        m_subProjectButton->setChecked(true);
+        m_subProjectAction->setChecked(true);
     else if (scanningScope == ScanningScopeProject)
-        m_wholeProjectButton->setChecked(true);
+        m_wholeProjectAction->setChecked(true);
     else
-        Q_ASSERT_X(false, "Updating scanning scope buttons", "Unknown scanning scope enum value");
+        QTC_CHECK(false);
 }
 
 void TodoOutputPane::todoItemClicked(const TodoItem &item)
@@ -148,13 +155,13 @@ void TodoOutputPane::todoItemClicked(const TodoItem &item)
         Core::EditorManager::openEditorAt(Utils::Link(item.file, item.line));
 }
 
-void TodoOutputPane::scopeButtonClicked(QAbstractButton *button)
+void TodoOutputPane::scopeActionTriggered(QAction *action)
 {
-    if (button == m_currentFileButton)
+    if (action == m_currentFileAction)
         scanningScopeChanged(ScanningScopeCurrentFile);
-    else if (button == m_subProjectButton)
+    else if (action == m_subProjectAction)
         scanningScopeChanged(ScanningScopeSubProject);
-    else if (button == m_wholeProjectButton)
+    else if (action == m_wholeProjectAction)
         scanningScopeChanged(ScanningScopeProject);
     emit setBadgeNumber(rows()->rowCount());
 }
@@ -209,9 +216,9 @@ void TodoOutputPane::updateTodoCount()
 void TodoOutputPane::updateKeywordFilter()
 {
     QStringList keywords;
-    for (const QToolButton *btn: std::as_const(m_filterButtons)) {
-        if (btn->isChecked())
-            keywords.append(btn->property(Constants::FILTER_KEYWORD_NAME).toString());
+    for (const QAction *action : std::as_const(m_filterActions)) {
+        if (action->isChecked())
+            keywords.append(action->property(Constants::FILTER_KEYWORD_NAME).toString());
     }
 
     QString pattern = keywords.isEmpty() ? QString() : QString("^(%1).*").arg(keywords.join('|'));
@@ -224,8 +231,8 @@ void TodoOutputPane::updateKeywordFilter()
 
 void TodoOutputPane::clearKeywordFilter()
 {
-    for (QToolButton *btn: std::as_const(m_filterButtons))
-        btn->setChecked(false);
+    for (QAction *action : std::as_const(m_filterActions))
+        action->setChecked(false);
 
     updateKeywordFilter();
 }
@@ -249,65 +256,51 @@ void TodoOutputPane::freeTreeView()
     delete m_filteredTodoItemsModel;
 }
 
-QToolButton *TodoOutputPane::createCheckableToolButton(const QString &text, const QString &toolTip, const QIcon &icon)
+void TodoOutputPane::createToolBarItems()
 {
-    auto button = new QToolButton;
+    m_currentFileAction = new QAction(Tr::tr("Current Document"), this);
+    m_currentFileAction->setToolTip(Tr::tr("Scan only the currently edited document."));
+    m_currentFileAction->setObjectName("Todo.Scope.CurrentDocument");
 
-    button->setCheckable(true);
-    button->setText(text);
-    button->setToolTip(toolTip);
-    button->setIcon(icon);
+    m_wholeProjectAction = new QAction(Tr::tr("Active Project"), this);
+    m_wholeProjectAction->setToolTip(Tr::tr("Scan the whole active project."));
+    m_wholeProjectAction->setObjectName("Todo.Scope.ActiveProject");
 
-    return button;
-}
+    m_subProjectAction = new QAction(Tr::tr("Subproject"), this);
+    m_subProjectAction->setToolTip(Tr::tr("Scan the current subproject."));
+    m_subProjectAction->setObjectName("Todo.Scope.Subproject");
 
-void TodoOutputPane::createScopeButtons()
-{
-    m_currentFileButton = new QToolButton();
-    m_currentFileButton->setCheckable(true);
-    m_currentFileButton->setText(Tr::tr("Current Document"));
-    m_currentFileButton->setToolTip(Tr::tr("Scan only the currently edited document."));
-
-    m_wholeProjectButton = new QToolButton();
-    m_wholeProjectButton->setCheckable(true);
-    m_wholeProjectButton->setText(Tr::tr("Active Project"));
-    m_wholeProjectButton->setToolTip(Tr::tr("Scan the whole active project."));
-
-    m_subProjectButton = new QToolButton();
-    m_subProjectButton->setCheckable(true);
-    m_subProjectButton->setText(Tr::tr("Subproject"));
-    m_subProjectButton->setToolTip(Tr::tr("Scan the current subproject."));
-
-    m_scopeButtons = new QButtonGroup();
-    m_scopeButtons->addButton(m_wholeProjectButton);
-    m_scopeButtons->addButton(m_currentFileButton);
-    m_scopeButtons->addButton(m_subProjectButton);
-    connect(m_scopeButtons, &QButtonGroup::buttonClicked,
-            this, &TodoOutputPane::scopeButtonClicked);
+    m_scopeActions = new QActionGroup(this);
+    m_scopeActions->addAction(m_wholeProjectAction);
+    m_scopeActions->addAction(m_currentFileAction);
+    m_scopeActions->addAction(m_subProjectAction);
+    for (QAction * const action : m_scopeActions->actions())
+        action->setCheckable(true);
+    // Triggered, not toggled: setScanningScope() checks one of these, and a
+    // toggle would come back round through scanningScopeChanged() into it.
+    connect(m_scopeActions, &QActionGroup::triggered,
+            this, &TodoOutputPane::scopeActionTriggered);
 
     m_spacer = new QWidget;
     m_spacer->setMinimumWidth(Constants::OUTPUT_TOOLBAR_SPACER_WIDTH);
 
     QString tooltip = Tr::tr("Show \"%1\" entries");
     for (const Keyword &keyword: std::as_const(todoSettings().keywords)) {
-        QToolButton *button = createCheckableToolButton(keyword.name, tooltip.arg(keyword.name), toolBarIcon(keyword.iconType));
-        button->setProperty(Constants::FILTER_KEYWORD_NAME, keyword.name);
-        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        connect(button, &QToolButton::clicked, this, &TodoOutputPane::updateKeywordFilter);
+        auto * const action = new QAction(toolBarIcon(keyword.iconType), keyword.name, this);
+        action->setCheckable(true);
+        action->setToolTip(tooltip.arg(keyword.name));
+        action->setObjectName("Todo.Filter." + keyword.name);
+        action->setProperty(Constants::FILTER_KEYWORD_NAME, keyword.name);
+        connect(action, &QAction::triggered, this, &TodoOutputPane::updateKeywordFilter);
 
-        m_filterButtons.append(button);
+        m_filterActions.append(action);
     }
 }
 
-void TodoOutputPane::freeScopeButtons()
+void TodoOutputPane::freeToolBarItems()
 {
-    delete m_currentFileButton;
-    delete m_wholeProjectButton;
-    delete m_subProjectButton;
-    delete m_scopeButtons;
+    // Only the spacer: the actions and their group are parented to the pane.
     delete m_spacer;
-
-    qDeleteAll(m_filterButtons);
 }
 
 
