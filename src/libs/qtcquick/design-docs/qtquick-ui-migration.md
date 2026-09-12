@@ -56227,3 +56227,96 @@ not written for it going red, and the change withdrawn.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — Tab leaves a Qt Quick scene (batch 208)
+
+**Gap closed: the one entry 207 called a design question.** Tab now walks into
+a Qt Quick view, through it, and out the far side - in both directions, and
+whether the scene holds one focusable item or several. The editor still types
+an indent with it.
+
+### The piece that made it tractable
+
+`QQuickItem::nextItemInFocusChain(bool forward)` is **public**, and it *asks*
+where the ring would go without going there. Entry 207's attempt failed
+because it detected the wrap after the fact, in `focusNextPrevChild()`, which
+a key typed into the scene never reaches. Asking beforehand, from an event
+filter on the quick window, sees every walk:
+
+    QQuickItem *to = from->nextItemInFocusChain(forward);
+    if (to == m_entryItem && ...)   // the ring is back where it came in
+        QQuickWidget::focusNextPrevChild(forward);
+
+`m_entryItem` is recorded in `focusInEvent()`: where tabbing *in* landed is
+where tabbing *round* comes back to.
+
+### One item, two meanings
+
+For a scene with a single focusable item, "the walk came back to where it
+started" and "the walk never moved" are the same event - and the two cases
+want opposite answers. A lone text field has no use for Tab and must let go;
+the code editor types an indent and must keep it.
+
+`QQuickItem::activeFocusOnTab()` tells them apart, and is public too: an item
+that takes part in tab navigation has nothing further to offer when the ring
+returns to it, and one that does not was never walking.
+
+**Both halves were measured before being believed.** The first version had
+`to != from` alone, which traps Tab in a one-field scene - a test written
+specially for that case is what said so, and it was written because control BZ
+on the guard **did not bite**, which meant the guard was either unnecessary or
+untested. It was untested, and then wrong.
+
+### Verification
+
+Both platforms build clean.
+
+    -test QuickUi      226 passed, 0 failed, exit 0   (225 before: two new)
+    -test Core         277 passed, 2 failed, exit 2
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+The `QEXPECT_FAIL` entry 207 left behind reported **XPASS** on the first run of
+this batch's fix, which is the marker doing exactly what it was put there for:
+the measurement stayed in the suite and asked to be updated the moment the
+defect went.
+
+### Negative controls
+
+**BY - the filter bites.** The event filter not installed: `(Tab off the end
+of the scene reached the scene's first field)` - the ring, as before.
+
+**BZ - the discriminator bites**, on the second attempt. Against the first
+version of the fix it did not bite at all, because nothing in the suite had a
+one-item scene; against the version with the test that does, dropping
+`activeFocusOnTab()` gives `(Tab was kept by a scene whose only field has no
+use for it)`.
+
+### The TextEditor flake has a diagnosis now
+
+Entry 191 recorded a one-off truncation in
+`QuickTextEditorTest::testTypingALineOfCppLeavesTheSameFileInEitherView`. It
+happened again in this batch, in a different data row of the same test, and
+this time the log says what it is:
+
+    malloc(): smallbin double linked list corrupted
+
+**That is heap corruption, not a hang and not a harness artefact** - a
+use-after-free or an overrun somewhere in the Quick editor's typing path. Four
+runs immediately afterwards were clean, so it is roughly 2 in 10 across this
+session. Upgrading the parked item from "a truncation" to "memory corruption
+in a named test" because the two are worth very different amounts of
+attention, and this one is a real bug that will bite a reader eventually.
+
+### What is next
+
+1. **The heap corruption above.** It is the most serious thing on this list
+   and it is in the editor, which is what the whole branch is about. A build
+   with ASan and that one test on a loop is the measurement; `~/.claude/
+   builds.md` has the note about ASan fork children needing care.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**, the interface problem batch 202 solved once.
+4. **macOS verification**, owed since entry 168.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 196's uncovered widget auto-scroll,
+   entry 199's QML root with no `controller` property.

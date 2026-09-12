@@ -12,6 +12,7 @@
 #include <QKeyEvent>
 #include <QQuickItem>
 #include <QQuickWidget>
+#include <QPointer>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -28,9 +29,52 @@ namespace {
 class TabAwareQuickWidget : public QQuickWidget
 {
 public:
-    using QQuickWidget::QQuickWidget;
+    TabAwareQuickWidget(QQmlEngine *engine, QWidget *parent)
+        : QQuickWidget(engine, parent)
+    {
+        // The scene handles Tab itself, so the key never reaches
+        // focusNextPrevChild() once focus is inside it. Watching the window is
+        // the only place the walk can be seen before the scene acts on it.
+        quickWindow()->installEventFilter(this);
+    }
 
 protected:
+    // Where tabbing in put the caret: a scene's focus chain is a ring, so
+    // arriving back here is what "the scene has run out" looks like.
+    void focusInEvent(QFocusEvent *event) override
+    {
+        QQuickWidget::focusInEvent(event);
+        m_entryItem = quickWindow() ? quickWindow()->activeFocusItem() : nullptr;
+    }
+
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        if (watched == quickWindow() && event->type() == QEvent::KeyPress) {
+            auto * const key = static_cast<QKeyEvent *>(event);
+            const bool forward = key->key() == Qt::Key_Tab;
+            const bool backward = key->key() == Qt::Key_Backtab;
+            if ((forward || backward) && !(key->modifiers() & ~Qt::ShiftModifier)) {
+                QQuickItem * const from = quickWindow()->activeFocusItem();
+                // Asked, not done: nextItemInFocusChain() says where the ring
+                // would go without going there, so the walk can be stopped
+                // before the scene takes the key for itself.
+                QQuickItem * const to = from ? from->nextItemInFocusChain(forward) : nullptr;
+                // Back where the walk began. For a scene with one item that
+                // is also "did not move", and the two are told apart by
+                // whether the item takes part in tab navigation at all: a
+                // field does and has nothing more to offer, an editor does
+                // not and is typing an indent with this.
+                if (to && to == m_entryItem
+                    && (to != from || from->activeFocusOnTab())) {
+                    key->accept();
+                    QQuickWidget::focusNextPrevChild(forward);
+                    return true;
+                }
+            }
+        }
+        return QQuickWidget::eventFilter(watched, event);
+    }
+
     bool focusNextPrevChild(bool next) override
     {
         const Qt::Key key = next ? Qt::Key_Tab : Qt::Key_Backtab;
@@ -43,6 +87,9 @@ protected:
         }
         return QQuickWidget::focusNextPrevChild(next);
     }
+
+private:
+    QPointer<QQuickItem> m_entryItem;
 };
 
 } // namespace

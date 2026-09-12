@@ -456,6 +456,7 @@ private slots:
     void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
     void testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank();
     void testTheSearchResultsRowIsAQtQuickOne();
+    void testTabLeavesASceneWithOnlyOneThingInIt();
     void testTabWalksIntoAQuickViewThroughItAndOutAgain();
     void testFocusReachesTheQuickSearchResultsPane();
     void testTheLuaPaneIsAQtQuickOne();
@@ -14459,6 +14460,60 @@ void QuickUiTest::testTheSearchResultsRowIsAQtQuickOne()
     QTRY_VERIFY2(model->rowCount() > 0, "a result was added and the tree lists nothing");
 }
 
+void QuickUiTest::testTabLeavesASceneWithOnlyOneThingInIt()
+{
+    // The ring of a one-item scene is the item itself, so "the walk came back
+    // to where it started" and "the walk never moved" are the same event. An
+    // editor types an indent with Tab and must keep it; a lone field has
+    // nothing to do with it and must let go.
+    Utils::TemporaryDirectory dir("tab-one-field");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath qml = dir.filePath("OneField.qml");
+    QVERIFY(qml.writeFileContents(
+        "import QtQuick\nimport QtQuick.Controls\n"
+        "Column {\n"
+        "    required property var controller\n"
+        "    TextField { objectName: \"only\"; focus: true }\n"
+        "}\n"));
+
+    auto * const controller = new QObject;
+    QWidget * const scene
+        = Core::createQmlView(QUrl::fromLocalFile(qml.toFSPathString()), controller);
+    QVERIFY(scene);
+
+    QWidget host;
+    auto * const before = new QLineEdit(&host);
+    auto * const after = new QLineEdit(&host);
+    after->setObjectName("after");
+    auto * const layout = new QVBoxLayout(&host);
+    layout->addWidget(before);
+    layout->addWidget(scene);
+    layout->addWidget(after);
+    QWidget::setTabOrder(before, scene);
+    QWidget::setTabOrder(scene, after);
+
+    host.resize(400, 300);
+    host.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&host));
+    host.activateWindow();
+    QApplication::setActiveWindow(&host);
+    before->setFocus();
+    QTRY_COMPARE(QApplication::focusWidget(), before);
+
+    auto * const quick = scene->findChild<QQuickWidget *>();
+    QVERIFY(quick);
+    QTRY_VERIFY(quick->rootObject());
+    QQuickItem * const only = quick->rootObject()->findChild<QQuickItem *>("only");
+    QVERIFY(only);
+
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Tab);
+    QTRY_VERIFY2(only->hasActiveFocus(), "Tab did not reach the scene's only field");
+
+    QTest::keyClick(quick, Qt::Key_Tab);
+    QTRY_VERIFY2(QApplication::focusWidget() == after,
+                 "Tab was kept by a scene whose only field has no use for it");
+}
+
 void QuickUiTest::testTabWalksIntoAQuickViewThroughItAndOutAgain()
 {
     // Entry 206 fixed being *given* focus. Walking into a view is a different
@@ -14545,19 +14600,27 @@ void QuickUiTest::testTabWalksIntoAQuickViewThroughItAndOutAgain()
     QTRY_VERIFY2(second->hasActiveFocus(),
                  qPrintable("Tab inside the scene reached " + whereFocusIs()));
 
-    // And out again - which it does not. Measured rather than asserted away:
-    // a key typed into the scene is handled inside it and never reaches the
-    // host's focusNextPrevChild(), so the walk stops on the last item and a
-    // reader who tabs into a Qt Quick pane cannot tab out of it.
-    //
-    // The first attempt at a fix read "focus did not move" as "the scene
-    // wrapped" and took Tab away from the code editor, which types an indent
-    // with it - testTabTypesAnIndentInACodeEditor caught that. The answer
-    // belongs in the scene, where the end of the chain is known.
+    // And out, rather than round the ring for ever. The host sees the walk
+    // reach the item it came in on and hands the key to the widget chain
+    // instead - a reader who tabs into a Qt Quick pane tabs out of it again.
     QTest::keyClick(quick, Qt::Key_Tab);
-    QEXPECT_FAIL("", "a Qt Quick scene keeps Tab once it has it", Continue);
-    QVERIFY2(QApplication::focusWidget() == after,
-             qPrintable("Tab off the end of the scene reached " + whereFocusIs()));
+    QTRY_VERIFY2(QApplication::focusWidget() == after,
+                 qPrintable("Tab off the end of the scene reached " + whereFocusIs()));
+
+    // And the same walk backwards. Shift+Tab into the scene lands on the last
+    // field, walks up to the first, and leaves from there - a ring that can
+    // only be left in one direction is still a trap.
+    after->setFocus();
+    QTRY_COMPARE(QApplication::focusWidget(), after);
+    QTest::keyClick(QApplication::focusWidget(), Qt::Key_Backtab);
+    QTRY_VERIFY2(second->hasActiveFocus(),
+                 qPrintable("Shift+Tab from after the scene reached " + whereFocusIs()));
+    QTest::keyClick(quick, Qt::Key_Backtab);
+    QTRY_VERIFY2(first->hasActiveFocus(),
+                 qPrintable("Shift+Tab inside the scene reached " + whereFocusIs()));
+    QTest::keyClick(quick, Qt::Key_Backtab);
+    QTRY_VERIFY2(QApplication::focusWidget() == before,
+                 qPrintable("Shift+Tab off the front of the scene reached " + whereFocusIs()));
 }
 
 void QuickUiTest::testFocusReachesTheQuickSearchResultsPane()
