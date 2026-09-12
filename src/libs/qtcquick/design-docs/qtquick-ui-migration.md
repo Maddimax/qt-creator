@@ -54785,3 +54785,103 @@ census only asks what kind the row is.
 5. Parked: entry 174's page scroll, entry 173's crash, the two
    `ShortcutSettingsTest` failures, and entry 191's one-off TextEditor
    truncation.
+
+## 2026-09-12 — What the manage menu offers, and the way back that was not one (batch 193)
+
+**Gap closed: the manage menu was entirely untested, and one of its two jobs
+did not work.** `popupMenu()` built a `QMenu` on the stack and `exec()`ed it,
+so nothing could read what it offered without blocking. It is now split -
+`fillManageMenu(QMenu *)` says what is in it, `popupMenu()` shows it - and
+three tests read the result.
+
+This is the menu both rows open: the Quick delegates on right-click and from
+the arrow (batch 192), the widget buttons from their own context menu. It is
+also the **only** way a pane whose button has been taken away gets one back -
+a pane with no button cannot be reached by pressing one.
+
+### The bug the split found
+
+Ticking a pane in the menu did nothing at all when there was nowhere to put
+the pane:
+
+    } else {
+        showPage(idx, IOutputPane::ModeSwitch);
+    }
+
+`showPage()` looks for an `OutputPanePlaceHolder`, tries an
+`activateMode(MODE_EDIT)` if there is none, and if there is still none gives
+up with `requestFlash(idx)` - a flash on the button that is not there, because
+the button being missing is what the reader just asked to fix. The button
+never came back, and `saveSettings()` writes `buttonVisible`, so it stayed
+gone the next day too. "Reset to Default" was the only escape.
+
+The entry is a statement about the *button*; the fix is to make it one:
+
+    m_buttonModel->setButtonVisible(idx, true);
+    showPage(idx, IOutputPane::ModeSwitch);
+
+That also makes the branch symmetrical with the one above it, which already
+said all three things it meant explicitly.
+
+**This was not found by reasoning about the code.** The test was written to
+assert the round trip - hide it, put it back - and it went red on the second
+half. The gap had been there as long as the menu.
+
+### What the three tests say
+
+- **The menu lists every pane, in the model's order, with its own name**, each
+  entry checkable and ticked exactly when that pane has a button; then a
+  separator, then "Reset to Default". The count is `panes + 2`, so an entry
+  appearing or vanishing is caught rather than absorbed.
+- **The round trip works**, and the menu is re-read rather than reused: the
+  second `fillManageMenu()` has to show the entry unticked, because a stale
+  tick is a reader told the opposite of what is on screen.
+- **Reset gives back exactly the buttons the panes asked for** -
+  `priorityInStatusBar() >= 0` - rather than all of them.
+
+### Verification
+
+Both platforms build clean.
+
+    -test QuickUi      220 passed, 0 failed, exit 0
+    -test Core         262 passed, 2 failed, exit 2
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+Core is up from 259 to 262: the three new tests. The failures are the three
+already recorded and are unchanged. The widget switch state was measured too
+(`QTC_WIDGET_OUTPUT_BUTTONS=1 -test Core`: the same two known failures) - the
+menu is shared, so both rows exercise this code.
+
+### Negative controls
+
+**AO - the fix bites.** The `setButtonVisible(idx, true)` line removed, so the
+show branch is `showPage()` alone again: `'model->isButtonVisible(row)'
+returned FALSE. (there is no way back to a hidden button)`. This is the
+shipped behaviour, and the control is the proof that the test measures it.
+
+**AP - the ticks bite, in two places.** `act->setChecked(true)` for every
+entry: the listing test fails on the comparison, and the round-trip test fails
+on `'!show.actions().at(row)->isChecked()' returned FALSE. (the menu still
+ticks a pane whose button it just took away)`. A menu that lists the right
+panes but ticks the wrong ones is the failure a presence-only test would miss.
+
+**AR - reset bites, and names the pane.** `buttonVisible` forced true in the
+reset loop: `(Version Control has a button: 1, and asked for one: 0)`.
+
+### What is still not covered
+
+**Pressing the arrow, or right-clicking a button, still is not tested.**
+`popupMenu()` ends in `exec()` and that has not changed - what changed is that
+everything *behind* it now is. The remaining untested step is one line, and
+covering it needs a test that can dismiss a modal popup, which is a different
+kind of machinery from anything in these suites.
+
+### What is next
+
+1. **The three widget output panes** - Terminal, Search Results, Lua. The row
+   and its menu now point at panes that are still widgets.
+2. **The output toolbar**, still blocked on `IOutputPane::toolBarWidgets()`
+   returning `QWidget *`.
+3. **macOS verification**, still owed for every Quick pane since entry 168.
+4. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's one-off TextEditor truncation.

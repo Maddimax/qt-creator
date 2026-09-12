@@ -1376,12 +1376,11 @@ void OutputPaneManager::setCurrentIndex(int idx)
     lastIndex = idx;
 }
 
-void OutputPaneManager::popupMenu()
+void OutputPaneManager::fillManageMenu(QMenu *menu)
 {
-    QMenu menu;
     int idx = 0;
-    for (OutputPaneData &data : g_outputPanes) {
-        QAction *act = menu.addAction(data.pane->displayName());
+    for (const OutputPaneData &data : std::as_const(g_outputPanes)) {
+        QAction *act = menu->addAction(data.pane->displayName());
         act->setCheckable(true);
         act->setChecked(m_buttonModel->isButtonVisible(idx));
         connect(act, &QAction::triggered, this, [this, pane = data.pane, idx] {
@@ -1390,14 +1389,17 @@ void OutputPaneManager::popupMenu()
                 m_buttonModel->setChecked(idx, false);
                 m_buttonModel->setButtonVisible(idx, false);
             } else {
+                // The entry is about the button, and showPage() gives up
+                // without one where there is nowhere to put the pane.
+                m_buttonModel->setButtonVisible(idx, true);
                 showPage(idx, IOutputPane::ModeSwitch);
             }
         });
         ++idx;
     }
 
-    menu.addSeparator();
-    QAction *reset = menu.addAction(Tr::tr("Reset to Default"));
+    menu->addSeparator();
+    QAction *reset = menu->addAction(Tr::tr("Reset to Default"));
     connect(reset, &QAction::triggered, this, [this] {
         for (int i = 0; i < g_outputPanes.size(); ++i) {
             const OutputPaneData &data = g_outputPanes.at(i);
@@ -1408,7 +1410,12 @@ void OutputPaneManager::popupMenu()
             m_buttonModel->setButtonVisible(i, buttonVisible);
         }
     });
+}
 
+void OutputPaneManager::popupMenu()
+{
+    QMenu menu;
+    fillManageMenu(&menu);
     menu.exec(QCursor::pos());
 }
 
@@ -1792,6 +1799,92 @@ private slots:
         manager->setCurrentIndex(row);
         QVERIFY2(model->isButtonVisible(row),
                  "the pane is the current one and the model still says it has no button");
+    }
+
+    void testTheManageMenuListsEveryPaneAndSaysWhichHaveButtons()
+    {
+        OutputPaneManager * const manager = OutputPaneManager::instance();
+        OutputPaneButtonModel * const model = manager->m_buttonModel;
+        QVERIFY(model);
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QVERIFY(!panes.isEmpty());
+
+        QMenu menu;
+        manager->fillManageMenu(&menu);
+
+        const QList<QAction *> actions = menu.actions();
+        QCOMPARE(actions.size(), panes.size() + 2);
+        for (int row = 0; row < panes.size(); ++row) {
+            QAction * const act = actions.at(row);
+            QCOMPARE(act->text(), panes.at(row)->displayName());
+            QVERIFY2(act->isCheckable(), "an entry that cannot be ticked says nothing");
+            QCOMPARE(act->isChecked(), model->isButtonVisible(row));
+        }
+        QVERIFY2(actions.at(panes.size())->isSeparator(),
+                 "the panes run straight into Reset to Default");
+        QCOMPARE(actions.last()->text(), Tr::tr("Reset to Default"));
+    }
+
+    void testTheManageMenuIsTheWayBackForAHiddenButton()
+    {
+        // Taking a button away and putting it back is the only thing this
+        // menu is for, and it is the only route back: a pane with no button
+        // cannot be reached by pressing one.
+        OutputPaneManager * const manager = OutputPaneManager::instance();
+        OutputPaneButtonModel * const model = manager->m_buttonModel;
+        QVERIFY(model);
+        QVERIFY(model->rowCount() > 0);
+        const int row = 0;
+        const bool wasVisible = model->isButtonVisible(row);
+        const QScopeGuard restore([model, wasVisible] {
+            model->setButtonVisible(row, wasVisible); });
+
+        model->setButtonVisible(row, true);
+        QMenu hide;
+        manager->fillManageMenu(&hide);
+        QVERIFY(hide.actions().at(row)->isChecked());
+        hide.actions().at(row)->trigger();
+        QVERIFY2(!model->isButtonVisible(row), "the menu said yes and the button stayed");
+
+        // Filled again, because what the entries say is read when the menu is
+        // built: a stale tick is a reader told the opposite of what is there.
+        QMenu show;
+        manager->fillManageMenu(&show);
+        QVERIFY2(!show.actions().at(row)->isChecked(),
+                 "the menu still ticks a pane whose button it just took away");
+        show.actions().at(row)->trigger();
+        QVERIFY2(model->isButtonVisible(row), "there is no way back to a hidden button");
+    }
+
+    void testResetToDefaultGivesBackTheButtonsThePanesAskedFor()
+    {
+        OutputPaneManager * const manager = OutputPaneManager::instance();
+        OutputPaneButtonModel * const model = manager->m_buttonModel;
+        QVERIFY(model);
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        QVERIFY(!panes.isEmpty());
+
+        QList<bool> wasVisible;
+        for (int row = 0; row < panes.size(); ++row)
+            wasVisible << model->isButtonVisible(row);
+        const QScopeGuard restore([model, wasVisible] {
+            for (int row = 0; row < wasVisible.size(); ++row)
+                model->setButtonVisible(row, wasVisible.at(row)); });
+
+        for (int row = 0; row < panes.size(); ++row)
+            model->setButtonVisible(row, false);
+
+        QMenu menu;
+        manager->fillManageMenu(&menu);
+        menu.actions().last()->trigger();
+
+        for (int row = 0; row < panes.size(); ++row) {
+            const bool wanted = panes.at(row)->priorityInStatusBar() >= 0;
+            QVERIFY2(model->isButtonVisible(row) == wanted,
+                     qPrintable(QString("%1 has a button: %2, and asked for one: %3")
+                                    .arg(panes.at(row)->displayName())
+                                    .arg(model->isButtonVisible(row)).arg(wanted)));
+        }
     }
 
     void testTheTooltipNamesTheKeysThatReachThePane()

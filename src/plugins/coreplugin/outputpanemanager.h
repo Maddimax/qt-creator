@@ -11,6 +11,7 @@
 QT_BEGIN_NAMESPACE
 class QAction;
 class QLabel;
+class QMenu;
 class QStackedWidget;
 QT_END_NAMESPACE
 
@@ -158,6 +159,7 @@ private:
 
     void shortcutTriggered(int idx);
     void clearPage();
+    void fillManageMenu(QMenu *menu);
     void popupMenu();
     void saveSettings() const;
     void showPage(int idx, int flags);
