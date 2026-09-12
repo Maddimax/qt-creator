@@ -57464,3 +57464,139 @@ that catches it.
    page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
    three `ProjectExplorer` failures from entry 218, entry 196's uncovered
    widget auto-scroll, entry 199's QML root with no `controller` property.
+
+## 2026-09-12 — A menu can open three ways, and Terminal wants two of them (batch 220)
+
+Terminal, the next pane on entry 219's list. Its six buttons turned out to use
+three different menu shapes, one of which batch 218 had hard-coded as the only
+one, so the interface had to grow before the pane could be converted.
+
+### The gap this batch closed
+
+**`ToolBarItem::forAction()` could not say how a menu opens.**
+
+Entry 218 found that `QToolButton::setDefaultAction()` picks `MenuButtonPopup`
+for any action carrying a menu, and fixed it by forcing `InstantPopup` plus
+`C_NO_ARROW` on every one. That was right for the two menus that existed —
+Squish's filter and the Issues category filter, both icon-only buttons where
+the menu *is* the button. It is wrong for both of Terminal's:
+
+| button | what it does |
+| --- | --- |
+| New Terminal | the button starts a terminal, the **arrow** picks a shell — `MenuButtonPopup`, genuinely split |
+| `%{...}` | the whole button opens the macro list, and **draws an arrow** to say so |
+
+So there are three shapes, not one, and no amount of looking at the `QAction`
+tells them apart. They are now named on the item:
+
+    enum class MenuStyle {
+        OpensOnTheButton,          // anywhere on it, and no arrow is drawn
+        OpensOnTheButtonWithArrow, // anywhere on it, with an arrow saying so
+        OpensOnAnArrow,            // the button triggers; the arrow opens
+    };
+
+`forAction(action, style)` defaults to `OpensOnTheButton`, which keeps Squish
+and Issues as they are. The manager reads the style instead of guessing.
+
+Batch 218's fix was not wrong, exactly — it restored what those two panes drew
+before their conversion. It was a rule inferred from two samples, and the third
+and fourth samples disagreed. Worth noting because it will happen again: the
+first pane to need something is a poor guide to what the interface should say.
+
+### Terminal
+
+    close (action)  new + shell menu (action, OpensOnAnArrow)  settings (action)
+    keyboard lock (action)  send-escape (aspect)  %{...} (action, WithArrow)
+
+Four of the six already had actions and only needed naming — `m_closeTerminalAction`
+and `m_newTerminalAction` come from `ActionBuilder`, and the keyboard lock
+button carried `cmd->action()` for `TOGGLE_KEYBOARD_LOCK`. The escape toggle
+was `settings().sendEscapeToTerminal.action()`, so it becomes an aspect item
+and is named by its settings key, `SendEscapeToTerminal`. Only Configure and
+`%{...}` needed an action made for them.
+
+Terminal has no filter line edit, so appending `baseToolBarItems()` at the end
+reproduces the old order exactly; the old code prepended two buttons around
+`IOutputPane::toolBarWidgets()` precisely because that list could be non-empty,
+but for this pane it never is.
+
+**The pane now hands over no widgets at all** — `Terminal=8,0` in the count
+census, down from `8,6`.
+
+### A Qt detail that would have shipped as a typo
+
+`%{...}` is the only toolbar button on the branch that draws text. A
+`QToolButton` takes its text from `QAction::iconText()`, and an `iconText` that
+was never set is derived from `text()` by `qt_strippedText()`, which removes
+`&` **and every `"..."`**. So `setText("%{...}")` produces a button labelled
+
+    %{}
+
+`setIconText("%{...}")` is the way to mean it. This was found by reading
+`qtoolbutton.cpp` rather than by shipping it, and control CW then produced the
+`"%{}"` above from the real code, so it is measured and not just read.
+
+`testAToolbarButtonDrawsTheTextItsActionMeant` writes `"%{...}"` down as a
+literal. Reading the expected text back off the action would ask the same
+accessor the button asked, which is the trap entry 219 wrote up twice.
+
+### Measurements
+
+    -test Core              290 passed, 2 failed, exit 2   (the two ShortcutSettings)
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test ProjectExplorer   530 passed, 3 failed, 4 skipped, exit 3
+    -test Terminal          0 passed, 0 failed, exit 0
+
+Committed baseline before this batch was Core 289/2.
+
+**`-test Terminal` runs no tests.** Exit 0 and a green-looking line, which is
+the shape my notes call a suite that lies — said here so nobody reads it as
+coverage. Everything this batch is watched by lives in Core's toolbar tests.
+
+All four censuses were right first try this time — the item counts, the action
+names, the aspect names and the menu styles — which is the first batch where
+none of them had to be corrected by a run.
+
+### Negative controls
+
+**CV — the manager ignores the pane's menu style** and does what entry 218
+did. Bit on exactly the two buttons that answer would have broken, and on both
+of their symptoms:
+
+    (Terminal.New: opens on the button; Terminal.New: no arrow;
+     Terminal.Variables: no arrow)
+
+**CW — the macro button sets `text` instead of `iconText`.** Bit, with the
+predicted string:
+
+    Actual   (button->text())   : "%{}"
+    Expected (QString("%{...}")): "%{...}"
+
+**CX — Terminal forgets to say how the shell menu opens**, i.e. leaves off the
+second argument to `forAction()`. That is the mistake the new default invites,
+so it is worth knowing the census sees it. Bit at index 1.
+
+Each was a separate build and run.
+
+### What is next
+
+1. **The remaining panes**: To-Do Entries (ten widgets) and VcsBase (none).
+   After those, every output pane states its toolbar as items and
+   `toolBarWidgets()`/`toolBarAspects()`/`toolBarCommands()` could be removed
+   from `IOutputPane` — worth doing as its own batch, because the count census
+   makes it checkable.
+2. **The order of a pane with nothing named.** Terminal is now one of these:
+   six named items and no widgets. Its order *is* watched, because every item
+   has a name and `testEveryPaneGetsTheToolbarOrderItAskedFor` compares the
+   named sequence. The remaining blind spot is narrower than entry 219 said:
+   only a pane that changes its own stated order is invisible, because asked
+   and drawn move together. Version Control and Lua hand over nothing but the
+   zoom commands, and `testEveryPaneToolbarEndsWithTheZoomButtons` already
+   asserts that exact pair in that exact order, so they are covered.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. Parked, with numbers: the TextEditor corruption (0/18 at tip), entry 174's
+   page scroll, entry 173's crash, the two `ShortcutSettingsTest` failures, the
+   three `ProjectExplorer` failures from entry 218, entry 196's uncovered
+   widget auto-scroll, entry 199's QML root with no `controller` property.

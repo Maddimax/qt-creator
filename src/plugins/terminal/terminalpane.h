@@ -36,7 +36,7 @@ public:
     ~TerminalPane() override;
 
     QWidget *outputWidget(QWidget *parent) override;
-    QList<QWidget *> toolBarWidgets() const override;
+    QList<ToolBarItem> toolBarItems() const override;
     void clearContents() override;
     void visibilityChanged(bool visible) override;
     void setFocus() override;
@@ -67,12 +67,8 @@ private:
 private:
     TabWidget m_tabWidget;
 
-    QToolButton *m_newTerminalButton{nullptr};
-    QToolButton *m_closeTerminalButton{nullptr};
-    QToolButton *m_openSettingsButton{nullptr};
-    QToolButton *m_escSettingButton{nullptr};
-    QToolButton *m_lockKeyboardButton{nullptr};
-    QToolButton *m_variablesButton{nullptr};
+    QAction *m_openSettingsAction{nullptr};
+    QAction *m_variablesAction{nullptr};
 
     QAction *m_newTerminalAction{nullptr};
     QAction *m_closeTerminalAction{nullptr};

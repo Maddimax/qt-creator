@@ -1141,12 +1141,16 @@ void OutputPaneManager::setupButtons()
                     button->setObjectName(action->objectName());
                     button->setDefaultAction(action);
                     if (action->menu()) {
-                        // setDefaultAction() picks MenuButtonPopup, which is
-                        // the split button with an arrow where only the arrow
-                        // half opens anything. The panes that hand over a menu
-                        // all drew one button that opens it on any click.
-                        button->setPopupMode(QToolButton::InstantPopup);
-                        button->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
+                        // Said by the pane, because setDefaultAction() picks
+                        // MenuButtonPopup for any action carrying a menu and
+                        // only one of the three shapes wants that.
+                        using MenuStyle = IOutputPane::ToolBarItem::MenuStyle;
+                        const MenuStyle style = item.menuStyle();
+                        button->setPopupMode(style == MenuStyle::OpensOnAnArrow
+                                                 ? QToolButton::MenuButtonPopup
+                                                 : QToolButton::InstantPopup);
+                        if (style == MenuStyle::OpensOnTheButton)
+                            button->setProperty(Utils::StyleHelper::C_NO_ARROW, true);
                     }
                     // Styled like every other button in the row: the ones
                     // built here had none, so a named toggle sat next to a
@@ -2171,7 +2175,9 @@ private slots:
                              "AppOutput.Settings", "CompileOutput.CancelBuild",
                              "CompileOutput.Settings", "Issues.FilterByCategories",
                              "Issues.ParseExternalOutput", "Squish.CollapseAll",
-                             "Squish.ExpandAll", "Squish.Filter"};
+                             "Squish.ExpandAll", "Squish.Filter", "Terminal.Close",
+                             "Terminal.LockKeyboard", "Terminal.New", "Terminal.Settings",
+                             "Terminal.Variables"};
         named.sort();
         QCOMPARE(named, expected);
     }
@@ -2193,7 +2199,7 @@ private slots:
             "Search Results=10,8",
             "Application Output=8,2",
             "Compile Output=5,1",
-            "Terminal=8,6",
+            "Terminal=8,0",
             "To-Do Entries=12,10",
             "Version Control=2,0",
             "Lua=2,0",
@@ -2258,12 +2264,50 @@ private slots:
         QCOMPARE(others, QStringList({"ProjectExplorer.Stop"}));
     }
 
-    void testAToolbarButtonForAnActionWithAMenuOpensItOnAnyClick()
+    QWidget *toolBarOf(const QString &displayName) const
     {
-        // QToolButton::setDefaultAction() chooses MenuButtonPopup for an
-        // action that has a menu - a split button with an arrow, where only
-        // the arrow half opens anything. Every pane that hands over a menu
-        // drew a single button that opens it, so the manager has to say so.
+        const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
+        for (int row = 0; row < panes.size(); ++row) {
+            if (panes.at(row)->displayName() == displayName)
+                return m_instance->m_opToolBarWidgets->widget(row);
+        }
+        return nullptr;
+    }
+
+    void testAToolbarButtonDrawsTheTextItsActionMeant()
+    {
+        // A QToolButton takes its text from QAction::iconText(), and an
+        // iconText that was never set is derived from text() by stripping
+        // mnemonics *and* ellipses. Terminal's macro button is called
+        // "%{...}", which comes back out of that as "%{}".
+        //
+        // The expected text is written here because reading it back from the
+        // action is reading it out of the same accessor the button used.
+        QWidget * const toolBar = toolBarOf("Terminal");
+        QVERIFY2(toolBar, "the Terminal pane has no toolbar");
+        auto * const button = toolBar->findChild<QToolButton *>("Terminal.Variables");
+        QVERIFY2(button, "nothing in Terminal's toolbar inserts a macro variable");
+        QCOMPARE(button->text(), QString("%{...}"));
+    }
+
+    void testAToolbarButtonOpensItsMenuTheWayThePaneAskedFor()
+    {
+        // QToolButton::setDefaultAction() chooses MenuButtonPopup for any
+        // action that has a menu - a split button whose arrow half opens it.
+        // Terminal's New Terminal wants exactly that, its macro variables
+        // button wants an arrow that is not a separate half, and Issues and
+        // Squish want no arrow at all. The action cannot say which.
+        using MenuStyle = IOutputPane::ToolBarItem::MenuStyle;
+        const auto styleName = [](MenuStyle style) {
+            switch (style) {
+            case MenuStyle::OpensOnTheButton: return QString("OpensOnTheButton");
+            case MenuStyle::OpensOnTheButtonWithArrow:
+                return QString("OpensOnTheButtonWithArrow");
+            case MenuStyle::OpensOnAnArrow: return QString("OpensOnAnArrow");
+            }
+            return QString("?");
+        };
+
         const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
         QStringList withMenus;
         QStringList wrong;
@@ -2275,22 +2319,34 @@ private slots:
                 QAction * const action = item.action();
                 if (!action || !action->menu())
                     continue;
-                withMenus << panes.at(row)->displayName();
+                const MenuStyle style = item.menuStyle();
+                withMenus << action->objectName() + "=" + styleName(style);
+
                 auto * const button = toolBar->findChild<QToolButton *>(action->objectName());
                 if (!button) {
                     wrong << action->objectName() + ": no button";
                     continue;
                 }
-                if (button->popupMode() != QToolButton::InstantPopup)
-                    wrong << action->objectName() + ": opens from an arrow, not the button";
-                if (!button->property(Utils::StyleHelper::C_NO_ARROW).toBool())
-                    wrong << action->objectName() + ": draws an arrow";
+                const auto wantedMode = style == MenuStyle::OpensOnAnArrow
+                                            ? QToolButton::MenuButtonPopup
+                                            : QToolButton::InstantPopup;
+                if (button->popupMode() != wantedMode) {
+                    wrong << action->objectName() + ": opens "
+                                 + (button->popupMode() == QToolButton::MenuButtonPopup
+                                        ? "from an arrow" : "on the button");
+                }
+                const bool wantsArrow = style != MenuStyle::OpensOnTheButton;
+                if (button->property(Utils::StyleHelper::C_NO_ARROW).toBool() == wantsArrow)
+                    wrong << action->objectName() + (wantsArrow ? ": no arrow" : ": draws an arrow");
             }
         }
         QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
         // Written here rather than counted, so that a pane losing its menu is
         // a failure instead of one less thing to check.
-        QCOMPARE(withMenus, QStringList({"Issues", "Squish"}));
+        QCOMPARE(withMenus, QStringList({"Issues.FilterByCategories=OpensOnTheButton",
+                                         "Terminal.New=OpensOnAnArrow",
+                                         "Terminal.Variables=OpensOnTheButtonWithArrow",
+                                         "Squish.Filter=OpensOnTheButton"}));
     }
 
     void testEveryPaneToolbarEndsWithTheZoomButtons()
@@ -2328,7 +2384,7 @@ private slots:
         // with no name at all sat behind a nameless button.
         const QStringList expected{"AutoTest.ShowDurations", "Console/showLog",
                                    "Console/showWarning", "Console/showError",
-                                   "Issues.ShowWarnings"};
+                                   "Issues.ShowWarnings", "SendEscapeToTerminal"};
         const QList<IOutputPane *> panes = IOutputPane::allOutputPanes();
         QStringList named;
         QStringList wrong;

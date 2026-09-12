@@ -75,36 +75,28 @@ TerminalPane::TerminalPane(QObject *parent)
     createShellMenu();
     initActions();
 
-    m_newTerminalButton = new QToolButton();
-    m_newTerminalButton->setDefaultAction(m_newTerminalAction);
-    m_newTerminalButton->setMenu(&m_shellMenu);
-    m_newTerminalButton->setPopupMode(QToolButton::MenuButtonPopup);
+    m_newTerminalAction->setObjectName("Terminal.New");
+    m_newTerminalAction->setMenu(&m_shellMenu);
 
-    m_closeTerminalButton = new QToolButton();
-    m_closeTerminalButton->setDefaultAction(m_closeTerminalAction);
+    m_closeTerminalAction->setObjectName("Terminal.Close");
+    m_toggleKeyboardLockAction->setObjectName("Terminal.LockKeyboard");
 
-    m_openSettingsButton = new QToolButton();
-    m_openSettingsButton->setToolTip(Tr::tr("Configure..."));
-    m_openSettingsButton->setIcon(Icons::SETTINGS_TOOLBAR.icon());
-
-    connect(m_openSettingsButton, &QToolButton::clicked, m_openSettingsButton, []() {
+    m_openSettingsAction = new QAction(Icons::SETTINGS_TOOLBAR.icon(), Tr::tr("Configure..."), this);
+    m_openSettingsAction->setObjectName("Terminal.Settings");
+    connect(m_openSettingsAction, &QAction::triggered, this, []() {
         ICore::showSettings("Terminal.General");
     });
 
-    m_escSettingButton = new QToolButton();
-    m_escSettingButton->setDefaultAction(settings().sendEscapeToTerminal.action());
-
-    m_lockKeyboardButton = new QToolButton();
-    m_lockKeyboardButton->setDefaultAction(m_toggleKeyboardLockAction);
-
-    m_variablesButton = new QToolButton();
-    m_variablesButton->setText("%{...}");
-    m_variablesButton->setToolTip(Tr::tr("Insert Macro Variable"));
-    m_variablesButton->setPopupMode(QToolButton::InstantPopup);
+    m_variablesAction = new QAction(this);
+    // Set outright, because a button takes its text from iconText(), and an
+    // iconText derived from "%{...}" has the ellipsis stripped out of it.
+    m_variablesAction->setIconText("%{...}");
+    m_variablesAction->setToolTip(Tr::tr("Insert Macro Variable"));
+    m_variablesAction->setObjectName("Terminal.Variables");
     QMenu *variableMenu = new QMenu();
     variableMenu->setToolTipsVisible(true);
 
-    m_variablesButton->setMenu(variableMenu);
+    m_variablesAction->setMenu(variableMenu);
 
     connect(variableMenu, &QMenu::aboutToShow, variableMenu, [this, variableMenu] {
         variableMenu->clear();
@@ -371,15 +363,20 @@ void TerminalPane::createShellMenu()
     });
 }
 
-QList<QWidget *> TerminalPane::toolBarWidgets() const
+QList<Core::IOutputPane::ToolBarItem> TerminalPane::toolBarItems() const
 {
-    QList<QWidget *> widgets = IOutputPane::toolBarWidgets();
-
-    widgets.prepend(m_newTerminalButton);
-    widgets.prepend(m_closeTerminalButton);
-
-    return widgets << m_openSettingsButton << m_lockKeyboardButton << m_escSettingButton
-                   << m_variablesButton;
+    QList<ToolBarItem> items{
+        ToolBarItem::forAction(m_closeTerminalAction),
+        // The button starts a terminal; the arrow beside it picks which shell.
+        ToolBarItem::forAction(m_newTerminalAction, ToolBarItem::MenuStyle::OpensOnAnArrow),
+        ToolBarItem::forAction(m_openSettingsAction),
+        ToolBarItem::forAction(m_toggleKeyboardLockAction),
+        ToolBarItem::forAspect(&settings().sendEscapeToTerminal),
+        ToolBarItem::forAction(m_variablesAction,
+                               ToolBarItem::MenuStyle::OpensOnTheButtonWithArrow)};
+    for (const ToolBarItem &item : baseToolBarItems())
+        items << item;
+    return items;
 }
 
 void TerminalPane::clearContents()

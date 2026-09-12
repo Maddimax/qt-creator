@@ -46,12 +46,22 @@ public:
         static ToolBarItem forWidget(QWidget *widget) { return {widget, nullptr, {}}; }
         static ToolBarItem forAspect(Utils::BaseAspect *aspect) { return {nullptr, aspect, {}}; }
         static ToolBarItem forCommand(Utils::Id command) { return {nullptr, nullptr, command}; }
+        // How an action's menu is offered. A button cannot tell these apart
+        // from the action, and the panes ask for all three.
+        enum class MenuStyle {
+            OpensOnTheButton,          // anywhere on it, and no arrow is drawn
+            OpensOnTheButtonWithArrow, // anywhere on it, with an arrow saying so
+            OpensOnAnArrow,            // the button triggers; the arrow opens
+        };
+
         // An action that is not a registered command: a proxy of somebody
         // else's, or one a pane made for a button of its own.
-        static ToolBarItem forAction(QAction *action)
+        static ToolBarItem forAction(QAction *action,
+                                     MenuStyle menuStyle = MenuStyle::OpensOnTheButton)
         {
             ToolBarItem item{nullptr, nullptr, {}};
             item.m_action = action;
+            item.m_menuStyle = menuStyle;
             return item;
         }
 
@@ -59,6 +69,7 @@ public:
         Utils::BaseAspect *aspect() const { return m_aspect; }
         Utils::Id command() const { return m_command; }
         QAction *action() const { return m_action; }
+        MenuStyle menuStyle() const { return m_menuStyle; }
 
     private:
         ToolBarItem(QWidget *widget, Utils::BaseAspect *aspect, Utils::Id command)
@@ -68,6 +79,7 @@ public:
         Utils::BaseAspect *m_aspect = nullptr;
         QAction *m_action = nullptr;
         Utils::Id m_command;
+        MenuStyle m_menuStyle = MenuStyle::OpensOnTheButton;
     };
 
     // What the toolbar draws. The default puts the three lists above in the
