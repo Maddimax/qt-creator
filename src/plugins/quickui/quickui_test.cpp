@@ -6,6 +6,7 @@
 #include "quickoutputview.h"
 
 #include <coreplugin/dialogs/ioptionspage.h>
+#include <coreplugin/find/searchresultwindow.h>
 #include <coreplugin/icore.h>
 
 #include <utils/completionhistory.h>
@@ -454,6 +455,7 @@ private slots:
     void testDraggingABookmarkCarriesItAndReordersTheList();
     void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
     void testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank();
+    void testTheSearchResultsRowIsAQtQuickOne();
     void testTheLuaPaneIsAQtQuickOne();
     void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
@@ -14407,6 +14409,30 @@ void QuickUiTest::testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank()
         Core::createQmlView(QUrl::fromLocalFile(fine.toFSPathString()), goodController));
     QVERIFY2(accepted, qPrintable("a scene that loads was refused: " + complaints.join("; ")));
     QCOMPARE(goodController->parent(), accepted.get());
+}
+
+void QuickUiTest::testTheSearchResultsRowIsAQtQuickOne()
+{
+    // The census for the Search Results header. The pane builds its strip
+    // once, when a search starts, so a test cannot change which kind it gets -
+    // it can only say which kind is there. Asked from this suite because Core
+    // does not link Qt Quick, which is the seam working as intended.
+    Core::SearchResult * const search = Core::SearchResultWindow::instance()->startNewSearch(
+        QString("QuickUi census"), QString(), QString("term"),
+        Core::SearchResultWindow::SearchAndReplace);
+    QVERIFY(search);
+    const QScopeGuard closeIt([] {
+        Core::SearchResultWindow::instance()->clearContents(); });
+
+    QWidget * const pane = Core::SearchResultWindow::instance()->outputWidget(nullptr);
+    QVERIFY2(pane, "the search results pane built nothing to draw in");
+    QVERIFY2(pane->findChild<QQuickWidget *>(),
+             "the search results row is the widget one, which this line has to say");
+
+    // And it is the row above the results, not the results: those are still a
+    // QTreeView, and this line is what will have to change when they are not.
+    QVERIFY2(pane->findChild<QAbstractItemView *>(),
+             "the results are drawn by something other than an item view now");
 }
 
 void QuickUiTest::testTheLuaPaneIsAQtQuickOne()

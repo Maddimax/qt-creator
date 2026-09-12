@@ -55783,3 +55783,95 @@ removed: `(ticking the extra option reaches nothing)`.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — The Search Results row draws in Qt Quick (batch 203)
+
+**Gap closed: the row above the search results is a Qt Quick view.**
+`SearchResultsRow.qml` over `SearchResultRow`, behind
+`QTC_WIDGET_SEARCH_RESULTS`, with the census in QuickUi. Batches 200, 201 and
+202 made every answer in it state; this draws them.
+
+### What is Quick and what is not
+
+The Quick view replaces `topWidget` - the description, the search term, Cancel,
+Search Again, the matches-found sentence, and the whole replace row including
+the extra option and its note. **The results themselves are still a
+`QTreeView`**, and so are the message strip and the info bar below it. The
+census says both halves out loud, so the line that has to change when the tree
+moves is written down rather than assumed.
+
+The widget strip is still built and simply hidden when the Quick row is there.
+That is deliberate for now: `hasFocusInternally()`, `setFocusInternally()` and
+the tab order still reach into `m_replaceTextEdit`, and focus across the
+widget/Quick boundary is its own problem with a drawer of lessons behind it.
+Worth removing once the tree moves and the focus question is answered in one
+go rather than twice.
+
+### The controller
+
+`SearchResultRow` is one per view and short lived, standing in front of a
+header the search owns - the shape batches 189, 191 and 197 used. Seventeen
+properties, all `NOTIFY changed`, and three invokables for the three things
+the row can be asked to do. Nothing new in the seam.
+
+### The same trap, one level down
+
+Control BQ ran the widget switch state and Core came back reporting control
+BP's message - "the row hears nothing the search says" - for a control that
+had been reverted. Entry 198 fixed the runner to **deploy** the build; it did
+not make it **build**. Reverting a control and running without rebuilding
+syncs an artefact that still contains the control, which reads exactly like
+the control still being in place.
+
+The runner builds now, so neither step can be forgotten, and
+`~/.claude/testing.md` says so. Three batches after the first version of this
+mistake, and it cost one confused reading rather than a batch - which is what
+the note was for.
+
+### An assertion that was right and became wrong
+
+`testTypingIntoTheReplaceFieldReachesWhatAReplaceWillUse`, written last batch,
+asserted `extra->isVisibleTo(&widget)`. Hiding the widget strip made that
+false for everything inside it - correctly. The question it meant to ask is
+whether `updateHeader()` hid that box *in its own right*, which is
+`isHidden()`, and it is now asked in both directions: hidden before the option
+is named, shown after.
+
+### Verification
+
+Both platforms build clean. `SearchResultsRow.qml` is new; coreplugin's `.qbs`
+takes QML by wildcard, so **no `.qbs` edit and no re-resolve**. No QML warning
+names the new file.
+
+    -test Core         276 passed, 2 failed, exit 2   (275 before)
+    -test QuickUi      223 passed, 0 failed, exit 0   (222 before: the census)
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+    QTC_WIDGET_SEARCH_RESULTS=1  -test QuickUi   222 passed, 1 failed (census)
+    QTC_WIDGET_SEARCH_RESULTS=1  -test Core      2 failed (the known two)
+
+### Negative controls
+
+**BP - the relay bites.** The controller's connection to the header removed:
+`(the row hears nothing the search says)`. A row that draws the first answer
+and never the next one is the failure this guards.
+
+**BQ - the census bites.** `QTC_WIDGET_SEARCH_RESULTS=1`: `(the search results
+row is the widget one, which this line has to say)`, and nothing else moves.
+
+### What is next
+
+1. **The results tree.** It is the last widget in this pane and the biggest
+   piece: a `QTreeView` over `SearchResultTreeModel`, with check states,
+   replace columns, filtering and expansion. Probably two batches, and the
+   focus question above is settled with it.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**. `IOutputPane::toolBarWidgets()` is the same problem
+   batch 202 solved for the replace row.
+4. **macOS verification**, owed since entry 168, now including two Quick panes
+   nobody has looked at.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

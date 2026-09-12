@@ -3,6 +3,10 @@
 
 #include "searchresultwidget.h"
 
+#include <coreplugin/inavigationwidgetfactory.h>
+
+#include <utils/environment.h>
+
 #include "searchresulttreeview.h"
 #include "searchresulttreemodel.h"
 #include "searchresulttreeitems.h"
@@ -58,6 +62,68 @@ public:
     }
 };
 
+SearchResultRow::SearchResultRow(SearchResultHeader *header, SearchResultWidget *widget,
+                                 QObject *parent)
+    : QObject(parent)
+    , m_header(header)
+    , m_widget(widget)
+{
+    connect(m_header, &SearchResultHeader::changed, this, &SearchResultRow::changed);
+}
+
+QString SearchResultRow::label() const { return m_header->label(); }
+QString SearchResultRow::term() const { return m_header->term(); }
+QString SearchResultRow::description() const { return m_header->toolTip(); }
+QString SearchResultRow::matchesFound() const { return m_header->matchesFound(); }
+bool SearchResultRow::canCancel() const { return m_header->canCancel(); }
+bool SearchResultRow::canSearchAgain() const { return m_header->canSearchAgain(); }
+bool SearchResultRow::canReplace() const { return m_header->canReplace(); }
+bool SearchResultRow::showingReplaceUi() const { return m_header->isShowingReplaceUi(); }
+QString SearchResultRow::textToReplace() const { return m_header->textToReplace(); }
+void SearchResultRow::setTextToReplace(const QString &text) { m_header->setTextToReplace(text); }
+bool SearchResultRow::supportsPreserveCase() const { return m_header->supportsPreserveCase(); }
+bool SearchResultRow::preserveCaseChecked() const { return m_header->preserveCaseChecked(); }
+
+void SearchResultRow::setPreserveCaseChecked(bool checked)
+{
+    m_header->setPreserveCaseChecked(checked);
+}
+
+bool SearchResultRow::hasAdditionalOption() const { return m_header->hasAdditionalOption(); }
+QString SearchResultRow::additionalOptionLabel() const { return m_header->additionalOptionLabel(); }
+
+QString SearchResultRow::additionalOptionToolTip() const
+{
+    return m_header->additionalOptionToolTip();
+}
+
+bool SearchResultRow::additionalOptionChecked() const
+{
+    return m_header->additionalOptionChecked();
+}
+
+void SearchResultRow::setAdditionalOptionChecked(bool checked)
+{
+    m_header->setAdditionalOptionChecked(checked);
+}
+
+QString SearchResultRow::additionalNote() const { return m_header->additionalNote(); }
+
+void SearchResultRow::cancel()
+{
+    m_widget->cancelSearch();
+}
+
+void SearchResultRow::searchAgain()
+{
+    m_widget->requestSearchAgain();
+}
+
+void SearchResultRow::replace()
+{
+    m_widget->triggerReplace();
+}
+
 SearchResultWidget::SearchResultWidget(QWidget *parent) :
     QWidget(parent)
 {
@@ -65,6 +131,20 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     setLayout(layout);
+
+    // The Qt Quick row draws the whole strip from the header below, and is
+    // what a reader gets. QTC_WIDGET_SEARCH_RESULTS asks for the widgets, and
+    // a build with no front end to host QML gets them without asking.
+    m_quickRow = nullptr;
+    if (!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_SEARCH_RESULTS")
+        && Core::hasQmlViewFactory()) {
+        auto * const row = new SearchResultRow(&m_header, this);
+        m_quickRow = Core::createQmlView(
+            QUrl("qrc:/qt/qml/QtCreator/Core/SearchResultsRow.qml"), row,
+            Core::QmlViewSizing::SizeToScene);
+        if (!m_quickRow)
+            delete row;
+    }
 
     QFrame *topWidget = new QFrame;
     QPalette pal;
@@ -76,10 +156,13 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
         topWidget->setLineWidth(1);
     }
     topWidget->setAutoFillBackground(true);
+    topWidget->setVisible(!m_quickRow);
     auto topLayout = new QVBoxLayout(topWidget);
     topLayout->setContentsMargins(2, 2, 2, 2);
     topLayout->setSpacing(2);
     topWidget->setLayout(topLayout);
+    if (m_quickRow)
+        layout->addWidget(m_quickRow);
     layout->addWidget(topWidget);
 
     auto topFindWidget = new QWidget(topWidget);
@@ -836,9 +919,13 @@ private slots:
         // to be a QWidget handed in from another plugin.
         auto * const extra = widget.findChild<QCheckBox *>("additionalReplaceOption");
         QVERIFY(extra);
+        // isHidden(), not isVisibleTo(): the whole widget strip is hidden
+        // when the Qt Quick row is the one on screen, so what is asked here
+        // is whether this box was hidden in its own right.
+        QVERIFY2(extra->isHidden(), "an option nobody named is drawn anyway");
         widget.setAdditionalReplaceOption("Rename 2 files", "a.cpp\nb.cpp");
         QCOMPARE(extra->text(), QString("Rename 2 files"));
-        QVERIFY2(extra->isVisibleTo(&widget), "the option was named and is not drawn");
+        QVERIFY2(!extra->isHidden(), "the option was named and is not drawn");
         extra->setChecked(true);
         QVERIFY2(widget.additionalReplaceOptionChecked(),
                  "ticking the extra option reaches nothing");
@@ -878,6 +965,41 @@ private slots:
         QCOMPARE(header.additionalNote(), QString("Search Again to update results"));
         header.setAdditionalNote({});
         QVERIFY(header.additionalNote().isEmpty());
+    }
+
+    void testTheQuickRowReadsTheSameHeaderAndCanActOnIt()
+    {
+        // The controller is a view of the header, not a copy of it: what the
+        // search says has to arrive without the row being rebuilt, and what
+        // the row is told has to reach the search.
+        SearchResultWidget widget;
+        SearchResultHeader header;
+        SearchResultRow row(&header, &widget);
+
+        QSignalSpy changes(&row, &SearchResultRow::changed);
+        header.startSearch();
+        QVERIFY2(!changes.isEmpty(), "the row hears nothing the search says");
+        QCOMPARE(row.matchesFound(), header.matchesFound());
+        QVERIFY(row.canCancel());
+        QVERIFY(!row.canSearchAgain());
+
+        header.setInfo("Files in File System", "Searching /src", "needle");
+        QCOMPARE(row.label(), QString("Files in File System"));
+        QCOMPARE(row.term(), QString("needle"));
+        QCOMPARE(row.description(), QString("Searching /src"));
+
+        header.setAdditionalOption("Rename 2 files", "a.cpp\nb.cpp");
+        QVERIFY(row.hasAdditionalOption());
+        QCOMPARE(row.additionalOptionLabel(), QString("Rename 2 files"));
+
+        // And the other way: a reader typing in the row reaches the header
+        // that a replace will be read from.
+        row.setTextToReplace("after");
+        QCOMPARE(header.textToReplace(), QString("after"));
+        row.setAdditionalOptionChecked(true);
+        QVERIFY(header.additionalOptionChecked());
+        row.setPreserveCaseChecked(true);
+        QVERIFY(header.preserveCaseChecked());
     }
 
     void testTheRowIsToldWheneverAnyOfThatChanges()

@@ -23,6 +23,7 @@ namespace Core {
 
 namespace Internal {
 class SearchResultTreeView;
+class SearchResultWidget;
 
 // What the row above the results says about the search: how far it has got,
 // how many matches it found, and which of the buttons beside it apply. A
@@ -126,6 +127,70 @@ private:
     QString m_additionalNote;
 };
 
+// What the Qt Quick row needs of the header above. One per view and short
+// lived: Core::createQmlView() parents it to the widget it hands back, while
+// the header belongs to the search and outlives every view of it.
+class SearchResultRow : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QString label READ label NOTIFY changed)
+    Q_PROPERTY(QString term READ term NOTIFY changed)
+    Q_PROPERTY(QString description READ description NOTIFY changed)
+    Q_PROPERTY(QString matchesFound READ matchesFound NOTIFY changed)
+    Q_PROPERTY(bool canCancel READ canCancel NOTIFY changed)
+    Q_PROPERTY(bool canSearchAgain READ canSearchAgain NOTIFY changed)
+    Q_PROPERTY(bool canReplace READ canReplace NOTIFY changed)
+    Q_PROPERTY(bool showingReplaceUi READ showingReplaceUi NOTIFY changed)
+    Q_PROPERTY(QString textToReplace READ textToReplace WRITE setTextToReplace NOTIFY changed)
+    Q_PROPERTY(bool supportsPreserveCase READ supportsPreserveCase NOTIFY changed)
+    Q_PROPERTY(bool preserveCaseChecked READ preserveCaseChecked
+                   WRITE setPreserveCaseChecked NOTIFY changed)
+    Q_PROPERTY(bool hasAdditionalOption READ hasAdditionalOption NOTIFY changed)
+    Q_PROPERTY(QString additionalOptionLabel READ additionalOptionLabel NOTIFY changed)
+    Q_PROPERTY(QString additionalOptionToolTip READ additionalOptionToolTip NOTIFY changed)
+    Q_PROPERTY(bool additionalOptionChecked READ additionalOptionChecked
+                   WRITE setAdditionalOptionChecked NOTIFY changed)
+    Q_PROPERTY(QString additionalNote READ additionalNote NOTIFY changed)
+
+public:
+    SearchResultRow(SearchResultHeader *header, SearchResultWidget *widget,
+                    QObject *parent = nullptr);
+
+    QString label() const;
+    QString term() const;
+    QString description() const;
+    QString matchesFound() const;
+    bool canCancel() const;
+    bool canSearchAgain() const;
+    bool canReplace() const;
+    bool showingReplaceUi() const;
+    QString textToReplace() const;
+    void setTextToReplace(const QString &text);
+    bool supportsPreserveCase() const;
+    bool preserveCaseChecked() const;
+    void setPreserveCaseChecked(bool checked);
+    bool hasAdditionalOption() const;
+    QString additionalOptionLabel() const;
+    QString additionalOptionToolTip() const;
+    bool additionalOptionChecked() const;
+    void setAdditionalOptionChecked(bool checked);
+    QString additionalNote() const;
+
+    // The three things the row can be asked to do. Relayed to the widget,
+    // which is where cancelling and repeating a search already live.
+    Q_INVOKABLE void cancel();
+    Q_INVOKABLE void searchAgain();
+    Q_INVOKABLE void replace();
+
+signals:
+    void changed();
+
+private:
+    SearchResultHeader *m_header;
+    SearchResultWidget *m_widget;
+};
+
 #ifdef WITH_TESTS
 QObject *createSearchResultHeaderTest();
 #endif
@@ -152,6 +217,8 @@ public:
     void setSupportsReplace(bool replaceSupported, const QString &group);
     bool supportsReplace() const;
     void triggerReplace() { doReplace(); }
+    void cancelSearch() { cancel(); }
+    void requestSearchAgain() { searchAgain(); }
 
     void setTextToReplace(const QString &textToReplace);
     QString textToReplace() const;
@@ -234,6 +301,7 @@ private:
     QToolButton *m_searchAgainButton = nullptr;
     QCheckBox *m_preserveCaseCheck = nullptr;
     QCheckBox *m_additionalOptionCheck = nullptr;
+    QWidget *m_quickRow = nullptr;
     Utils::InfoLabel *m_additionalNoteLabel = nullptr;
     QWidget *m_descriptionContainer = nullptr;
     QLabel *m_label = nullptr;
