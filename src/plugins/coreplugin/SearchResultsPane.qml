@@ -34,6 +34,10 @@ ColumnLayout {
         id: results
 
         objectName: "searchResultsTree"
+        // What the scene gives the keyboard to when the pane is focused: a
+        // QQuickWidget hands focus to its scene, and a scene with no focus
+        // item hands it nowhere.
+        focus: true
         Layout.fillWidth: true
         Layout.fillHeight: true
         clip: true

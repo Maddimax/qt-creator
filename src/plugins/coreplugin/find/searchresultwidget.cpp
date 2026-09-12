@@ -9,6 +9,8 @@
 
 #include <utils/environment.h>
 
+#include <QApplication>
+
 #include "searchresulttreeview.h"
 #include "searchresulttreemodel.h"
 #include "searchresulttreeitems.h"
@@ -425,6 +427,13 @@ void SearchResultWidget::setShowReplaceUI(bool visible)
 
 bool SearchResultWidget::hasFocusInternally() const
 {
+    // The widgets below are built and hidden when the Qt Quick pane is the
+    // one on screen, so asking them is asking about something no reader can
+    // reach.
+    if (m_quickRow) {
+        const QWidget * const focused = QApplication::focusWidget();
+        return focused && (focused == m_quickRow || m_quickRow->isAncestorOf(focused));
+    }
     return m_searchResultTreeView->hasFocus()
            || (m_header.isShowingReplaceUi() && m_replaceTextEdit->hasFocus());
 }
@@ -433,6 +442,10 @@ void SearchResultWidget::setFocusInternally()
 {
     if (!canFocusInternally() || hasFocusInternally())
         return;
+    if (m_quickRow) {
+        m_quickRow->setFocus();
+        return;
+    }
     if (m_header.isShowingReplaceUi() && (!focusWidget() || focusWidget() == m_replaceTextEdit))
         m_replaceTextEdit->setFocus();
     else

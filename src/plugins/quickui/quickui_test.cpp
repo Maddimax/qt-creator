@@ -456,6 +456,7 @@ private slots:
     void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
     void testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank();
     void testTheSearchResultsRowIsAQtQuickOne();
+    void testFocusReachesTheQuickSearchResultsPane();
     void testTheLuaPaneIsAQtQuickOne();
     void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
@@ -14455,6 +14456,53 @@ void QuickUiTest::testTheSearchResultsRowIsAQtQuickOne()
     auto * const model = tree->property("model").value<QAbstractItemModel *>();
     QVERIFY2(model, "the tree was given no model");
     QTRY_VERIFY2(model->rowCount() > 0, "a result was added and the tree lists nothing");
+}
+
+void QuickUiTest::testFocusReachesTheQuickSearchResultsPane()
+{
+    // The pane's focus chain was written for the widgets, and those are built
+    // and hidden now. Pressing the shortcut for this pane asks it to take
+    // focus and then asks whether it has it - the second answer is what makes
+    // pressing the shortcut again put the pane away rather than ask again.
+    Core::SearchResult * const search = Core::SearchResultWindow::instance()->startNewSearch(
+        QString("QuickUi focus"), QString(), QString("term"),
+        Core::SearchResultWindow::SearchAndReplace);
+    QVERIFY(search);
+    const QScopeGuard closeIt([] {
+        Core::SearchResultWindow::instance()->clearContents(); });
+
+    Utils::SearchResultItem item;
+    item.setFilePath(Utils::FilePath::fromString("/src/a.cpp"));
+    item.setLineText("needle here");
+    item.setMainRange(1, 0, 6);
+    search->addResult(item);
+
+    QWidget * const pane = Core::SearchResultWindow::instance()->outputWidget(nullptr);
+    QVERIFY(pane);
+    pane->resize(600, 400);
+    pane->show();
+    QVERIFY(QTest::qWaitForWindowExposed(pane));
+    const QScopeGuard hideIt([pane] { pane->hide(); });
+    pane->activateWindow();
+    QApplication::setActiveWindow(pane);
+
+    QVERIFY2(Core::SearchResultWindow::instance()->canFocus(),
+             "a pane with results in it says it cannot be focused");
+    Core::SearchResultWindow::instance()->setFocus();
+    QTRY_VERIFY2(Core::SearchResultWindow::instance()->hasFocus(),
+                 "the pane was asked for focus and says it does not have it");
+
+    // hasFocus() above is satisfied by any focus widget, including one that
+    // is hidden - so it cannot tell "the reader can type here" from "focus
+    // went to the QTreeView nobody can see". This can.
+    auto * const quick = pane->findChild<QQuickWidget *>();
+    QVERIFY(quick);
+    QWidget * const focused = QApplication::focusWidget();
+    QVERIFY2(focused, "nothing in this fixture took focus at all");
+    QVERIFY2(focused == quick || quick->isAncestorOf(focused),
+             qPrintable(QString("focus went to %1, which is %2 the Qt Quick pane")
+                            .arg(QString::fromLatin1(focused->metaObject()->className()),
+                                 focused->isVisible() ? "not" : "a hidden widget outside")));
 }
 
 void QuickUiTest::testTheLuaPaneIsAQtQuickOne()

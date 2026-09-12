@@ -56034,3 +56034,99 @@ widget - and it is the first thing the next batch should measure.
    `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
    196's uncovered widget auto-scroll, entry 199's QML root with no
    `controller` property.
+
+## 2026-09-12 — Focus reaches the Qt Quick panes, and did not before (batch 206)
+
+**Gap closed: a Quick view given focus now receives keys.** Entry 205 parked
+this as a question and said to measure before deciding the shape. Measuring
+found two defects stacked on each other, and the second one was in the seam,
+affecting **every** Quick view on this branch - the two sidebars, the Lua
+pane, the output row and the search results pane alike.
+
+### The measurement, and the assertion that could not see it
+
+The first test asked the obvious thing: focus the pane, then ask whether it
+has focus. **It passed**, and it was worthless. `SearchResultWindow::hasFocus()`
+is
+
+    QWidget *widget = d->m_widget->focusWidget();
+    return widget && widget->window()->focusWidget() == widget;
+
+which is satisfied by *any* focus widget - including one that is hidden. It
+cannot tell "a reader can type here" from "focus went to the `QTreeView`
+nobody can see".
+
+Asking instead *which* widget `QApplication::focusWidget()` is, and printing
+its class name, turned it red immediately:
+
+    focus went to Core::Internal::WideEnoughLineEdit, which is a hidden widget
+
+That is the rule about a measurement having to vary what the answer depends
+on, met head-on: the boolean was the same in both worlds.
+
+### Two defects, one on top of the other
+
+**The pane focused its hidden widgets.** `setFocusInternally()` chose between
+`m_replaceTextEdit` and `m_searchResultTreeView`, both built and hidden since
+batch 205. `hasFocusInternally()` asked the same two. Both now ask the Qt
+Quick view when there is one.
+
+**And then focus stopped on a wrapper.** With that fixed the test still failed,
+now naming `QtcQuick::QuickWidget` - the wrapper the seam returns, which is a
+plain `QWidget` with a `QQuickWidget` in a layout inside it. Focus on the
+wrapper forwards nothing: the view has focus and gets no keys.
+`setFocusProxy(m_quickWidget)` in the wrapper's constructor is the fix, and it
+belongs there rather than in each caller, because a caller holding a
+`QWidget *` cannot know there is a scene inside.
+
+**That second one was never Search Results' bug.** It has been true of every
+view behind `Core::createQmlView()` since the seam was written in batch 178 -
+eleven Quick views, none of which could be typed into after being given focus
+programmatically. No test asked, because until this batch no test asked
+*which* widget had it.
+
+`focus: true` on the tree in the QML is the third piece: a scene with no focus
+item has nowhere to put what the proxy hands it.
+
+### Verification
+
+Both platforms build clean.
+
+    -test QuickUi      224 passed, 0 failed, exit 0   (223 before)
+    -test Core         277 passed, 2 failed, exit 2
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+    -test Lua          13 passed, 0 failed, exit 0
+
+### Negative controls
+
+Both halves bite on their own, and each names the widget focus wrongly
+reached - which is the point of asserting the class rather than a boolean.
+
+**BV - the focus proxy bites.** `setFocusProxy()` removed: `(focus went to
+QtcQuick::QuickWidget)`.
+
+**BW - the pane's routing bites.** The `m_quickRow->setFocus()` branch
+removed: `(focus went to Core::Internal::WideEnoughLineEdit)`.
+
+The lesson is in `~/.claude/qt-quick.md` under "A QQuickWidget in a wrapper
+needs a focus proxy", because nothing about it is specific to this project.
+
+### What is still owed here
+
+Tab order. `setTabOrder(m_replaceTextEdit, m_searchResultTreeView)` still names
+two hidden widgets, and nothing measures what Tab reaches from outside the
+pane. This batch fixed being *given* focus, not walking into it - and the two
+are different paths through Qt. Worth its own measurement rather than a guess.
+
+### What is next
+
+1. **Tab order into and within the Quick panes**, measured the way this batch
+   measured focus: assert which widget, not whether.
+2. **Terminal**, the last of the three widget panes.
+3. **The output toolbar**, the interface problem batch 202 solved once.
+4. **macOS verification**, owed since entry 168, now including three Quick
+   panes nobody has looked at.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures, entry 191's TextEditor truncation, entry
+   196's uncovered widget auto-scroll, entry 199's QML root with no
+   `controller` property.

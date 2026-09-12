@@ -57,6 +57,11 @@ QuickWidget::QuickWidget(QWidget *parent)
     auto layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_quickWidget);
+
+    // Focus given to this wrapper has to end up in the scene: without a proxy
+    // it stops on a plain QWidget, so a view that was asked for focus has it
+    // and still receives no keys.
+    setFocusProxy(m_quickWidget);
 }
 
 void QuickWidget::setSource(const QUrl &url)
