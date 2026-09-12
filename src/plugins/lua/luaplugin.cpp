@@ -9,6 +9,7 @@
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
+#include <coreplugin/inavigationwidgetfactory.h>
 #include <coreplugin/ioutputpane.h>
 #include <coreplugin/jsexpander.h>
 #include <coreplugin/messagemanager.h>
@@ -18,6 +19,7 @@
 
 #include <texteditor/texteditor.h>
 
+#include <utils/environment.h>
 #include <utils/historycompleter.h>
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
@@ -268,6 +270,57 @@ private:
     LuaReplModel m_model;
 };
 
+// What the Qt Quick view needs of the REPL above. One per view and short
+// lived: Core::createQmlView() parents the controller to the widget it hands
+// back, while the REPL belongs to the pane and outlives every view of it.
+class LuaReplController : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QAbstractItemModel *model READ model CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *history READ history CONSTANT)
+    Q_PROPERTY(QString prompt READ prompt NOTIFY promptChanged)
+
+public:
+    LuaReplController(LuaRepl *repl, QObject *parent = nullptr)
+        : QObject(parent)
+        , m_repl(repl)
+        , m_history(new HistoryCompleter(Key("LuaREPL.InputHistory"), 200, this))
+    {
+        connect(m_repl, &LuaRepl::promptChanged, this, &LuaReplController::promptChanged);
+        connect(m_repl, &LuaRepl::linePrinted, this, &LuaReplController::linePrinted);
+    }
+
+    QAbstractItemModel *model() const { return m_repl->model(); }
+    QAbstractItemModel *history() const { return m_history->model(); }
+    QString prompt() const { return m_repl->prompt(); }
+
+    Q_INVOKABLE void submit(const QString &text)
+    {
+        if (!m_repl->isWaitingForInput())
+            return;
+        if (!text.isEmpty())
+            m_history->addEntry(text);
+        m_repl->submit(text);
+    }
+
+    // Started here rather than on first paint: a scene is built before it is
+    // shown, and a REPL that has not run has nothing for the view to draw.
+    Q_INVOKABLE void start()
+    {
+        if (!m_repl->isStarted())
+            m_repl->reset();
+    }
+
+signals:
+    void promptChanged(const QString &prompt);
+    void linePrinted();
+
+private:
+    LuaRepl *m_repl;
+    HistoryCompleter *m_history;
+};
+
 class LuaReplView : public QListView
 {
     Q_OBJECT
@@ -320,6 +373,19 @@ public:
         using namespace Layouting;
 
         if (!m_ui && parent) {
+            // The Qt Quick pane is what a reader gets. QTC_WIDGET_LUA_PANE
+            // asks for the QListView below, and a build with no front end to
+            // host QML gets it without asking.
+            if (!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_LUA_PANE")
+                && Core::hasQmlViewFactory()) {
+                auto * const controller = new LuaReplController(&m_repl);
+                m_ui = Core::createQmlView(QUrl("qrc:/qt/qml/QtCreator/Lua/LuaReplPane.qml"),
+                                           controller);
+                if (m_ui)
+                    return m_ui;
+                delete controller;
+            }
+
             auto * const terminal = new LuaReplView(&m_repl);
             LineEdit *inputEdit = new LineEdit;
             QLabel *prompt = new QLabel;
@@ -795,6 +861,32 @@ private slots:
         LuaReplModel model;
         QVERIFY2(model.roleNames().values().contains("isError"),
                  "a view that reads roles by name cannot tell the errors apart");
+    }
+
+    void testTheQuickPaneRemembersWhatWasTypedBeforeIt()
+    {
+        if (!Core::hasQmlViewFactory())
+            QSKIP("no QML view factory is installed, so there is nothing to host the pane with");
+
+        // The history the widget line edit completes from is the history the
+        // Qt Quick field walks: same key, so a reader who switches gets their
+        // own lines back.
+        LuaRepl repl;
+        auto * const controller = new LuaReplController(&repl, this);
+        QAbstractItemModel * const history = controller->history();
+        QVERIFY(history);
+        const int before = history->rowCount();
+
+        repl.reset();
+        QTRY_VERIFY(repl.isWaitingForInput());
+        controller->submit("return 1");
+        QCOMPARE(history->rowCount(), before + 1);
+        QCOMPARE(history->index(0, 0).data().toString(), QString("return 1"));
+
+        // An empty line is not worth recalling.
+        QTRY_VERIFY(repl.isWaitingForInput());
+        controller->submit("");
+        QCOMPARE(history->rowCount(), before + 1);
     }
 
     void testTheInputHistoryIsAModelAViewCanRead()

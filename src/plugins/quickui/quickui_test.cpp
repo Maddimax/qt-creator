@@ -453,6 +453,7 @@ private slots:
     void testTheBookmarksSidebarOffersTheWidgetsRightClickMenu();
     void testDraggingABookmarkCarriesItAndReordersTheList();
     void testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong();
+    void testTheLuaPaneIsAQtQuickOne();
     void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
@@ -14334,6 +14335,28 @@ void QuickUiTest::testABookmarkRowKeepsItsLineNumberWhenTheNameIsTooLong()
 // found in the status bar, because the shell builds its row once at startup
 // and a test cannot get in before that - which is what the exported factory
 // is for.
+void QuickUiTest::testTheLuaPaneIsAQtQuickOne()
+{
+    // The census for the Lua REPL. The pane builds its widget once, on first
+    // ask, so a test cannot change which kind it gets - it can only say which
+    // kind is there, and this is the line that changes when it moves either
+    // way. Asked here rather than in the Lua suite because that plugin does
+    // not link Qt Quick, which is the seam working as intended.
+    Core::IOutputPane *lua = nullptr;
+    for (Core::IOutputPane * const pane : Core::IOutputPane::allOutputPanes()) {
+        if (pane->id() == Utils::Id("LuaPane"))
+            lua = pane;
+    }
+    QVERIFY2(lua, "no Lua output pane is registered, so this tests nothing");
+
+    QWidget holder;
+    QWidget * const widget = lua->outputWidget(&holder);
+    QVERIFY2(widget, "the Lua pane built nothing to draw in");
+    QVERIFY2(widget->findChild<QQuickWidget *>()
+                 || qobject_cast<QQuickWidget *>(widget),
+             "the Lua pane is the widget one, which this line has to say");
+}
+
 void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()
 {
     QVERIFY2(Core::hasQmlViewFactory(),

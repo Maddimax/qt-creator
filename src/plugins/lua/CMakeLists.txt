@@ -90,6 +90,7 @@ if(TARGET Lua)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      LuaReplPane.qml
       NetworkAccessPage.qml
   )
 endif()
