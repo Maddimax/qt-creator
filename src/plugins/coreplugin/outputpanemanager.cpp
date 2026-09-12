@@ -325,6 +325,9 @@ public:
     Id id;
     OutputPaneToggleButton *button = nullptr;
     QAction *action = nullptr;
+    // The command's own action, not the context one: it is the one whose
+    // tooltip says which keys reach the pane.
+    QPointer<QAction> commandAction;
 
     // What the row says about this pane. The button draws it; it does not own
     // it - see OutputPaneButtonModel.
@@ -648,7 +651,7 @@ QVariant OutputPaneButtonModel::data(const QModelIndex &index, int role) const
     case Qt::DisplayRole:
         return data.pane->displayName();
     case Qt::ToolTipRole:
-        return data.action ? data.action->toolTip() : QString();
+        return data.commandAction ? data.commandAction->toolTip() : QString();
     case NumberRole:
         return data.number;
     case BadgeRole:
@@ -703,6 +706,12 @@ void OutputPaneButtonModel::setBadge(int row, int number)
         return;
     g_outputPanes[row].badge = number;
     emit dataChanged(index(row), index(row), {BadgeRole});
+}
+
+void OutputPaneButtonModel::toolTipChanged(int row)
+{
+    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
+    emit dataChanged(index(row), index(row), {Qt::ToolTipRole});
 }
 
 void OutputPaneButtonModel::requestFlash(int row)
@@ -997,8 +1006,17 @@ void OutputPaneManager::updateButton(int row)
 
 void OutputPaneManager::setupButtons()
 {
-    for (auto &pane : g_outputPanes)
+    // A lazily loaded plugin with a pane of its own asks for all of this
+    // again, so whatever the last time round drew has to go first. Cleared,
+    // not just deleted: unregistering a pane's action below makes the model
+    // say a row changed, and updateButton() has no way to tell a button that
+    // is gone from one that is merely not built yet.
+    for (auto &pane : g_outputPanes) {
         delete pane.button;
+        pane.button = nullptr;
+    }
+    delete m_instance->m_quickButtonRow;
+    m_instance->m_quickButtonRow = nullptr;
 
     QFontMetrics titleFm = m_instance->m_titleLabel->fontMetrics();
     int minTitleWidth = 0;
@@ -1012,14 +1030,14 @@ void OutputPaneManager::setupButtons()
     // Sorted and about to be renumbered, so nothing a row said still holds.
     model->reset();
 
-    // The Qt Quick row draws the whole row from the model above.
-    // QTC_QUICK_OUTPUT_BUTTONS asks for it; without it, or with no front end
-    // to host QML, the buttons are the QToolButtons below. Asked here and
-    // built after the loop, because what a row draws - its number, its
-    // tooltip - is only settled once the loop has been through it. The manage
-    // button at the end of the row stays a widget either way: it is the
-    // shell's, not a pane's.
-    const bool quickRow = Utils::qtcEnvironmentVariableIsSet("QTC_QUICK_OUTPUT_BUTTONS")
+    // The Qt Quick row draws the whole row from the model above, and is what a
+    // reader gets. QTC_WIDGET_OUTPUT_BUTTONS asks for the QToolButtons below,
+    // and a build with no front end to host QML gets them without asking.
+    // Asked here and built after the loop, because what a row draws - its
+    // number, its tooltip - is only settled once the loop has been through it.
+    // The manage button at the end of the row stays a widget either way: it is
+    // the shell's, not a pane's.
+    const bool quickRow = !Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_OUTPUT_BUTTONS")
                           && hasQmlViewFactory();
 
     int shortcutNumber = 1;
@@ -1076,6 +1094,7 @@ void OutputPaneManager::setupButtons()
         if (data.action) {
             ActionManager::unregisterAction(data.action, data.id);
             delete data.action;
+            data.action = nullptr;
         }
 
         ActionBuilder paneAction(m_instance, data.id);
@@ -1086,6 +1105,17 @@ void OutputPaneManager::setupButtons()
             .addToContainer(Constants::M_VIEW_PANES, "Coreplugin.OutputPane.PanesGroup")
             .bindContextAction(&data.action);
         data.number = shortcutNumber;
+        // The command outlives a second pass, unlike the context action, so
+        // the listener below has to go before it is made again.
+        if (data.commandAction)
+            disconnect(data.commandAction, &QAction::changed, model, nullptr);
+        data.commandAction = paneAction.commandAction();
+        // What the tooltip says is which keys reach the pane, so it follows a
+        // reader rebinding them - the button the widget row draws does the
+        // same, by listening to the very same action.
+        connect(data.commandAction, &QAction::changed, model, [model, i] {
+            model->toolTipChanged(i);
+        });
         if (!quickRow) {
             auto button = new OutputPaneToggleButton(shortcutNumber,
                                                      outPane->displayName(),
@@ -1095,7 +1125,11 @@ void OutputPaneManager::setupButtons()
                 m_instance->popupMenu();
             });
 
-            m_instance->m_buttonsWidget->layout()->addWidget(button);
+            // At the pane's own position, not appended: on a second pass the
+            // manage button is already in the layout and has to stay last.
+            auto * const row = qobject_cast<QBoxLayout *>(m_instance->m_buttonsWidget->layout());
+            if (QTC_GUARD(row))
+                row->insertWidget(i, button);
             connect(button, &QAbstractButton::clicked, m_instance, [i] {
                 m_instance->buttonTriggered(i);
             });
@@ -1110,8 +1144,12 @@ void OutputPaneManager::setupButtons()
     }
 
     if (quickRow) {
-        if (QWidget * const row = createButtonRow())
-            m_instance->m_buttonsWidget->layout()->addWidget(row);
+        m_instance->m_quickButtonRow = createButtonRow();
+        // At the front, not appended: the manage button is put in the layout
+        // once and stays there, so a later run would land behind it.
+        auto * const layout = qobject_cast<QBoxLayout *>(m_instance->m_buttonsWidget->layout());
+        if (QTC_GUARD(layout) && m_instance->m_quickButtonRow)
+            layout->insertWidget(0, m_instance->m_quickButtonRow);
     }
 
     m_instance->m_titleLabel->setMinimumWidth(
@@ -1751,14 +1789,85 @@ private slots:
                  "the pane is the current one and the model still says it has no button");
     }
 
+    void testTheTooltipNamesTheKeysThatReachThePane()
+    {
+        // A reader hovers a button to find out which keys open the pane, so
+        // the tooltip is the command's, not the plain context action's - the
+        // latter is never given the shortcut at all. And it follows a rebind,
+        // because the Keyboard settings page can change it while the row is
+        // on screen.
+        OutputPaneButtonModel * const model = OutputPaneManager::instance()->m_buttonModel;
+        QVERIFY(model);
+        QVERIFY(model->rowCount() > 0);
+        const int row = 0;
+        const QModelIndex index = model->index(row);
+
+        Command * const command = ActionManager::command(g_outputPanes.at(row).id);
+        QVERIFY2(command, "the pane's shortcut is registered nowhere");
+        const QList<QKeySequence> wasBound = command->keySequences();
+        const QScopeGuard rebind([command, wasBound] { command->setKeySequences(wasBound); });
+
+        command->setKeySequences({QKeySequence("Ctrl+Alt+Shift+F9")});
+        QSignalSpy changes(model, &QAbstractItemModel::dataChanged);
+        const QString withShortcut = index.data(Qt::ToolTipRole).toString();
+        QVERIFY2(withShortcut.contains("F9"),
+                 qPrintable("the tooltip says \"" + withShortcut + "\" and not which keys"));
+
+        // Rebound while the row is drawn: the row has to be told, or it goes
+        // on offering keys that no longer reach anything.
+        command->setKeySequences({QKeySequence("Ctrl+Alt+Shift+F8")});
+        QVERIFY2(!changes.isEmpty(), "the shortcut changed and the row was never told");
+        bool sawToolTip = false;
+        for (const QList<QVariant> &change : changes) {
+            const QList<int> roles = change.at(2).value<QList<int>>();
+            sawToolTip = sawToolTip || roles.contains(int(Qt::ToolTipRole));
+        }
+        QVERIFY2(sawToolTip, "the row was told about something other than the tooltip");
+        QVERIFY(index.data(Qt::ToolTipRole).toString().contains("F8"));
+    }
+
+    void testASecondPassRebuildsTheRowRatherThanDoublingIt()
+    {
+        // A lazily loaded plugin with a pane of its own makes the shell build
+        // the whole row again, on a status bar that already holds one. What
+        // is on trial is that the second pass leaves the same widgets there
+        // as the first, in the same order - a row appended to a row is two
+        // rows, and the manage button is only ever put in place once.
+        auto * const layout
+            = qobject_cast<QBoxLayout *>(OutputPaneManager::instance()->m_buttonsWidget->layout());
+        QVERIFY(layout);
+        const int before = layout->count();
+        QVERIFY2(before > 0, "the status bar's row is empty, so nothing here is being tested");
+
+        OutputPaneManager::setupButtons();
+
+        QCOMPARE(layout->count(), before);
+        QCOMPARE(layout->itemAt(layout->count() - 1)->widget(),
+                 static_cast<QWidget *>(OutputPaneManager::instance()->m_manageButton));
+    }
+
     void testTheButtonDrawsWhatTheModelSays()
     {
         OutputPaneButtonModel * const model = OutputPaneManager::instance()->m_buttonModel;
         QVERIFY(model);
         QVERIFY(model->rowCount() > 0);
         const int row = 0;
+        // The shell's row is the Qt Quick one, so no QToolButton is there to
+        // be written to. Stand one in the row's place: what is under test is
+        // that the model reaches whichever button the row has. The holder
+        // keeps it off screen and outlives the guard that unhooks it.
+        QWidget holder;
+        OutputPaneToggleButton * const existing = g_outputPanes.at(row).button;
+        if (!existing) {
+            auto * const standIn = new OutputPaneToggleButton(g_outputPanes.at(row).number,
+                                                              g_outputPanes.at(row).pane->displayName(),
+                                                              g_outputPanes.at(row).action);
+            standIn->setParent(&holder);
+            g_outputPanes[row].button = standIn;
+        }
+        const QScopeGuard putBack([existing] { g_outputPanes[row].button = existing; });
         OutputPaneToggleButton * const button = g_outputPanes.at(row).button;
-        QVERIFY2(button, "the row has no button, so nothing here is being tested");
+        QVERIFY(button);
 
         const bool wasVisible = model->isButtonVisible(row);
         const QScopeGuard restore([model, wasVisible] {
@@ -1768,12 +1877,12 @@ private slots:
         // and the session remembers. isVisibleTo(), not isVisible(): the
         // whole row is inside a window nothing has shown.
         model->setButtonVisible(row, true);
-        QVERIFY(button->isVisibleTo(button->parentWidget()));
+        QVERIFY(button->isVisibleTo(button->window()));
         model->setButtonVisible(row, false);
-        QVERIFY2(!button->isVisibleTo(button->parentWidget()),
+        QVERIFY2(!button->isVisibleTo(button->window()),
                  "the button stayed after the model took it away");
         model->setButtonVisible(row, true);
-        QVERIFY(button->isVisibleTo(button->parentWidget()));
+        QVERIFY(button->isVisibleTo(button->window()));
 
         // The badge is the model's too, and the button makes room for it.
         IOutputPane * const pane = IOutputPane::allOutputPanes().at(row);

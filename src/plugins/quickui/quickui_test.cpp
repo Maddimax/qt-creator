@@ -14380,6 +14380,16 @@ void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()
     QCOMPARE(number->property("text").toString(), QString("1"));
     QCOMPARE(name->property("text").toString(), panes.first()->displayName());
 
+    // Hover and checked are drawn behind the words, so the button has to be
+    // wider than them. Without padding the two are the same size and the
+    // highlight ends up flush with the text.
+    auto * const content = first->property("contentItem").value<QQuickItem *>();
+    QVERIFY(content);
+    QVERIFY2(first->width() > content->width(),
+             qPrintable(QString("button %1 wide, its words %2")
+                            .arg(first->width()).arg(content->width())));
+    QVERIFY2(first->height() > content->height(), "the button is as tall as its words");
+
     // A pane with no priority in the status bar has no button drawn, which is
     // the same rule the widget row follows.
     for (int i = 0; i < buttons.size(); ++i) {
@@ -14417,15 +14427,15 @@ void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()
     pane->flash();
     QVERIFY2(flash->property("running").toBool(), "a pane asked to be noticed and nothing moved");
 
-    // The census: the shell's own row is still the widget one. The status bar
+    // The census: the shell's own row is the Qt Quick one. The status bar
     // builds its row once, at startup, so a test cannot change which kind it
     // gets - it can only say which kind is there, and this is the line that
-    // has to change in the commit that makes the Quick row the default.
+    // changes when a pane's row moves either way.
     QWidget * const shellRow
         = Core::ICore::statusBar()->findChild<QWidget *>("OutputPaneButtons");
     QVERIFY2(shellRow, "the status bar holds no output pane buttons at all");
-    QVERIFY2(!shellRow->findChild<QQuickWidget *>(),
-             "the shell's button row is the Qt Quick one now, which this line has to say");
+    QVERIFY2(shellRow->findChild<QQuickWidget *>(),
+             "the shell's button row is the widget one, which this line has to say");
 }
 
 QObject *createQuickUiTest()

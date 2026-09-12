@@ -59,6 +59,10 @@ public:
     void setChecked(int row, bool checked);
     void setBadge(int row, int number);
 
+    // The tooltip is the command's to say - it names the keys that reach the
+    // pane - so the row is told rather than asked.
+    void toolTipChanged(int row);
+
     // A pane asking to be noticed. An event rather than state, so it is a
     // signal and not a role.
     void requestFlash(int row);
@@ -177,6 +181,7 @@ private:
     QStackedWidget *m_outputWidgetPane = nullptr;
     QStackedWidget *m_opToolBarWidgets = nullptr;
     QWidget *m_buttonsWidget = nullptr;
+    QWidget *m_quickButtonRow = nullptr;
     int m_outputPaneHeightSetting = 0;
     bool m_initialized = false;
 };

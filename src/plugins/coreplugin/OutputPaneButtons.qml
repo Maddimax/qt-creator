@@ -39,6 +39,12 @@ Row {
             // A pane with no priority in the status bar has no button until a
             // reader asks for one from the menu.
             visible: button.model.buttonVisible
+            // The background below is what hover and checked draw, so it has
+            // to be bigger than the words it is drawn behind.
+            leftPadding: Spacing.PaddingHS
+            rightPadding: Spacing.PaddingHS
+            topPadding: Spacing.PaddingVXxs
+            bottomPadding: Spacing.PaddingVXxs
             // Bound, not toggled: which button is checked is the manager's
             // answer to what is on screen, so a press asks rather than tells.
             checkable: false

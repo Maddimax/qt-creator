@@ -54523,3 +54523,175 @@ rebase by waiting: 3.5 weeks of upstream cost 117 hunks and a day. The
 overlap is in the files both sides *refactor*, not in the files this branch
 adds - the Quick editor, the QtcQuick library and this document conflicted
 with nothing.
+
+## 2026-09-12 — The status bar's output pane buttons are Qt Quick (batch 191)
+
+**Gap closed: the fourth pane to flip, and the first whose switch cannot be
+exercised twice in one process.** `QTC_QUICK_OUTPUT_BUTTONS` became
+`QTC_WIDGET_OUTPUT_BUTTONS`: the row of buttons a reader sees in the status
+bar is now drawn by `OutputPaneButtons.qml` from `OutputPaneButtonModel`, and
+the QToolButtons are what the variable asks for.
+
+### The census is the whole guard
+
+The status bar builds its row once, at startup, from `setupButtons()`. A test
+cannot ask for the other kind afterwards - there is no second row to build.
+So the QuickUi test's last two lines are the entire statement of which kind
+ships:
+
+    QVERIFY2(shellRow, "the status bar holds no output pane buttons at all");
+    QVERIFY2(shellRow->findChild<QQuickWidget *>(),
+             "the shell's button row is the widget one, which this line has to say");
+
+Inverting that `!` is the commit. Everything else in this entry is a gap the
+inversion exposed - which is the point of writing the census first: it forces
+the question "what does the other row still do that this one does not?" at the
+moment the answer starts to matter.
+
+### Four gaps, found by reading the widget row rather than by a failing test
+
+**The tooltip named no keys.** `Qt::ToolTipRole` returned
+`data.action->toolTip()` - the *context* action, which is never given a
+shortcut. The widget button was built from `paneAction.commandAction()`, and
+`Command` calls `setShortcutVisibleInToolTip(true)` on that one, so the
+widget row's tooltip reads "Issues (Alt+1)" and the Quick row's read
+"Issues". The model now keeps a `QPointer<QAction> commandAction` and reads
+that. It also listens to its `QAction::changed` and emits `dataChanged` for
+`Qt::ToolTipRole`, because the widget button listened to the very same signal:
+a reader who rebinds the shortcut in Keyboard settings while the row is on
+screen would otherwise be told keys that no longer reach anything. The
+command outlives a rebuild where the context action does not, so the listener
+is disconnected before being made again.
+
+**A second pass doubled the row.** `setupButtons()` runs again whenever a
+lazily loaded plugin brings a pane of its own - the widget path deletes its
+buttons at the top, and nothing deleted the Quick row. Before the flip this
+was unreachable, because the Quick row was opt-in. The manager now holds
+`m_quickButtonRow` and deletes it alongside the buttons.
+
+**And put the second one in the wrong place.** `initialize()` adds the manage
+button to the layout *after* the first `setupButtons()`, so on a later pass
+everything appended lands behind it. This is the one gap that was already
+there: the widget row has the same bug, and it is fixed the same way -
+`insertWidget(i, button)` rather than `addWidget`, `insertWidget(0, row)` for
+the Quick row. The test asserts the manage button is last, which holds in
+both switch states.
+
+**The buttons had no padding.** `AbstractButton` defaults every padding to 0,
+so the background the delegate draws for hover and checked was exactly the
+size of the words - a highlight flush with the text. The widget's
+`sizeHint()` adds `buttonBorderWidth` either side; the delegate now asks for
+`Spacing.PaddingHS` horizontally and `Spacing.PaddingVXxs` vertically. The
+test says the button is wider and taller than its own `contentItem`, which is
+the shape of the claim rather than a pixel count.
+
+### What the Core suite had to be told
+
+`testTheButtonDrawsWhatTheModelSays` asserts that the model reaches the
+QToolButton. After the flip there is no QToolButton in the shell to reach, so
+the test stood one in the row's place - parented to a local `QWidget` holder,
+because `setVisible(true)` on a parentless widget shows a window. The guard
+that unhooks it is declared after the holder so it runs first: the slot is
+back to null before the holder deletes what it pointed at. That keeps the
+widget fallback covered from the Quick-default process, which is the only
+process the suite gets.
+
+`isVisibleTo(button->parentWidget())` became `isVisibleTo(button->window())` -
+the stand-in's parent *is* its window, and the assertion means the same thing
+either way.
+
+### Verification
+
+Both platforms build clean from scratch and incrementally.
+
+    -test QuickUi      220 passed, 0 failed, exit 0
+    -test Core         259 passed, 2 failed, exit 2
+    -test TextEditor   751 passed, 1 failed, 3 skipped, exit 1
+
+Core is up from entry 190's 257 to 259: the two tests this batch adds, both
+green. The three failures are the ones already recorded - entry 174's
+page-scroll clamp and entry 188's two `ShortcutSettingsTest` failures - and
+are unchanged.
+
+Both switch states were measured, which is what a flip costs:
+
+    QTC_WIDGET_OUTPUT_BUTTONS=1  -test QuickUi   219 passed, 1 failed
+    QTC_WIDGET_OUTPUT_BUTTONS=1  -test Core      2 failed (the known two)
+
+The one QuickUi failure there is the census, which is the point.
+
+**One flake seen and not explained.** A single TextEditor run stopped at 257
+passed, mid
+`QuickTextEditorTest::testTypingALineOfCppLeavesTheSameFileInEitherView(quick)`.
+Two immediate re-runs and the final run were all 751/1/3, so 1 in 4 on the
+day, in code this batch does not touch. Recorded rather than dismissed: there
+is no measurement here saying what it was.
+
+### Negative controls
+
+**AG - the census bites, and only it.** `QTC_WIDGET_OUTPUT_BUTTONS=1`,
+`-test QuickUi`: 219 passed, 1 failed, at `shellRow->findChild<QQuickWidget *>()`
+with "the shell's button row is the widget one, which this line has to say".
+The rest of that test still passes, because it builds a row of its own rather
+than reading the shell's - which is why the census had to be a separate line.
+
+**AH - the padding bites.** The four padding lines set to 0, `-test QuickUi`:
+`'first->width() > content->width()' returned FALSE. (button 46.2969 wide, its
+words 46.2969)`. The highlight was exactly the size of the text.
+
+**AI - the doubled row bites, on the second attempt.** The first try kept
+`m_quickButtonRow` pointing at the *old* row and inserted that one again; Qt
+moves a widget already in a layout rather than adding it, so the count did not
+change and nothing failed. That is a control that does not bite because the
+control is wrong, not because the fix is unnecessary - the new row was built
+and leaked instead of being added. Reverting the whole block to its pre-batch
+`addWidget(createButtonRow())` form gave the real thing:
+`testASecondPassRebuildsTheRowRatherThanDoublingIt()` fails on the count.
+
+**AJ - the tooltip bites, in both halves.** Reading `data.action` again:
+`'withShortcut.contains("F9")' returned FALSE. (the tooltip says "Issues" and
+not which keys)`. Removing the `QAction::changed` listener:
+`'!changes.isEmpty()' returned FALSE. (the shortcut changed and the row was
+never told)`.
+
+**AK - the dangling button bites, and is the bug this batch found.** With
+`pane.button = nullptr` removed, `QTC_WIDGET_OUTPUT_BUTTONS=1 -test Core`
+gives 3 failures rather than 2, on three runs out of three. On the build where
+*both* stale pointers were left, it was a SIGSEGV, and gdb named the whole
+chain:
+
+    unregisterAction -> CommandPrivate::setCurrentContext
+      -> ProxyAction::setAction(nullptr) -> updateState -> setEnabled
+      -> QActionPrivate::sendDataChanged -> QAction::changed
+      -> OutputPaneButtonModel::toolTipChanged -> dataChanged
+      -> OutputPaneManager::updateButton -> data.button->setVisible()
+
+`setupButtons()` deleted every button at the top and left the pointers behind;
+`updateButton()` cannot tell a button that is gone from one that is not built
+yet. Nothing reached that code before, because nothing made the model speak
+during a rebuild. Adding one listener did, and the listener is correct - the
+stale pointer was the defect, and it was three years old. Once
+`data.action = nullptr` was also added the crash stopped reproducing and the
+damage showed up as a lost connection instead, which is what a use-after-free
+does: the observable is 3 failures against 2, not a reliable signal.
+
+**The lesson.** A flip is not only "which row is drawn". Making the model
+talk during a rebuild is a new caller for every listener the model already
+had, and the oldest of them had a latent stale pointer. The batch that turns
+a model into the thing a reader sees should re-read what happens when that
+model speaks at a time it never used to.
+
+### What is next
+
+1. **The manage button.** Still a `QToolButton` at the end of the row, and now
+   the only widget in it. It opens the same menu the Quick buttons already
+   ask for by right-click, so what it needs is a delegate and a token arrow,
+   not a new seam.
+2. **The three widget output panes** - Terminal, Search Results, Lua - which
+   the row now points at.
+3. **The output toolbar**, still blocked on `IOutputPane::toolBarWidgets()`
+   returning `QWidget *`.
+4. **macOS verification**, still owed for every Quick pane since entry 168:
+   there has been no desktop session to look at one in.
+5. Parked: entry 174's page scroll, entry 173's crash, the two
+   `ShortcutSettingsTest` failures.
