@@ -1370,6 +1370,9 @@ public:
         // The tool bar first: its scene is bound to the view inside the other
         // widget, so the other order leaves it re-evaluating its bindings
         // against an object that is already gone.
+        // The tool bar first: its scene is bound to the view inside the other
+        // widget, so the other order leaves it re-evaluating its bindings
+        // against an object that is already gone.
         delete m_toolBar;
         delete widget();
     }
@@ -4171,7 +4174,8 @@ private slots:
         Utils::TemporaryDirectory dir("caret-lockstep");
         QVERIFY(dir.isValid());
 
-        const auto caretsFor = [&dir, &script](bool useQuick, QList<int> *carets) -> bool {
+        QString why;
+        const auto caretsFor = [&dir, &script, &why](bool useQuick, QList<int> *carets) -> bool {
             const Utils::FilePath file
                 = dir.filePath(useQuick ? QString("quick.cpp") : QString("widget.cpp"));
             if (!file.writeFileContents(""))
@@ -4186,15 +4190,31 @@ private slots:
             Core::IEditor * const editor = Core::EditorManager::openEditor(file);
             if (!editor)
                 return false;
-            const QScopeGuard closeIt(
-                [editor] { Core::EditorManager::closeEditors({editor}, false); });
-            return typeScript(editor, script, nullptr, carets);
+            // Watched here because this is where the suite has twice died of
+            // heap corruption: thirty editors opened and closed in one test
+            // function, more churn than anything else, and an editor that is
+            // not let go of during it is the shape entries 228-230 kept
+            // finding. A failure here names the row; corruption later does
+            // not.
+            QPointer<QWidget> widget = editor->widget();
+            QPointer<QWidget> bar = editor->toolBar();
+            const bool typed = typeScript(editor, script, nullptr, carets);
+            Core::EditorManager::closeEditors({editor}, false);
+            if (!QTest::qWaitFor([&widget] { return widget.isNull(); }, 5000)) {
+                why = "the editor's widget outlived it";
+                return false;
+            }
+            if (bar && !QTest::qWaitFor([&bar] { return bar.isNull(); }, 5000)) {
+                why = "the editor's tool bar outlived it";
+                return false;
+            }
+            return typed;
         };
 
         QList<int> widgetCarets;
-        QVERIFY(caretsFor(false, &widgetCarets));
+        QVERIFY2(caretsFor(false, &widgetCarets), qPrintable("widget view: " + why));
         QList<int> quickCarets;
-        QVERIFY(caretsFor(true, &quickCarets));
+        QVERIFY2(caretsFor(true, &quickCarets), qPrintable("quick view: " + why));
 
         QCOMPARE(quickCarets, widgetCarets);
     }

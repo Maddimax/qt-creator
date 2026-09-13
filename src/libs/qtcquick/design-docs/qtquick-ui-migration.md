@@ -60141,3 +60141,83 @@ it the other way round.
    **decide whether the no-QtcQuick build is still supported**.
 4. **An async entry point for `Mcp::ToolRegistry`** (entry 239); then
    `VcsBaseSubmitEditor` and the Quick REPL rule.
+
+## 2026-09-13 — Three instruments that could not see the crash, and one that watches where it happens (batch 243)
+
+Entry 242 localised the heap corruption to
+`testTheCaretLandsWhereTheWidgetEditorsDoes` - thirty editors opened and closed
+in one function - and said the ownership work of entries 228-230 was the
+neighbourhood. This batch went after it. **No fix.** What it has is three
+things ruled out by measurement and a check where the corruption happens.
+
+### What could not see it
+
+- **On its own: 6 runs of that test alone, clean.** It needs whatever the rest
+  of the suite leaves behind, same as the typing flake.
+- **Under gdb with `MALLOC_PERTURB_=165`: 11 runs, clean.** Both of those
+  change allocation and timing, and the bug goes away - which is the third
+  instrument in this plan to do that, after entry 227's `qDebug` and entry
+  231's trace-as-it-goes. Worth stating as a property of this failure rather
+  than rediscovering it a fourth time: **anything that perturbs the allocator
+  or the clock hides it.**
+- **`CurrentDocumentFind` holding a stale pointer**, which is the mechanism
+  entry 173's crash was attributed to. It cannot: all four of its handles are
+  `QPointer`. That attribution was wrong, and entry 241's retirement of entry
+  173 as "most likely the four ownership bugs" is also not supported - the
+  ownership bugs leaked, they did not dangle.
+
+That leaves a sanitiser build, which needs `build-linux.sh` to grow a
+configure option and a full rebuild in a second build directory. Named as the
+next instrument rather than started, because a half-built second tree is worse
+than none.
+
+### What was added
+
+The churn is now watched from inside. `caretsFor()` in the caret test takes the
+editor's widget and tool bar as `QPointer`s, closes the editor, and waits for
+both to go - thirty times per run, in the exact place the suite has twice died:
+
+    QPointer<QWidget> widget = editor->widget();
+    QPointer<QWidget> bar = editor->toolBar();
+    ... type ...
+    Core::EditorManager::closeEditors({editor}, false);
+    if (!QTest::qWaitFor([&widget] { return widget.isNull(); }, 5000)) { ... }
+
+An editor that is not let go of during the churn now fails the row and says
+which of the two outlived it, instead of corrupting the heap and killing the
+process several tests later.
+
+It has not fired: 8 full-suite runs, 0 failures and 0 crashes. So the editors
+*are* being released, and whatever is corrupted is not one of the two things
+entries 228-230 were about.
+
+### Measurements
+
+    -test TextEditor    778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+and across this batch: 6 + 11 + 8 + 2 = **27 runs with no crash**, against
+entry 242's 2 in 18. That is not evidence the crash is gone - nothing was
+changed that could fix it - it is evidence of how rare it is and how easily
+hidden.
+
+### Negative controls
+
+**EK — `QuickTextEditor` loses `delete m_toolBar` again**, the half-fix entry
+229 shipped. Bit on all 15 quick rows of the caret test. The first version of
+the message said only `'caretsFor(true, &quickCarets)' returned FALSE`, which
+names nothing; the control is what showed that, so the reason is carried out
+now and the failure says whether the widget or the tool bar outlived.
+
+### What is next
+
+1. **A sanitiser build** - the only instrument left that does not perturb what
+   this bug reacts to. `build-linux.sh` needs a second build directory and an
+   `-DCMAKE_CXX_FLAGS=-fsanitize=address` configure; the suite under ASan will
+   be several times slower, so it is a batch of its own.
+2. **The typing flake**, with entry 241's trace and entry 242's invariant in
+   place for the next sighting.
+3. The two decisions from entry 236: **retire `QTC_WIDGET_CPP_EDITOR`**, and
+   **decide whether the no-QtcQuick build is still supported**.
+4. **An async entry point for `Mcp::ToolRegistry`** (entry 239); then
+   `VcsBaseSubmitEditor` and the Quick REPL rule.
