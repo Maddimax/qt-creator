@@ -62445,3 +62445,81 @@ there is, and entry 236 judged that covering the Quick REPL's rule would cost
 more of the shell-phase seam than it is worth. Deleting the widget deletes
 that test with no replacement - a real loss, to be taken knowingly rather than
 discovered.
+
+## 2026-09-13 — The second view: Bookmarks, and a widget kept only to make buttons (batch 266)
+
+`QTC_WIDGET_BOOKMARKS` and `BookmarkView` are gone. Two of the five views done,
+three to go.
+
+### The thing worth noticing before deleting
+
+The Quick path was already using the widget it was meant to replace:
+
+    auto * const buttons = new BookmarkView;
+    buttons->hide();
+    buttons->setParent(view);
+    return {view, buttons->createToolBarWidgets()};
+
+A hidden tree view, parented to the Quick view, existing only so that
+`createToolBarWidgets()` had a `this` to hang two `QToolButton`s off. Deleting
+the fallback would have left that behind, and the file would still have had a
+tree view in it.
+
+Read rather than assumed: `createToolBarWidgets()` uses the view for nothing
+but the button parent. So it is now
+
+    static QList<QToolButton *> bookmarkToolBarWidgets(QWidget *parent)
+
+and the class went entirely - declaration, constructor, `contextMenuEvent`,
+`keyPressEvent`, `removeBookmark`, `gotoBookmark`. Nothing outside the file
+referred to it.
+
+This is the standing rule about closures arriving from the other direction: a
+function that *lists* two buttons had been made a member of a view because it
+needed a parent, and that alone kept a whole widget alive.
+
+### The census, again
+
+`testWhichNavigationViewsAreQuick` drove four states of two switches when this
+work started, two states after entry 265, and none now:
+
+    QCOMPARE(quickViews(), QStringList({"Bookmarks", "Open Documents"}));
+
+Unlike entry 265, **no test lost an oracle this time**. The four Bookmarks
+tests drive the Quick view directly - the right-click menu, the drag, the
+line number a long name must not push out - and none of them compared against
+the tree.
+
+### Negative controls
+
+- **Bookmarks does not build the Quick view.** Five QuickUi failures: the
+  census by name, and all four Bookmarks tests with "the Bookmarks sidebar is
+  not the Qt Quick one".
+- Reverted: green.
+
+### Measurements
+
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+    -test Core          294 passed, 0 failed, 0 skipped, exit 0
+
+No `.qbs` change. Every run gated on the build's error count, per entry 265.
+
+**The same splice mistake twice.** Cutting the old `createWidget()` by
+searching for the next `};` found the wrong one and left a stray block, giving
+seven compile errors - exactly as in entry 265. Twice is a habit: when cutting
+a member function out of a class, the end is not "the next `};`", and a build
+is the only thing that says so. Both times the compiler caught it immediately,
+which is the argument for building after each deletion rather than after all
+of them.
+
+### What is next
+
+Three views: `QTC_WIDGET_SEARCH_RESULTS`, `QTC_WIDGET_OUTPUT_BUTTONS`,
+`QTC_WIDGET_LUA_PANE`.
+
+Lua last, and knowingly: its widget view carries
+`testALineArrivingFollowsItDownInTheWidgetView`, the only auto-scroll coverage
+there is, and entry 236 judged that covering the Quick REPL's rule would cost
+more of the shell-phase seam than it is worth. That test dies with the widget
+and nothing replaces it.

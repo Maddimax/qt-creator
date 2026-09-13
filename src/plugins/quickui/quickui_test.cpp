@@ -13346,15 +13346,8 @@ void QuickUiTest::testWhichNavigationViewsAreQuick()
     };
 
     // Moving another pane means changing this list, in the commit that moves
-    // it. Open Documents has no switch any more - there is one view of it.
+    // it. Neither of these has a switch any more - there is one view of each.
     QCOMPARE(quickViews(), QStringList({QString("Bookmarks"), QString("Open Documents")}));
-
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_WIDGET_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetBookmarks([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_WIDGET_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
-    QCOMPARE(quickViews(), QStringList({QString("Open Documents")}));
 }
 
 // The first sidebar pane in Qt Quick, end to end: the switch gets a QML view

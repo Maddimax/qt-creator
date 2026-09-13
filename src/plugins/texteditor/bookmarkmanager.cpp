@@ -182,96 +182,22 @@ void BookmarkDelegate::paint(QPainter *painter, const QStyleOptionViewItem &opti
     painter->restore();
 }
 
-// BookmarkView
-
-class BookmarkView final : public Utils::ListView
-{
-public:
-    BookmarkView();
-
-    QList<QToolButton *> createToolBarWidgets();
-
-    void gotoBookmark(const QModelIndex &index);
-
-protected:
-    void contextMenuEvent(QContextMenuEvent *event) final;
-    void removeBookmark(const QModelIndex &index);
-    void keyPressEvent(QKeyEvent *event) final;
-};
-
-BookmarkView::BookmarkView()
-{
-    setWindowTitle(Tr::tr("Bookmarks"));
-
-    IContext::attach(this, Context(BOOKMARKS_CONTEXT));
-
-    ListView::setModel(&bookmarkManager());
-
-    setItemDelegate(new BookmarkDelegate(this));
-    setFrameStyle(QFrame::NoFrame);
-    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setAttribute(Qt::WA_MacShowFocusRect, false);
-    setSelectionModel(bookmarkManager().selectionModel());
-    setSelectionMode(QAbstractItemView::SingleSelection);
-    setSelectionBehavior(QAbstractItemView::SelectRows);
-    setDragEnabled(true);
-    setDragDropMode(QAbstractItemView::DragDrop);
-
-    connect(this, &QAbstractItemView::activated, this, &BookmarkView::gotoBookmark);
-    connect(this->selectionModel(), &QItemSelectionModel::currentRowChanged,
-            this, [=](const QModelIndex &current, const QModelIndex &previous) {
-        Q_UNUSED(previous)
-        Command *moveUpCmd = ActionManager::command(TextEditor::Constants::BOOKMARKS_MOVEUP_ACTION);
-        Command *moveDownCmd = ActionManager::command(TextEditor::Constants::BOOKMARKS_MOVEDOWN_ACTION);
-        moveUpCmd->action()->setEnabled(current.isValid());
-        moveDownCmd->action()->setEnabled(current.isValid());
-    });
-}
-
-QList<QToolButton *> BookmarkView::createToolBarWidgets()
+// The two commands a reader gets beside the list. They were members of the
+// tree view; the view they are parented to is all they ever needed of it.
+static QList<QToolButton *> bookmarkToolBarWidgets(QWidget *parent)
 {
     Command *prevCmd = ActionManager::command(TextEditor::Constants::BOOKMARKS_PREV_ACTION);
     Command *nextCmd = ActionManager::command(TextEditor::Constants::BOOKMARKS_NEXT_ACTION);
     QTC_ASSERT(prevCmd && nextCmd, return {});
-    auto prevButton = new QToolButton(this);
+    auto prevButton = new QToolButton(parent);
     prevButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     prevButton->setDefaultAction(prevCmd->action());
-    auto nextButton = new QToolButton(this);
+    auto nextButton = new QToolButton(parent);
     nextButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     nextButton->setDefaultAction(nextCmd->action());
     return {prevButton, nextButton};
 }
 
-void BookmarkView::contextMenuEvent(QContextMenuEvent *event)
-{
-    QMenu menu;
-    fillBookmarksContextMenu(&menu, indexAt(event->pos()).row());
-    menu.exec(mapToGlobal(event->pos()));
-}
-
-void BookmarkView::removeBookmark(const QModelIndex& index)
-{
-    Bookmark *bm = bookmarkManager().bookmarkForIndex(index);
-    bookmarkManager().deleteBookmark(bm);
-}
-
-void BookmarkView::keyPressEvent(QKeyEvent *event)
-{
-    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
-        removeBookmark(currentIndex());
-        event->accept();
-        return;
-    }
-    ListView::keyPressEvent(event);
-}
-
-void BookmarkView::gotoBookmark(const QModelIndex &index)
-{
-    BookmarkManager *manager = &bookmarkManager();
-    Bookmark *bk = manager->bookmarkForIndex(index);
-    if (bk && !manager->gotoBookmark(bk))
-        manager->deleteBookmark(bk);
-}
 
 ////
 // BookmarkManager
@@ -1032,32 +958,18 @@ public:
 private:
     NavigationView createWidget() final
     {
-        // The Qt Quick view is what a reader gets: it draws the rows, opens
-        // one, removes one, walks with the keyboard, offers the right-click
-        // menu, and can be dragged from and dropped on.
-        // QTC_WIDGET_BOOKMARKS asks for the tree view back, and a build with
-        // nothing to host QML gets it without asking. The toolbar buttons are
-        // the same either way - Previous and Next are ActionManager commands,
-        // and a QToolButton in a dock's toolbar is not what this migration is
-        // about.
-        if (!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_BOOKMARKS")) {
-            auto * const list = new BookmarksList;
-            if (QWidget * const view = Core::createQmlView(
-                    QUrl("qrc:/qt/qml/QtCreator/TextEditor/BookmarksView.qml"), list)) {
-                // Move Up, Move Down and Sort by Filenames are registered in
-                // this context, so without it they are disabled wherever the
-                // reader asks for them - the menu and the keyboard alike.
-                IContext::attach(view, Context(BOOKMARKS_CONTEXT));
-                auto * const buttons = new BookmarkView;
-                buttons->hide();
-                buttons->setParent(view);
-                return {view, buttons->createToolBarWidgets()};
-            }
-            delete list;
-        }
-        auto view = new BookmarkView;
-        view->setActivationMode(Utils::DoubleClickActivation); // QUESTION: is this useful ?
-        return {view, view->createToolBarWidgets()};
+        // The Qt Quick view is the sidebar: it draws the rows, opens one,
+        // removes one, walks with the keyboard, offers the right-click menu,
+        // and can be dragged from and dropped on.
+        auto * const list = new BookmarksList;
+        QWidget * const view = Core::createQmlView(
+            QUrl("qrc:/qt/qml/QtCreator/TextEditor/BookmarksView.qml"), list);
+        QTC_ASSERT(view, delete list; return {});
+        // Move Up, Move Down and Sort by Filenames are registered in this
+        // context, so without it they are disabled wherever the reader asks
+        // for them - the menu and the keyboard alike.
+        IContext::attach(view, Context(BOOKMARKS_CONTEXT));
+        return {view, bookmarkToolBarWidgets(view)};
     }
 };
 
