@@ -571,8 +571,19 @@ void ModelManagerTest::testExtraeditorsupportUiFiles()
     QVERIFY(temporaryDir.isValid());
     const FilePath projectFile = temporaryDir.absolutePath("testdata_guiproject1.pro");
 
+    // A Qt GUI project: it has a .ui file, and the ui_*.h this test is about
+    // is what uic makes from it. Without a kit that has a Qt there is nothing
+    // to parse it with, and the open times out rather than saying so - which
+    // is how this read as a defect. The other Qt projects in this file ask
+    // the same question; this one did not.
+    Kit * const kit = Utils::findOr(KitManager::kits(), nullptr, [](const Kit *k) {
+        return k->isValid() && !k->hasWarning() && k->value("QtSupport.QtInformation").isValid();
+    });
+    if (!kit)
+        QSKIP("The test requires at least one valid kit with a valid Qt");
+
     ProjectOpenerAndCloser projects;
-    QVERIFY(projects.open(projectFile));
+    QVERIFY(projects.open(projectFile, kit));
 
     // Check working copy.
     // A GeneratedFileSupport object should have been added for the ui_* file.

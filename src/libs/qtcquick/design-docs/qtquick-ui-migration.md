@@ -59847,3 +59847,90 @@ this:
    completions row and every other async tool be tested. Named here because
    this batch found the hole, not because it belongs to this branch.
 4. Then: the flake, `VcsBaseSubmitEditor`, the Quick REPL rule.
+
+## 2026-09-13 — The Qt project test nobody asked whether Qt was there (batch 240)
+
+Entry 239 left two CppEditor failures and said plainly they were **unread**
+rather than environmental, because the previous two batches had each found a
+real bug behind exactly that word. One of them is read now.
+
+### The gap this batch closed
+
+`ModelManagerTest::testExtraeditorsupportUiFiles` opens
+`testdata_guiproject1.pro` - a Qt GUI project whose whole point is the
+`ui_mainwindow.h` that uic makes from its `.ui` file - and asserts on the
+working copy that results.
+
+    QVERIFY(projects.open(projectFile));   // false, on every run
+
+Nothing was printed with it. That is the useful part: `ProjectOpenerAndCloser::open()`
+warns when `openProject()` fails and soft-asserts when
+`configureAsExampleProject()` does, and neither appeared. So both succeeded and
+`waitUntilProjectIsFullyOpened()` timed out - the project opened, configured,
+and never finished parsing.
+
+It cannot: there is no kit with a Qt in this run. **Twenty-six tests already
+skip in the same log** saying so, with the idiom this file uses three times:
+
+    Kit * const kit = Utils::findOr(KitManager::kits(), nullptr, [](const Kit *k) {
+        return k->isValid() && !k->hasWarning() && k->value("QtSupport.QtInformation").isValid();
+    });
+    if (!kit)
+        QSKIP("The test requires at least one valid kit with a valid Qt");
+
+This was the one Qt project in the file without it, and it passes the kit to
+`open()` now as its siblings do rather than letting the opener choose.
+
+This is the skip case, not entry 238's: the test's precondition is genuinely
+absent - there is no Qt to parse a `.pro` with - rather than a fact in the test
+being wrong. A timeout is a bad way to learn that, which is why this one read
+as a defect for as long as it did.
+
+### What is left, and honestly not investigated
+
+    LocatorFilterTest::testLocatorFilter(CppFunctionsFilter-ObjC)
+      Actual   (results) size: 5
+      Expected (expectedResults) size: 3
+
+Seen in 1 run of 3. **Not investigated.** More results than expected, from a
+filter over the symbols of one test file, is the shape of another test's
+symbols still being in the index - but that is a guess with no measurement
+behind it, and diagnosing a one-in-three flake is a batch rather than a
+footnote. Recorded with its numbers so the next attempt starts from them.
+
+### Measurements
+
+    -test CppEditor    1653 passed, 1 failed, 60 skipped, exit 1
+    -test TextEditor    778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+The CppEditor suite across four batches, all of it from reading failures that
+had been written off:
+
+| batch | passed | failed |
+| --- | --- | --- |
+| 237 (baseline) | 1642 | 15 |
+| 238 (the model that answers) | 1652 | 5 |
+| 239 (the missing prefix) | 1653 | 2 |
+| 240 (the missing Qt kit) | 1653 | 1 |
+
+Three of the four were test bugs, not environment: an expectation marked
+against a model that never answered, a tool name without its prefix, and a Qt
+project that never asked whether Qt was there. "Environmental" was the right
+word for none of them.
+
+### Negative controls
+
+**EI — the kit guard removed.** Bit, with the original failure:
+
+    testExtraeditorsupportUiFiles() 'projects.open(projectFile)' returned FALSE. ()
+
+### What is next
+
+1. The two decisions from entry 236, unchanged and still the only things that
+   move this branch: **retire `QTC_WIDGET_CPP_EDITOR`**, and **decide whether
+   the no-QtcQuick build is still supported**.
+2. `LocatorFilterTest(CppFunctionsFilter-ObjC)`, above, with its numbers.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239), which would
+   let the completions row and every other async tool be tested.
+4. Then: the flake, `VcsBaseSubmitEditor`, the Quick REPL rule.
