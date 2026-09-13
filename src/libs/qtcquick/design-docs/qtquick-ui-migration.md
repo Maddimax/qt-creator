@@ -62684,3 +62684,94 @@ REPL's rule would cost more of the shell-phase seam than it is worth. On the
 evidence of this batch the first question to ask is whether the Lua pane has a
 controller the test could be re-aimed at - if it does, the coverage survives
 the way this batch's did.
+
+## 2026-09-13 — The last view, and decision 2 is done (batch 269)
+
+`QTC_WIDGET_LUA_PANE` and `LuaReplView` are gone. **No `QTC_WIDGET_*` switch
+remains anywhere in the tree.** Decision 1 was enacted in entry 259, decision 2
+over entries 265 to 269: five views, one per batch, as planned.
+
+### The question entry 268 said to ask first
+
+Whether the Lua pane had a controller the auto-scroll test could be re-aimed
+at, the way entry 268 rescued the search results one. Asked, and the answer is
+no: `LuaReplController` publishes `model`, `history`, `prompt` and `submit()`.
+Following a line down is a `ListView` behaviour and lives in the QML -
+
+    if (lines.atYEnd)
+        lines.positionViewAtEnd()
+
+- so there is nothing on the C++ side to drive or observe. The coverage dies,
+as entries 236, 267 and 268 all said it would.
+
+Worth saying properly rather than as a loss: the Qt Quick pane's rule is the
+better one. The widget went to the end whatever the reader was looking at; the
+QML moves only when the list was already at the end, so scrolling up to read
+something stays put. What is gone is the test, not the behaviour, and the
+comment left in its place says exactly that and why - reaching into the scene
+means casting what `Core::createQmlView()` hands back to the host type, which
+is the coupling the shell-phase seam exists to prevent.
+
+Checked before deleting: `LuaReplView::showEvent()` started the REPL if it was
+not running, and that is not the only thing that does - `LuaReplController`
+has its own `start()`, and `LuaReplPane.qml` calls it from
+`Component.onCompleted`.
+
+### Negative controls
+
+- **The Lua pane returns a plain widget.** Red in QuickUi with
+  `testTheLuaPaneIsAQtQuickOne`: "the Lua pane is the widget one, which this
+  line has to say".
+- **The Lua suite stayed green under that control**, which is worth recording
+  rather than glossing: after this batch nothing in the Lua plugin's own tests
+  asserts its pane is the Qt Quick one. That claim is guarded once, from
+  another plugin.
+- Reverted: green.
+
+### Measurements
+
+    -test Lua            13 passed, 0 failed, 0 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+    -test Core          293 passed, 0 failed, 0 skipped, exit 0
+
+13 rather than 14: the deleted test. No `.qbs` change.
+
+### What the five deletions cost, totalled
+
+Four tests met their end and they divide cleanly by kind:
+
+- **Comparison tests die with the widget.** Open Documents' decoration test
+  compared icon, colour and tool tip against the tree; with no tree the model
+  supplies only the tool tip, so it compares one role and asserts the other
+  two are answered at all. Weaker, and it says so.
+- **Tests of what a reader's edit reaches survive**, if the Quick side has a
+  controller - the search results one was re-aimed at
+  `SearchResultRow::setTextToReplace()`, the same call the binding makes, at
+  full strength.
+- **Tests of what a widget drew do not survive at all.** The output pane
+  button test and the Lua auto-scroll test both asked what a `QToolButton` or
+  a `QListView` had done. Nothing draws in C++ any more, and reaching a QML
+  delegate is the coupling the seam forbids. Both are gone with nothing in
+  their place: nothing now checks that hiding a button in the model hides what
+  a reader sees, or that a line arriving scrolls the REPL down.
+
+That is the honest bill for decision 2: two uncovered behaviours, both
+recorded where the tests used to be.
+
+### What is next
+
+The plan's queue is empty of work that is mine. What remains:
+
+1. **Fold `fixup! QtcQuick: Port the Terminal page`** when the stack is tidied
+   (entry 263).
+2. **The Windows console-host port** wants a Windows run - it is checked to
+   compile and to draw, not to work (entry 264).
+3. **The crash**, per entry 247 - accepted with its measured rate unless an
+   ASan-built Qt is wanted, which is a day rather than a batch.
+4. The two uncovered behaviours above, if either is judged worth a QML-facing
+   test harness. That would be a new capability, not a batch.
+
+Both decisions are enacted, the branch is on current master, and the goal -
+a C++ file opens in the Qt Quick editor - has been true and guarded since
+entry 195.
