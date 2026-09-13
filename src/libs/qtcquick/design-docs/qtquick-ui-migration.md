@@ -59934,3 +59934,122 @@ word for none of them.
 3. **An async entry point for `Mcp::ToolRegistry`** (entry 239), which would
    let the completions row and every other async tool be tested.
 4. Then: the flake, `VcsBaseSubmitEditor`, the Quick REPL rule.
+
+## 2026-09-13 — The locator's leftovers, and the typing flake pinned to one key (batch 241)
+
+Entry 240 left `LocatorFilterTest(CppFunctionsFilter-ObjC)` as the last
+CppEditor failure, unread. It is read, and while running it enough times to
+measure, the typing flake fired with entry 231's trace in place.
+
+### The gap this batch closed
+
+    Actual   (results) size: 5
+    Expected (expectedResults) size: 3
+
+`garbageCollectGlobalSnapshot()` clears the **snapshot**. It does not clear
+`CppLocatorData`, which is what the matchers read. So every file an earlier
+test parsed is still indexed, and a search whose text happens to match a
+symbol in one of them returns extra rows.
+
+Not reasoned - the first attempt at a fix is what produced the evidence. That
+attempt was wrong: it read "the file arriving is a queued delivery" and assumed
+the leftovers were a queued *removal*, so it waited for the data to hold only
+the file under test. In isolation that passes, which is exactly how a wrong fix
+survives. In a full run the assertion fired and named them:
+
+    the locator still holds main.cpp, c.cpp, main.cpp, file1.cpp, main.cpp, main.cpp
+
+Six files, not pending removal - simply there. Waiting cannot help, and the
+attempt turned one flake into two hard failures. Reverted.
+
+What the test means is "the filter finds these symbols in this file", so the
+entries are filtered to the file under test before the comparison:
+
+    const LocatorFilterEntries entries = Utils::filtered(
+        LocatorMatcher::runBlocking(matchers, searchText),
+        [&filePath](const LocatorFilterEntry &entry) {
+            return entry.linkForEditor && entry.linkForEditor->targetFilePath == filePath;
+        });
+
+### The rate was not what entry 240 wrote down
+
+Entry 240 recorded "1 run in 3" from three observations. Measured properly with
+control EJ - the filter removed - it is **4 failures in 5 runs**, and with the
+filter **0 in 8**. The rate rose because the three batches before this one
+fixed other tests in the suite, which changed what runs before this one and
+what its files leave behind. A rate measured on a suite that is being changed
+underneath it is a rate for that day only.
+
+### The typing flake, pinned to one keystroke
+
+A `-test TextEditor` run during this batch died with
+`malloc(): smallbin double linked list corrupted`, and the trace entry 231 put
+in place was in the log above it:
+
+    ( -> void f() { g()} | caret 13
+    " -> void f() { g(")"} | caret 15
+    a -> void f() { g(")a"} | caret 16
+
+Typing `"` at caret 13 - inside `g(|)` - should give `g("")` with the caret at
+14, between the quotes. Instead the closing quote went in **after the `)`** and
+the caret landed at 15.
+
+The insertion is two statements:
+
+    cursor.insertText(typed);          // the quote: cursor should now be at 14
+    if (!closing.isEmpty()) {
+        const int before = cursor.position();
+        cursor.insertText(closing);    // the closing quote, at that position
+
+so for the closing quote to land at 15, `cursor.position()` was 15 after
+inserting one character at 13. A local `QTextCursor` only moves like that if
+the document was edited underneath it - something inserted at or before the
+caret **while the first `insertText` was running**. That is re-entrancy, and
+heap corruption in the same breath is what re-entrancy through a document edit
+looks like.
+
+Three sightings of this produced three different wrong strings and no idea
+which key. This one names the key, the position it was at, and the position it
+ended at. **It is not fixed here** - the batch was about the locator, this
+needs the re-entrant edit found, and guessing at a fix on the strength of one
+trace is how entry 241's first attempt went. But it is no longer a flake with
+no shape.
+
+### Measurements
+
+    -test CppEditor    1654 passed, 0 failed, 60 skipped, exit 0
+    -test TextEditor    778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, exit 0
+    -test Core          293 passed, 0 failed, exit 0
+
+**CppEditor is green.** Across five batches, every one of the sixteen failures
+was a test bug or a missing precondition, and none was the editor:
+
+| batch | passed | failed | what it was |
+| --- | --- | --- | --- |
+| 237 | 1642 | 15 | (baseline, unread) |
+| 238 | 1652 | 5 | marked against a model that never answered |
+| 239 | 1653 | 2 | a tool name without its prefix |
+| 240 | 1653 | 1 | a Qt project that never asked for Qt |
+| 241 | 1654 | 0 | a filter reading other tests' leftovers |
+
+### Negative controls
+
+**EJ — the entries are not filtered by file.** Bit, 4 times in 5 runs, always
+the same row:
+
+    testLocatorFilter(CppFunctionsFilter-ObjC)
+
+Eight runs with the filter and none. That is the control and the rate
+measurement in one, which is what the first attempt lacked.
+
+### What is next
+
+1. **The typing flake, with a shape at last**: find what edits the document
+   while `insertText()` is running in the auto-insert path. The trace names the
+   key and the two positions.
+2. The two decisions from entry 236, unchanged: **retire
+   `QTC_WIDGET_CPP_EDITOR`**, and **decide whether the no-QtcQuick build is
+   still supported**.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239).
+4. Then: `VcsBaseSubmitEditor`, the Quick REPL rule.

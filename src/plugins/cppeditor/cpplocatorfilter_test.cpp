@@ -28,17 +28,19 @@ static FilePath dataDir(const QString &subdir)
     return FilePath::fromUserInput(SRCDIR "/../../../tests/cpplocators/" + subdir);
 }
 
-static bool locatorDataContains(const FilePath &filePath)
+static QSet<FilePath> filesInLocatorData()
 {
-    bool found = false;
+    QSet<FilePath> files;
     CppModelManager::locatorData()->filterAllFiles([&](const IndexItem::Ptr &item) {
-        if (item->filePath() == filePath) {
-            found = true;
-            return IndexItem::Break;
-        }
+        files.insert(item->filePath());
         return IndexItem::Continue;
     });
-    return found;
+    return files;
+}
+
+static bool locatorDataContains(const FilePath &filePath)
+{
+    return filesInLocatorData().contains(filePath);
 }
 
 class CppLocatorFilterTestCase : public CppEditor::Tests::TestCase
@@ -58,7 +60,18 @@ public:
         // reaching CppLocatorData are separate queued deliveries; the matchers
         // read the latter.
         QTRY_VERIFY(locatorDataContains(filePath));
-        const LocatorFilterEntries entries = LocatorMatcher::runBlocking(matchers, searchText);
+
+        // Only this file's entries. garbageCollectGlobalSnapshot() clears the
+        // snapshot and not CppLocatorData, so the files earlier tests parsed
+        // are still indexed - measured, six of them, named by the assertion
+        // that first looked. A search whose text happens to match a symbol in
+        // one of those returned five results where three were expected, in
+        // about one full-suite run in three, and never on its own.
+        const LocatorFilterEntries entries = Utils::filtered(
+            LocatorMatcher::runBlocking(matchers, searchText),
+            [&filePath](const LocatorFilterEntry &entry) {
+                return entry.linkForEditor && entry.linkForEditor->targetFilePath == filePath;
+            });
         QVERIFY(garbageCollectGlobalSnapshot());
         const ResultDataList results = ResultData::fromFilterEntryList(entries);
         if (debug) {
