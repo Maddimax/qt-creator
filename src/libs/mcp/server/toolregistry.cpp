@@ -79,6 +79,39 @@ Utils::Result<Schema::CallToolResult> ToolRegistry::callToolForTests(
     return Utils::ResultError(QString("No registered tool named \"%1\".").arg(name));
 }
 
+void ToolRegistry::callToolForTests(
+    const QString &name,
+    const Schema::CallToolRequestParams &params,
+    const std::function<void(const Utils::Result<Schema::CallToolResult> &)> &done)
+{
+    for (const auto &tool : Internal::registry().tools) {
+        if (tool.metadata.name() != name)
+            continue;
+        if (!tool.enabled) {
+            done(Utils::ResultError(QString("Tool \"%1\" is disabled.").arg(name)));
+            return;
+        }
+        // The same check the server makes, so a test sees what a client sees.
+        if (const Utils::Result<> ok = validateToolArguments(tool.metadata, params); !ok) {
+            done(Utils::ResultError(ok.error()));
+            return;
+        }
+        if (auto *callback = std::get_if<Server::ToolCallback>(&tool.callback)) {
+            done((*callback)(params));
+            return;
+        }
+        const auto &callback = std::get<Server::ToolInterfaceCallback>(tool.callback);
+        const ToolInterface toolInterface = ToolInterface::forTests(
+            Schema::CallToolRequest().params(params), done);
+        // A tool that declines before it starts answers nothing through the
+        // interface, so its refusal is the result.
+        if (const Utils::Result<> started = callback(params, toolInterface); !started)
+            done(Utils::ResultError(started.error()));
+        return;
+    }
+    done(Utils::ResultError(QString("No registered tool named \"%1\".").arg(name)));
+}
+
 void ToolRegistry::enableTool(const QString &toolName, bool enabled)
 {
     auto tool = std::find_if(

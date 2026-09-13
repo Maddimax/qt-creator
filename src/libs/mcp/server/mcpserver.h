@@ -252,6 +252,21 @@ public:
     ~ToolInterface();
 
     /*!
+        \brief Returns a ToolInterface that hands its result to \a done.
+
+        For tests. A tool driven through this answers \a done instead of a
+        client, and the result makes the same trip through JSON that a
+        client's would - so a tool reporting failure arrives as a result with
+        isError() set rather than as a Utils::ResultError, which is what a
+        client sees too.
+
+        \sa ToolRegistry::callToolForTests()
+    */
+    static ToolInterface forTests(
+        const Schema::CallToolRequest &request,
+        const std::function<void(const Utils::Result<Schema::CallToolResult> &)> &done);
+
+    /*!
         \brief Returns the capabilities reported by the connected client.
     */
     const Schema::ClientCapabilities &clientCapabilities() const;

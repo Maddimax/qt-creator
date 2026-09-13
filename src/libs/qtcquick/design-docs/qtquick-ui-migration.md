@@ -61280,3 +61280,108 @@ Said plainly, because it is the third batch in a row to end this way: the
 guards around the goal are as complete as I can make them without a decision.
 The next batch has item 3 or it has nothing, and item 3 is not about the
 editor.
+
+## 2026-09-13 — The async entry point, and the test it restored being weak (batch 255)
+
+Entry 254 said the next batch has item 3 or it has nothing. This is item 3.
+
+### The gap this batch closed
+
+`Mcp::ToolRegistry::callToolForTests()` drives synchronous tools only, and
+says so:
+
+    Tool "editor_get_completions" is asynchronous and cannot be called
+    synchronously.
+
+Entry 239 found that and skipped the row rather than leave it failing.
+`editor_get_completions` is the tool that answers "what does this file
+complete to", which for a C++ file is the Qt Quick editor's business - and it
+is the tool that used to answer "Could not open in a text editor" for every
+C++ file, which is why the test exists at all.
+
+Two small additions, both where they belong:
+
+- **`ToolInterface::forTests(request, done)`** in `mcpserver.cpp`, where
+  `Responder` is a complete type. It builds a responder whose `write` parses
+  the JSON-RPC response back with `Schema::fromJson<CallToolResult>` and hands
+  it to `done`. The result therefore makes the same trip through JSON a
+  client's would, which matters: a tool reporting failure arrives as a result
+  with `isError()` set, not as a `ResultError`, exactly as a client sees it.
+  The weak `ServerPrivate` pointer is empty; `removeFromPending()` already
+  guards with `.lock()`, and there is no pending list to join.
+- **An overload of `callToolForTests`** taking that callback, doing the same
+  lookup, enabled check and argument validation as the synchronous one, then
+  either calling the synchronous callback or building a test interface for the
+  asynchronous one.
+
+Lifetime was checked rather than assumed: the server passes `ToolInterface` by
+const reference and keeps `d` alive in `m_pendingToolInterfaces`, so a test
+path without one would dangle if a tool captured by reference. Read the tool -
+`[toolInterface, limit, cursorPos, ...]`, by value, twice - so a well-behaved
+asynchronous tool keeps its own copy alive and a stack interface is enough.
+That is a property of the tools, not of the API, and is why the new overload's
+comment says `done` is simply not called if a tool never finishes.
+
+The skip is gone: `testGetCompletions` runs, over both its rows.
+
+### The control that did not bite, which was the real finding
+
+- **A - the responder drops the answer instead of delivering it.** Both rows
+  red at `answer->has_value()`. The result genuinely arrives through the new
+  plumbing.
+- **B - `CppEditorDocument` installs no completion provider** (entry 238's
+  EA). **Green.** The restored test passed with no C++ completion at all.
+
+The file it completes in is
+
+    struct Point { int alpha; int beta; };
+    void use(Point p) { p.; }
+
+so `alpha` and `beta` are words in it, and the fallback word completer offers
+them. This is exactly the trap entry 248 hit and wrote up, in a test written
+before that entry existed - restoring a skipped test restored its assertions
+too, weakness and all.
+
+Fixed the way 248 fixed it, with what is *not* offered after a dot - `use` and
+`struct`, a free function and a keyword, which nothing reached through a `.`
+can be. `Point` is deliberately not in that list: a class injects its own name
+into its own scope. Control B now bites both rows and prints the word
+completer's whole list:
+
+    "use" was offered after "p.", so this is completing from the words in the
+    file: alpha, beta, global example, int, Point, struct, use, void
+
+**Worth stating as a rule rather than an anecdote:** un-skipping a test is not
+the same as covering the thing again. The skip froze the assertions at the day
+they were written, and the batch that restores it inherits whatever was wrong
+with them. Run the control before believing the green.
+
+### Measurements
+
+    -test CppEditor    1658 passed, 0 failed, 58 skipped, exit 0
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+    -test FakeVim       571 passed, 0 failed, 14 skipped, exit 0
+
+CppEditor gains two rows and loses two skips. FakeVim run because it is the
+other caller of `callToolForTests` and an overload can change which one a call
+picks; it did not. No new files, so no `.qbs` change - the two libraries' lists
+are unchanged.
+
+### What is next
+
+The plan is empty of work I can do.
+
+1. **The two decisions from entry 236** - retire `QTC_WIDGET_CPP_EDITOR`
+   (measured in 253, guarded in 254 - what remains is whether a way back is
+   wanted), and whether the no-QtcQuick build is still supported. Nineteen
+   batches.
+2. The crash, per entry 247 - accepted and recorded, unless an ASan-built Qt
+   is wanted, which is a day rather than a batch.
+3. `VcsBaseSubmitEditor` and the Quick REPL rule - entry 236 judged both not
+   worth doing and nothing since has changed that.
+
+Item 3 of the old list is done, and it was the last unblocked one. Anything
+further is either a decision, a day of machine time nobody has asked for, or
+work entry 236 already argued against. The honest statement is that the next
+batch should not invent one.

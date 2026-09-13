@@ -33,6 +33,15 @@ public:
     static Utils::Result<Schema::CallToolResult> callToolForTests(
         const QString &name, const Schema::CallToolRequestParams &params);
 
+    // Invokes a registered tool of either kind and hands its result to \a done
+    // when it arrives - immediately for a synchronous one, whenever it
+    // finishes for an asynchronous one. \a done is not called at all if the
+    // tool never finishes; a test has to bound its own wait.
+    static void callToolForTests(
+        const QString &name,
+        const Schema::CallToolRequestParams &params,
+        const std::function<void(const Utils::Result<Schema::CallToolResult> &)> &done);
+
 signals:
     void toolRegistered();
     void toolEnabled(const QString &toolName, bool enabled);

@@ -23,6 +23,9 @@
 #include <QJsonObject>
 #include <QTest>
 
+#include <memory>
+#include <optional>
+
 namespace CppEditor::Internal {
 
 // Invoke a registered MCP tool by name and return its structured content. On
@@ -257,33 +260,60 @@ void CppMcpSupportTest::testGetCompletions()
     // wants it gone again.
     const QScopeGuard closeThem([] { Core::EditorManager::closeAllEditors(false); });
 
-    // Just after "p.", which is where the members are on offer.
-    QString error;
     // Not a cpp_ tool: completing is the editor's, and the C++ model is what
-    // answers it for a C++ file. It is registered asynchronously, and the
-    // registry offers tests no way to drive one of those -
-    // callToolForTests() refuses by design. Said here rather than left
-    // failing: what this row is about, that a C++ file completes in either
-    // view, is covered without MCP by
-    // testEveryQuickLanguageGetsWhatItsFactoryConfigures, which checks the
-    // document did not fall back to completing from the words in the file,
-    // and by testAQuickCppEditorHasEverythingTheFactoryConfigures, which
-    // checks Trigger Completion is enabled in the Quick view.
-    QSKIP("editor_get_completions is asynchronous and the registry cannot call one from a test");
+    // answers it for a C++ file. It answers when that model does rather than
+    // before it returns, so it is driven through the registry's asynchronous
+    // entry point - the result arrives on a callback.
+    //
+    // Held by shared_ptr rather than captured by reference: a tool that
+    // answers after this function has given up on it would otherwise write
+    // into a dead frame.
+    auto answer = std::make_shared<std::optional<Utils::Result<Mcp::Schema::CallToolResult>>>();
+    // Just after "p.", which is where the members are on offer.
+    Mcp::ToolRegistry::callToolForTests(
+        "editor_get_completions",
+        Mcp::Schema::CallToolRequestParams{}.arguments(QJsonObject{{"file", file.toUserOutput()},
+                                                                   {"line", 2},
+                                                                   {"column", 23}}),
+        [answer](const Utils::Result<Mcp::Schema::CallToolResult> &result) { *answer = result; });
+    QTRY_VERIFY_WITH_TIMEOUT(answer->has_value(), 30000);
 
-    const QJsonObject result = callTool("editor_get_completions",
-                                        QJsonObject{{"file", file.toUserOutput()},
-                                                    {"line", 2},
-                                                    {"column", 23}},
-                                        &error);
-    QVERIFY2(error.isEmpty(), qPrintable(error));
+    const Utils::Result<Mcp::Schema::CallToolResult> result = answer->value();
+    if (!result)
+        QFAIL(qPrintable(result.error()));
+    QString reported;
+    if (result->isError().value_or(false)) {
+        for (const Mcp::Schema::ContentBlock &block : result->content()) {
+            if (const auto *text = std::get_if<Mcp::Schema::TextContent>(&block))
+                reported += text->text();
+        }
+        if (reported.isEmpty())
+            reported = "the tool reported an error with nothing in it";
+    }
+    QVERIFY2(reported.isEmpty(), qPrintable(reported));
 
-    const QJsonArray completions = result.value("completions").toArray();
+    const QJsonArray completions
+        = result->structuredContentAsObject().value("completions").toArray();
     QStringList offered;
     for (const QJsonValue &one : completions)
         offered << one.toObject().value("text").toString();
     QVERIFY2(offered.contains("alpha") && offered.contains("beta"),
              qPrintable("offered: " + offered.join(", ")));
+
+    // And not the other words in the file. Both member names are written in
+    // it, so a completer that only knows the words it has seen offers them
+    // too and passes the check above - measured, not reasoned: with the C++
+    // provider removed this test stayed green until these lines existed.
+    //
+    // "Point" is not one of those: a class injects its own name into its own
+    // scope, so "p.Point" names the type and the model offers it. Asked of a
+    // free function and a keyword instead, which nothing reached through a
+    // "." can be.
+    for (const QString &notAMember : {QString("use"), QString("struct")}) {
+        QVERIFY2(!offered.contains(notAMember),
+                 qPrintable("\"" + notAMember + "\" was offered after \"p.\", so this is "
+                            "completing from the words in the file: " + offered.join(", ")));
+    }
 }
 
 void CppMcpSupportTest::testRenameSymbolDryRun()

@@ -2197,6 +2197,24 @@ ToolInterface::ToolInterface(
 
 ToolInterface::~ToolInterface() {}
 
+ToolInterface ToolInterface::forTests(
+    const Schema::CallToolRequest &request,
+    const std::function<void(const Utils::Result<Schema::CallToolResult> &)> &done)
+{
+    Responder responder;
+    responder.write = [done](QJsonDocument doc) {
+        done(Schema::fromJson<Schema::CallToolResult>(doc.object().value("result")));
+    };
+    responder.writeStatus = [](QHttpServerResponder::StatusCode) {};
+    responder.writeData = [](const QByteArray &, const char *, QHttpServerResponse::StatusCode) {};
+    responder.writeSSE = [](const QByteArray &) {};
+    responder.isCanceled = [] { return false; };
+    // No server: nothing to cancel through and no pending list to join. The
+    // interface stays alive as long as the tool keeps its copy, which is how
+    // an asynchronous tool holds one anyway.
+    return ToolInterface({}, Schema::ClientCapabilities{}, request, QString(), responder);
+}
+
 const Schema::ClientCapabilities &ToolInterface::clientCapabilities() const
 {
     return d->_clientCapabilities;
