@@ -1275,6 +1275,25 @@ private slots:
     // about. Adding something to CppEditorFactory means adding it here too.
     void testAQuickCppEditorHasEverythingTheFactoryConfigures()
     {
+        // The commands this test ends by asserting are on. Sampled here so
+        // that the assertions below say something: all five are off with no
+        // C++ editor open, so finding them on afterwards is this view turning
+        // them on rather than the process having them on anyway.
+        const auto enabledNow = [](const Utils::Id &id) {
+            Core::Command * const command = Core::ActionManager::command(id);
+            return command && command->action()->isEnabled();
+        };
+        const QList<Utils::Id> commands{TextEditor::Constants::UN_COMMENT_SELECTION,
+                                        TextEditor::Constants::COMPLETE_THIS,
+                                        TextEditor::Constants::QUICKFIX_THIS,
+                                        TextEditor::Constants::FIND_USAGES,
+                                        TextEditor::Constants::RENAME_SYMBOL};
+        for (const Utils::Id &id : commands) {
+            QVERIFY2(!enabledNow(id),
+                     qPrintable(id.toString() + " is already on with no C++ editor open, so "
+                                                "finding it on below would mean nothing"));
+        }
+
         Utils::TemporaryDirectory dir("cpp-quick-census");
         QVERIFY(dir.isValid());
         const Utils::FilePath file = dir.filePath("main.cpp");
@@ -1309,26 +1328,28 @@ private slots:
         QVERIFY2(factory->contextMenuId() == Utils::Id(CppEditor::Constants::M_CONTEXT),
                  "the factory names no C++ context menu for a view to open");
 
-        // Completion.
-        QVERIFY2(document->completionAssistProvider(),
-                 "no completion provider reached the document");
-
-        // Quick fixes.
-        QVERIFY2(document->quickFixAssistProvider(),
-                 "no quick fix provider reached the document");
+        // Completion is the C++ one, not the word completer every document
+        // falls back to. TextEditorFactory installs that fallback when a
+        // factory names none, so asking only whether *a* provider is there
+        // passes with no C++ completion at all - measured, not reasoned:
+        // control EA removed it and this test stayed green.
+        QVERIFY2(qobject_cast<CppCompletionAssistProvider *>(
+                     document->completionAssistProvider()),
+                 "the document completes like plain text, not like C++");
 
         // Follow symbol.
         QVERIFY2(TextEditor::TextEditorFactory::linkFinderFor(document),
                  "no link finder reached the document");
 
-        // Refactoring: Find Usages and Rename ask through the relay.
-        QVERIFY2(TextEditor::symbolRequestsForEditor(editor),
-                 "the view offers no relay for Find Usages and Rename");
-
-        // The optional-action mask, asked as what it does rather than as the
-        // object that does it: a command C++'s mask turns on. A command is
-        // enabled by the active context, so the view has to actually have
-        // focus - entry 97 is what a test that skips this measures instead.
+        // Everything above is the *document*, which is the same object in
+        // either view - the factory configures it before it decides what
+        // draws it. So none of it can say whether the Quick view reaches any
+        // of it. What can is whether the commands are enabled while this view
+        // has focus, which is the active context and nothing else.
+        //
+        // A command is enabled by the active context, so the view has to
+        // actually have focus - entry 97 is what a test that skips this
+        // measures instead.
         QWidget * const host = editor->widget();
         QVERIFY(host);
         host->resize(400, 300);
@@ -1339,11 +1360,16 @@ private slots:
         host->setFocus(Qt::OtherFocusReason);
         QTRY_VERIFY2(QApplication::focusWidget(), "nothing took focus in this fixture");
 
-        Core::Command * const comment
-            = Core::ActionManager::command(TextEditor::Constants::UN_COMMENT_SELECTION);
-        QVERIFY(comment);
-        QTRY_VERIFY2(comment->action()->isEnabled(),
-                     "Toggle Comment is off, so the factory's mask did not reach this view");
+        // The optional-action mask, asked as what it does rather than as the
+        // object that does it: a command C++'s mask turns on.
+        // The optional-action mask, completion, quick fixes and refactoring,
+        // asked of the view rather than of the document. Each has a provider
+        // on the document either way; what the flip depends on is that the
+        // command reaches *here*. Every one of them was off above.
+        for (const Utils::Id &id : commands) {
+            QTRY_VERIFY2(enabledNow(id),
+                         qPrintable(id.toString() + " is off in the Qt Quick C++ editor"));
+        }
     }
 
     void testRenameAnswersTheViewsRequest()

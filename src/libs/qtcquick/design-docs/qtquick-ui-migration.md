@@ -59542,3 +59542,114 @@ here. Both were raised in the reply this entry accompanies.
 Run to confirm the tree is where entry 235 left it, not to check a change.
 No negative controls: nothing was changed, and a control for an unchanged
 tree would be theatre.
+
+## 2026-09-13 — The guard for the flip was mostly testing the document (batch 237)
+
+Entry 236 said the queue is empty and proposed two decisions. Neither is mine
+to take, and no answer has come. What *is* mine is the standing instruction's
+own precondition: everything CppEditor configures has to have somewhere to go
+on the Quick side **before** the switch flips. That is guarded by
+`testAQuickCppEditorHasEverythingTheFactoryConfigures`, which entry 195
+verified. Verified as "it passes" - not as "it can fail".
+
+### The gap this batch closed
+
+**Three of the five things the instruction names were asserted by lines that
+could not fail.** The test asked the *document* whether a provider had reached
+it, and the document is the same object in either view - the test's own comment
+says so, two lines above: "Everything above configures the *document*, which is
+the same one either view shows. Only what draws it differs."
+
+- **Completion.** `TextEditorFactory` installs a fallback when a factory names
+  none: `d->m_completionAssistProvider ? ... : &basicSnippetProvider`. Measured
+  with control EA - stop `CppEditorDocument` installing the C++ provider, and
+  the document answers `TextEditor::DocumentContentCompletionProvider`
+  instead. **The test stayed green, 3 passed, 0 failed.** A C++ editor with no
+  C++ completion at all passed the guard for flipping C++ to it.
+- **Quick fixes.** `CppEditorDocument::quickFixAssistProvider()` returns the
+  base's if set and `&cppQuickFixAssistProvider()` otherwise, so it is never
+  null for a C++ document, whatever anyone configures.
+- **Refactoring.** `TextViewport::symbolRequests()` builds the relay on first
+  ask - `if (!m_symbolRequests) ... new SymbolRequests(...)` - so asking
+  whether the view has one is asking whether calling a getter returns
+  something.
+
+Two were real, and that was measured too: **EC** removed `setLinkFinder(&findCppLinkAt)`
+and Follow Symbol went red; the optional-action mask was already checked by
+driving a command with the view up.
+
+### What replaced them
+
+The question the flip depends on is not whether a provider is on the document.
+It is whether the command reaches *this view*. So all five are now asked the
+same way the mask already was, and the test samples them before the editor
+exists:
+
+    for (const Utils::Id &id : commands)
+        QVERIFY2(!enabledNow(id), "... is already on with no C++ editor open ...");
+    ... open the C++ file in the Quick view, show it, give it focus ...
+    for (const Utils::Id &id : commands)
+        QTRY_VERIFY2(enabledNow(id), "... is off in the Qt Quick C++ editor");
+
+`UN_COMMENT_SELECTION`, `COMPLETE_THIS`, `QUICKFIX_THIS`, `FIND_USAGES`,
+`RENAME_SYMBOL`. All five are off before and on after, so the test carries its
+own control: finding them on is this view turning them on, not the process
+having them on anyway.
+
+The completion check also names the type now, which is what EA needed:
+
+    QVERIFY2(qobject_cast<CppCompletionAssistProvider *>(document->completionAssistProvider()),
+             "the document completes like plain text, not like C++");
+
+### A control that did not bite, and what it showed
+
+**EF - the view is shown and activated but never given focus.** It did not
+bite: all five commands were still on. Not a hole, but worth knowing - the
+context becomes active on `show()` and `activateWindow()`, and the explicit
+`setFocus()` the test has carried since entry 97 is not what makes these
+commands live. The before/after pairing is what makes the assertions real, and
+it is inside the test rather than in a control that has to be remembered.
+
+### Measurements
+
+    -test CppEditor    1646 passed, 11 failed, 57 skipped, exit 11
+    -test TextEditor    778 passed,  0 failed, 18 skipped, exit 0
+    -test QuickUi       226 passed,  0 failed, exit 0
+    -test Core          293 passed,  0 failed, exit 0
+    -test Lua            14 passed,  0 failed, exit 0
+    -test Todo           11 passed,  0 failed, exit 0
+
+**The CppEditor suite is not green and was not before.** Measured rather than
+assumed: the same tree without this change gives **1642 passed, 15 failed** -
+so the change adds none, and the suite moves by four between runs on its own.
+The names are environmental - `No registered tool named "get_quick_fixes"`,
+`projects.open(projectFile)` returning false - and this is the first batch to
+run that suite, so it joins the parked list with its numbers rather than being
+claimed as new.
+
+### Negative controls
+
+**EA — `CppEditorDocument` installs no completion provider.** Ran twice. Against
+the old assertion: **green**, which is the finding. Against the new one: red.
+
+    'qobject_cast<CppCompletionAssistProvider *>(document->completionAssistProvider())'
+    returned FALSE. (the document completes like plain text, not like C++)
+
+**EC — `setLinkFinder(&findCppLinkAt)` removed.** Red both before and after:
+that assertion was always real.
+
+**EF — the view is never given focus.** Did not bite; reported above.
+
+### What is next
+
+Unchanged from entry 236, and the two decisions there are still the only things
+that move this branch:
+
+1. **Retire `QTC_WIDGET_CPP_EDITOR`** - the finish line, unblocked, and a
+   decision. The guard for it is now worth the name: it asks the view.
+2. **Decide whether the no-QtcQuick build is still supported** - which
+   determines whether the other five widget views ever go.
+3. Then: the flake, `VcsBaseSubmitEditor`, the Quick REPL rule.
+4. Parked with numbers: the CppEditor suite's 11-15 environmental failures,
+   `IOutputPane::toolBarWidgets()` pending Qt SerialPort, and
+   `RunWorkerConflictTest::testConflict` upstream.
