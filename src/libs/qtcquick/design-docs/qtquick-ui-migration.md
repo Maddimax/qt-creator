@@ -60318,3 +60318,82 @@ count is quoted beside it.
 
 The ASan build is left at `builds/linux-arm64/Asan` - about 20 GB, outside git,
 and the only reason not to rebuild it next time.
+
+## 2026-09-13 — Taking the caret test out of the crash's way (batch 245)
+
+Entry 244 left two options for the heap corruption: an ASan-built Qt, or
+reducing the churn in the test it appears in. It also said the second was "a
+trade worth naming rather than making quietly". It is named, in entry 244, and
+this batch makes it - with what is traded written down here rather than
+implied.
+
+### What changed
+
+`testTheCaretLandsWhereTheWidgetEditorsDoes` was data-driven over fifteen
+scripts and opened **two editors per row** - a widget one and a Quick one, on
+separate files - closing both at the end of each. Thirty editors opened and
+closed inside one test function, which is more editor churn than anything else
+in the suite and where the suite has twice died.
+
+It now opens **one editor per view for all fifteen scripts**, emptying the
+document and putting the caret back to the start between them.
+
+**What is traded:** nothing this test is for. It compares where the caret lands
+after each key; opening and closing an editor is not that. What closing an
+editor leaves behind is `testClosingAnEditorLetsGoOfItsDocument`'s question,
+asked there on purpose and over eight editors from six plugins, including both
+views of a C++ file. The churn here was incidental.
+
+**What is not claimed:** that this fixes anything. Entry 244 could not find the
+bug with four instruments and nothing about it is understood. This takes one
+test out of its way; the corruption, whatever it is, is still there.
+
+### The counts move, and why
+
+    -test TextEditor    764 passed, 0 failed, 3 skipped   (was 778 / 18)
+
+Fourteen fewer passes and fifteen fewer skips, and the same fifteen scripts
+checked. The old shape was thirty rows - fifteen that ran and fifteen widget
+rows that immediately `QSKIP`ped, because the widget view is the reference
+rather than a case. One test replaces all thirty.
+
+### The failure got better, not worse
+
+Losing the per-row names could have cost the diagnosis, so the divergences are
+collected and reported together rather than asserted inside the loop. Under
+control EL the old shape said "Compared lists differ at index 6" on five rows.
+The new one says:
+
+    a line: quick 1,2,3,4,5,6,8,9,10,12,13,14,16,18,19,20,21,22,23,24,
+            widget 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20
+    a bracket inside a string: quick 1,3,5,7,9,10, widget 1,2,3,4,5,6
+    ... four more ...
+
+Six scripts, each with both caret sequences in full. The sixth - "backtab on an
+indented line" - diverges from its *first* key, which the auto-insert change
+EL makes should not touch; worth a look if anyone changes that path, and noted
+rather than chased here.
+
+### Measurements
+
+    -test TextEditor    764 passed, 0 failed, 3 skipped, exit 0  (5 runs)
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+### Negative controls
+
+**EL — `cursor.setPosition(before)` removed from the auto-insert path**, which
+is entry 242's control DT run against the new shape. Bit, on six of the fifteen
+scripts, with both caret sequences printed. Nine scripts never type a character
+that gets a closer put in after it, so six is the test saying what it covers.
+
+### What is next
+
+1. **An ASan-built Qt**, still the only instrument that could see the
+   corruption, and still a Qt build rather than a Qt Creator one.
+2. The two decisions from entry 236: **retire `QTC_WIDGET_CPP_EDITOR`**, and
+   **decide whether the no-QtcQuick build is still supported**.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239) - looked at in
+   this batch and larger than it sounds: `ToolInterface` is constructible only
+   by `ServerPrivate`, so a test entry point means opening that up or standing
+   a real server up in the test.
+4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
