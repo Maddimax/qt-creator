@@ -59760,3 +59760,90 @@ original failure:
 3. Then: the flake, `VcsBaseSubmitEditor`, the Quick REPL rule.
 4. Blocked or upstream: `IOutputPane::toolBarWidgets()` pending Qt SerialPort,
    `RunWorkerConflictTest::testConflict`.
+
+## 2026-09-13 — "No MCP server here" was a name with the prefix missing (batch 239)
+
+Entries 237 and 238 both wrote off five `CppMcpSupportTest` failures as
+environmental - "no MCP server registered here" - on the strength of the error
+text. The error text was accurate and the reading of it was not.
+
+### The gap this batch closed
+
+    No registered tool named "get_quick_fixes".
+
+Every tool in `mcpsupport.cpp` registers with a `cpp_` prefix, and the test
+file uses it correctly in four places and not in one:
+
+    .name("cpp_get_quick_fixes")      // registered
+    callTool("get_quick_fixes", ...)  // asked for
+
+One word. It has failed on every run since it was written, and two batches
+read the message as a missing server rather than a missing prefix, because
+"No registered tool named X" is what both look like.
+
+The other name was wrong differently. `get_completions` is not a C++ tool at
+all - the registered one is `editor_get_completions`, in the mcpserver plugin,
+because completing is the editor's job and the C++ model is what answers it for
+a C++ file. With the right name the call gets a different refusal:
+
+    Tool "editor_get_completions" is asynchronous and cannot be called synchronously.
+
+which is `ToolRegistry::callToolForTests()` doing what its own comment says:
+asynchronous tools "cannot be driven this way". So that row could never have
+passed, under either name, and nothing anywhere drives an async tool from a
+test.
+
+### What was done about each
+
+**The quick fixes row is fixed** - it now names the tool that exists, and
+passes.
+
+**The completions row skips**, with the reason and with where the behaviour is
+covered instead. Adding an async entry point to `Mcp::ToolRegistry` would fix
+it properly and would unlock every async tool for testing, but that is a new
+API in `libs/mcp/server` and a long way from drawing editors in Qt Quick.
+
+The skip is defensible here for the reason entry 238 got wrong in the other
+direction: there is **no way to call the tool**, which is a missing
+precondition for the test. Entry 238's mistake was skipping when a *fact* was
+wrong. And what the row is about - that a C++ file completes in either view -
+is covered twice without MCP:
+`testEveryQuickLanguageGetsWhatItsFactoryConfigures` checks the document did
+not fall back to completing from the words in the file, and entry 237's
+`testAQuickCppEditorHasEverythingTheFactoryConfigures` checks Trigger
+Completion is enabled in the Quick view.
+
+### Measurements
+
+    -test CppEditor    1653 passed, 2 failed, 59 skipped, exit 2
+    -test TextEditor    778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+The CppEditor suite across four batches: 1642/15 (237's baseline), 1652/5
+(238), 1653/2 here. What is left:
+
+- `ModelManagerTest::testExtraeditorsupportUiFiles` - `projects.open()` returns
+  false; needs a working qmake project.
+- `LocatorFilterTest(CppFunctionsFilter-ObjC)` - flaky, seen in 1 run of 3.
+
+Neither has been read yet, and on this batch's record that is worth saying
+rather than calling them environmental.
+
+### Negative controls
+
+**EH — the unprefixed name goes back.** Bit, with the message that started
+this:
+
+    testGetQuickFixes() 'error.isEmpty()' returned FALSE.
+    (No registered tool named "get_quick_fixes".)
+
+### What is next
+
+1. The two decisions from entry 236, unchanged: **retire
+   `QTC_WIDGET_CPP_EDITOR`**, and **decide whether the no-QtcQuick build is
+   still supported**.
+2. The last two CppEditor failures, above - unread rather than environmental.
+3. **An async entry point for `Mcp::ToolRegistry`**, which would let the
+   completions row and every other async tool be tested. Named here because
+   this batch found the hole, not because it belongs to this branch.
+4. Then: the flake, `VcsBaseSubmitEditor`, the Quick REPL rule.
