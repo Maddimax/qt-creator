@@ -30,6 +30,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditorconstants.h>
 #include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/coreconstants.h>
 #include <coreplugin/actionmanager/command.h>
 #include <texteditor/texteditor.h>
 
@@ -43,6 +44,7 @@
 #include "cpplocalrenaming.h"
 #include <utils/temporarydirectory.h>
 #include <QApplication>
+#include <QClipboard>
 #include <QScopeGuard>
 #include <QTest>
 #endif
@@ -948,6 +950,96 @@ private slots:
         QTRY_COMPARE(document->plainText().count("beta"), 3);
         QVERIFY2(!document->plainText().contains("alpha"),
                  "a use of the old name was left behind");
+    }
+
+    // The clipboard while an in-place rename is running. A rename spans every
+    // use of the name at once, so Select All takes the name rather than the
+    // file and a paste replaces all of them rather than the one the caret is
+    // in. CppEditorWidget took those three over for exactly that reason; a
+    // view that is not one takes them through the same handler, and only the
+    // fourth of the four - encourageApply() - was ever asked whether it
+    // arrives.
+    void testTheClipboardDuringAnInPlaceRenameSpansEveryUse()
+    {
+        Utils::TemporaryDirectory dir("cpp-rename-clipboard-in-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("rename.cpp");
+        QVERIFY(file.writeFileContents(
+            "int main()\n{\n    int alpha = 1;\n    return alpha + alpha;\n}\n"));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(editorFactory);
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(true);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // The commands are routed by the active context, so the view has to
+        // have focus for a trigger to reach it at all.
+        QWidget * const host = editor->widget();
+        QVERIFY(host);
+        host->resize(400, 300);
+        host->show();
+        const QScopeGuard hideIt([host] { host->hide(); });
+        host->activateWindow();
+        QApplication::setActiveWindow(host);
+        host->setFocus(Qt::OtherFocusReason);
+        QTRY_VERIFY2(QApplication::focusWidget(), "nothing took focus in this fixture");
+
+        editor->gotoLine(3, 10);
+        TextEditor::renameSymbolUnderCursorIn(editor);
+        auto * const renaming = editor->findChild<CppLocalRenaming *>();
+        QVERIFY2(renaming, "the Quick editor has no in-place rename to speak of");
+        QTRY_VERIFY2(renaming->isActive(),
+                     "renaming the symbol under the cursor started nothing");
+
+        const auto trigger = [](const Utils::Id &id) {
+            Core::Command * const command = Core::ActionManager::command(id);
+            if (!command || !command->action()->isEnabled())
+                return false;
+            command->action()->trigger();
+            return true;
+        };
+
+        // Select All takes the name being renamed, not the file.
+        QVERIFY2(trigger(Core::Constants::SELECTALL),
+                 "Select All does not reach the Qt Quick C++ editor");
+        QCOMPARE(TextEditor::textCursorOf(editor).selectedText(), QString("alpha"));
+
+        // And a paste over it reaches every use.
+        QGuiApplication::clipboard()->setText("beta");
+        QVERIFY2(trigger(Core::Constants::PASTE),
+                 "Paste does not reach the Qt Quick C++ editor");
+        QTRY_COMPARE(document->plainText().count("beta"), 3);
+        QVERIFY2(!document->plainText().contains("alpha"),
+                 "a use of the old name was left behind");
+
+        // The rename is still running over the new name, and a cut empties
+        // every use of it rather than the one the caret is in.
+        QVERIFY2(renaming->isActive(), "the paste ended the rename");
+        QVERIFY2(trigger(Core::Constants::SELECTALL),
+                 "Select All does not reach the Qt Quick C++ editor");
+        QCOMPARE(TextEditor::textCursorOf(editor).selectedText(), QString("beta"));
+        QVERIFY2(trigger(Core::Constants::CUT),
+                 "Cut does not reach the Qt Quick C++ editor");
+        QTRY_COMPARE(document->plainText().count("beta"), 0);
     }
 
     // Completion. CppEditorWidget built the C++ assist interface itself, and

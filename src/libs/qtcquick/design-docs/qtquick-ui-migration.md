@@ -60890,3 +60890,109 @@ mask - are checked by something that reads back what the Quick view produced,
 not merely that the command reached it. Entry 248 claimed that one batch
 early and entry 249 corrected it; this is the batch that makes it true, and it
 is stated here so the next reader can check it rather than inherit it.
+
+## 2026-09-13 — The inventory the five-item list was standing in for (batch 251)
+
+### Where this batch came from
+
+Entry 250 ended by saying all five things the standing instruction names are
+now read back rather than counted. True, and the wrong thing to rest on: that
+list - completion, quick fixes, follow symbol, refactoring, the optional-action
+mask - is the instruction's *summary* of the precondition. The precondition
+itself is the clause around it: everything CppEditor configures on a
+`TextEditorWidget` has to have somewhere to go on the Quick side.
+
+So this batch asked the code instead. `CppEditorWidget`'s overrides are the
+inventory, and there are more than five:
+
+    createAssistInterface  encourageApply  paste  cut  selectAll
+    findUsages  renameSymbolUnderCursor  inInlineRename
+    selectBlockUp  selectBlockDown  event  contextMenuEvent
+    keyPressEvent  findLinkAt  findTypeAt
+    finalizeInitialization(AfterDuplication)
+
+Most were accounted for. **`paste()`, `cut()` and `selectAll()` were not**, and
+reading them says why they are overridden at all - all three are one line:
+
+    if (d->m_localRenaming.handlePaste())
+        return;
+    TextEditorWidget::paste();
+
+They exist for the in-place rename, and for nothing else.
+
+### The gap this batch closed
+
+`CppLocalRenaming` is a `TextEditor::EditHandler`, the interface has
+`handlePaste()`, `handleCut()` and `handleSelectAll()` beside `handleRename()`
+and `encourageApply()`, and `TextViewport` calls all five. The wiring is
+there and correct - `pasteIn()` deliberately calls `widget->TextEditorWidget::paste()`
+and `view->pasteNormally()`, the non-handler paths, so a handler asking for a
+paste cannot recurse into itself.
+
+What was missing is any check that it behaves. **Only `encourageApply()` had
+one**, and that one exists because the identical gap shipped as a bug: the
+widget heard through `CppEditorWidget::encourageApply()` and a view that is
+not a widget had nowhere to hear it, so an applied completion changed the use
+the caret was in and left the others behind. Its three siblings sat in exactly
+that position, untested.
+
+`testTheClipboardDuringAnInPlaceRenameSpansEveryUse` drives all three through
+the commands, which is the user's path and needs no Qt Quick in the question:
+
+    trigger(Core::Constants::SELECTALL);  // selects "alpha", not the file
+    clipboard "beta"; trigger(Core::Constants::PASTE);   // 3 x beta, no alpha
+    trigger(Core::Constants::SELECTALL);  // selects "beta" - rename still on
+    trigger(Core::Constants::CUT);        // 0 x beta
+
+One rename, four triggers, each hook observable on its own.
+
+### Negative controls
+
+Three, one per hook, each the pre-fix shape - the handler loop removed so the
+view does what it did before anyone taught it about renames. Each bites a
+different assertion with the right diagnostic:
+
+- **A - `paste()` skips the handlers.** `count("beta")` is **1**, not 3: the
+  paste reached the use the caret was in and left the others. That is the
+  `encourageApply` bug, reproduced in its sibling.
+- **B - `selectAll()` skips the handlers.** The selection is the whole file,
+  printed in full by the failure.
+- **C - `cut()` skips the handlers.** `count("beta")` is **2**, not 0.
+
+The code was already right; all three controls were needed to show the test
+would notice if it stopped being.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+    -test CppEditor    1655 passed, 0 failed, 60 skipped, exit 0
+
+1655 is 1654 plus this test. Built on macOS and Linux; no `.qbs` change.
+
+### What is left of the inventory
+
+Named here so the next batch does not have to re-derive it. Accounted for:
+`createAssistInterface` (248), `encourageApply` (the rename-apply test),
+`findUsages`/`renameSymbolUnderCursor` (250), `findLinkAt`/`findTypeAt`
+(entry 237's control EC and the follow-symbol tests), `selectBlockUp/Down`
+(the Ctrl+U walk), `contextMenuEvent` (the factory's `contextMenuId()`),
+`keyPressEvent`'s string splitting (`trySplitString` takes a document, not a
+widget), and now `paste`/`cut`/`selectAll`.
+
+Not checked anywhere I can find: **`inInlineRename()`**, which is how the rest
+of Creator asks whether a rename is in progress - FakeVim and the editor's own
+key handling use it to leave Escape and Enter alone. `EditHandler::isActive()`
+is its Quick-side home and the view asks it, but nothing asserts that an
+outside caller gets the right answer from a Quick C++ editor mid-rename. That
+is the next one of these worth doing.
+
+### What is next
+
+1. **The two decisions from entry 236** - retire `QTC_WIDGET_CPP_EDITOR`, and
+   decide whether the no-QtcQuick build is still supported. Fifteen batches.
+2. **`inInlineRename()` asked of a Quick C++ editor**, per the census above.
+3. The crash, per entry 247 - accepted and recorded.
+4. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+5. `VcsBaseSubmitEditor` and the Quick REPL rule - judged not worth doing in
+   entry 236.
