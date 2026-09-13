@@ -60785,3 +60785,108 @@ complete while testing nothing, and the way that happens is someone writing
 4. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
 5. `VcsBaseSubmitEditor`, and the Quick REPL rule - both judged not worth doing
    in entry 236, and nothing since has changed that.
+
+## 2026-09-13 — The two searches started, and nobody asked what they found (batch 250)
+
+### What entry 249 got wrong about this item
+
+Entry 249 put Find Usages and Rename Symbol next, described as "still at entry
+237's level" - the command lights up and nothing more. Read rather than
+recalled, that was wrong: both already have tests one level better than that.
+`testFindUsagesAnswersTheViewsRequest` and `testRenameAnswersTheViewsRequest`
+in `SymbolJumpTest` drive the relay and assert a search **starts**, and the
+first even carries its own control (a caret on nothing starts no search).
+
+The gap is one level further in, and the find-usages test says so itself:
+
+    // Starting a search is what pops the Search Results pane, so that is
+    // the one thing a test can see without reaching into it.
+
+**A search that starts and finds nothing passed both tests.** That is exactly
+what the bug the find-usages test was written for looked like from the
+outside - Ctrl+Shift+U appearing to do nothing - so the assertion stopped just
+short of the symptom it exists to catch.
+
+### The gap this batch closed
+
+`SearchResult` is created with no QObject parent and kept in the window's
+private list, so a test cannot reach the result object. But the pane is an
+`IOutputPane`, and `SearchResultWindow::canNext()` is `count() > 0` on the
+visible search. That is public, and it is precisely the distinction that was
+missing:
+
+    QTRY_VERIFY2(found->canNext(), "the search that started found no usages");
+
+Stepping through the hits then says they are the right ones:
+
+    for (int i = 0; i < 3; ++i) {
+        found->goToNext();
+        const QTextCursor at = TextEditor::textCursorOf(Core::EditorManager::currentEditor());
+        QCOMPARE(at.selectedText(), QString("alpha"));
+        landedOn.insert(at.selectionStart());
+    }
+    QCOMPARE(landedOn.size(), 3);
+
+Three distinct places, each of them the name the caret was on. Both tests get
+the same block, because both searches are the same machinery reached two ways.
+
+### Reading the caret wrong, and what the instrument showed
+
+The first version asked `QTextCursor::WordUnderCursor` and failed with
+`Actual: ";"`. That reads as the navigation landing in the wrong place. It was
+not: dumping position, block, column, selection and line text at each step
+gave
+
+    STEP 0 pos 26 block 2 col 13 sel "alpha" line "    int alpha = 1;"
+    STEP 1 pos 48 block 3 col 16 sel "alpha" line "    return alpha + alpha;"
+    STEP 2 pos 56 block 3 col 24 sel "alpha" line "    return alpha + alpha;"
+
+The navigation **selects** the hit and leaves the caret at the selection's
+*end*, so on the last one the word under the caret is the `;` that follows.
+The selection was right at every step; the question was wrong. Ten minutes of
+dumping state beat any amount of reasoning about where the caret ought to be,
+which is the standing rule and worth one more entry.
+
+### Negative controls
+
+Two, each biting a different assertion, and both leaving the **old** assertion
+green - which is the point, since the old one is what this batch was adding to:
+
+- **A - the search starts and finds nothing.** `UpdateUI::operator()` in
+  `cppfindreferences.cpp` drops every usage instead of calling
+  `m_promise->addResult(u)`. Both tests go red at `canNext()`, *after*
+  `"asking for usages started no search"` has passed. That is the coverage
+  this batch adds, isolated.
+- **B - the search finds one of the three.** The same loop keeps only
+  `u.line == 3`. `canNext()` and the selected text stay green; the count
+  fails with `Actual: 1, Expected: 3`.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+    -test CppEditor    1654 passed, 0 failed, 60 skipped, exit 0
+
+CppEditor run because this batch changes it. Built on macOS and Linux; no
+`.qbs` change.
+
+One process note: `-test 'CppEditor,CppEditor::Internal::SymbolJumpTest'`
+reported **0 passed, 0 failed, exit 0**. A filter that matches nothing is not
+a pass, and the exit code does not say so - the totals have to be read too,
+which is why the standing rules ask for both.
+
+### What is next
+
+1. **The two decisions from entry 236** - retire `QTC_WIDGET_CPP_EDITOR`, and
+   decide whether the no-QtcQuick build is still supported. Fourteen batches.
+2. The crash, per entry 247 - accepted and recorded.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+4. `VcsBaseSubmitEditor` and the Quick REPL rule - both judged not worth doing
+   in entry 236.
+
+With this entry, all five of the things the standing instruction names -
+completion, quick fixes, follow symbol, refactoring/rename, the optional-action
+mask - are checked by something that reads back what the Quick view produced,
+not merely that the command reached it. Entry 248 claimed that one batch
+early and entry 249 corrected it; this is the batch that makes it true, and it
+is stated here so the next reader can check it rather than inherit it.

@@ -1220,6 +1220,28 @@ private slots:
         requests->askForUsages(TextEditor::textCursorOf(editor));
         QTRY_VERIFY2(searches.count() > 0, "asking for usages started no search");
 
+        // A search that starts and finds nothing passes everything above,
+        // and that is what "Ctrl+Shift+U did nothing" looked like. What it
+        // found is the command.
+        Core::SearchResultWindow * const found = Core::SearchResultWindow::instance();
+        QTRY_VERIFY2(found->canNext(), "the search that started found no usages");
+
+        // And it found the right ones: every hit is the name the caret was
+        // on, and there are as many distinct ones as the file has uses.
+        QSet<int> landedOn;
+        for (int i = 0; i < 3; ++i) {
+            found->goToNext();
+            Core::IEditor * const shown = Core::EditorManager::currentEditor();
+            QVERIFY2(shown, "stepping to a usage opened no editor");
+            // Stepping to a hit selects it, so the selection is the hit -
+            // and reading the word under the caret instead would read what
+            // follows the name, the caret being at the selection's end.
+            const QTextCursor at = TextEditor::textCursorOf(shown);
+            QCOMPARE(at.selectedText(), QString("alpha"));
+            landedOn.insert(at.selectionStart());
+        }
+        QCOMPARE(landedOn.size(), 3);
+
         // And a caret on nothing asks for nothing, so what is asserted above
         // is the symbol rather than the request being unconditional.
         const int afterSymbol = searches.count();
@@ -1416,6 +1438,28 @@ private slots:
         editor->gotoLine(3, 10); // on alpha
         requests->askForRename(TextEditor::textCursorOf(editor));
         QTRY_VERIFY2(searches.count() > 0, "asking for a rename started no search");
+
+        // A search that starts and finds nothing passes everything above,
+        // and that is what "Ctrl+Shift+U did nothing" looked like. What it
+        // found is the command.
+        Core::SearchResultWindow * const found = Core::SearchResultWindow::instance();
+        QTRY_VERIFY2(found->canNext(), "the search that started found no usages");
+
+        // And it found the right ones: every hit is the name the caret was
+        // on, and there are as many distinct ones as the file has uses.
+        QSet<int> landedOn;
+        for (int i = 0; i < 3; ++i) {
+            found->goToNext();
+            Core::IEditor * const shown = Core::EditorManager::currentEditor();
+            QVERIFY2(shown, "stepping to a usage opened no editor");
+            // Stepping to a hit selects it, so the selection is the hit -
+            // and reading the word under the caret instead would read what
+            // follows the name, the caret being at the selection's end.
+            const QTextCursor at = TextEditor::textCursorOf(shown);
+            QCOMPARE(at.selectedText(), QString("alpha"));
+            landedOn.insert(at.selectionStart());
+        }
+        QCOMPARE(landedOn.size(), 3);
     }
 };
 
