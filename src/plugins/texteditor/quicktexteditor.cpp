@@ -4511,6 +4511,66 @@ private slots:
                  "saving took the mark away, so nothing says the line was edited");
     }
 
+    // A gutter nobody asked for takes no room. Turning off the line numbers
+    // and the fold markers has to leave the text where it would have been
+    // without a gutter at all, rather than indented by an invisible one - and
+    // that is a binding in CodeViewport.qml, not something the C++ side says.
+    void testAGutterNobodyAskedForTakesNoRoom()
+    {
+        DisplaySettings &display = displaySettings();
+        const bool wasNumbers = display.displayLineNumbers();
+        const bool wasFolds = display.displayFoldingMarkers();
+        const QScopeGuard restoreSettings([&display, wasNumbers, wasFolds] {
+            display.displayLineNumbers.setValue(wasNumbers);
+            display.displayFoldingMarkers.setValue(wasFolds); });
+        display.displayLineNumbers.setValue(true);
+        display.displayFoldingMarkers.setValue(true);
+
+        Utils::TemporaryDirectory dir("quick-editor-gutter-room");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("gutter.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+        auto * const gutter = form->findChild<QQuickItem *>("codeGutter");
+        QVERIFY2(gutter, "the form has no gutter at all");
+
+        // Asked for: it is drawn and it takes room. Asserted first, so that
+        // "no room" below means room was given up rather than never taken.
+        QTRY_VERIFY2(gutter->isVisible(), "the gutter is not drawn where it was asked for");
+        QVERIFY2(gutter->width() > 0, "the gutter is drawn and takes no room");
+        const qreal textStartsAt = viewport->x();
+
+        // Neither asked for: not drawn, and no room.
+        display.displayLineNumbers.setValue(false);
+        display.displayFoldingMarkers.setValue(false);
+        QTRY_VERIFY2(!gutter->isVisible(), "the gutter stayed after both columns were turned off");
+        QTRY_COMPARE(gutter->width(), qreal(0));
+        QVERIFY2(viewport->x() < textStartsAt,
+                 "the text stayed where the gutter had put it, so the room was never given back");
+
+        // And back again, so that what is asserted above is a binding that
+        // follows the setting rather than a value read once at build time.
+        // Line numbers rather than fold markers: this document's language does
+        // not fold, so the fold column is not shown for it whatever the
+        // setting says.
+        display.displayLineNumbers.setValue(true);
+        QTRY_VERIFY2(gutter->isVisible(), "the gutter did not come back when it was asked for again");
+        QVERIFY2(gutter->width() > 0, "the gutter came back and takes no room");
+        QTRY_COMPARE(viewport->x(), textStartsAt);
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");

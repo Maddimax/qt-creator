@@ -63258,3 +63258,106 @@ part of the change that was not the control.
 3. **A Windows run** for the console-host port (entry 264).
 4. **The crash** (entry 247) - accepted, and sighted twice more here, which is
    in line with its measured rate.
+
+## 2026-09-14 — A gutter that gives its room back, and why one run proves little (batch 276)
+
+`testAGutterNobodyAskedForTakesNoRoom` is in `QuickTextEditorTest`, both
+controls bite, and the suite has run clean **twelve** times with it. The second
+of these tests aimed at the editor's own QML rather than a pane's.
+
+### Which gap this closes
+
+`CodeViewport.qml` decides both whether the gutter is drawn and how much room
+it takes, and the C++ side says neither:
+
+    visible: root.showLineNumbers || root.showFoldMarkers
+    width: visible ? implicitWidth : 0
+
+The second line is the one with no coverage anywhere. A gutter that stayed
+visible would be seen immediately; a gutter that kept its width while hidden
+indents every line of every file by an invisible column, which is exactly the
+kind of thing that survives a release. The test asserts it drawn and taking
+room *first*, so that "no room" afterwards means room was given up rather than
+never taken, then turns both settings off and checks the gutter is undrawn, is
+zero wide, and that `viewport->x()` actually moved left.
+
+Controls, both biting, each on its own half:
+
+- `width: implicitWidth` — "Compared doubles are not the same", on the width.
+- `visible: true` — "the gutter stayed after both columns were turned off".
+
+### A wrong assumption, corrected before it was written down
+
+The way back was going to be the fold markers. It is the line numbers instead:
+the document is a `.txt`, whose language does not fold, so the fold column is
+not shown for it whatever the setting says. Asserting the gutter's return via
+fold markers would have produced a test that fails for a reason unrelated to
+what it is about.
+
+### The thing worth keeping from this batch
+
+The six-run measurement printed the last test of each run, and it was a
+different one every time. Followed up rather than shrugged at:
+
+    27 test objects, identical set, different order in every run
+
+The cause is one line in `pluginmanager.cpp`:
+
+    using TestPlan = QHash<QObject *, QStringList>;   // line 991
+
+A `QHash` keyed by a **pointer**. The iteration order therefore keys on the
+addresses the test objects happen to land at, so every run is a fresh
+permutation. Whether it could be pinned was then measured rather than reasoned
+about, because a pinned order would make entry 247's crash chaseable:
+
+    QT_HASH_SEED=0                    2 runs   order still permutes
+    setarch -R (ASLR off)             2 runs   order still permutes
+    both together                     2 runs   order still permutes
+
+**It cannot be pinned by either lever, or by both.** `QT_HASH_SEED` fixes the
+seed and `setarch -R` fixes the load addresses, but the keys are heap addresses
+handed out during plugin init, and those still move. Recorded as a measured
+negative, so the next person does not spend the same six runs on it.
+
+Two things follow. First, entry 274's unexplained one-off failure now has a
+*possible* mechanism — a different neighbour ran before it each time — though
+this still does not show that is what happened, and entry 275's "one sighting,
+unexplained" stands. Second, and more usefully: **six clean runs here are six
+different neighbourhoods, not the same run six times**, which is worth much
+more than it looks. Conversely a single green run says correspondingly less.
+"Run the suite more than once before believing it" turns out to have a reason
+behind it, not just caution.
+
+### Measurements
+
+    -test TextEditor    776 passed, 0 failed, 3 skipped, exit 0   x12
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+776 is 775 plus this test. The twelve TextEditor runs break down as six at the
+default settings, two at `QT_HASH_SEED=0`, two with ASLR off and two with both
+— every one of them a different test order. One further run (before these)
+died at 130 tests with 0 failed, exit 255: entry 247's crash, in line with its
+measured rate. No `.qbs` change.
+
+### What is next
+
+1. **More of the editor's QML.** `CodeViewport.qml` has a good deal left, and
+   the drawn parts are already named, which is the expensive half. The ones
+   with a real conditional rule behind them:
+   - `minimap` (line 1057) — `width: visible ? 100 : 0`, the same "gives its
+     room back" shape as the gutter, and untested.
+   - `currentLineHighlight` (line 111) — `highlightCurrentLine &&
+     cursorRectangle.height > 0`, so it is absent when there is no cursor.
+   - `marginArea` / `marginLine` (619, 632) — shown only where `marginX >= 0`.
+   - `indentGuide` (688–693) — a tab and a space guide differ in x, width and
+     height, all four decided in QML.
+   `EditorGutter.qml` still has the fold-range hover highlight, which was
+   looked at this batch and **deferred on purpose**: `highlightScopeAt` and
+   `clearScopeHighlight` set only the private `m_scopeBlock` / `m_scopeNesting`
+   with no property and no getter, so covering it means adding production API
+   to observe it. That is a change to the code under test to suit the test,
+   and not worth it for this rule.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271).
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247) — accepted, sighted once more here. Note that the
+   order finding above closes off the obvious way to make it reproducible.
