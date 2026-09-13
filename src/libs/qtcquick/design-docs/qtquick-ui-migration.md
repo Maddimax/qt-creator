@@ -58924,3 +58924,128 @@ arrived at from the other direction.
    auto-scroll, entry 199's QML root with no `controller` property,
    `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
    Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — Reading the flake's last sighting properly (batch 231)
+
+Entry 230 said to stop treating the typing flake as "the closers were not
+stepped over", because that was one sighting's shape rather than the defect.
+Reading the third sighting as evidence in its own right points somewhere else,
+and this batch builds what is needed to confirm it next time. **No fix.**
+
+### What the last sighting actually says
+
+    Expected: void f() { g("a"); }
+    Got:      void f() { g(")a"); }}
+
+Counted rather than eyeballed: the expected text has one `)` inside the call,
+the failure has two, and the extra one sits between the opening quote and the
+`a`. The script types `)` exactly once, after the closing quote. So that key
+did not fail to step over anything - **it inserted its character several
+positions behind where the caret should have been.** The trailing `}` is the
+same story one nesting level out.
+
+That is a caret lagging the document, not a bookkeeping range being lost. The
+first two sightings are consistent with it; "closers appended" is what a caret
+that is behind looks like when the lag happens to be at the end.
+
+### What this batch built
+
+**A key-by-key trace, kept in memory and printed only on failure.** Entry 227
+established that `qDebug` in the suspect paths makes the failure stop happening
+- sixteen instrumented runs found nothing where about one in twelve was
+expected. So nothing here touches the outside until the comparison fails, and
+then it prints what every key did:
+
+    g -> g | caret 1
+    ( -> g() | caret 2
+    " -> g("") | caret 3
+    ( -> g("(") | caret 4
+    " -> g("(") | caret 5
+    ) -> g("(") | caret 6
+
+That is the healthy sequence, obtained by control DS - a row deliberately given
+the wrong expectation, because a diagnostic that has never fired is worth
+nothing until it has been seen to work.
+
+**A test that compares the caret against the widget editor's, key by key.**
+The widget editor *is* a cursor in the document and cannot fall behind, so it
+says where each key should leave the caret. Fifteen scripts, every key:
+
+    QCOMPARE(quickCarets, widgetCarets);
+
+The typing loop is now a helper both tests share, so the scripts are typed the
+same way in both.
+
+### The answer it gives today: no divergence
+
+All fifteen scripts agree with the widget editor key for key. So the caret does
+**not** drift under ordinary conditions - whatever makes it lag needs something
+that does not happen in a clean run, which is the same shape as everything else
+known about this failure.
+
+That is a negative result and it is worth having: it rules out a systematic
+off-by-one in the auto-insert path, which was the obvious reading of the
+sighting.
+
+### The rate now
+
+    -test TextEditor, 14 consecutive full-suite runs: 0 failures
+
+Entry 229 measured about 2 in 25 before the two ownership fixes. 14 clean runs
+at that rate is a bit better than one chance in three of being luck, so this
+still does not say it is gone - but it has now not been seen in 14 + 20 (entry
+228) + several full runs since the tool bar fix, which is starting to be a
+number worth quoting.
+
+**One measurement was thrown away rather than reported.** A 25-run hunt was
+started and then the binary was rebuilt underneath it to add the helper. Four
+runs in, that made the remaining runs a different build from the first four, so
+it was stopped and re-run clean. A rate measured across two binaries is not a
+rate.
+
+### Measurements
+
+    -test TextEditor        775 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+760 to 775, and 3 skipped to 18: the caret test adds a row per script, and the
+fifteen widget rows skip because the widget view is what they are compared
+against. The one red is `RunWorkerConflictTest::testConflict`, upstream and out
+of scope since entry 225.
+
+### Negative controls
+
+**DS — one script is given the wrong expected text.** Bit, and printed the
+trace, which is the whole point of it:
+
+    got g("("), wanted DELIBERATELY WRONG, key by key: ...
+
+**DT — the caret is left after the character the view auto-inserted**, i.e.
+`cursor.setPosition(before)` removed from the insert path. Bit on five of the
+fifteen scripts, each naming the key it first diverged at:
+
+    (quick: a line) Compared lists differ at index 6.
+    (quick: a bracket inside a string) Compared lists differ at index 1.
+    ... three more ...
+
+Five and not fifteen, because ten of the scripts never type a character that
+gets a closer inserted after it. That is the test saying what it does and does
+not cover, which is more useful than fifteen.
+
+### What is next
+
+1. **The flake, when it next appears.** The trace will name the key and the
+   caret, and the caret test says the drift is not systematic. Nothing more
+   should be built for it until there is another sighting to read - the last
+   two batches of building have now exhausted what can be learned from three.
+2. **Three editors that cannot be opened by file name**: `vcsbasesubmiteditor`,
+   `profilertraceeditor`, the model editor. Reached through actions, not files.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. The rest, with numbers: entry 173's crash, entry 196's uncovered widget
+   auto-scroll, entry 199's QML root with no `controller` property,
+   `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
+   Qt builds, and `RunWorkerConflictTest::testConflict` upstream.

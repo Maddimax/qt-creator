@@ -3853,6 +3853,80 @@ private slots:
         QCOMPARE(marked().selectedText(), QString("world"));
     }
 
+    // Where the view thinks the caret is. The last sighting of the flake
+    // pointed here: the script's own ")" landed inside the string, which is a
+    // caret several characters behind the document.
+    static int caretPositionOf(Core::IEditor *editor)
+    {
+        if (TextViewport * const view = Internal::viewportForEditor(editor))
+            return view->cursorPosition();
+        if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+            return widget->textCursor().position();
+        return -1;
+    }
+
+    // Sends a script key by key and records what each one did. The trace is
+    // kept rather than printed: this has failed three times in about fifty
+    // suite runs, never twice the same way, and printing as it goes perturbs
+    // it enough that sixteen instrumented runs found nothing.
+    static bool typeScript(Core::IEditor *editor, const QString &script,
+                           QStringList *trace, QList<int> *carets)
+    {
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        if (!document || !target)
+            return false;
+
+        for (int i = 0; i < script.size(); ++i) {
+            const QChar ch = script.at(i);
+            int key = Qt::Key_unknown;
+            Qt::KeyboardModifiers modifiers = Qt::NoModifier;
+            if (ch == '<') {
+                const int close = script.indexOf('>', i);
+                if (close <= i)
+                    return false;
+                const QString name = script.mid(i + 1, close - i - 1);
+                i = close;
+                if (name == "SelectAll") {
+                    QTextCursor all(document->document());
+                    all.select(QTextCursor::Document);
+                    TextEditor::setTextCursorOf(editor, all);
+                    continue;
+                }
+                if (name == "Home") {
+                    key = Qt::Key_Home;
+                } else if (name == "Insert") {
+                    key = Qt::Key_Insert;
+                } else if (name == "Backtab") {
+                    key = Qt::Key_Backtab;
+                    modifiers = Qt::ShiftModifier;
+                } else {
+                    return false;
+                }
+            } else if (ch == '\n') {
+                key = Qt::Key_Return;
+            } else if (ch == '\b') {
+                key = Qt::Key_Backspace;
+            } else if (ch == '\t') {
+                key = Qt::Key_Tab;
+            }
+            const QString text = key == Qt::Key_unknown ? QString(ch) : QString();
+            QKeyEvent press(QEvent::KeyPress, key, modifiers, text);
+            QCoreApplication::sendEvent(target, &press);
+
+            const int caret = caretPositionOf(editor);
+            if (carets)
+                *carets << caret;
+            if (trace) {
+                *trace << QString("%1 -> %2 | caret %3")
+                              .arg(text.isEmpty() ? QString::number(key, 16) : text,
+                                   document->document()->toPlainText(),
+                                   QString::number(caret));
+            }
+        }
+        return true;
+    }
+
     void testTypingALineOfCppLeavesTheSameFileInEitherView_data()
     {
         QTest::addColumn<bool>("quick");
@@ -3927,44 +4001,14 @@ private slots:
         QVERIFY2(globalCompletionSettings().skipAutoCompletedText(),
                  "a test left stepping over an inserted character turned off");
 
-        for (int i = 0; i < script.size(); ++i) {
-            const QChar ch = script.at(i);
-            int key = Qt::Key_unknown;
-            Qt::KeyboardModifiers modifiers = Qt::NoModifier;
-            if (ch == '<') {
-                const int close = script.indexOf('>', i);
-                QVERIFY2(close > i, qPrintable("unterminated <> in " + script));
-                const QString name = script.mid(i + 1, close - i - 1);
-                i = close;
-                if (name == "SelectAll") {
-                    QTextCursor all(document->document());
-                    all.select(QTextCursor::Document);
-                    TextEditor::setTextCursorOf(editor, all);
-                    continue;
-                }
-                if (name == "Home") {
-                    key = Qt::Key_Home;
-                } else if (name == "Insert") {
-                    key = Qt::Key_Insert;
-                } else if (name == "Backtab") {
-                    key = Qt::Key_Backtab;
-                    modifiers = Qt::ShiftModifier;
-                } else {
-                    QFAIL(qPrintable("no such key in a script: " + name));
-                }
-            } else if (ch == '\n') {
-                key = Qt::Key_Return;
-            } else if (ch == '\b') {
-                key = Qt::Key_Backspace;
-            } else if (ch == '\t') {
-                key = Qt::Key_Tab;
-            }
-            const QString text = key == Qt::Key_unknown ? QString(ch) : QString();
-            QKeyEvent press(QEvent::KeyPress, key, modifiers, text);
-            QCoreApplication::sendEvent(target, &press);
-        }
+        QStringList trace;
 
-        QCOMPARE(document->document()->toPlainText(), expected);
+        QVERIFY(typeScript(editor, script, &trace, nullptr));
+
+        QVERIFY2(document->document()->toPlainText() == expected,
+                 qPrintable(QString("got %1, wanted %2, key by key:\n  %3")
+                                .arg(document->document()->toPlainText(), expected,
+                                     trace.join("\n  "))));
     }
 
     void testClosingAnEditorLetsGoOfItsDocument_data()
@@ -4038,6 +4082,56 @@ private slots:
         if (toolBar)
             QTRY_VERIFY2(toolBar.isNull(), "the editor's tool bar outlived the editor");
         QTRY_VERIFY2(document.isNull(), "something is still holding the document");
+    }
+
+    void testTheCaretLandsWhereTheWidgetEditorsDoes_data()
+    {
+        testTypingALineOfCppLeavesTheSameFileInEitherView_data();
+    }
+
+    // The same scripts, but watching where the caret is after every key rather
+    // than what the file says at the end. A view whose caret falls behind the
+    // text still types the right characters for a while, and puts the later
+    // ones in the wrong place - the last sighting of the intermittent failure
+    // had the script's own ")" inside the string. The widget editor is a
+    // cursor in the document and cannot fall behind, so it says where each
+    // key should leave the caret.
+    void testTheCaretLandsWhereTheWidgetEditorsDoes()
+    {
+        QFETCH(bool, quick);
+        QFETCH(QString, script);
+        if (!quick)
+            QSKIP("The widget view is the reference this compares against");
+
+        Utils::TemporaryDirectory dir("caret-lockstep");
+        QVERIFY(dir.isValid());
+
+        const auto caretsFor = [&dir, &script](bool useQuick, QList<int> *carets) -> bool {
+            const Utils::FilePath file
+                = dir.filePath(useQuick ? QString("quick.cpp") : QString("widget.cpp"));
+            if (!file.writeFileContents(""))
+                return false;
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            if (!factory)
+                return false;
+            const bool was = factory->usesQuickEditor();
+            const QScopeGuard restore([factory, was] { factory->setUsesQuickEditor(was); });
+            factory->setUsesQuickEditor(useQuick);
+
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            if (!editor)
+                return false;
+            const QScopeGuard closeIt(
+                [editor] { Core::EditorManager::closeEditors({editor}, false); });
+            return typeScript(editor, script, nullptr, carets);
+        };
+
+        QList<int> widgetCarets;
+        QVERIFY(caretsFor(false, &widgetCarets));
+        QList<int> quickCarets;
+        QVERIFY(caretsFor(true, &quickCarets));
+
+        QCOMPARE(quickCarets, widgetCarets);
     }
 
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
