@@ -96,6 +96,7 @@
 #include <QRegularExpression>
 #include <QSortFilterProxyModel>
 #include <QSignalSpy>
+#include <QAbstractListModel>
 #include <QStandardItemModel>
 #include <QMetaEnum>
 #include <QQmlEngine>
@@ -250,6 +251,72 @@ static void triggerMenuItem(QObject *item)
         QVERIFY(QMetaObject::invokeMethod(item, "toggle"));
     QVERIFY(QMetaObject::invokeMethod(item, "triggered"));
 }
+
+// A stand-in for Lua::Internal::LuaReplController, which this plugin cannot
+// see: the REPL pane names its QML by URL and the Lua plugin does not link Qt
+// Quick, which is the seam working as intended. The component is loaded here
+// instead, into a scene this test owns and therefore can give a size - what a
+// pane hands back is laid out by the output pane manager, and a list with no
+// height answers atYEnd with true whatever the content does.
+class ReplLines final : public QAbstractListModel
+{
+public:
+    int rowCount(const QModelIndex &parent = {}) const final
+    { return parent.isValid() ? 0 : m_lines.size(); }
+
+    QVariant data(const QModelIndex &index, int role) const final
+    {
+        if (!index.isValid() || index.row() >= m_lines.size())
+            return {};
+        if (role == Qt::DisplayRole)
+            return m_lines.at(index.row());
+        if (role == Qt::UserRole)
+            return false;
+        return {};
+    }
+
+    QHash<int, QByteArray> roleNames() const final
+    { return {{Qt::DisplayRole, "display"}, {Qt::UserRole, "isError"}}; }
+
+    void append(const QString &line)
+    {
+        beginInsertRows({}, m_lines.size(), m_lines.size());
+        m_lines.append(line);
+        endInsertRows();
+    }
+
+private:
+    QStringList m_lines;
+};
+
+class ReplStub final : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QAbstractItemModel *model READ model CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *history READ history CONSTANT)
+    Q_PROPERTY(QString prompt READ prompt NOTIFY promptChanged)
+
+public:
+    QAbstractItemModel *model() { return &m_lines; }
+    QAbstractItemModel *history() { return &m_history; }
+    QString prompt() const { return QString("> "); }
+
+    Q_INVOKABLE void start() {}
+    Q_INVOKABLE void submit(const QString &text)
+    {
+        m_lines.append(text);
+        emit linePrinted();
+    }
+
+signals:
+    void promptChanged();
+    void linePrinted();
+
+private:
+    ReplLines m_lines;
+    ReplLines m_history;
+};
 
 class QuickUiTest final : public QObject
 {
@@ -460,6 +527,7 @@ private slots:
     void testTabWalksIntoAQuickViewThroughItAndOutAgain();
     void testFocusReachesTheQuickSearchResultsPane();
     void testTheLuaPaneIsAQtQuickOne();
+    void testALineArrivingFollowsItDownUnlessTheReaderScrolledUp();
     void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
@@ -14684,6 +14752,57 @@ void QuickUiTest::testTheLuaPaneIsAQtQuickOne()
     QVERIFY2(widget->findChild<QQuickWidget *>()
                  || qobject_cast<QQuickWidget *>(widget),
              "the Lua pane is the widget one, which this line has to say");
+}
+
+void QuickUiTest::testALineArrivingFollowsItDownUnlessTheReaderScrolledUp()
+{
+    ReplStub controller;
+    QQuickWidget view;
+    view.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    view.setInitialProperties({{"controller", QVariant::fromValue<QObject *>(&controller)}});
+    view.setSource(QUrl("qrc:/qt/qml/QtCreator/Lua/LuaReplPane.qml"));
+    QVERIFY2(view.errors().isEmpty(), qPrintable(view.errors().value(0).toString()));
+
+    view.resize(400, 300);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QQuickItem * const root = view.rootObject();
+    QVERIFY(root);
+    auto * const lines = root->findChild<QQuickItem *>("luaReplLines");
+    QVERIFY2(lines, "the pane draws no list of lines");
+    // Without this every assertion below is vacuous: atYEnd is true for a
+    // list of no height whatever the content does.
+    QTRY_VERIFY2(lines->height() > 0, "the list was given no room to scroll in");
+
+    // Enough that the list cannot show them all, so following down is a
+    // movement rather than a no-op.
+    for (int i = 0; i < 200; ++i)
+        controller.submit(QString("return %1").arg(i));
+    QTRY_VERIFY2(lines->property("contentHeight").toReal() > lines->height(),
+                 "the list shows everything at once, so there is nothing to follow");
+
+    // At the end, a line arriving follows it down. The wait is on the content
+    // having grown, not on atYEnd - that is still true from positioning, so
+    // asking it straight away asks nothing.
+    QVERIFY(QMetaObject::invokeMethod(lines, "positionViewAtEnd"));
+    QTRY_VERIFY(lines->property("atYEnd").toBool());
+    const qreal grownFrom = lines->property("contentHeight").toReal();
+    controller.submit("return \"one more\"");
+    QTRY_VERIFY(lines->property("contentHeight").toReal() > grownFrom);
+    QTRY_VERIFY2(lines->property("atYEnd").toBool(),
+                 "a line arrived and the list did not follow it down");
+
+    // Scrolled up to read, it stays put. This is the half the widget REPL
+    // never had - it went to the end whatever the reader was looking at.
+    QVERIFY(QMetaObject::invokeMethod(lines, "positionViewAtBeginning"));
+    QTRY_VERIFY(!lines->property("atYEnd").toBool());
+    const qreal readingAt = lines->property("contentY").toReal();
+    const qreal beforeLast = lines->property("contentHeight").toReal();
+    controller.submit("return \"and another\"");
+    // Ordering rather than a wait on an absence: once the content has grown,
+    // a view that was going to jump has jumped.
+    QTRY_VERIFY(lines->property("contentHeight").toReal() > beforeLast);
+    QCOMPARE(lines->property("contentY").toReal(), readingAt);
 }
 
 void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()

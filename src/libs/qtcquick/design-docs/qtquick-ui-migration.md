@@ -62935,3 +62935,97 @@ The goal this work exists for - a C++ file opens in `TextEditor::TextViewport`
 rather than `TextEditorWidget` - has been true since entry 195, is guarded by
 tests that have each been shown to fail when it stops being true, and survives
 a rebase onto current master.
+
+## 2026-09-13 — The auto-scroll coverage, back, by not hosting the pane (batch 272)
+
+Entry 271's own first candidate, taken. `testALineArrivingFollowsItDownUnlessTheReaderScrolledUp`
+is in QuickUi and both controls bite. One of the two behaviours the five
+deletions uncovered is covered again, and better than it was.
+
+### What entry 270 got wrong about the obstacle
+
+It concluded the missing capability was "a way to give a pane's scene a size
+outside its host", having found the inner `QQuickWidget` at 0x0 with the outer
+wrapper at 640x480. Read rather than inferred, `QtcQuick::QuickWidget`
+**does** lay its child out - a `QVBoxLayout` with no margins, in its
+constructor. So the wrapper was never the problem; the fixture was, and the
+0x0 was a symptom of the pane's widget not being in the layout I thought I had
+put it in.
+
+The right move was not to fight that at all. **The rule under test is QML**,
+so the test loads the component itself:
+
+    ReplStub controller;
+    QQuickWidget view;
+    view.setResizeMode(QQuickWidget::SizeRootObjectToView);
+    view.setInitialProperties({{"controller", QVariant::fromValue<QObject *>(&controller)}});
+    view.setSource(QUrl("qrc:/qt/qml/QtCreator/Lua/LuaReplPane.qml"));
+
+The scene is the test's own, so giving it a size is a `resize()`. No pane, no
+output pane manager, no Lua linkage - the URL resolves because the Lua plugin
+is loaded and its resources are registered, which is the same way the pane
+names its QML.
+
+`ReplStub` is the whole contract the component needs, which is five members
+and a signal: `model`, `history`, `prompt`, `start()`, `submit()`,
+`linePrinted`. Measured by grepping `controller\.[a-zA-Z]*` out of the QML
+rather than guessed, and the list model answers `display` and `isError`
+because the delegate binds both.
+
+### The guard entry 270 paid for
+
+The first line of the test proper is
+
+    QTRY_VERIFY2(lines->height() > 0, "the list was given no room to scroll in");
+
+That is entry 270's whole batch in one line: a `ListView` of negative height
+answers `atYEnd` with true whatever the content does, so without it every
+assertion below is vacuous - and the version that was nearly committed proved
+it by passing with the code under test deleted.
+
+Both later waits are on `contentHeight` having grown rather than on `atYEnd`,
+for the same reason: `atYEnd` is still true from positioning, so asking it
+straight away asks nothing.
+
+### Negative controls
+
+Two, one per half of the rule:
+
+- **A - the `onLinePrinted` handler emptied.** Red: "a line arrived and the
+  list did not follow it down".
+- **B - the handler made unconditional**, which is the widget REPL's old rule.
+  Red on the `contentY` comparison - the half the widget never had, and the
+  reason this rule is worth a test rather than a comment.
+
+Both bite, on different assertions. Entry 270's attempt had neither.
+
+### Measurements
+
+    -test QuickUi       227 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+    -test Lua            13 passed, 0 failed, 0 skipped, exit 0
+
+227 is 226 plus this test. No `.qbs` change.
+
+### What this makes cheaper
+
+The pattern generalises to any rule that lives in QML: load the component with
+a stub for its controller, into a scene the test sizes. It wants the
+component's contract to be small and named - which is what the shell-phase
+seam has been enforcing all along, and the first time that discipline has paid
+back in testability rather than in decoupling.
+
+The second uncovered behaviour is **not** reachable this way.
+`OutputPaneButtonModel` is private to Core and has no `setData`, so a QuickUi
+test can neither construct one nor write `ButtonVisibleRole`. Covering it
+means either a writable role or moving the test into Core, which cannot see a
+QML delegate. That one is still open and still sized.
+
+### What is next
+
+1. **The output pane button visibility**, per above - a writable
+   `ButtonVisibleRole` is the smaller of the two ways in.
+2. **A tidy of the stack before pushing** - folding the Terminal `fixup!`
+   rewrites 1284 commits (entry 271).
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247) - accepted.
