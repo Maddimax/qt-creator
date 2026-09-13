@@ -62029,3 +62029,106 @@ dressed up.
 
 The estimate in entry 260 - "roughly ten small feature ports" - is holding so
 far: two of the five conflicts seen are ports, three were both-sides-additive.
+
+## 2026-09-13 — The rebase, 509 of 1420, and one silent loss caught by checking (batch 262)
+
+509 commits now sit rebased on master as `wip/rebase-onto-master`
+(`ddbcedb8df7`). `utils-drop-printsupport` is untouched at `908242e751c`;
+the resume point is written to
+`~/projects/qt/vm-testing/rebase-wip/resume-from.txt` and the next batch
+continues with
+
+    git rebase --onto wip/rebase-onto-master \
+        f292b103cc83c78cd27874f86dc72df8de6a7582 utils-drop-printsupport
+
+### What rerere did and did not carry
+
+It replayed everything up to 239 without asking, including the Terminal
+`.cpp`/`.h` resolution. It did **not** carry the QML half of that port,
+exactly as entry 261 predicted: rerere records conflicts, and the page file
+never conflicted. So the replayed Terminal commit currently has two aspects
+and no page entries - the console host is invisible. `ConsoleHostStatus` is
+absent from `TerminalSettingsPage.qml` on the wip branch and the patch for it
+is still in `rebase-wip/`. **That has to go back in before the rebase is
+finished.**
+
+The general rule, which cost a batch to learn: a resolution that touches a
+file git did not mark as conflicted is invisible to rerere, and replaying
+looks like it worked.
+
+### The conflicts resolved
+
+- **`qtoptionspage.cpp`** - the decision entry 261 left. Master generalised
+  the Qt version from qmake to qtpaths (`qtFilePath()`, a warning message
+  naming whichever executable it is); our commit turned
+  `createConfigurationWidget()` into `createConfigurationAspects()`. Took
+  both, and `ICore::dialogParent()` rather than master's `this`, because our
+  commit made the class an `AspectContainer` - `this` is no longer a widget.
+  Checked, not assumed.
+- **`dockerdevicewidget.cpp`** - master added two features to a widget our
+  commit was hollowing out: refreshing the shown image id when the page opens,
+  and saying *why* a path is not mounted rather than only that the list is
+  empty. The first went back into the widget verbatim; the second was ported
+  onto the `mountsWarning` aspect our commit had just created, which is where
+  it now belongs.
+- **The same file again, one commit later** - our next commit deletes the
+  82-line block the image-id refresh had just been put back into. Kept the
+  17 lines, took the deletion for the rest. **Placement matters when
+  re-adding a master feature mid-rebase**: had it gone in above that block, it
+  would not have conflicted twice.
+- **BareMetal**, four files - our commit deletes
+  `IDebugServerProviderConfigWidget`; master had touched it and three other
+  things.
+
+### The silent loss, and the check that caught it
+
+For two of the BareMetal files I took our side wholesale without reading them.
+Then I checked - for each line master had added since the merge base, is it
+still in the tree?
+
+    gdbserverprovider.cpp    10/14 of master's added lines present
+    uvscserverprovider.cpp    5/9
+
+**Two of master's changes had been dropped.** `UvscServerProvider::serverRunner`
+kept master's *signature* and our *body*, so it returned a `ProcessTask` where
+a `BarrierKickerGetter` was expected - it would not have compiled, and the
+readiness barrier that starts the debugger only once the server is up was
+gone. And master's explanation of when GDB runs the init commands - the one
+that says why they may use `monitor` and `load` - had gone with the widget
+that held it; it is now on the `initCommands` aspect's tooltip.
+
+Both are fixed. The lesson is the check, not the fix: **"take ours" on a file
+you have not read is how a conversion branch quietly reverts master.** The
+grep is four lines and it found two losses in the first two files it was
+pointed at. It should run on every file resolved that way, and from now on it
+will.
+
+### Why there are still no test numbers for any of this
+
+Same as entry 261: a tree at 509/1420 is master plus a third of the branch and
+builds nothing meaningful. The wip branch is not a state to test either - it is
+a checkpoint, not a version.
+
+    -test TextEditor    766 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+
+are of the restored `utils-drop-printsupport`, to show the aborted rebase left
+nothing behind.
+
+### Negative controls
+
+None on the branch, which changed only by this entry. The nearest thing to one
+is the added-line check above, which is a control in the useful sense: it was
+run expecting nothing and found two real losses.
+
+### What is next
+
+1. **Resume** with the `--onto` command above. ~910 commits left.
+2. **Re-apply the Terminal QML patch** when the page comes round, or fix the
+   replayed commit afterwards - it is currently incomplete on the wip branch.
+3. **Run the added-line check** on every file resolved by taking one side.
+4. Then the no-QtcQuick deletion (decision 2).
+
+Nine manual conflicts in 509 commits, three of them real ports. Entry 260's
+estimate of "roughly ten feature ports" is still about right, and the honest
+revision is that the rebase is perhaps three or four more batches, not one.
