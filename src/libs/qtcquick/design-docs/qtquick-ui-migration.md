@@ -62775,3 +62775,94 @@ The plan's queue is empty of work that is mine. What remains:
 Both decisions are enacted, the branch is on current master, and the goal -
 a C++ file opens in the Qt Quick editor - has been true and guarded since
 entry 195.
+
+## 2026-09-13 — Trying to get the auto-scroll coverage back, and failing usefully (batch 270)
+
+**No code changed.** An attempt, measured, withdrawn, and the reason recorded
+so nobody spends the batch again.
+
+### Why it looked doable
+
+Entry 269 filed the two behaviours the deletions uncovered under "if a
+QML-facing test harness is judged worth building - a new capability, not a
+batch". Half of that was wrong, and checking took two greps: **QuickUi already
+reaches into scenes.** It has `findQmlComponent()`, `findQmlComponents()` and
+`findQmlNamed()` walking the `QQuickItem` tree, it already finds the Lua pane
+through `IOutputPane::allOutputPanes()` without linking Lua, and everything the
+auto-scroll rule needs is public - the `ListView` is `objectName: "luaReplLines"`,
+`atYEnd` and `contentY` are properties, and `LuaReplController::submit()` is
+`Q_INVOKABLE`.
+
+So the test was written, in QuickUi, covering **both** halves of the rule -
+including the half the deleted widget test never had, that a reader who has
+scrolled up is left where they are.
+
+### It passed, and it was measuring nothing
+
+Control A - the `onLinePrinted` handler emptied, so nothing follows the line
+down - **left the test green**. Then a second version, waiting for the list to
+grow before asking, also left it green. Instrumenting rather than trying a
+third time:
+
+    AFTER-APPEND atYEnd true contentY 3453 contentHeight 3417 height -36
+
+**The list was 36 pixels shorter than nothing.** `atYEnd` is true for a view of
+negative height whatever the content does, so every assertion below it was
+vacuous. The first version would have been committed as recovered coverage.
+
+The cause is the fixture, and it did not yield: `Core::createQmlView()` hands
+back a wrapper its host lays out, the `QQuickWidget` inside it is 0x0 with no
+host, and neither putting the pane in a `QVBoxLayout` nor resizing the
+`QQuickWidget` directly gave the scene a size - `lines->height()` stayed at
+zero through both.
+
+### What this actually establishes
+
+Entry 269's framing was half right, and the correction is worth more than the
+test would have been:
+
+- **Reaching into a QML scene is not the missing capability.** QuickUi does it
+  in a dozen tests.
+- **Hosting a pane's scene outside its host is.** An output pane's widget is
+  laid out by the output pane manager; handed to a test it never gets a size,
+  and a scene with no size answers geometry questions with nonsense rather
+  than with failures. That is what a "QML-facing test harness" would have to
+  provide, and it is a real piece of work rather than a helper function.
+
+The entry-269 losses stand: nothing checks that a line arriving scrolls the
+REPL down, or that hiding a button in the model hides what a reader sees. The
+second is blocked differently - `OutputPaneButtonModel` has a
+`ButtonVisibleRole` the QML binds but no `setData`, so a test outside Core
+cannot write it.
+
+### Negative controls
+
+Control A is the whole batch. It did what a control is for: the code under
+test was broken on purpose, the test did not notice, and what came out was not
+a fix but the discovery that the fixture was empty. Entry 265's rule - "an
+assertion that cannot fail is worse than no assertion" - found on the day it
+would have been violated.
+
+### Measurements
+
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+    -test Lua            13 passed, 0 failed, 0 skipped, exit 0
+
+Of the reverted tree, to show the attempt left nothing behind.
+
+### What is next
+
+Unchanged from entry 269, with one item now sized rather than guessed at:
+
+1. **Fold `fixup! QtcQuick: Port the Terminal page`** when the stack is tidied.
+2. **The Windows console-host port** wants a Windows run.
+3. **The crash**, per entry 247 - accepted.
+4. **A way to host a pane's scene in a test**, if the two uncovered behaviours
+   are judged worth it. Now known to be about giving the scene a size outside
+   its host, not about reaching into it, and for the button one also about
+   making `ButtonVisibleRole` writable.
+
+None of these is a batch of the kind this plan has been running. The branch is
+on current master, both decisions are enacted, and the goal has been true and
+guarded since entry 195.
