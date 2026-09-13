@@ -682,6 +682,8 @@ Item {
                         delegate: Rectangle {
                             required property var modelData
 
+                            objectName: "whitespaceMark"
+
                             readonly property bool isTab: modelData.tab ?? false
                             // A dot sits in the middle of the space it stands
                             // for; a tab is drawn across the width it took.

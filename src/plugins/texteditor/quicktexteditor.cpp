@@ -4825,6 +4825,97 @@ private slots:
         QTRY_VERIFY2(guidesByRow().isEmpty(), "the guides stayed after they were turned off");
     }
 
+    // A space is marked with a dot in the middle of it and a tab with a rule
+    // across the width it took. The scene graph draws glyphs and would draw
+    // nothing here, so all of this is QML arithmetic over where the layout put
+    // the character - and the two differ in x, width and height at once.
+    void testASpaceIsMarkedWithADotAndATabWithARule()
+    {
+        Utils::TemporaryDirectory dir("quick-editor-whitespace");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("whitespace.txt");
+        // One space and one tab, on lines of their own, so each mark below is
+        // the only one of its kind.
+        QVERIFY(file.writeFileContents("a b\n\tc\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        const std::function<void(QQuickItem *, QList<QQuickItem *> &)> collect =
+            [&collect](QQuickItem *item, QList<QQuickItem *> &found) {
+                if (item->objectName() == QLatin1String("whitespaceMark"))
+                    found << item;
+                const QList<QQuickItem *> children = item->childItems();
+                for (QQuickItem * const child : children)
+                    collect(child, found);
+            };
+        const auto markFor = [form, &collect](bool tab) -> QQuickItem * {
+            QList<QQuickItem *> found;
+            collect(form, found);
+            for (QQuickItem * const mark : std::as_const(found)) {
+                if (mark->isVisible() && mark->property("isTab").toBool() == tab)
+                    return mark;
+            }
+            return nullptr;
+        };
+
+        // Asked of the viewport rather than of the global setting, which other
+        // tests write and which the suite may run in any order (entry 276).
+        // Turned off first, so that "drawn" below means a mark appeared.
+        viewport->setVisualizeWhitespace(false);
+        QTRY_VERIFY2(!markFor(false) && !markFor(true),
+                     "whitespace is marked without anyone asking to see it");
+        viewport->setVisualizeWhitespace(true);
+        QTRY_VERIFY2(markFor(false), "the space is not marked at all");
+        QVERIFY2(markFor(true), "the tab is not marked at all");
+
+        QQuickItem * const dot = markFor(false);
+        QQuickItem * const rule = markFor(true);
+
+        // Where the character is, from the layout. rectangleAt() gives a caret
+        // rectangle rather than a cell, so the width comes from the caret at
+        // the far side of it.
+        const auto extentOf = [viewport](int position) {
+            return QPair<qreal, qreal>(viewport->rectangleAt(position).x(),
+                                       viewport->rectangleAt(position + 1).x());
+        };
+        const QPair<qreal, qreal> space
+            = extentOf(document->document()->findBlockByNumber(0).position() + 1);
+        const QPair<qreal, qreal> tab
+            = extentOf(document->document()->findBlockByNumber(1).position());
+        QVERIFY2(space.second > space.first && tab.second > tab.first,
+                 "the layout puts no width under the whitespace this asks about");
+
+        // The dot sits in the middle of the space it stands for.
+        QCOMPARE(dot->x() + dot->width() / 2, (space.first + space.second) / 2);
+        QVERIFY2(dot->width() == dot->height(), "the mark for a space is not a dot");
+        QVERIFY2(dot->width() < space.second - space.first,
+                 "the dot is as wide as the space, so it is a block and not a dot");
+
+        // The rule is drawn across the tab, clear of the character either side.
+        QCOMPARE(rule->x(), tab.first + 1);
+        QCOMPARE(rule->x() + rule->width(), tab.second - 1);
+        QVERIFY2(rule->height() < dot->height(),
+                 "the mark for a tab is as thick as the one for a space");
+        QVERIFY2(rule->width() > dot->width(), "the tab is marked with a dot, not a rule");
+
+        viewport->setVisualizeWhitespace(false);
+        QTRY_VERIFY2(!markFor(false) && !markFor(true),
+                     "the marks stayed after they were turned off");
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");

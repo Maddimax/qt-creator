@@ -63629,3 +63629,100 @@ folded into the crash.
 4. **A Windows run** for the console-host port (entry 264).
 5. **The typing flake** above, and **the crash** (entry 247) — two separate
    open defects, now told apart by their signatures.
+
+## 2026-09-14 — The whitespace marks, and asserting the property not the binding (batch 280)
+
+`testASpaceIsMarkedWithADotAndATabWithARule` is in `QuickTextEditorTest`, three
+controls bite, and the suite has run clean six times with it. This is entry
+279's item 1, under the name entry 279 corrected.
+
+### Which gap this closes
+
+`CodeViewport.qml` 682–697, with nothing on it. The scene graph draws glyphs
+and would draw nothing for whitespace, so a space and a tab are both drawn by
+hand — and they differ in three bindings at once:
+
+    x:      isTab ? modelData.x + 1 : modelData.x + modelData.width / 2 - 1
+    width:  isTab ? Math.max(1, modelData.width - 2) : 2
+    height: isTab ? 1 : 2
+
+`objectName: "whitespaceMark"` added to the delegate, as entry 275 did for the
+change bar.
+
+### Asserting the property, not the binding
+
+The temptation with arithmetic like this is to write the same sum in the test
+and compare. That passes forever and says nothing. What the sums are *for*:
+
+- the dot is **centred** in the space it stands for — which is what the `- 1`
+  achieves, the dot being two wide;
+- the dot is **square**, and narrower than the space;
+- the rule is **clear of the character either side** — `x + 1` and
+  `width - 2` are one property between them, so they are asserted as
+  `left + 1` and `right - 1` rather than separately;
+- the rule is **thinner and wider** than the dot, which is the tab/space
+  distinction itself.
+
+None of those repeats a binding, and each fails for a different edit.
+
+### What the probe corrected
+
+The plan was to take the character's cell from `rectangleAt()`. It does not
+give one:
+
+    rectangleAt(space) = QRectF(7.1875, 0, 1, 16)     <- width 1, a caret
+
+It returns a **caret rectangle**, so the width of the character has to come
+from the caret on the far side of it: `rectangleAt(p + 1).x - rectangleAt(p).x`.
+With that, every relationship checked out first time —
+dot x 9.78125 + 1 = 10.78125 = the middle of 7.1875…14.375; rule 1…56.5
+against a tab of 0…57.5.
+
+Also worth recording: `rectangleAt()` is not the API to reach for when the
+question is "how wide is this character".
+
+### Controls, all three biting, one per property
+
+- the space branch loses its `- 1` — the dot is no longer centred.
+- the tab's width becomes `modelData.width` — the rule touches the character
+  either side.
+- `height: 2` for both — "the mark for a tab is as thick as the one for a
+  space".
+
+Each control is undone by **patching the line back**, not by `git checkout` on
+the file: this batch adds an `objectName` to the same file, and entry 275 lost
+exactly that to a control script's revert. Confirmed afterwards by a diff
+showing the two added lines and nothing else.
+
+### Measurements
+
+    -test TextEditor    780 passed, 0 failed, 3 skipped, exit 0   x6
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+780 is 779 plus this test. No `.qbs` change. Neither the typing flake nor the
+crash was sighted in these six.
+
+### The machine, twice
+
+The host killed a job for memory twice in two batches — once mid-run-batch,
+once mid-build. `cmake --build ... -- -j4` in place of the default finished
+without trouble. Six suite runs, three control builds and a probe build is
+about what this machine will take in one batch; splitting the runs into two
+jobs and dropping the build parallelism is enough.
+
+### What is next
+
+1. **`minimap`** (`CodeViewport.qml` 1057) — `width: visible ? 100 : 0`, the
+   "gives its room back" shape of entry 276's gutter, untested. The last of
+   entry 276's list.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271).
+3. **A Windows run** for the console-host port (entry 264).
+4. **Two open defects**, told apart by signature in entry 279: the typing
+   flake (exit 1, a doubled quote, one sighting in six runs) and entry 247's
+   crash (exit 255, a truncated run, ~1 in 7–8).
+
+After the minimap, the drawn parts of `CodeViewport.qml` with a conditional
+rule behind them are covered. What is left in that file is the parts whose
+rule is "draw what the model says" — the wrapped-line marker, the fold box,
+the refactor marker, the annotations — where a test would mostly restate the
+model. Worth saying now rather than discovering it as an empty list.
