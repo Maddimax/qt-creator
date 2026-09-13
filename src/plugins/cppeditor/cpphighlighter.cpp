@@ -1001,13 +1001,9 @@ class QuickEditorHighlighterTest : public QObject
 
 private slots:
     // The switch itself: opening a C++ file with nothing asked for gives the
-    // Qt Quick view. QTC_WIDGET_CPP_EDITOR is the way back, and a machine that
-    // has it set is one where this says nothing.
+    // Qt Quick view.
     void testACppFileOpensInTheQuickEditor()
     {
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
-            QSKIP("the widget editor is what this run asked for");
-
         Utils::TemporaryDirectory dir("cpp-opens-in-the-quick-editor");
         QVERIFY(dir.isValid());
         const Utils::FilePath file = dir.filePath("main.cpp");

@@ -232,9 +232,7 @@ public:
         // the parse-context chooser in the toolbar. Every CppEditor test class
         // was run once per view and the two answer the same.
         //
-        // QTC_WIDGET_CPP_EDITOR is the way back, for a report that says
-        // otherwise.
-        setUsesQuickEditor(!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"));
+        setUsesQuickEditor(true);
 
         setDocumentCreator([]() { return new CppEditorDocument; });
         setEditorWidgetCreator([]() { return new CppEditorWidget; });

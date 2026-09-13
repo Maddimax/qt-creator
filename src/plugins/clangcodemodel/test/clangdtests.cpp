@@ -696,8 +696,7 @@ void ClangdTestTooltips::testTooltipFromIndex()
     QVERIFY(doc);
     // Whichever view the file opens in. A C++ file opens in the Qt Quick
     // editor, which is not a BaseTextEditor - so casting to one answered
-    // nullptr and every case here failed on the QVERIFY below, in a class
-    // that passes 38 of 38 against QTC_WIDGET_CPP_EDITOR=1.
+    // nullptr and every case here failed on the QVERIFY below.
     Core::IEditor * const editor = EditorManager::openEditor(doc->filePath());
     QVERIFY(editor);
     QCOMPARE(editor->document(), doc);
@@ -828,8 +827,7 @@ void ClangdTestTooltips::test()
     QVERIFY(doc);
     // Whichever view the file opens in. A C++ file opens in the Qt Quick
     // editor, which is not a BaseTextEditor - so casting to one answered
-    // nullptr and every case here failed on the QVERIFY below, in a class
-    // that passes 38 of 38 against QTC_WIDGET_CPP_EDITOR=1.
+    // nullptr and every case here failed on the QVERIFY below.
     Core::IEditor * const editor = EditorManager::openEditor(doc->filePath());
     QVERIFY(editor);
     QCOMPARE(editor->document(), doc);
@@ -2174,8 +2172,7 @@ void ClangdTestCompletion::getProposal(const QString &fileName,
     Text::convertPosition(doc->document(), pos, &line, &column);
     // Whichever view the file opens in. A C++ file opens in the Qt Quick
     // editor, so casting to a BaseTextEditor answered nullptr and all 31 cases
-    // in this class fell at the QVERIFY below - against 32 passed with
-    // QTC_WIDGET_CPP_EDITOR=1.
+    // in this class fell at the QVERIFY below.
     Core::IEditor * const editor = EditorManager::openEditorAt({doc->filePath(), line, column});
     QVERIFY(editor);
     QCOMPARE(EditorManager::currentEditor(), editor);

@@ -2884,7 +2884,7 @@ private slots:
 
         // Asked for rather than assumed. What this checks is how this view
         // draws a comment; which view a C++ file opens in by default is a
-        // different question, and QTC_WIDGET_CPP_EDITOR turns it round.
+        // different question.
         TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
         QVERIFY(factory);
         const bool wasQuick = factory->usesQuickEditor();
@@ -6040,22 +6040,12 @@ private slots:
                              QString("CompilationDatabase.CompilationDatabaseEditor"),
                              QString("Nim.NimEditor"),
                              QString("GLSLEditor.GLSLEditor")};
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
-            expected.removeOne(QString("CppEditor.C++Editor"));
         expected.sort();
         QCOMPARE(quick, expected);
     }
 
     void testWhichLanguagesOpenInTheQuickEditor()
     {
-        // This one *is* about the default, so the switch that turns the
-        // default round is the one thing it cannot be asked under.
-        // CppEditorFactory reads QTC_WIDGET_CPP_EDITOR to decide, and the
-        // whole point of that variable is to make a C++ file open in a widget
-        // editor - which is what this would then report as a defect.
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
-            QSKIP("QTC_WIDGET_CPP_EDITOR turns the default this checks round");
-
         Utils::TemporaryDirectory dir("quick-editor-census");
         QVERIFY(dir.isValid());
 
@@ -6250,12 +6240,8 @@ private slots:
         }
         QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
         // The list above is not empty on any build this runs on, and a census
-        // of nothing passes. One row fewer with the way back turned on: C++
-        // has no Quick factory to census then, which is what it is for.
-        int expected = sampleFor.size();
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
-            --expected;
-        QCOMPARE(checked, expected);
+        // of nothing passes.
+        QCOMPARE(checked, sampleFor.size());
     }
 
     // A census, the way the settings pages have one: every language that has
@@ -6867,9 +6853,6 @@ private slots:
     // tests that found them went through this path.
     void testARealSplitOfACppFileIsTheSameEditorTwice()
     {
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
-            QSKIP("QTC_WIDGET_CPP_EDITOR opens the C++ file this splits in a widget");
-
         Utils::TemporaryDirectory dir("real-split");
         QVERIFY(dir.isValid());
         const Utils::FilePath file = dir.filePath("main.cpp");
@@ -9606,11 +9589,6 @@ private slots:
 
     void testTheFoldColumnIsShownOnlyWhereTheLanguageFolds()
     {
-        // C++ is this test's language that folds, so the switch that opens it
-        // in a widget takes away what the column is measured on.
-        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
-            QSKIP("QTC_WIDGET_CPP_EDITOR opens the folding language in a widget");
-
         Utils::TemporaryDirectory dir("fold-column");
         QVERIFY(dir.isValid());
 

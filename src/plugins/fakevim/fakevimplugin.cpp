@@ -2200,10 +2200,8 @@ private slots:
             QStringList{"updatePolish", "polish() loop", "No such method"});
 
         // Every test here opens a C++ file and drives the Qt Quick view, so
-        // the view is asked for rather than assumed. It is the default, but
-        // QTC_WIDGET_CPP_EDITOR is the documented way to turn that round -
-        // and under it these tests were failing with "the C++ file opened in
-        // a widget editor", which is true and not their subject.
+        // the view is asked for rather than assumed: which view a C++ file
+        // opens in is a different question from what this class is about.
         m_cppFactory = TextEditor::TextEditorFactory::preferredFactoryFor(
             Utils::FilePath::fromString("a.cpp"));
         if (m_cppFactory) {

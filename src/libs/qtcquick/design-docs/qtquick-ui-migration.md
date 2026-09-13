@@ -61692,3 +61692,105 @@ Unchanged, and still not mine:
 The mutation seam is worked out: every feature `CppEditorFactory` or
 `CppEditorDocument` configures has now been removed in turn and the guards
 read. I would stop here rather than mutate further afield.
+
+## 2026-09-13 — The decisions came back, and the first one is done (batch 259)
+
+**The two decisions from entry 236 have been answered, and a third was asked
+and answered with them.** They had been open since 2026-09-13, entry 236, and
+were raised in every entry since.
+
+1. **Retire `QTC_WIDGET_CPP_EDITOR`** - yes.
+2. **Is a build without QtcQuick still supported?** - **no**. So
+   `CONDITION TARGET QtcQuick` can go, and roughly five widget views with it.
+3. **The branch is 160 commits behind master** - **rebase onto master**.
+
+That is three batches of work, not one. This entry is the first.
+
+### How the third question arose
+
+Before claiming the plan was empty I checked something nobody had: whether
+this branch still integrates. It is 1417 commits ahead of master and **160
+behind**, merge base 2026-09-08. `git merge-tree` reports **19 conflicting
+files, 18 of them in plugins this work never touched** - baremetal, docker,
+git, terminal. Exactly one is ours: `markdowneditor.cpp`, where master added
+search-result highlighting written against `m_textEditorWidget`, the widget
+shape this branch is converting.
+
+Seven master commits in five days touch this work's files, and three of them
+are one feature - decorators marking lines on the scroll bar, a new
+`TextEditorWidget` capability with two users already. `TextViewport` has a
+`scrollBarHighlights` property, so there is somewhere for it to go, but the
+rebase will have to connect them. **Master is still actively developing
+against the widget editor**, which is worth knowing whichever way decision 1
+went.
+
+### The gap this batch closed
+
+The switch is gone. `CppEditorFactory` now says
+
+    setUsesQuickEditor(true);
+
+and every branch that existed only to accommodate the variable went with it:
+
+- `QuickEditorHighlighterTest::testACppFileOpensInTheQuickEditor` skipped
+  under it. **It now always runs**, and it is the assertion the whole goal
+  rests on.
+- Three accommodations added in entry 253 to keep the suite green under the
+  switch - a census row count and two `QSKIP`s - are dead code and are
+  deleted. That entry's work is undone by this one, which is the right
+  outcome: it existed to keep a way back honest, and there is no way back now.
+- Five stale comments in four other plugins named the variable as "the
+  documented way to turn the default round". A comment naming an environment
+  variable that no longer exists is worse than no comment, so each was
+  rewritten to say the thing it was actually explaining.
+
+Nothing outside this plan mentions `QTC_WIDGET_CPP_EDITOR` any more.
+
+### Negative controls
+
+- **A - the variable set anyway.** `QTC_WIDGET_CPP_EDITOR=1` now produces
+  **identical totals**: TextEditor 766/0/3 and CppEditor 1658/0/58, the same
+  as with it unset. Before this change the same command gave 763/0/6 and
+  1655/0/61. The variable is inert, measured rather than asserted.
+- **B - `setUsesQuickEditor(false)`.** Red on exactly the right assertion:
+
+      testACppFileOpensInTheQuickEditor:
+          a C++ file still opens in the widget editor
+
+  That is the test that used to skip under the variable. Retiring the switch
+  did not make the goal's central assertion vacuous - it made it
+  unconditional.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+    -test CppEditor    1658 passed, 0 failed, 58 skipped, exit 0
+    -test FakeVim       571 passed, 0 failed, 14 skipped, exit 0
+
+Unchanged from before the change, which is the point: nothing depended on the
+variable except the accommodations for it. Built on macOS and Linux; no
+`.qbs` change.
+
+### What is next, now with answers
+
+1. **Delete the no-QtcQuick build.** Decision 2 says it is not supported, so
+   `CONDITION TARGET QtcQuick` goes and with it the widget halves behind
+   `QTC_WIDGET_OPEN_DOCUMENTS`, `QTC_WIDGET_BOOKMARKS`,
+   `QTC_WIDGET_SEARCH_RESULTS`, `QTC_WIDGET_OUTPUT_BUTTONS` and
+   `QTC_WIDGET_LUA_PANE`. Entry 236 established these are a supported
+   configuration rather than dead code; that is what has just changed. This is
+   the largest remaining piece and should be done one view at a time.
+2. **Rebase onto master.** 19 conflicts, one of them ours. Do it before the
+   deletions get much larger, and expect `markdowneditor.cpp` and the
+   scroll-bar decorators to need real work rather than conflict resolution.
+3. **Delete `CppEditorWidget`'s reason to exist**, which entry 236 named as
+   the second half of decision 1. The widget row of
+   `testACppEditorHasEverythingTheFactoryConfigures` (entry 254) drives
+   `setUsesQuickEditor(false)` directly rather than through the environment,
+   so it survives the retirement and keeps that path honest for as long as it
+   exists.
+4. The crash, per entry 247 - still accepted.
+
+Order matters: 2 before 1, or the rebase fights deletions that master has also
+been editing.

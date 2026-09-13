@@ -3273,10 +3273,8 @@ private slots:
         QVERIFY(!file.isEmpty());
 
         // Asked for rather than assumed. This is about annotating a view that
-        // is not a widget, so it holds the C++ factory to that view;
-        // QTC_WIDGET_CPP_EDITOR is the documented way to turn the default
-        // round, and under it this failed saying the file opened in a widget -
-        // which was true, and not what the test is for.
+        // is not a widget, so it holds the C++ factory to that view rather
+        // than relying on which one a C++ file opens in.
         TextEditor::TextEditorFactory * const factory
             = TextEditor::TextEditorFactory::preferredFactoryFor(file);
         QVERIFY(factory);

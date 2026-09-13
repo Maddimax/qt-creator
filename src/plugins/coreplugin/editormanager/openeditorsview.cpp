@@ -170,9 +170,8 @@ public:
         // the arrows without opening anything, and the row following
         // whichever document is open.
         //
-        // QTC_WIDGET_OPEN_DOCUMENTS asks for the tree view instead, the way
-        // QTC_WIDGET_CPP_EDITOR does for the editor - and a build with
-        // nothing to host QML gets it without asking.
+        // QTC_WIDGET_OPEN_DOCUMENTS asks for the tree view instead, and a
+        // build with nothing to host QML gets it without asking.
         if (!Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_OPEN_DOCUMENTS")) {
             auto * const list = new OpenDocumentsList;
             if (QWidget * const view = createQmlView(
