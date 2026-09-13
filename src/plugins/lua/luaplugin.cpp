@@ -27,6 +27,7 @@
 #include <utils/theme/theme.h>
 #include <utils/utilsicons.h>
 
+#include <QScrollBar>
 #include <QDebug>
 #include <QKeyEvent>
 #include <QLabel>
@@ -49,6 +50,7 @@ using namespace ExtensionSystem;
 namespace Lua::Internal {
 
 #ifdef WITH_TESTS
+
 QObject *createLuaTextEditorTest();
 QObject *createLuaReplTest();
 #endif
@@ -780,6 +782,44 @@ class LuaReplTest final : public QObject
     Q_OBJECT
 
 private slots:
+    // The cue that a line arrived is the engine's; following it down is the
+    // view's, and nothing covered the widget view doing it. Entry 196 found
+    // that out the hard way: a control removing this view's connect() changed
+    // nothing, because the test beside it asserted only that the cue was
+    // emitted.
+    //
+    // The two views do not agree on what following down means. This one goes
+    // to the end whatever the reader was looking at; the Qt Quick pane moves
+    // only when the list was already at the end, so scrolling up to read
+    // stays put. That difference is not covered here: reaching into the
+    // scene would mean casting what Core::createQmlView() hands back to the
+    // host type, which is the coupling that seam exists to prevent - this
+    // plugin names its QML by URL and never links Qt Quick.
+    void testALineArrivingFollowsItDownInTheWidgetView()
+    {
+        LuaRepl repl;
+        repl.reset();
+        // Enough that the list cannot show them all, so following down is a
+        // movement rather than a no-op.
+        for (int i = 0; i < 200; ++i)
+            repl.submit(QString("return %1").arg(i));
+
+        LuaReplView view(&repl);
+        view.resize(400, 200);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        QScrollBar * const bar = view.verticalScrollBar();
+        QVERIFY2(bar->maximum() > bar->minimum(),
+                 "the list shows everything at once, so there is nothing to follow");
+
+        view.scrollToTop();
+        QCOMPARE(bar->value(), bar->minimum());
+
+        repl.submit("return \"one more\"");
+        QTRY_COMPARE(bar->value(), bar->maximum());
+    }
+
     void testTheReplSaysWhichOfItsLinesAreErrors()
     {
         // No view anywhere in this test: the REPL is the Lua state and what

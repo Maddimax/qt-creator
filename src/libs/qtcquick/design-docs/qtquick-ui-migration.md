@@ -59148,3 +59148,106 @@ tests that were written to prove they were built in the first place.
 Entry 199's list is now empty: the type loader's cached directory listing and
 the redundant error logging were dealt with when they were found, and this was
 the last of the three.
+
+## 2026-09-13 — The control that did not bite in entry 196 bites now (batch 233)
+
+Entry 196 ran a control - removing the Lua REPL widget view's
+`connect(..., &QListView::scrollToBottom)` - and it changed nothing, because
+the test beside it asserted that the engine **emits** the cue, not that any
+view acts on it. It was recorded rather than worked around, with the note that
+"after the Quick view exists the same line will need saying twice". The Quick
+view has existed since entry 197. This closes the widget half and reports what
+the other half turned out to be.
+
+### The gap this batch closed
+
+**Nothing covered a view following its output down.** It does now, for the
+widget view, by driving a real one:
+
+    LuaReplView view(&repl);            // 200 lines of output already in it
+    view.show();
+    view.scrollToTop();
+    repl.submit("return \"one more\"");
+    QTRY_COMPARE(bar->value(), bar->maximum());
+
+with `QVERIFY2(bar->maximum() > bar->minimum(), ...)` first, because a list
+that shows everything at once has nothing to follow and the rest would pass
+without meaning anything.
+
+### The two views do not agree, which is the finding
+
+    // widget
+    connect(m_repl, &LuaRepl::linePrinted, this, &QListView::scrollToBottom);
+
+    // Quick
+    function onLinePrinted(): void {
+        if (lines.atYEnd)
+            lines.positionViewAtEnd()
+    }
+
+The widget view goes to the end whatever the reader was looking at. The Quick
+one moves only when the list was already at the end, so scrolling up to read
+something stays put - which is what every other output view does and is why
+the QML says so in a comment.
+
+Entry 196 expected "the same line saying twice". It is not the same line. The
+Quick pane was written with the better rule and nobody noticed it was a
+change, because neither view was covered. The test now pins what the widget
+view does and names the difference beside it, rather than quietly asserting one
+rule for both.
+
+### The Quick half is not covered, and why
+
+Reaching into the Quick pane's scene means casting what
+`Core::createQmlView()` hands back to `QtcQuick::QuickWidget` to reach
+`rootObject()`. That is exactly the coupling the shell-phase seam exists to
+prevent: the Lua plugin names its QML by URL, links no Qt Quick, and
+`qtcquick/qtcquickwidget.h` does not compile there without adding a dependency
+to the plugin and to its `.qbs`.
+
+The first version of this test did it in both views and hit that wall, which is
+the useful part: the layering held, and the test was the thing that had to give.
+Covering the Quick rule needs the scene driven from somewhere that already
+hosts scenes - the QuickUi tests - and those cannot build a `LuaReplController`,
+which is Lua-internal. Left uncovered and said plainly rather than paid for by
+weakening the seam.
+
+### Measurements
+
+    -test Lua               14 passed, 0 failed, exit 0
+    -test TextEditor        775 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Todo              11 passed, 0 failed, exit 0
+
+13 to 14. The one red is `RunWorkerConflictTest::testConflict`, upstream and
+out of scope since entry 225.
+
+### Negative controls
+
+**DW — the widget view's `connect` removed**, which is entry 196's control AY
+run again against a test that can see it. Bit:
+
+    testALineArrivingFollowsItDownInTheWidgetView() Compared values are not the same
+
+AY was quiet because the assertion was one level too far upstream. The lesson
+is not that the control was wrong - it was right, and recording it is what
+brought this batch here - but that a control which does not bite should be read
+as a question about the *test*, which is what entry 196 did and what took
+until now to answer.
+
+### What is next
+
+1. **The flake, when it next appears.** Entry 231 built the trace and the
+   caret comparison; nothing more until there is a sighting to read.
+2. **The Quick REPL's auto-scroll rule**, if a way to drive another plugin's
+   scene from a test appears. Not worth a dependency.
+3. **Three editors that cannot be opened by file name**: `vcsbasesubmiteditor`,
+   `profilertraceeditor`, the model editor.
+4. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+5. The rest, with numbers: entry 173's crash - which was never proven, went
+   away when the test that showed it was rewritten onto the managed
+   open/close pattern, and has not been seen since; `IOutputPane::toolBarWidgets()`
+   once Qt SerialPort exists in one of the two Qt builds; and
+   `RunWorkerConflictTest::testConflict` upstream.
