@@ -205,6 +205,8 @@ Item {
             // Not "state": QQuickItem has one of those already.
             readonly property int changeState: change.model.changed
 
+            objectName: "gutterChangeBar"
+
             x: root.width - width
             y: change.model.y - root.viewport.scrollY
             width: 2

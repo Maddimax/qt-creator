@@ -4429,6 +4429,88 @@ private slots:
         QVERIFY2(after.contains("alpha") && after.contains("beta"), qPrintable(after));
     }
 
+    // The change bar: a line untouched this session draws none, one edited
+    // draws it in the changed colour, and one edited before the file was
+    // written draws it in the saved colour. The rule is a binding in
+    // EditorGutter.qml - the C++ side only says which of the three a line is -
+    // so it is asked of the drawn bars rather than of the model.
+    void testTheChangeBarSaysWhetherALineWasEditedAndSaved()
+    {
+        // The gutter is drawn only where line numbers or fold markers are, and
+        // both are global settings other tests write.
+        DisplaySettings &display = displaySettings();
+        const bool wasShowing = display.displayLineNumbers();
+        const QScopeGuard restoreSetting([&display, wasShowing] {
+            display.displayLineNumbers.setValue(wasShowing); });
+        display.displayLineNumbers.setValue(true);
+
+        Utils::TemporaryDirectory dir("quick-editor-change-bar");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("changed.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 2);
+
+        const std::function<void(QQuickItem *, QList<QQuickItem *> &)> collect =
+            [&collect](QQuickItem *item, QList<QQuickItem *> &found) {
+                if (item->objectName() == QLatin1String("gutterChangeBar"))
+                    found << item;
+                const QList<QQuickItem *> children = item->childItems();
+                for (QQuickItem * const child : children)
+                    collect(child, found);
+            };
+        const auto bars = [form, &collect] {
+            QList<QQuickItem *> found;
+            collect(form, found);
+            return found;
+        };
+
+        QTRY_VERIFY2(bars().size() > 2, "the gutter draws no change bars at all");
+
+        // Nothing edited yet, so nothing is marked. Asserted first: "not
+        // drawn" below has to mean a bar stopped being drawn rather than
+        // never having been there.
+        for (QQuickItem * const bar : bars())
+            QVERIFY2(!bar->isVisible(), "a line nobody touched is marked as changed");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QTextCursor cursor(document->document());
+        cursor.setPosition(document->document()->findBlockByNumber(1).position());
+        cursor.insertText("X");
+
+        const auto barForLine = [&bars](int line) -> QQuickItem * {
+            for (QQuickItem * const bar : bars()) {
+                if (bar->property("row").toInt() == line)
+                    return bar;
+            }
+            return nullptr;
+        };
+        QTRY_VERIFY(barForLine(1) && barForLine(1)->isVisible());
+        QCOMPARE(barForLine(1)->property("color").value<QColor>(), viewport->changedLineColor());
+        QVERIFY2(barForLine(0) && !barForLine(0)->isVisible(),
+                 "editing one line marked its neighbour too");
+
+        // Written since: the same line, in the other colour. That is the whole
+        // point of the second colour - the edit is still this session's.
+        QVERIFY(document->save(file));
+        QTRY_COMPARE(barForLine(1)->property("color").value<QColor>(),
+                     viewport->savedLineColor());
+        QVERIFY2(barForLine(1)->isVisible(),
+                 "saving took the mark away, so nothing says the line was edited");
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");

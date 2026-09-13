@@ -63179,3 +63179,82 @@ Of the reverted tree.
 2. **A tidy of the stack before pushing** - 1284 commits (entry 271).
 3. **A Windows run** for the console-host port (entry 264).
 4. **The crash** (entry 247) - accepted, and sighted once more here.
+
+## 2026-09-13 — The change bar, covered, and entry 274's failure not reproduced (batch 275)
+
+`testTheChangeBarSaysWhetherALineWasEditedAndSaved` is in `QuickTextEditorTest`,
+both controls bite, and the suite has run clean four times with it. This is the
+first of these tests aimed at the **editor's** own QML rather than a pane's.
+
+### What entry 274 said to do, and what it found
+
+"Start by finding which test leaves what behind, not by rewriting the test."
+Done, with a probe that dumped the gutter's state at the point of failure
+under the full suite:
+
+    DIAG gutter 0x... visible true width 35 lineNumbers true foldMarkers true
+         visibleLines 4 bars 4
+
+Four bars, gutter drawn, both settings on. **The failure did not reproduce.**
+Nor in two more probe runs, nor in four runs of the finished test.
+
+So entry 274's diagnosis - "a test earlier in the run leaves a setting off" -
+is unsupported. What it saw was real (the message was `bars().size() > 2`
+returned FALSE with 774 passed, which is not a crash signature), but it has not
+happened again in six suite runs since. Said plainly rather than tidied away:
+**one sighting, unexplained, not reproduced.** The `displayLineNumbers` guard
+is kept because the dependency is real - the gutter is drawn only where line
+numbers or fold markers are - not because it is known to have been the cause.
+
+### The measurement that mattered
+
+    run 1   775 passed, 0 failed, exit 0
+    run 2   68 passed,  0 failed, exit 255   <- entry 247's crash, killed early
+    run 3   775 passed, 0 failed, exit 0
+    run 4   775 passed, 0 failed, exit 0
+    run 5   775 passed, 0 failed, exit 0
+
+Four clean, one crash-truncated with nothing failed. Entry 274 drew its
+conclusion from single runs of each state, which is exactly what the crash
+makes unsafe: a run that dies at commit 68 or 122 looks like a different thing
+each time. Rates, not verdicts - and it was my own rule being broken.
+
+### What the test covers
+
+The change bar's three states, asked of the drawn bars rather than the model,
+because the rule is a binding in `EditorGutter.qml` and the C++ side only says
+which of the three a line is. `objectName: "gutterChangeBar"` on the delegate -
+the gutter already names six other drawn parts, so this follows the file.
+
+Controls, both biting, each on its own half:
+
+- `visible: true` - "a line nobody touched is marked as changed".
+- the colour ternary collapsed to one colour - red on the saved-colour compare.
+
+### A slip worth recording
+
+The script that runs the two controls ends with `git checkout` on the QML, to
+put the binding back. It also removed the `objectName` the test needs, so for
+one build the tree held a test that could not find what it looks for. Caught by
+running the suite again before committing rather than trusting the controls'
+own green. **A revert that restores a file restores all of it**, including the
+part of the change that was not the control.
+
+### Measurements
+
+    -test TextEditor    775 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+775 is 774 plus this test. No `.qbs` change.
+
+### What is next
+
+1. **More of the editor's QML**, if wanted. `EditorGutter.qml` alone still has
+   the fold-range highlight on hover and the mark column's drag; `CodeViewport.qml`
+   and `CodeEditor.qml` have not been looked at. The method is worked out and
+   the cost is now known: name the drawn part, walk `childItems()`, and run the
+   suite more than once before believing it.
+2. **A tidy of the stack before pushing** - 1284 commits (entry 271).
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247) - accepted, and sighted twice more here, which is
+   in line with its measured rate.
