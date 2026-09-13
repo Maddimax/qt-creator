@@ -3934,6 +3934,64 @@ private slots:
         QCOMPARE(document->document()->toPlainText(), expected);
     }
 
+    void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Typing the closing half of a pair the view inserted steps over it. The
+    // view remembers what it put in as a range in the document, and something
+    // writing to that document from elsewhere - a quick fix, a language
+    // server, the code model - moves the caret without the reader touching it.
+    // That must not be read as the reader having walked away from the pair.
+    void testAnEditElsewhereKeepsWhatTheViewPutIn()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("pending-pair");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents(""));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+
+        const auto type = [target](const QString &text) {
+            for (const QChar &ch : text) {
+                QKeyEvent press(QEvent::KeyPress, Qt::Key_unknown, Qt::NoModifier, QString(ch));
+                QCoreApplication::sendEvent(target, &press);
+            }
+        };
+
+        type("f(");
+        QCOMPARE(document->document()->toPlainText(), QString("f()"));
+
+        // Somebody else writes to the file, before the caret, the way a quick
+        // fix or a language server does.
+        QTextCursor elsewhere(document->document());
+        elsewhere.setPosition(0);
+        elsewhere.insertText("x");
+        QCOMPARE(document->document()->toPlainText(), QString("xf()"));
+
+        // The closing bracket the view put in is still the one being typed.
+        type(")");
+        QCOMPARE(document->document()->toPlainText(), QString("xf()"));
+    }
+
     void testAnEditFromElsewhereCarriesTheCaret_data()
     {
         QTest::addColumn<bool>("quick");

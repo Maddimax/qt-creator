@@ -58444,3 +58444,120 @@ agreeing proves nothing about that either way.
    auto-scroll, entry 199's QML root with no `controller` property,
    `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
    Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — Hunting the typing flake: a sharper target, and one hypothesis killed (batch 227)
+
+Entry 226's queue item 1. **No fix this batch.** What it has instead is a
+corrected description of the failure, a measured rate, one hypothesis
+eliminated by a test that stays, and a recipe that does not depend on luck.
+
+### The failure is not the row the plan recorded
+
+Entry 226 named it
+`testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a bracket inside a
+string)`. Caught on the third full-suite run of a hunting loop, it was a
+different row:
+
+    testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a line)
+    Actual  : "void f() { g(\"a\"); }\")}"
+    Expected: "void f() { g(\"a\"); }"
+
+The tail `")}` is the auto-inserted closers. Typing the real `"`, `)` and `}`
+**appended** them instead of stepping over the ones already there. So it is not
+about brackets inside strings and not about any one row: it is the quick view
+losing the range it keeps for what it inserted, and whichever row is typing at
+that moment fails.
+
+`textviewport.cpp` already carries a comment naming this exact string as
+something that was fixed once - "which is what made a whole line come out as
+`void f() { g(\"a\"); })}`". The tail is one character longer now.
+
+### The rate, measured
+
+| what was run | runs | failures |
+| --- | --- | --- |
+| that one test alone | 5 | 0 |
+| `QuickTextEditorTest` alone | 6 | 0 |
+| the whole `TextEditor` suite | ~25 | 2 |
+| the whole suite, with `qDebug` in the two suspect places | 16 | 0 |
+
+So: it needs the whole suite, roughly one run in twelve, and **it stops
+happening when instrumented**. Adding two `qDebug` lines to the paths under
+suspicion was enough to make sixteen runs clean. That is worth knowing before
+the next attempt spends a day printing things.
+
+### The hypothesis, and why it is wrong
+
+The step-over reads `m_autoCompleted`, a cursor over what the view inserted,
+and `caretMoved()` drops it when the caret is no longer at its start:
+
+    if (m_autoCompleted.hasSelection() && m_cursorPosition != m_autoCompleted.selectionStart())
+        setAutoCompletedRange(-1, -1);
+
+`caretMoved()` has a second caller: the document-change handler, which remaps
+`m_cursorPosition` when something edits the document from **elsewhere**. That
+looked like the answer - an asynchronous write arriving between two keystrokes
+would move the caret, the two would disagree, and the pending closers would be
+forgotten exactly as observed.
+
+It is not the answer. Rather than hunt for it, the hypothesis was driven
+directly, which needs no luck at all:
+
+    type("f(");                      // "f()" with ")" pending
+    elsewhere.insertText("x");       // somebody else writes to the file
+    type(")");                       // must step over, not add a second one
+
+`testAnEditElsewhereKeepsWhatTheViewPutIn` **passes**, in both views. The range
+is a `QTextCursor`, so it moves with the edit, and `positionAfterEdit()` moves
+the caret the same way; they stay equal. The hypothesis is dead.
+
+The test stays. It asserts a real invariant that currently holds, in both
+views, and control DM shows it bites.
+
+### Measurements
+
+    -test TextEditor        754 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+752 to 754: the two rows of the new test. The one red is
+`RunWorkerConflictTest::testConflict`, upstream and out of scope since entry
+225.
+
+### Negative controls
+
+**DM — `caretMoved()` drops the pending range on any caret movement**, not only
+on one that left it. Bit, on the quick row:
+
+    testAnEditElsewhereKeepsWhatTheViewPutIn(quick) Compared values are not the same
+
+The widget row stays green under DM, correctly: it keeps its own range and
+does not go through this code at all.
+
+No control for the flake, because nothing was fixed. Saying that plainly is the
+point - a batch that ends with a hypothesis killed and a rate measured has
+moved, and dressing it up with a speculative change would only make the next
+attempt start from a worse place.
+
+### What is next
+
+Still the same failure, now with a smaller search space:
+
+1. **It needs the full suite and dies under instrumentation**, so the next step
+   is not more logging. It is to narrow *which* earlier tests matter by
+   running halves of the suite before `QuickTextEditorTest` - the suite is one
+   process, so what leaks is process state, and the class alone is clean over
+   six runs.
+2. **The range is not lost to a foreign edit** - that is settled and guarded.
+   What is left: something clearing or not setting it in the key path itself,
+   or a second view of the same document. The test opens and closes an editor
+   per row, so a previous row's viewport outliving its close would see the same
+   document.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. The rest, with numbers: entry 173's crash, entry 196's uncovered widget
+   auto-scroll, entry 199's QML root with no `controller` property,
+   `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
+   Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
