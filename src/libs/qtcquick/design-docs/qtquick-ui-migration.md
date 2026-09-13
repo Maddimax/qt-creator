@@ -61794,3 +61794,116 @@ variable except the accommodations for it. Built on macOS and Linux; no
 
 Order matters: 2 before 1, or the rebase fights deletions that master has also
 been editing.
+
+## 2026-09-13 — The rebase, attempted: four trivial conflicts and one that is a design question (batch 260)
+
+Entry 259 said to rebase before the deletions. Attempted, aborted deliberately,
+and the reconnaissance is the deliverable. **No code changed.** The branch is
+where entry 259 left it, `c10a9fda020`, byte-identical, with a backup ref at
+`backup/pre-rebase-259`.
+
+### What the rebase did before it stopped
+
+`git rebase FETCH_HEAD`, 1418 commits, no merge commits on the branch so a
+linear replay is at least well-defined. It reached **87/1418** through four
+conflicts, every one of them trivial:
+
+- `debuggersourcepathmappingwidget.cpp`, twice - master reordered includes
+  while two of our commits added one. Both sides wanted.
+- `terminalview.cpp` - master added `boxdrawing.h`, we added
+  `terminaldefaults.h`. Both sides wanted.
+
+`rerere` is on and recorded all four, so a second attempt replays them without
+asking.
+
+### The one that stopped it, and why it is not a conflict
+
+Commit `QtcQuick: Port the Terminal page` against
+`src/plugins/terminal/terminalsettings.cpp`. Read rather than guessed, from
+the three versions side by side:
+
+- **HEAD** (master plus the commits replayed so far) has
+  `AspectWidgets::setLayouter(this, [this] {...})` at line 599, and inside it
+  a 178-line `consoleHostGroup` - a Windows console-host feature master added
+  after the merge base.
+- **Our commit** removes 126 lines and adds 72: it **deletes that layouter**
+  and replaces it with the Quick page plus three `ActionAspect`s.
+
+So master added a feature *into the function this branch removes*. There is no
+resolution that is merely a resolution:
+
+- taking ours silently drops a feature master shipped five days ago;
+- taking master's un-ports the page this branch converted.
+
+It has to be **ported**, which is feature work, not conflict resolution. Git
+lined the two sides up only because both end in `});`; the 6 lines on our side
+belong inside `loadTheme.setAction` and the 178 on master's belong to a
+function that no longer exists. A textual resolution would have looked
+plausible and been wrong either way, which is the reason to read the parents
+rather than the conflict markers.
+
+### How often this will happen, measured
+
+    files changed by both sides since the merge base        97
+    of those, where our side removed a widget layouter      10
+
+        debugger/debuggersourcepathmappingwidget.cpp
+        docker/dockerdevice.cpp
+        fakevim/fakevimactions.cpp
+        fakevim/fakevimplugin.cpp
+        projectexplorer/devicesupport/idevice.cpp
+        projectexplorer/devicesupport/idevice.h
+        qmakeprojectmanager/qmakestep.cpp
+        qmljseditor/qmllsclientsettings.cpp
+        qtsupport/qtkitaspect.cpp
+        terminal/terminalsettings.cpp
+
+Ten candidates for the same shape. Not all will turn out to be one - the grep
+looks for a removed layouter, not for master having added to it - but
+`terminalsettings.cpp` is confirmed by reading, and three named features are
+already known to be in this class: the Terminal console host, MarkdownEditor's
+search-result highlighting, and the scroll-bar decorators (three master
+commits, two users).
+
+### The decision, asked and answered
+
+**Port each feature to the Quick side.** Not "take ours and file the losses",
+not a merge. So the rebase is not one batch: it is roughly ten small feature
+ports, each verifiable on its own, and then a replay that rerere makes cheap.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+
+Run to confirm the aborted rebase left the tree sound, not to check a change:
+`git diff backup/pre-rebase-259 HEAD` is empty.
+
+### Negative controls
+
+None, and the reason is the honest one rather than a formula: nothing changed.
+A control for an unchanged tree would be theatre, as in entries 236 and 247.
+What stands in for one is the diff against the backup ref being empty and the
+suites matching entry 259's numbers exactly.
+
+### What is next
+
+1. **Port the Terminal console-host group to the Quick settings page.** The
+   confirmed case, and the one that stopped the rebase. Do it on the branch as
+   it stands, so the rebase then has nothing to decide there.
+2. **Check the other nine** against master's side one at a time; port what
+   master added, and record the ones that turn out not to be this shape.
+3. **MarkdownEditor's search-result highlighting** and **the scroll-bar
+   decorators** - known to be in this class, found in entry 259 rather than by
+   the grep above, so the list of ten is a lower bound.
+4. **Then re-run the rebase.** rerere replays the four trivial resolutions.
+5. **Then the no-QtcQuick deletion** (decision 2), which entry 259 scheduled
+   after the rebase for exactly this reason: master is still editing the views
+   it would delete.
+
+The lesson this batch bought, stated for the next reader: **a long-lived
+conversion branch does not fall behind master textually, it falls behind
+semantically.** Master keeps adding features to the functions the branch is
+removing, and those read as ordinary conflicts. The measurement that matters
+is not "how many files conflict" - it is "in how many of them did we delete
+the thing master extended".
