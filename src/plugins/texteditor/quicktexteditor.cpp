@@ -1358,6 +1358,18 @@ public:
     // view and the widget one.
     TextViewport *viewport() const { return Internal::viewportIn(widget()); }
 
+public:
+    // IContext keeps the widget in a QPointer and does not own it, and the
+    // editor manager only takes it out of the layout it put it in. So this is
+    // what deletes it, as BaseTextEditor does for the widget editor - without
+    // it every editor ever opened leaves its view, its scene and everything
+    // they are connected to behind.
+    ~QuickTextEditor() override { delete widget(); }
+
+private:
+
+
+
     // Shared because a duplicated editor would show the same document; the
     // editor manager is what decides that, not this. The same handle the
     // widget editor uses, so that whoever wants the document need not know
@@ -3894,6 +3906,17 @@ private slots:
         QObject * const target = TextEditor::keyTargetOf(editor);
         QVERIFY(target);
 
+        // Both are global and both are turned off and back on by tests that
+        // run before this one. Left off, the text comes out wrong in a way
+        // that reads as a defect in the typing: with no auto-insert there are
+        // no closing characters at all, and with no stepping over there are
+        // two of each. Said here so that the next time it happens the failure
+        // names the cause rather than showing the damage.
+        QVERIFY2(globalCompletionSettings().autoInsertBrackets(),
+                 "a test left auto-insert turned off");
+        QVERIFY2(globalCompletionSettings().skipAutoCompletedText(),
+                 "a test left stepping over an inserted character turned off");
+
         for (int i = 0; i < script.size(); ++i) {
             const QChar ch = script.at(i);
             int key = Qt::Key_unknown;
@@ -3932,6 +3955,50 @@ private slots:
         }
 
         QCOMPARE(document->document()->toPlainText(), expected);
+    }
+
+    void testClosingAnEditorLetsGoOfItsDocument_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // A view that outlives the editor it was made for keeps watching the
+    // document, and a document that nothing is looking at any more is what
+    // says the view is gone. Tests here open and close an editor apiece, so
+    // one that held on would sit in the next test's process reacting to a
+    // file it has no business with.
+    void testClosingAnEditorLetsGoOfItsDocument()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("close-lets-go");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("t.cpp");
+        QVERIFY(file.writeFileContents("int i;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        QPointer<TextDocument> document;
+        QPointer<QObject> keyTarget;
+        {
+            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+            QVERIFY(editor);
+            document = qobject_cast<TextDocument *>(editor->document());
+            QVERIFY(document);
+            keyTarget = TextEditor::keyTargetOf(editor);
+            QVERIFY(keyTarget);
+            Core::EditorManager::closeEditors({editor}, false);
+        }
+
+        // Deleted later rather than at once, so this waits rather than asks.
+        QTRY_VERIFY2(keyTarget.isNull(), "the view outlived the editor it was made for");
+        QTRY_VERIFY2(document.isNull(), "something is still holding the document");
     }
 
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()

@@ -58561,3 +58561,133 @@ Still the same failure, now with a smaller search space:
    auto-scroll, entry 199's QML root with no `controller` property,
    `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
    Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — Every Quick editor ever opened leaked its whole view (batch 228)
+
+Entry 227 left the typing flake with a smaller search space and two candidates.
+The second one was right, it is a real defect on its own, and it took one run
+to find once it was asked as a question instead of hunted as a failure.
+
+### The gap this batch closed
+
+**`QuickTextEditor` had no destructor, so nothing ever deleted its widget.**
+
+    QWidget *widget() const { return m_widget; }
+    void setWidget(QWidget *widget) { m_widget = widget; }
+    ...
+    QPointer<QWidget> m_widget;
+
+`Core::IContext` keeps the widget in a `QPointer` and **does not own it**. The
+editor manager takes the widget out of the layout it put it in and deletes the
+editor; the widget editor's own destructor is what frees the widget:
+
+    BaseTextEditor::~BaseTextEditor()
+    {
+        delete m_widget;
+        delete d;
+    }
+
+`QuickTextEditor` had no destructor at all. `createQuickTextView()` hands back
+an unparented `QtcQuick::QuickWidget`, `setWidget()` stores a pointer that owns
+nothing, and closing the editor left the widget, its QML scene, the
+`TextViewport` in it and everything they are connected to alive for the rest of
+the session. Every C++ file ever opened, for as long as Qt Creator runs.
+
+One line:
+
+    ~QuickTextEditor() override { delete widget(); }
+
+### Found by asking, not by hunting
+
+Entry 227 measured the flake at about one run in twelve and noted it stops
+happening under instrumentation - so another hunt was the wrong move. Instead
+the candidate was written down as an invariant and asked directly:
+
+    Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+    ... remember the view and the document as QPointers ...
+    Core::EditorManager::closeEditors({editor}, false);
+    QTRY_VERIFY2(keyTarget.isNull(), "the view outlived the editor it was made for");
+    QTRY_VERIFY2(document.isNull(), "something is still holding the document");
+
+It failed on the first run, on the quick row only, with the widget row passing
+beside it as the control the test data already provides. `QTRY_VERIFY` pumps
+events for seconds, so this is not a `deleteLater` that had not run yet.
+
+This is the second batch in a row where driving a suspicion directly beat
+hunting the intermittent failure - entry 227 killed a hypothesis that way in
+one run, and this one confirmed one in one run. The flake is what led here; the
+tests that found the answer never look at it.
+
+### Whether it was the flake: not claimed
+
+    -test TextEditor, 20 consecutive full-suite runs: 0 failures
+
+At the rate entry 227 measured - 2 in about 25 unprobed runs, call it 8% - a
+clean run of 20 has roughly a **one in five** chance of happening anyway. So
+this is suggestive and **not** proof, and it is written down that way. What can
+be said without hedging is that the leak was real, that it is fixed, and that
+it is exactly the kind of process state entry 227 pointed at: every earlier
+test's viewport still alive, still connected to the global completion settings
+and to its own document, in the same process as the test that intermittently
+lost track of what it had inserted.
+
+If it recurs, the next occurrence will say more than it used to (below).
+
+### Two settings that a failure used to hide
+
+The typing test now states what it needs before it types:
+
+    QVERIFY2(globalCompletionSettings().autoInsertBrackets(), ...);
+    QVERIFY2(globalCompletionSettings().skipAutoCompletedText(), ...);
+
+Both are global, both are turned off and back on by tests that run earlier in
+the same process, and both produce the observed damage rather than a
+diagnosable failure if left off: no auto-insert means no closing characters at
+all, and no stepping over means two of each - which is the `")}` tail entry 227
+captured. Neither has fired in any run in this batch; they cost nothing until
+one does, and then they name the cause instead of showing the wreckage.
+
+### Measurements
+
+    -test TextEditor        756 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+754 to 756: the two rows of the new test. The one red is
+`RunWorkerConflictTest::testConflict`, upstream and out of scope since entry
+225.
+
+### Negative controls
+
+**DN — `QuickTextEditor` loses its destructor again.** Bit, on the quick row
+only:
+
+    testClosingAnEditorLetsGoOfItsDocument(quick) 'keyTarget.isNull()' returned FALSE.
+    (the view outlived the editor it was made for)
+
+The widget row stays green under DN, which is the point: the same test data
+runs the same steps against `BaseTextEditor`, whose destructor does this
+already, so the test says "the quick editor does not do what the widget one
+does" rather than "something leaked".
+
+No control for the two precondition assertions: they guard against a leak that
+does not currently happen, so there is nothing to disable that would make them
+fire. Recorded rather than dressed up.
+
+### What is next
+
+1. **The typing flake, if it comes back.** Twenty clean runs is one in five of
+   being luck. If it recurs, the two new assertions will say whether a setting
+   was the cause, and the leak is no longer a candidate.
+2. **Look for the same ownership bug elsewhere.** `IContext::setWidget()` owns
+   nothing, and that is easy to miss twice - `quicktexteditor.cpp` alone has
+   three `setWidget()` calls, and only the one fixed here was wrong. Every
+   `Core::IEditor` subclass on this branch is worth the same question.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. The rest, with numbers: entry 173's crash, entry 196's uncovered widget
+   auto-scroll, entry 199's QML root with no `controller` property,
+   `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
+   Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
