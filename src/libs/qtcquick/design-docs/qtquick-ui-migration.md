@@ -60484,3 +60484,92 @@ assertion, removing the reset changes nothing any test can see.
    **decide whether the no-QtcQuick build is still supported**.
 3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
 4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
+
+## 2026-09-13 — Six instruments, none can see it: stopping, with a recommendation (batch 247)
+
+**No code changed.** Entry 246 narrowed the crash to the typing rather than the
+editor churn. This batch spent itself on the two instruments that had not been
+separated properly and on making the ASan result worth quoting, and the answer
+is that there is nothing left short of a Qt build. Four batches have now gone
+into this; that is enough without a decision.
+
+### What this batch measured
+
+- **The caret test alone, in its new two-editor shape: 15 runs, no crash.**
+  Entry 246 showed the churn was not what the crash needed; this shows the
+  typing is not sufficient either. It needs the whole suite's accumulated
+  state, which has been true of it from the first sighting.
+- **Plain gdb, no `MALLOC_PERTURB_`: 10 runs, no stack.** Entry 243 ran gdb
+  *and* the perturb flag together and blamed the pair. Separated, gdb alone
+  catches nothing either. With entry 243's eleven that is 21 gdb runs against
+  roughly one crash in eight unguarded ones.
+- **ASan, rebuilt against current source: 12 more runs, 0 reports, 0 deaths**,
+  for 19 in total across this batch and entry 244.
+- **Core dumps: not available.** `/proc/sys/kernel/core_pattern` pipes to
+  apport and changing it needs root, which this rig deliberately does not use.
+  A core would have been the one instrument that perturbs nothing at all.
+
+### Why nineteen clean ASan runs is not reassurance
+
+It is easy to read them as "there is no memory error". They do not say that.
+ASan **replaces the allocator**, so glibc's small-bin metadata - the thing the
+crash message names - does not exist in an ASan run. For ASan to report
+instead, the bad write has to land in one of its redzones *and* come from code
+it compiled. Qt is not built with it here. So nineteen clean runs rule out one
+thing and one thing only: **Qt Creator's own code writing out of bounds.**
+
+The six instruments and what each can see:
+
+| instrument | runs | can it see this? |
+| --- | --- | --- |
+| the test alone | 21 | needs the suite's state; no |
+| gdb + `MALLOC_PERTURB_` | 11 | perturbs the allocator; no |
+| plain gdb | 10 | perturbs timing; no |
+| the ownership check in the churn | 8 | rules out unfreed editors |
+| ASan on Qt Creator | 19 | rules out Qt Creator writing out of bounds |
+| a core dump | 0 | needs root here |
+
+### The recommendation
+
+**Stop looking for it with what is available, and decide.** Three courses, in
+the order I would take them:
+
+1. **Accept it and say so in the plan** - roughly one run in eight of
+   `-test TextEditor`, always in the same test, never reproduced on demand in
+   about 90 runs of trying. The suite is green otherwise and every other suite
+   is clean. A known, written-down flake with a measured rate is an honest
+   state for a branch to be in; four more batches of instruments is not.
+2. **An ASan-built Qt**, which is the only instrument left that could see a
+   write by Qt into Qt Creator's heap. That is a Qt build plus a rebuild of
+   everything against it, and the suite under it will be slow. It is a day, not
+   a batch, and it is worth it only if the answer matters more than the
+   remaining work on this branch.
+3. **Neither**, and take the two decisions from entry 236 instead, which are
+   what actually move this branch and have been waiting since.
+
+I would take 1 and 3. The corruption predates the Qt Quick editor work in kind
+- entry 173 saw a crash of this family before most of it existed - and nothing
+found in four batches ties it to the code this branch is here to write.
+
+### Measurements
+
+    -test TextEditor    764 passed, 0 failed, 3 skipped, exit 0  (6 clean runs this batch)
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+No crash in this batch's plain runs; 1 in 7 in entry 246's. The rate is small
+and the sample is small, and both of those are the point.
+
+### Negative controls
+
+None: nothing was changed. Said plainly rather than dressed up, as in entries
+236 and 244.
+
+### What is next
+
+1. **The two decisions from entry 236**: retire `QTC_WIDGET_CPP_EDITOR`, and
+   decide whether the no-QtcQuick build is still supported. These are the only
+   things that move the branch and they have been waiting for eleven batches.
+2. The crash, per the recommendation above - accepted and recorded, unless an
+   ASan-built Qt is wanted.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
