@@ -62350,3 +62350,98 @@ carefully and still got wrong.
 3. The Windows console-host port wants a Windows run before anyone believes
    it; it is checked to compile and to draw, not to work.
 4. The crash, per entry 247 - still accepted.
+
+## 2026-09-13 — Decision 2, and the first view deleted (batch 265)
+
+### The premise of decision 2 had already expired
+
+Entry 236 established that five of the six `QTC_WIDGET_*` switches are not
+escape hatches: each sits beside `Core::hasQmlViewFactory()`, which is false
+when QuickUi is not built, and QuickUi carried `CONDITION TARGET QtcQuick`. So
+the widget views were "a supported configuration, not dead code", and deleting
+them was a product decision.
+
+Checked rather than recalled, that stopped being true at some point:
+**`TextEditor` has `DEPENDS ... QtcQuick` unconditionally**, and so do
+ProjectExplorer, Debugger, AutoTest, Todo, Squish and ScreenRecorder. A build
+without QtcQuick therefore has no TextEditor and is not a Qt Creator. The
+condition on QuickUi could never exclude it, `hasQmlViewFactory()` is always
+true, and the five widget halves have been reachable only through their
+environment variables.
+
+So decision 2 is less a deletion than a recognition. `CONDITION TARGET
+QtcQuick` is gone from `quickui/CMakeLists.txt` because it guarded nothing.
+
+### The first view: Open Documents
+
+`QTC_WIDGET_OPEN_DOCUMENTS`, the fallback and `OpenEditorsWidget` are gone -
+191 lines to 53. The factory builds the Quick view and `QTC_ASSERT`s rather
+than falling back, because there is nothing to fall back to. `OpenDocumentsTreeView`
+stays: Help's `OpenPagesWidget` derives from it.
+
+### What deleting a widget costs, which is the part worth recording
+
+Two QuickUi tests failed, and both for the same reason: **the widget was their
+oracle**.
+
+- `testWhichNavigationViewsAreQuick` drove all four states of two switches.
+  One switch no longer exists, so it now drives one.
+- `testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree` built the tree
+  view from the same factory with the switch on and compared icon, colour and
+  tool tip against it. With the tree gone there is nothing to compare to.
+
+A comparison test cannot survive the deletion of the thing it compares
+against. Rewriting it took three attempts, each of which measured something:
+
+1. **`DocumentModel` as the oracle** - fails: the raw model supplies no
+   foreground colour.
+2. **A `ProxyModel` built in the test** - the proxy is what adds the colour,
+   so it is the right oracle. It does not link: `undefined symbol:
+   _ZTVN4Core8Internal10ProxyModelE`. `ProxyModel` is private to Core, and a
+   test in QuickUi cannot construct one.
+3. **What it settled on**: compare the tool tip, which the document model does
+   supply, and *assert* the icon and colour are answered at all. That is
+   weaker than the old comparison and it is said so in the test, with the
+   reason. It still catches the defect the test was written for - the pane's
+   first proxy answered none of these roles.
+
+The honest summary: this batch traded a strong comparison for a weaker
+assertion, because the stronger one is not expressible once the widget is
+gone. Every one of the four remaining views will present the same bill.
+
+### Negative controls
+
+- **Open Documents does not build the Quick view** (an early `return {new
+  QWidget, {}}`). **11 QuickUi failures**, including the census by name and
+  every Open Documents test. The claim "there is one view and it is the Quick
+  one" is guarded.
+- Reverted: green again.
+
+### Measurements
+
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+    -test Core          294 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+
+No `.qbs` change - QuickUi's qbs has no such condition to remove.
+
+**A process failure worth recording.** One test run this batch reported
+`294/774/226 all green` against a **failed build**: the command printed
+`BUILD_OK` unconditionally after grepping for errors, so the suites ran on the
+previous binary. Every run after that was gated on the error count instead -
+`ERR=$(...grep -c...); if [ "$ERR" != 0 ]`. A build step that cannot fail the
+script is worse than no build step, because it launders a stale binary into a
+green result.
+
+### What is next
+
+Four views to go, one at a time, each costing its comparison tests:
+`QTC_WIDGET_BOOKMARKS`, `QTC_WIDGET_SEARCH_RESULTS`,
+`QTC_WIDGET_OUTPUT_BUTTONS`, `QTC_WIDGET_LUA_PANE`.
+
+The Lua one should be taken last or deliberately: its widget view carries
+`testALineArrivingFollowsItDownInTheWidgetView`, the only auto-scroll coverage
+there is, and entry 236 judged that covering the Quick REPL's rule would cost
+more of the shell-phase seam than it is worth. Deleting the widget deletes
+that test with no replacement - a real loss, to be taken knowingly rather than
+discovered.

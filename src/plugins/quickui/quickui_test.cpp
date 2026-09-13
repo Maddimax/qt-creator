@@ -446,7 +446,7 @@ private slots:
     void testWhichNavigationViewsAreQuick();
     void testTheOpenDocumentsSidebarListsAndOpensInTheQuickView();
     void testTheOpenDocumentsSidebarOffersTheSameRightClickEntries();
-    void testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree();
+    void testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheModel();
     void testDraggingAnOpenDocumentCarriesItsFile();
     void testWalkingTheOpenDocumentsWithTheKeyboardOpensNothingUntilReturn();
     void testTheOpenDocumentsSidebarFollowsTheEditorItNeverHadFocusFrom();
@@ -13345,24 +13345,16 @@ void QuickUiTest::testWhichNavigationViewsAreQuick()
         return found;
     };
 
-    // Every state of both switches, because a pane that has moved can be
-    // asked for the old one. Moving another pane means changing this first
-    // list, in the commit that moves it.
+    // Moving another pane means changing this list, in the commit that moves
+    // it. Open Documents has no switch any more - there is one view of it.
     QCOMPARE(quickViews(), QStringList({QString("Bookmarks"), QString("Open Documents")}));
-
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_WIDGET_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard unsetSwitch([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_WIDGET_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
-    QCOMPARE(quickViews(), QStringList({QString("Bookmarks")}));
 
     Utils::Environment::modifySystemEnvironment(
         {{"QTC_WIDGET_BOOKMARKS", "1", Utils::EnvironmentItem::SetEnabled}});
     const QScopeGuard unsetBookmarks([] {
         Utils::Environment::modifySystemEnvironment(
             {{"QTC_WIDGET_BOOKMARKS", {}, Utils::EnvironmentItem::Unset}}); });
-    QCOMPARE(quickViews(), QStringList());
+    QCOMPARE(quickViews(), QStringList({QString("Open Documents")}));
 }
 
 // The first sidebar pane in Qt Quick, end to end: the switch gets a QML view
@@ -13515,12 +13507,13 @@ void QuickUiTest::testTheOpenDocumentsSidebarOffersTheSameRightClickEntries()
     stillOpen = false;
 }
 
-// The icon, the version control colour and the tool tip a row carries. Both
-// sidebars read them from one model now, so what this asserts is that the
-// Quick pane really is reading that model rather than a plainer one - the
+// The icon, the version control colour and the tool tip a row carries. The
+// tree view this used to be compared against is gone, so the oracle is the
+// model both of them read - DocumentModel. What this asserts is that the
+// Quick pane really is reading that model rather than a plainer one: the
 // first version of the pane had a proxy of its own that answered none of
 // these.
-void QuickUiTest::testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree()
+void QuickUiTest::testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheModel()
 {
     Core::INavigationWidgetFactory * const factory = Utils::findOr(
         Core::INavigationWidgetFactory::allNavigationFactories(), nullptr,
@@ -13547,31 +13540,35 @@ void QuickUiTest::testTheOpenDocumentsSidebarShowsTheSameDecorationAsTheTree()
         = quickWidget->rootObject()->property("model").value<QAbstractItemModel *>();
     QVERIFY2(quickModel, "the list was given no model");
 
-    // The widget sidebar, from the same factory with the switch off, is what
-    // the answers are compared against - not values written out here, which
-    // would say nothing about the two views agreeing.
-    Utils::Environment::modifySystemEnvironment(
-        {{"QTC_WIDGET_OPEN_DOCUMENTS", "1", Utils::EnvironmentItem::SetEnabled}});
-    const QScopeGuard backToQuick([] {
-        Utils::Environment::modifySystemEnvironment(
-            {{"QTC_WIDGET_OPEN_DOCUMENTS", {}, Utils::EnvironmentItem::Unset}}); });
-    const Core::NavigationView treeView = factory->createWidget();
-    QVERIFY(treeView.widget);
-    const std::unique_ptr<QWidget> ownedTree(treeView.widget);
-    auto * const tree = qobject_cast<QAbstractItemView *>(ownedTree.get());
-    QVERIFY2(tree && tree->model(), "the widget sidebar is not an item view over a model");
+    QAbstractItemModel * const documents = Core::DocumentModel::model();
+    QVERIFY2(documents, "there is no document model to compare against");
 
-    QCOMPARE(quickModel->rowCount(), tree->model()->rowCount());
-    const QModelIndex quickIndex = quickModel->index(*row, 0);
-    const QModelIndex treeIndex = tree->model()->index(*row, 0);
-    QVERIFY(quickIndex.isValid() && treeIndex.isValid());
+    // The same row in both, found by the file rather than by index, since the
+    // pane may order or filter differently from the model behind it.
+    const auto rowNamed = [&file](QAbstractItemModel *model) {
+        for (int i = 0; i < model->rowCount(); ++i) {
+            const QModelIndex index = model->index(i, 0);
+            if (index.data(Qt::ToolTipRole).toString().contains(file.fileName()))
+                return index;
+        }
+        return QModelIndex();
+    };
+    const QModelIndex quickIndex = rowNamed(quickModel);
+    const QModelIndex modelIndex = rowNamed(documents);
+    QVERIFY2(quickIndex.isValid(), "the Quick pane has no row for the open file");
+    QVERIFY2(modelIndex.isValid(), "the document model has no row for the open file");
 
-    QCOMPARE(quickIndex.data(Qt::DisplayRole), treeIndex.data(Qt::DisplayRole));
-    QCOMPARE(quickIndex.data(Qt::ToolTipRole), treeIndex.data(Qt::ToolTipRole));
-    QCOMPARE(quickIndex.data(Qt::ForegroundRole), treeIndex.data(Qt::ForegroundRole));
-    QVERIFY2(quickIndex.data(Qt::ToolTipRole).toString().contains(file.fileName()),
-             "the tool tip does not name the file");
+    // The tool tip is the document model's own, so it can be compared.
+    QCOMPARE(quickIndex.data(Qt::ToolTipRole), modelIndex.data(Qt::ToolTipRole));
+
+    // The icon and the version control colour are not: both are added by a
+    // proxy private to Core, which a test in this plugin cannot build one of,
+    // and the tree view that used to supply them is gone. What is still worth
+    // knowing is that the pane answers them at all - the proxy it first had
+    // answered none of these roles, which is the defect this guards.
     QVERIFY2(!quickIndex.data(Qt::DecorationRole).isNull(), "the row carries no icon");
+    QVERIFY2(quickIndex.data(Qt::ForegroundRole).canConvert<QColor>(),
+             "the row carries no foreground colour, so it is reading a plainer model");
 }
 
 // Dragging a row out of the sidebar carries the document's file, which is how

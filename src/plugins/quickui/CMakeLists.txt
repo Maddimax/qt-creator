@@ -1,5 +1,4 @@
 add_qtc_plugin(QuickUi
-  CONDITION TARGET QtcQuick
   PLUGIN_DEPENDS Core
   DEPENDS QtcQuick Utils
   SOURCES
