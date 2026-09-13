@@ -4204,27 +4204,80 @@ private slots:
 
         // Emptied and put back to the start, so each script types into the
         // same file the last one did and starts where it did.
-        const auto reset = [](Core::IEditor *editor) {
+        // Emptied, put back to the start, and *said to be* - one editor runs
+        // every script now, so a script that leaves something behind would
+        // show up as a failure in the next one. Checked rather than assumed:
+        // the text, the caret, and the range the view keeps for what it
+        // inserted, which is the state that steps a closing character over.
+        const auto reset = [](Core::IEditor *editor) -> QString {
             auto * const document = qobject_cast<TextDocument *>(editor->document());
+            if (!document)
+                return "the editor has no text document";
             QTextCursor all(document->document());
             all.select(QTextCursor::Document);
             all.removeSelectedText();
             QTextCursor start(document->document());
             start.setPosition(0);
             TextEditor::setTextCursorOf(editor, start);
+
+            const QString left = document->document()->toPlainText();
+            if (!left.isEmpty())
+                return "the document still holds \"" + left + "\"";
+            if (caretPositionOf(editor) != 0)
+                return "the caret is at " + QString::number(caretPositionOf(editor));
+            // Overwrite mode, which five of the scripts toggle once each and
+            // none toggles back. Sharing one editor let the second of those
+            // start with it already on, so its own <Insert> turned it *off*
+            // and it stopped testing overwriting at all - invisibly, because
+            // both views alternated together and this test compares the two.
+            if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+                if (view->autoCompletedRange().hasSelection()) {
+                    return "the view still has "
+                           + view->autoCompletedRange().selectedText() + " pending";
+                }
+                view->setOverwriteMode(false);
+                if (view->overwriteMode())
+                    return "the view is still overwriting";
+            } else if (TextEditorWidget * const widget
+                       = TextEditor::TextEditorWidget::fromEditor(editor)) {
+                widget->setOverwriteMode(false);
+                if (widget->overwriteMode())
+                    return "the widget is still overwriting";
+            }
+            return {};
         };
 
         QStringList diverged;
         for (const auto &[what, script, expected] : typingScripts()) {
-            reset(widgetEditor);
+            const QString widgetReset = reset(widgetEditor);
+            QVERIFY2(widgetReset.isEmpty(), qPrintable(what + ", widget view: " + widgetReset));
             QList<int> widgetCarets;
             QVERIFY2(typeScript(widgetEditor, script, nullptr, &widgetCarets),
                      qPrintable(what + ": the widget view would not take the script"));
 
-            reset(quickEditor);
+            const QString quickReset = reset(quickEditor);
+            QVERIFY2(quickReset.isEmpty(), qPrintable(what + ", quick view: " + quickReset));
+            const bool overwrites = script.contains("<Insert>");
             QList<int> quickCarets;
             QVERIFY2(typeScript(quickEditor, script, nullptr, &quickCarets),
                      qPrintable(what + ": the quick view would not take the script"));
+
+            // A script with one <Insert> in it must end overwriting, or it
+            // did not test what its name says. This is the only thing that
+            // can tell: the comparison below is view against view, and two
+            // views both left in the wrong mode agree with each other.
+            for (Core::IEditor * const editor : {widgetEditor, quickEditor}) {
+                bool over = false;
+                if (TextViewport * const view = Internal::viewportForEditor(editor))
+                    over = view->overwriteMode();
+                else if (TextEditorWidget * const w
+                         = TextEditor::TextEditorWidget::fromEditor(editor))
+                    over = w->overwriteMode();
+                QVERIFY2(over == overwrites,
+                         qPrintable(what + (overwrites
+                                                ? ": ended in insert mode, so it overwrote nothing"
+                                                : ": ended overwriting, which it never asked for")));
+            }
 
             // Collected rather than asserted here: which scripts diverge is
             // worth knowing. Ten of them never type a character that gets a

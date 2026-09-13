@@ -60397,3 +60397,90 @@ that gets a closer put in after it, so six is the test saying what it covers.
    by `ServerPrivate`, so a test entry point means opening that up or standing
    a real server up in the test.
 4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
+
+## 2026-09-13 — Chasing entry 245's loose thread found a test entry 245 broke (batch 246)
+
+Entry 245 noted that under control EL one script - "backtab on an indented
+line" - diverged from its *first* key, which the change EL makes should not
+touch, and left it as "worth a look". Looking at it found something else: the
+shared editor entry 245 introduced had silently stopped two scripts testing
+what they are named for.
+
+### The gap this batch closed
+
+Five scripts end in `<Insert>` and type over what is there:
+
+    {"overwriting two characters", "hello<Home><Insert>ab", "abllo"},
+    {"overwriting past the line",  "hi<Home><Insert>xyz",   "xyz"},
+    ... three more ...
+
+Each toggles overwrite mode **once** and none toggles it back. With one editor
+per script - the shape before entry 245 - every one of them started in insert
+mode and turned it on. Sharing one editor across all fifteen made them
+alternate: the second `<Insert>` turned overwriting *off*, so
+"overwriting past the line" typed `xyz` in insert mode and tested nothing it
+claims to.
+
+**The test could not see it.** It compares the Quick view against the widget
+view, and both were left in the same wrong mode, so they agreed. That is the
+"both move together" trap in a new place: entry 237 found it in a guard
+reading the document, and this is the same failure of reference.
+
+Two things were added. `reset()` between scripts now puts overwrite mode back
+and **says so if it cannot** - along with the text, the caret and the range the
+view keeps for what it inserted, none of which were checked before either. And
+a script with an `<Insert>` in it must *end* overwriting:
+
+    QVERIFY2(over == overwrites, ...": ended in insert mode, so it overwrote nothing");
+
+which is the only thing that can tell, for the reason above.
+
+### The loose thread itself
+
+It is not leakage. With the reset now verified clean before every script - text
+empty, caret at 0, nothing pending - "backtab on an indented line" still
+diverges at its first key under EL. So it is intrinsic to what EL breaks and
+not state carried between scripts. Closed: looked at, not what it looked like,
+and EL is deliberately broken code so a sixth place where it behaves oddly is
+not a finding.
+
+### And entry 245's rationale was wrong
+
+A `-test TextEditor` run in this batch died in
+`testTheCaretLandsWhereTheWidgetEditorsDoes` again - **with two editors instead
+of thirty**. Entry 245 reduced the churn on the grounds that it was "where the
+suite has twice died"; it still dies there. So the churn was not what the
+crash needed, and the last batch's change should be read as what it now is: a
+simpler, faster test that happens not to have helped.
+
+Six further runs after that were clean, which at this rate says nothing. What
+it does say is that the crash is in what that test *does* - typing fifteen
+scripts through two views - and not in opening and closing editors. That is a
+smaller search space than entry 244 had, arrived at by a change made for the
+wrong reason.
+
+### Measurements
+
+    -test TextEditor    764 passed, 0 failed, 3 skipped, exit 0   (6 clean runs, 1 crash)
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+### Negative controls
+
+**EM — overwrite mode is not put back between scripts**, which is what entry
+245 shipped. Bit, naming the script predicted before it ran:
+
+    overwriting past the line: ended in insert mode, so it overwrote nothing
+
+The second of the five, which is the one that starts with overwriting already
+on. A control for a fix that is otherwise invisible: without the new
+assertion, removing the reset changes nothing any test can see.
+
+### What is next
+
+1. **The crash, narrowed**: it is in the typing, not the editor churn. The
+   invariant from entry 242 is in that path and silent; ASan (entry 244) sees
+   nothing because Qt is not built with it.
+2. The two decisions from entry 236: **retire `QTC_WIDGET_CPP_EDITOR`**, and
+   **decide whether the no-QtcQuick build is still supported**.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
