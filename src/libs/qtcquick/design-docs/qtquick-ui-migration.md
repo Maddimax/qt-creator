@@ -63522,3 +63522,110 @@ control builds is enough to run this machine out of memory.
 3. **A Windows run** for the console-host port (entry 264).
 4. **The crash** (entry 247) — accepted; not sighted in this batch's six runs
    either, which is now twelve clean runs across two batches.
+
+## 2026-09-14 — The indent guides, and a label three entries got wrong (batch 279)
+
+`testAnIndentedLineDrawsAGuidePerLevel` is in `QuickTextEditorTest`, three
+controls bite, and the suite ran clean five times of six — the sixth being a
+failure in a different test, examined below rather than waved at.
+
+### A correction first
+
+Entries 276, 277 and 278 all listed "`indentGuide` (688–693) — a tab guide and
+a space guide differ in x, width and height". **That is the wrong name for the
+wrong block.** Lines 688–693 are the *whitespace marks* — a dot for a space, a
+rule for a tab, drawn where the reader asked to see whitespace — and they carry
+no `objectName`. The indent guides are a separate Repeater at 720 and are
+already named. The mislabel was copied forward three times without anyone
+opening the file, which is exactly how a plan starts lying. The whitespace
+marks are still uncovered and are listed below under their own name.
+
+### Which gap this closes
+
+    x: index * viewport.indentWidth - viewport.scrollX     (QML: placement)
+    blockLine.indentGuides = (columns + perLevel - 1) / perLevel;  (C++: count)
+
+Nothing covered either. The count rounds **up**, so a line indented past a
+level still shows the level it has started, and the test's inputs are chosen to
+make that visible: lines indented by 0, one level, one level **plus two**, and
+two levels, expecting 0, 1, 2 and 2 guides. Without the "plus two" line, `ceil`
+and `floor` agree on every input and control A would not bite.
+
+Probed before it was written:
+
+    indentWidth 28.75, indentSize 4
+    row 0 (no indent)  no guides       row 1 (4 cols)  [0]
+    row 2 (6 cols)     [0, 28.75]      row 3 (8 cols)  [0, 28.75]
+    rectangleAt(col 4).x = 28.75
+
+so the placement can be asserted against the **layout** rather than against
+`indentWidth`, which is what the QML is bound to.
+
+### Not assuming the indent size
+
+How wide a level is, is a global that other tests can write, and entry 276
+established that the suite runs its test objects in a different order every
+run. So the test reads `tabSettings().m_indentSize` from the opened document
+and writes the lines afterwards, through a cursor, rather than baking four
+spaces into a file. A test that assumed four would answer to whatever had last
+written that setting — the same class of dependency entry 274 chased and never
+pinned down.
+
+### A probe that measured nothing
+
+The first probe reported "5 visible guides of 5" with the setting turned off,
+which reads exactly like a live bug. It was not one. The probe asked
+
+    QTRY_VERIFY([&]{ ...qDebug()...; return true; }())
+
+— a condition that is true whatever it sees, so it never waited for the change
+to arrive and never could have failed. Re-run with `QTRY_COMPARE(guideCount(),
+0)` the setting reaches the open editor fine. **A probe that agrees everywhere
+has disabled what it compares**, and it cost a build to find out.
+
+### Controls, all three biting, one per assertion
+
+- `columns / perLevel` — "a line indented past a level does not show the level
+  it started".
+- guides at `(index + 1) * indentWidth` — "Compared doubles are not the same".
+- the `visualizeIndent()` gate replaced by `true` — "the guides stayed after
+  they were turned off".
+
+### The sixth run
+
+Run 3 failed, in `testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a
+line)`, with a doubled quote: got `void f() { g("a"")"; )}}`. Not called a
+flake on sight. Two things were checked:
+
+- **Ordering.** The failure is at log line 738; this batch's test ran at line
+  900, *after* it. A test that has not run yet cannot be the cause.
+- **Precedent.** Entry 274 recorded the same test and the same doubled quote on
+  a tree confirmed byte-identical to the last commit.
+
+So: pre-existing, not this batch's. Rate here one in six, and it was exit 1
+with 778/1 rather than entry 247's crash signature — a *test failure*, not a
+truncated run, so it is not the same thing as the crash even though entry 274
+filed its sighting under it. Left as an open, unexplained flake rather than
+folded into the crash.
+
+### Measurements
+
+    -test TextEditor    779 passed, 0 failed, 3 skipped, exit 0   x5
+    -test TextEditor    778 passed, 1 failed, 3 skipped, exit 1   x1  (above)
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+779 is 778 plus this test. No `.qbs` change.
+
+### What is next
+
+1. **The whitespace marks** (`CodeViewport.qml` 662–697), under their right
+   name this time. A dot sits in the middle of the space it stands for, a tab
+   is drawn across the width it took, and they differ in x, width *and* height:
+   `x: isTab ? x + 1 : x + width/2 - 1`, `width: isTab ? max(1, width - 2) : 2`,
+   `height: isTab ? 1 : 2`. Needs an `objectName` added, as the change bar did
+   in entry 275.
+2. **`minimap`** (line 1057) — `width: visible ? 100 : 0`, untested.
+3. **A tidy of the stack before pushing** — 1284 commits (entry 271).
+4. **A Windows run** for the console-host port (entry 264).
+5. **The typing flake** above, and **the crash** (entry 247) — two separate
+   open defects, now told apart by their signatures.

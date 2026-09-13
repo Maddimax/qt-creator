@@ -4741,6 +4741,90 @@ private slots:
         QVERIFY2(!area->isVisible(), "the area past a margin that is not there is tinted");
     }
 
+    // An indented line draws one guide per level, at the x of each level. The
+    // count is C++ - the viewport divides the line's indent by the indent
+    // size and rounds up, so a line indented past a level still shows the one
+    // it has started - and the placement is QML. Both are asked of the drawn
+    // guides, and where a level sits is asked of the text layout rather than
+    // of the indent width the guides are bound to.
+    void testAnIndentedLineDrawsAGuidePerLevel()
+    {
+        DisplaySettings &display = displaySettings();
+        const bool wasVisualizing = display.visualizeIndent();
+        const QScopeGuard restoreSettings([&display, wasVisualizing] {
+            display.visualizeIndent.setValue(wasVisualizing); });
+        display.visualizeIndent.setValue(true);
+
+        Utils::TemporaryDirectory dir("quick-editor-indent-guides");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("indent.txt");
+        QVERIFY(file.writeFileContents("placeholder\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // How wide a level is comes from the document rather than from here,
+        // so the lines are written once it is known: a test that assumed four
+        // would answer to whatever else had last written that setting.
+        const int perLevel = document->tabSettings().m_indentSize;
+        QVERIFY2(perLevel >= 3, "a level this narrow leaves no room between the cases below");
+        QTextCursor cursor(document->document());
+        cursor.select(QTextCursor::Document);
+        cursor.insertText(QString("a\n")
+                          + QString(perLevel, ' ') + "b\n"
+                          + QString(perLevel + 2, ' ') + "c\n"
+                          + QString(perLevel * 2, ' ') + "d\n");
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+
+        const std::function<void(QQuickItem *, QList<QQuickItem *> &)> collect =
+            [&collect](QQuickItem *item, QList<QQuickItem *> &found) {
+                if (item->objectName() == QLatin1String("indentGuide"))
+                    found << item;
+                const QList<QQuickItem *> children = item->childItems();
+                for (QQuickItem * const child : children)
+                    collect(child, found);
+            };
+        const auto guidesByRow = [form, &collect] {
+            QList<QQuickItem *> found;
+            collect(form, found);
+            QMap<int, QList<qreal>> byRow;
+            for (QQuickItem * const guide : std::as_const(found)) {
+                if (guide->isVisible())
+                    byRow[guide->parentItem()->property("row").toInt()] << guide->x();
+            }
+            for (auto it = byRow.begin(); it != byRow.end(); ++it)
+                std::sort(it->begin(), it->end());
+            return byRow;
+        };
+
+        QTRY_COMPARE(guidesByRow().value(3).size(), 2);
+        const QMap<int, QList<qreal>> guides = guidesByRow();
+        QVERIFY2(guides.value(0).isEmpty(), "a line with no indentation drew a guide anyway");
+        QCOMPARE(guides.value(1).size(), 1);
+        QVERIFY2(guides.value(2).size() == 2,
+                 "a line indented past a level does not show the level it started");
+
+        // Where one level in actually is, according to the layout rather than
+        // to the width the guides are placed by.
+        const int base = document->document()->findBlockByNumber(3).position();
+        QCOMPARE(guides.value(3).at(0), qreal(0));
+        QCOMPARE(guides.value(3).at(1), viewport->rectangleAt(base + perLevel).x());
+
+        display.visualizeIndent.setValue(false);
+        QTRY_VERIFY2(guidesByRow().isEmpty(), "the guides stayed after they were turned off");
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");
