@@ -318,6 +318,77 @@ private:
     ReplLines m_history;
 };
 
+// A stand-in for Core's OutputPaneButtonModel, which is private to that
+// plugin and has no setData - so the row's own model cannot be written to
+// from here. The row asks for six roles and its controller for three members;
+// both are small enough to stand in for, which is what lets the rule below be
+// tested at all.
+class ButtonRowModel final : public QAbstractListModel
+{
+public:
+    enum Roles { NumberRole = Qt::UserRole, BadgeRole, CheckedRole, VisibleRole, ToolTipRole };
+
+    int rowCount(const QModelIndex &parent = {}) const final
+    { return parent.isValid() ? 0 : m_names.size(); }
+
+    QVariant data(const QModelIndex &index, int role) const final
+    {
+        if (!index.isValid() || index.row() >= m_names.size())
+            return {};
+        switch (role) {
+        case Qt::DisplayRole: return m_names.at(index.row());
+        case NumberRole:      return index.row() + 1;
+        case BadgeRole:       return QString();
+        case CheckedRole:     return false;
+        case VisibleRole:     return m_visible.at(index.row());
+        case ToolTipRole:     return m_names.at(index.row());
+        }
+        return {};
+    }
+
+    QHash<int, QByteArray> roleNames() const final
+    {
+        return {{Qt::DisplayRole, "display"}, {NumberRole, "number"}, {BadgeRole, "badge"},
+                {CheckedRole, "checked"}, {VisibleRole, "buttonVisible"},
+                {ToolTipRole, "toolTip"}};
+    }
+
+    void append(const QString &name)
+    {
+        beginInsertRows({}, m_names.size(), m_names.size());
+        m_names.append(name);
+        m_visible.append(true);
+        endInsertRows();
+    }
+
+    void setButtonVisible(int row, bool visible)
+    {
+        m_visible[row] = visible;
+        emit dataChanged(index(row), index(row), {VisibleRole});
+    }
+
+private:
+    QStringList m_names;
+    QList<bool> m_visible;
+};
+
+class ButtonRowStub final : public QObject
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QAbstractItemModel *model READ model CONSTANT)
+
+public:
+    QAbstractItemModel *model() { return &m_model; }
+    ButtonRowModel &rows() { return m_model; }
+
+    Q_INVOKABLE void activate(int) {}
+    Q_INVOKABLE void showMenu() {}
+
+private:
+    ButtonRowModel m_model;
+};
+
 class QuickUiTest final : public QObject
 {
     Q_OBJECT
@@ -529,6 +600,7 @@ private slots:
     void testTheLuaPaneIsAQtQuickOne();
     void testALineArrivingFollowsItDownUnlessTheReaderScrolledUp();
     void testTheOutputPaneButtonsCanBeARowOfQtQuickOnes();
+    void testHidingAButtonInTheModelHidesWhatAReaderSees();
     void testTheFileDialogCanChooseSeveralFilesAtOnce();
     void testEachEntrySaysHowBigItIsAndWhatItIs();
     void testAnEntryCanBeRenamedOrBinned();
@@ -14803,6 +14875,56 @@ void QuickUiTest::testALineArrivingFollowsItDownUnlessTheReaderScrolledUp()
     // a view that was going to jump has jumped.
     QTRY_VERIFY(lines->property("contentHeight").toReal() > beforeLast);
     QCOMPARE(lines->property("contentY").toReal(), readingAt);
+}
+
+void QuickUiTest::testHidingAButtonInTheModelHidesWhatAReaderSees()
+{
+    // A pane with no priority in the status bar has no button until a reader
+    // asks for one from the menu, and the manage menu takes one away again.
+    // The widget row carried that itself and a test could write to the
+    // QToolButton; nothing draws in C++ any more, so the rule is asserted
+    // where it now lives - a binding in the row's QML.
+    ButtonRowStub controller;
+    controller.rows().append("Issues");
+    controller.rows().append("Search Results");
+    controller.rows().append("Application Output");
+
+    QQuickWidget view;
+    view.setResizeMode(QQuickWidget::SizeViewToRootObject);
+    view.setInitialProperties({{"controller", QVariant::fromValue<QObject *>(&controller)}});
+    view.setSource(QUrl("qrc:/qt/qml/QtCreator/Core/OutputPaneButtons.qml"));
+    QVERIFY2(view.errors().isEmpty(), qPrintable(view.errors().value(0).toString()));
+
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QQuickItem * const row = view.rootObject();
+    QVERIFY(row);
+
+    const auto buttons = [row] {
+        QList<QQuickItem *> found;
+        for (QQuickItem * const child : row->childItems()) {
+            if (child->objectName() == QLatin1String("outputPaneButton"))
+                found << child;
+        }
+        return found;
+    };
+    QCOMPARE(buttons().size(), 3);
+    // The row has to have drawn something, or "not visible" below means only
+    // that nothing was ever there.
+    for (QQuickItem * const button : buttons())
+        QVERIFY2(button->isVisible(), "a button the model offers is not drawn");
+
+    // Taken away: the one the model hid, and only that one.
+    controller.rows().setButtonVisible(1, false);
+    QTRY_VERIFY2(!buttons().at(1)->isVisible(),
+                 "the button stayed after the model took it away");
+    QVERIFY2(buttons().at(0)->isVisible() && buttons().at(2)->isVisible(),
+             "hiding one button hid its neighbours too");
+
+    // And given back.
+    controller.rows().setButtonVisible(1, true);
+    QTRY_VERIFY2(buttons().at(1)->isVisible(),
+                 "the button did not come back when the model offered it again");
 }
 
 void QuickUiTest::testTheOutputPaneButtonsCanBeARowOfQtQuickOnes()

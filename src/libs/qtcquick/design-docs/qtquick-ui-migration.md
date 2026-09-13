@@ -63029,3 +63029,74 @@ QML delegate. That one is still open and still sized.
    rewrites 1284 commits (entry 271).
 3. **A Windows run** for the console-host port (entry 264).
 4. **The crash** (entry 247) - accepted.
+
+## 2026-09-13 — The second behaviour, back, and entry 272 corrected by its own method (batch 273)
+
+`testHidingAButtonInTheModelHidesWhatAReaderSees` is in QuickUi and its
+control bites. **Both behaviours the five deletions uncovered are covered
+again.** Nothing on this plan's list is now a gap in the work; what is left is
+a stack tidy, a Windows run and an accepted crash.
+
+### Entry 272 said this one was out of reach, and was wrong
+
+Its words: "`OutputPaneButtonModel` is private to Core and has no `setData`, so
+a QuickUi test can neither construct one nor write `ButtonVisibleRole`.
+Covering it means either a writable role or moving the test into Core."
+
+That is all true and none of it matters, because the batch that wrote it had
+just demonstrated the answer: **stub the contract, do not borrow the
+implementation.** Entry 272 used a stub for the Lua REPL's controller and then
+reasoned about this one as though the real model had to be used. Measured
+instead - the same grep it used for the REPL - the row asks for three members
+of its controller and six roles of its model:
+
+    controller.activate  controller.model  controller.showMenu
+    model.badge  model.buttonVisible  model.checked
+    model.display  model.number  model.toolTip
+
+A `QAbstractListModel` with six roles and a `setButtonVisible()` of its own is
+thirty lines, and Core needs no change at all. The writable role entry 272
+proposed adding to production code would have been a change made for a test
+that did not need it.
+
+Worth keeping as a rule: **when a test cannot reach an implementation, ask
+what the thing under test actually requires of it.** A QML component's
+requirements are a list of property and method names, and the list is short by
+construction, because the seam this work has been enforcing is what keeps it
+short.
+
+### What the test asserts
+
+Three buttons, all drawn; the model hides the middle one; the middle one goes
+and its neighbours stay; the model offers it again and it comes back. The
+"all drawn" check first, for the reason entry 270 paid for - "not visible" has
+to mean something was there to stop being visible.
+
+### Negative controls
+
+- **`visible: true` in place of `visible: button.model.buttonVisible`** - the
+  row ignoring what the model says. Red: "the button stayed after the model
+  took it away".
+- Reverted: green.
+
+### Measurements
+
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+    -test Core          293 passed, 0 failed, 0 skipped, exit 0
+
+228 is 226 plus the two tests entries 272 and 273 added back. No `.qbs` change.
+
+### What is next
+
+Nothing that is a gap in this work. The remainder, unchanged:
+
+1. **A tidy of the stack before pushing** - folding the Terminal `fixup!`
+   rewrites 1284 commits (entry 271). A decision about when, not whether.
+2. **A Windows run** for the console-host port (entry 264) - checked to
+   compile and to draw, never to work.
+3. **The crash** (entry 247) - accepted with its measured rate.
+
+And the thing this branch actually needs, which entry 271 said and this entry
+repeats: a reader. 1431 commits, no end-to-end review, and the two decisions
+that shaped it taken on evidence that lives in this document.
