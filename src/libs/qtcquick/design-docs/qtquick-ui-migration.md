@@ -63726,3 +63726,90 @@ rule behind them are covered. What is left in that file is the parts whose
 rule is "draw what the model says" — the wrapped-line marker, the fold box,
 the refactor marker, the annotations — where a test would mostly restate the
 model. Worth saying now rather than discovering it as an empty list.
+
+## 2026-09-14 — The minimap, and the end of entry 276's list (batch 281)
+
+`testTheMinimapTakesItsWidthFromTheTextAndGivesItBack` is in
+`QuickTextEditorTest`, three controls bite, and the suite has run clean six
+times with it. This was the last item on entry 276's list.
+
+### Which gap this closes
+
+The minimap had no coverage — `minimap`, `displayMinimap` and `MinimapView`
+appeared nowhere in the test file. The rule is the gutter's shape (entry 276)
+on the other side of the text:
+
+    visible: wanted                  // wanted() reads displaySettings().displayMinimap()
+    width: visible ? 100 : 0
+    anchors.rightMargin: Spacing.PaddingHXs + contentInset + minimap.width   // the viewport's
+
+The second and third lines are one property between them, and the test asks the
+**text** about it rather than the minimap:
+
+    QTRY_COMPARE(viewport->width(), textWithout - minimap->width());
+
+A minimap that is drawn without the text making room for it would be drawn over
+the text, and asking the minimap its own width would not notice. That is
+control C, and it is a different defect from control A, which is the same
+binding as the gutter's.
+
+### What the probe stopped the test asserting
+
+    off   minimap x 437  w 0    viewport 39..443
+    on    minimap x 337  w 100  viewport 39..343
+
+The obvious extra assertion — the minimap starts where the text ends — is
+**false**, and would have been written without the probe. The minimap spans
+337..437, the text ends at 343: they overlap by six pixels. The reason is the
+scroll bar, which is ten wide and which the text runs under whether or not
+there is a minimap (with it off, the text ends at 443 and the bar starts at
+437). That is what a transient scroll bar does, so the overlap is the design
+and not a defect. Recorded because the assertion looks so reasonable.
+
+### Controls, all three biting, one per assertion
+
+- `width: 100` — a minimap nobody asked for keeps its width.
+- `visible: true` — "the minimap is drawn without anyone asking for it".
+- the viewport's `rightMargin` loses `+ minimap.width` — the text never makes
+  room.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x6
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+781 is 780 plus this test. No `.qbs` change, and no production file touched:
+the controls patch `CodeViewport.qml` and patch it back, which `git diff`
+confirmed afterwards.
+
+### The machine, again
+
+A third memory kill, and the pattern is now clear enough to write down: every
+one has happened with a **waiter job running alongside the work job**. The work
+itself (`build-linux.sh`, six suite runs) survives on its own; it is the second
+background job polling in parallel that tips it over. Waiters dropped. With
+`-j4` on the build (entry 280) and one job at a time, a batch completes.
+
+### What is next
+
+Entry 276's list is finished. The drawn parts of `CodeViewport.qml` that have a
+**conditional rule** behind them are now covered: the gutter and its change bar
+and numbers, the current-line band, the right margin and its tint, the indent
+guides, the whitespace marks, and the minimap.
+
+What is left in that file draws what the model says — the wrapped-line marker,
+the fold box, the refactor marker, the annotations. A test for those would
+mostly restate the model, so they are **not** proposed as the next batch.
+
+1. **A tidy of the stack before pushing** — 1284 commits (entry 271). This is
+   the largest thing standing between the branch and anyone else seeing it, and
+   it is now the oldest open item. It is a decision about when, not whether.
+2. **A Windows run** for the console-host port (entry 264) — compiles and
+   draws, never tested to work.
+3. **Two open defects** (entry 279): the typing flake (exit 1, a doubled quote)
+   and entry 247's crash (exit 255, a truncated run), told apart by signature.
+   Neither was sighted in this batch's six runs.
+
+If none of those is wanted, the honest answer is that the QML-coverage seam is
+worked out and the next real work is elsewhere: either the stack, or picking
+up the mime-type flip itself and finding what still breaks.

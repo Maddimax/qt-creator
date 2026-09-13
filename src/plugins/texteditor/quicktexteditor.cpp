@@ -4916,6 +4916,60 @@ private slots:
                      "the marks stayed after they were turned off");
     }
 
+    // The minimap takes its width from the text and gives it back. Asked of
+    // how wide the text is rather than of the minimap's own width: the two are
+    // tied by the viewport's right margin, so a minimap that is drawn without
+    // the text making room for it would be drawn over the text.
+    void testTheMinimapTakesItsWidthFromTheTextAndGivesItBack()
+    {
+        DisplaySettings &display = displaySettings();
+        const bool wasShowing = display.displayMinimap();
+        const QScopeGuard restoreSettings([&display, wasShowing] {
+            display.displayMinimap.setValue(wasShowing); });
+        display.displayMinimap.setValue(false);
+
+        Utils::TemporaryDirectory dir("quick-editor-minimap");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("minimap.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\nfour\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+        auto * const minimap = form->findChild<QQuickItem *>("minimap");
+        QVERIFY2(minimap, "the form has no minimap at all");
+
+        // Nobody asked for it: not drawn, and no width. Asserted before it is
+        // asked for, so that the width below is one it took rather than one it
+        // always had.
+        QTRY_VERIFY2(!minimap->property("wanted").toBool(),
+                     "the minimap is wanted with the setting off");
+        QVERIFY2(!minimap->isVisible(), "the minimap is drawn without anyone asking for it");
+        QCOMPARE(minimap->width(), qreal(0));
+        const qreal textWithout = viewport->width();
+        QVERIFY(textWithout > 0);
+
+        display.displayMinimap.setValue(true);
+        QTRY_VERIFY2(minimap->isVisible(), "turning the minimap on did not reach the editor");
+        QVERIFY2(minimap->width() > 0, "the minimap is drawn and takes no room");
+        // The room it took came out of the text, all of it and no more.
+        QTRY_COMPARE(viewport->width(), textWithout - minimap->width());
+
+        display.displayMinimap.setValue(false);
+        QTRY_VERIFY2(!minimap->isVisible(), "the minimap stayed after it was turned off");
+        QCOMPARE(minimap->width(), qreal(0));
+        QTRY_COMPARE(viewport->width(), textWithout);
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");
