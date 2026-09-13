@@ -59349,3 +59349,108 @@ listed honestly rather than padded:
 Entry 173's crash is retired: never proven, gone since the test that showed it
 was rewritten onto the managed open/close pattern, and the four ownership bugs
 found since are the most likely thing it was.
+
+## 2026-09-13 — Two of the three "action-only" editors open from a file after all (batch 235)
+
+Entry 234 said `vcsbasesubmiteditor` and `profilertraceeditor` "really are
+opened by actions rather than by file name - a submit editor by a VCS commit, a
+trace editor by a profiling run". That was reasoned, not measured. Measured, it
+is wrong for one of them and wrong about the other in an interesting way.
+**Nothing needed fixing this time**, which is itself the result.
+
+### What the mime declarations say
+
+A submit editor registers `addMimeType(parameters.mimeType)` like any factory,
+and Git's is `text/vnd.qtcreator.git.submit`. That type has **no glob** in
+`Git.json.in`, so no file name produces it - the document's mime is set when a
+commit starts. `VcsBaseSubmitEditor` really is out of reach, and now that is
+known rather than assumed.
+
+`COMMIT_EDITMSG` does have a glob, for `text/vnd.qtcreator.git.commit`, and
+opening one gives **`VcsBase::VcsBaseEditor`** - the viewer, not the submit
+editor. A different editor from any covered so far, and it does not leak.
+
+The profiler declares four trace types. Three are binary, and the fourth is
+Chrome Trace Format - JSON, recognised by a magic match on `"traceEvents"`
+rather than by suffix, and therefore writable as text:
+
+    {"traceEvents":[],"displayTimeUnit":"ms"}
+
+That opens `Profiler::Internal::ProfilerTraceEditor`, which does not leak
+either.
+
+### Where the reasoning went wrong, twice
+
+Entry 230 concluded the model editor "cannot be asked at all" from a fatal
+error that was the *file* being wrong. Entry 234 concluded these two were
+action-only from what opens them in practice. Both were reasonable readings of
+what was in front of them and both were wrong, and the same cheap check settles
+it every time: **read the mime declaration and look for a glob.** A factory
+with a glob can be reached by writing a file; one without cannot. That is two
+greps and it replaces an argument.
+
+### What the test covers now
+
+Nine rows, eight editors, six plugins - and the split is worth recording,
+because it says the bug is not universal:
+
+| leaked, fixed | clean |
+| --- | --- |
+| `QuickTextEditor` (228, 229) | `BaseTextEditor` |
+| `MarkdownEditor` (229) | `ResourceEditorImpl` |
+| `IconEditor` (230) | `ImageViewer` |
+| `ModelEditor` (234) | `VcsBaseEditor`, `ProfilerTraceEditor` |
+
+Four and four. The four that leaked are not the four that anyone would have
+picked - two of them had the tool bar right and the widget wrong.
+
+### Measurements
+
+    -test TextEditor        778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               14 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+776 to 778: the commit and trace rows. The one red is
+`RunWorkerConflictTest::testConflict`, upstream and out of scope since entry
+225.
+
+### Negative controls
+
+**DY — the test stops closing the editor.** All **nine** rows red:
+
+    (c++ in the widget view) ... (chrome trace) ... (svg)
+    'widget.isNull()' returned FALSE. (the editor's widget outlived the editor)
+
+This is the control the batch needed, because nothing was fixed: two rows were
+added and both passed, and a row that passes on arrival is exactly the kind
+that can be asserting nothing. It is not - every row depends on the close
+happening, including the two new ones.
+
+Which editor answers each row was checked by printing
+`editor->metaObject()->className()`, not assumed from the file name - the same
+step that caught the Android row being served by `IconEditor` rather than the
+class the suspect list named.
+
+### What is next
+
+The list this branch can act on is down to one item with substance:
+
+1. **The flake, when it next appears.** Entry 231 built the trace and the caret
+   comparison. Not seen in roughly fifty runs since the ownership fixes,
+   against 2 in 25 measured before them. That is no longer only suggestive, but
+   it is still not a proof, and there is nothing useful to build until a
+   sighting.
+2. **`VcsBaseSubmitEditor`**, the one editor confirmed unreachable by file
+   name. A test would have to drive a commit - a repository, a change, the
+   commit action - which is a plausible test to write but a different kind
+   from this one, and it would be the ninth editor rather than a gap.
+3. **The Quick REPL's auto-scroll rule** (entry 233), uncovered because
+   reaching its scene would weaken the shell-phase seam.
+4. **Automatic login in the macOS VM** — Qt is staged, the runner works, and
+   entries 224 and 231 both have assertions only a macOS run exercises. This
+   is the one that would add the most and it is not this branch's to do.
+5. Blocked or upstream: `IOutputPane::toolBarWidgets()` until Qt SerialPort
+   exists in one of the two Qt builds, and `RunWorkerConflictTest::testConflict`.

@@ -4086,6 +4086,12 @@ private slots:
  </project>
 </qmt>
 )QMODEL") << -1;
+        QTest::newRow("git commit message")
+            << "COMMIT_EDITMSG" << "a commit message\n" << -1;
+        // A Chrome Trace, which is JSON recognised by its magic rather than
+        // by the suffix - the one trace format that is writable as text.
+        QTest::newRow("chrome trace")
+            << "t.json" << "{\"traceEvents\":[],\"displayTimeUnit\":\"ms\"}\n" << -1;
         QTest::newRow("svg") << "t.svg"
                              << "<svg xmlns=\"http://www.w3.org/2000/svg\" "
                                 "width=\"1\" height=\"1\"/>\n" << -1;
