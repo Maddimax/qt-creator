@@ -58691,3 +58691,130 @@ fire. Recorded rather than dressed up.
    auto-scroll, entry 199's QML root with no `controller` property,
    `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
    Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — The same leak twice more, and a crash my last fix made possible (batch 229)
+
+Entry 228 fixed `QuickTextEditor` leaking its widget and said the same question
+was worth asking of every `Core::IEditor` subclass. It was: two more leaks, one
+of them a **half-fix in entry 228 itself** that turned the intermittent typing
+failure into a crash.
+
+### The gap this batch closed
+
+**Two more unowned widgets, and the order they have to go in.**
+
+`Core::IContext` keeps the widget in a protected, non-owning `QPointer`, and
+every editor has *two* of them - `widget()` and `toolBar()`. Entry 228 gave
+`QuickTextEditor` a destructor that deleted only the first.
+
+    ~QuickTextEditor() override { delete widget(); }   // entry 228
+
+The tool bar is `QPointer<QWidget> m_toolBar`, made on demand by
+`createQuickTextToolBar(view, ...)`, and **its QML scene is bound to the view
+inside the other widget**. Deleting the view and leaving the tool bar alive
+left a scene re-evaluating its bindings against a deleted object:
+
+    EditorToolBar.qml:361: TypeError: Cannot read property 'fileEncoding' of null
+    EditorToolBar.qml:350: TypeError: Cannot read property 'indentSize' of null
+    ... twenty more ...
+
+and then the process died. Entry 228 ran twenty clean suites and never saw it,
+because the crash needs the editor to be closed in the state the typing flake
+leaves - which is roughly one run in twelve.
+
+Both editors now delete both widgets, tool bar first:
+
+    delete m_toolBar;
+    delete widget();
+
+**`MarkdownEditor` had the same bug from the start** - `setWidget()`, no
+destructor, and a tool bar of its own. Every Markdown file opened kept its
+splitter, both panes and the preview's scene alive for the session.
+
+### The test asks it of the editor, not of the view
+
+Entry 228's test asked whether the `TextViewport` outlived the editor, which
+only a Quick text editor has. The invariant is about `Core::IEditor`, so the
+test now asks for what every editor has - its widget, its tool bar and its
+document - and runs over four editors from three plugins. Measured, not
+assumed, by printing what served each row:
+
+    c++ in the widget view -> TextEditor::BaseTextEditor            (CppEditor.C++Editor)
+    c++ in the quick view  -> TextEditor::Internal::QuickTextEditor (CppEditor.C++Editor)
+    markdown               -> TextEditor::Internal::MarkdownEditor  (Editors.MarkdownViewer)
+    qrc                    -> ResourceEditor::Internal::ResourceEditorImpl (Qt4.ResourceEditor)
+
+The widget editor is the control the data already provides: `BaseTextEditor`
+has done this correctly for years, so a failing row says "this editor does not
+do what that one does" rather than "something leaked".
+
+### A grep that was wrong, and why the row stayed
+
+Counting `setWidget(` against `delete .*[Ww]idget` across the seventeen
+`IEditor` subclasses flagged eight as suspect, `ResourceEditorImpl` among them.
+It is fine: the `qrc` row passes, and the probe above confirms that row really
+is served by `ResourceEditorImpl` and not by a text-editor fallback. The grep
+was noise. The row stays, because a passing assertion on another plugin's
+editor is what makes this a check on the interface rather than on one class.
+
+The other suspects are upstream and untested here. They are listed below rather
+than fixed, for the same reason Serial Terminal was left alone in entry 223:
+a change that cannot be run is not a change worth making.
+
+### The flake, seen once more and still not understood
+
+It struck during this batch's full run, on `quick: a line` again, with damage
+different from both previous sightings:
+
+    Actual  : "void f() { g(\")a\"); }}"
+    Expected: "void f() { g(\"a\"); }"
+
+The `)` is now *inside* the string rather than appended after it. Three
+sightings, three different outputs. The two precondition assertions entry 228
+added did not fire, so neither global setting was the cause - which is the
+first thing this batch's evidence rules out.
+
+Three full runs since the tool bar fix are clean, which says nothing at this
+rate and is recorded as such.
+
+### Measurements
+
+    -test TextEditor        758 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+756 to 758: the two rows added to the ownership test.
+
+### Negative controls
+
+**DO — `MarkdownEditor` loses its destructor.** Bit, naming its row:
+`(markdown) 'widget.isNull()' returned FALSE`.
+
+**DP — `QuickTextEditor` loses its destructor**, re-run against the
+generalised assertion rather than entry 228's. Bit: `(c++ in the quick view)`.
+
+**DQ — the tool bar is left behind**, which is exactly what entry 228 shipped.
+Bit: `(c++ in the quick view) 'toolBar.isNull()' returned FALSE`.
+
+DQ is the one that matters: entry 228's half-fix passed its own test, and the
+only reason it is caught now is that the test was widened from "the view" to
+"what the editor owns".
+
+### What is next
+
+1. **The eight upstream suspects**, from `setWidget(` without a matching
+   delete: `vcsbasesubmiteditor`, `androidmanifesteditor`,
+   `iconcontainerwidget`, `modeleditor`, `profilertraceeditor`, `imageviewer`.
+   Each needs a file it will open before it can be checked, which is what
+   makes this a batch of its own rather than a grep.
+2. **The typing flake.** Settings are ruled out. Three sightings with three
+   different outputs says the corruption is not in one code path but in what
+   the view thinks its text is.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. The rest, with numbers: entry 173's crash, entry 196's uncovered widget
+   auto-scroll, entry 199's QML root with no `controller` property,
+   `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
+   Qt builds, and `RunWorkerConflictTest::testConflict` upstream.

@@ -446,6 +446,19 @@ public:
                                     + QList<QAction *>{leftAction, rightAction, m_swapViews});
     }
 
+    // Core::IContext keeps the widget in a QPointer and does not own it, so
+    // this is what frees it - the splitter, both panes and the preview's
+    // scene go with it. Without it every Markdown file opened stays in
+    // memory, wired to everything it was wired to.
+    ~MarkdownEditor() override
+    {
+        // The tool bar first, for the same reason as the Quick editor: it is
+        // a second unowned widget whose scene is bound to the view in the
+        // first one.
+        delete m_toolBar;
+        delete widget();
+    }
+
     Core::IDocument *document() const override { return m_document.data(); }
 
     // The Qt Quick row over the text pane. Built on demand and once: the

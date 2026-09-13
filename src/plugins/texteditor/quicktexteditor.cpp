@@ -1363,10 +1363,20 @@ public:
     // editor manager only takes it out of the layout it put it in. So this is
     // what deletes it, as BaseTextEditor does for the widget editor - without
     // it every editor ever opened leaves its view, its scene and everything
-    // they are connected to behind.
-    ~QuickTextEditor() override { delete widget(); }
+    // they are connected to behind. The tool bar is a second widget, kept the
+    // same way and just as unowned.
+    ~QuickTextEditor() override
+    {
+        // The tool bar first: its scene is bound to the view inside the other
+        // widget, so the other order leaves it re-evaluating its bindings
+        // against an object that is already gone.
+        delete m_toolBar;
+        delete widget();
+    }
 
 private:
+
+
 
 
 
@@ -3959,9 +3969,15 @@ private slots:
 
     void testClosingAnEditorLetsGoOfItsDocument_data()
     {
-        QTest::addColumn<bool>("quick");
-        QTest::newRow("widget") << false;
-        QTest::newRow("quick") << true;
+        QTest::addColumn<QString>("suffix");
+        QTest::addColumn<QString>("contents");
+        // Which view to ask for, where the factory offers a choice. -1 leaves
+        // it alone, for an editor that is only ever drawn one way.
+        QTest::addColumn<int>("quick");
+        QTest::newRow("c++ in the widget view") << "cpp" << "int i;\n" << 0;
+        QTest::newRow("c++ in the quick view") << "cpp" << "int i;\n" << 1;
+        QTest::newRow("markdown") << "md" << "# hi\n" << -1;
+        QTest::newRow("qrc") << "qrc" << "<RCC/>\n" << -1;
     }
 
     // A view that outlives the editor it was made for keeps watching the
@@ -3971,33 +3987,47 @@ private slots:
     // file it has no business with.
     void testClosingAnEditorLetsGoOfItsDocument()
     {
-        QFETCH(bool, quick);
+        QFETCH(QString, suffix);
+        QFETCH(QString, contents);
+        QFETCH(int, quick);
 
         Utils::TemporaryDirectory dir("close-lets-go");
         QVERIFY(dir.isValid());
-        const Utils::FilePath file = dir.filePath("t.cpp");
-        QVERIFY(file.writeFileContents("int i;\n"));
+        const Utils::FilePath file = dir.filePath("t." + suffix);
+        QVERIFY(file.writeFileContents(contents.toUtf8()));
 
-        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
-        QVERIFY(factory);
-        const bool wasQuick = factory->usesQuickEditor();
-        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
-        factory->setUsesQuickEditor(quick);
+        std::optional<QScopeGuard<std::function<void()>>> restore;
+        if (quick >= 0) {
+            TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+            QVERIFY(factory);
+            const bool wasQuick = factory->usesQuickEditor();
+            restore.emplace([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+            factory->setUsesQuickEditor(quick > 0);
+        }
 
-        QPointer<TextDocument> document;
-        QPointer<QObject> keyTarget;
+        // The widget, because that is what every editor has and what nothing
+        // owns: Core::IContext keeps it in a QPointer, so the editor is the
+        // only thing that can free it.
+        QPointer<QWidget> widget;
+        QPointer<QWidget> toolBar;
+        QPointer<Core::IDocument> document;
         {
             Core::IEditor * const editor = Core::EditorManager::openEditor(file);
             QVERIFY(editor);
-            document = qobject_cast<TextDocument *>(editor->document());
+            widget = editor->widget();
+            QVERIFY(widget);
+            // Asked for, because it is made on demand and the editor manager
+            // asks for it too. A second widget, kept the same unowned way.
+            toolBar = editor->toolBar();
+            document = editor->document();
             QVERIFY(document);
-            keyTarget = TextEditor::keyTargetOf(editor);
-            QVERIFY(keyTarget);
             Core::EditorManager::closeEditors({editor}, false);
         }
 
         // Deleted later rather than at once, so this waits rather than asks.
-        QTRY_VERIFY2(keyTarget.isNull(), "the view outlived the editor it was made for");
+        QTRY_VERIFY2(widget.isNull(), "the editor's widget outlived the editor");
+        if (toolBar)
+            QTRY_VERIFY2(toolBar.isNull(), "the editor's tool bar outlived the editor");
         QTRY_VERIFY2(document.isNull(), "something is still holding the document");
     }
 
