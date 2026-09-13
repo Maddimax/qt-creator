@@ -4027,6 +4027,65 @@ private slots:
         QTest::newRow("android manifest")
             << "AndroidManifest.xml"
             << "<?xml version=\"1.0\"?><manifest package=\"a.b\"/>\n" << -1;
+        // The wizard's own template with its placeholders filled in. Entry
+        // 230 tried a fabricated one and the model editor aborted, taking the
+        // process with it, so this is the shape it really expects.
+        QTest::newRow("model") << "t.qmodel" << QString::fromLatin1(R"QMODEL(<?xml version="1.0" encoding="UTF-8"?>
+<qmt>
+ <project>
+  <uid>{11111111-1111-1111-1111-111111111111}</uid>
+  <root-package>
+   <instance>
+    <MPackage>
+     <base-MObject>
+      <MObject>
+       <base-MElement>
+        <MElement>
+         <uid>{22222222-2222-2222-2222-222222222222}</uid>
+        </MElement>
+       </base-MElement>
+       <name>Probe</name>
+       <children>
+        <handles>
+         <handles>
+          <qlist>
+           <item>
+            <handle>
+             <uid>{33333333-3333-3333-3333-333333333333}</uid>
+             <target>
+              <instance type="MCanvasDiagram">
+               <MCanvasDiagram>
+                <base-MDiagram>
+                 <MDiagram>
+                  <base-MObject>
+                   <MObject>
+                    <base-MElement>
+                     <MElement>
+                      <uid>{33333333-3333-3333-3333-333333333333}</uid>
+                     </MElement>
+                    </base-MElement>
+                    <name>Probe</name>
+                   </MObject>
+                  </base-MObject>
+                 </MDiagram>
+                </base-MDiagram>
+               </MCanvasDiagram>
+              </instance>
+             </target>
+            </handle>
+           </item>
+          </qlist>
+         </handles>
+        </handles>
+       </children>
+      </MObject>
+     </base-MObject>
+    </MPackage>
+   </instance>
+  </root-package>
+ </project>
+</qmt>
+)QMODEL") << -1;
         QTest::newRow("svg") << "t.svg"
                              << "<svg xmlns=\"http://www.w3.org/2000/svg\" "
                                 "width=\"1\" height=\"1\"/>\n" << -1;

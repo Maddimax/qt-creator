@@ -59251,3 +59251,101 @@ until now to answer.
    open/close pattern, and has not been seen since; `IOutputPane::toolBarWidgets()`
    once Qt SerialPort exists in one of the two Qt builds; and
    `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — The model editor, asked with a file it would actually open (batch 234)
+
+Entry 230 could not ask the model editor whether it frees its widget, because
+a fabricated `.qmodel` made it abort and take the process with it. Entry 233
+left that on the list as one of three editors "reached through actions, not
+files". It was not: it was reached through a file that had to be right.
+
+### The gap this batch closed
+
+**`ModelEditor` never freed its widget.** The wizard ships the template the
+editor expects:
+
+    src/plugins/modeleditor/resources/wizards/modeling/model/file.qmodel
+
+with `%{UUID1}`, `%{UUID2}`, `%{UUID3}` and `%{Name}` in it. Filled in, it
+opens, and the ownership test says what it says about every other editor:
+
+    (model) 'widget.isNull()' returned FALSE. (the editor's widget outlived the editor)
+
+The destructor was half right already, and in the half that entries 229 and 230
+had to learn:
+
+    ModelEditor::~ModelEditor()
+    {
+        closeCurrentDiagram(false);
+        delete d->toolbar;      // the tool bar, correctly
+        delete d;               // and not the widget
+    }
+
+So somebody here already knew the tool bar has to be deleted by hand -
+`Core::IContext` keeps both in a `QPointer` and owns neither - and the splitter
+that is the editor's whole UI was missed. Every model opened stayed in memory
+with the diagram view, the property panel and the tool box under it.
+
+That is four editors now with the same bug, found the same way: `QuickTextEditor`,
+`MarkdownEditor`, `IconEditor`, `ModelEditor`. Two of the four had the tool bar
+right and the widget wrong, or the reverse. The pattern is not that people
+forget to write a destructor - it is that owning one of the two looks like
+owning both.
+
+### What the test cost to extend
+
+One data row, and the fatal error entry 230 hit was the file, not the editor.
+Worth saying because the conclusion drawn then - "cannot be asked at all" - was
+wrong, and would have stayed wrong: the difference between a format that needs
+real content and an editor that cannot be opened by file name is not visible
+from the failure, which is `Received a fatal error` either way.
+
+The full suite runs it without dying, which was the other thing entry 230
+could not know.
+
+### Measurements
+
+    -test TextEditor        776 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               14 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+775 to 776: the model row. The one red is
+`RunWorkerConflictTest::testConflict`, upstream and out of scope since entry
+225.
+
+### Negative controls
+
+**DX — `delete widget()` taken back out of `ModelEditor`'s destructor.** Bit,
+naming its row:
+
+    (model) 'widget.isNull()' returned FALSE. (the editor's widget outlived the editor)
+
+### What is next
+
+The queue is nearly empty of work this branch can do, and what is left is
+listed honestly rather than padded:
+
+1. **The flake, when it next appears.** Entry 231 built the trace and the caret
+   comparison; nothing more until there is a sighting to read. Not seen in
+   about forty runs since the ownership fixes, against a rate measured at 2 in
+   25 before them - which is suggestive and still short of proof.
+2. **Two editors left**: `vcsbasesubmiteditor` and `profilertraceeditor`. These
+   really are opened by actions rather than by file name - a submit editor by
+   a VCS commit, a trace editor by a profiling run - so a test would have to
+   drive the thing that opens them, which is a different kind of test from the
+   one that found the other four.
+3. **The Quick REPL's auto-scroll rule** (entry 233), uncovered because
+   reaching its scene would weaken the shell-phase seam.
+4. **Automatic login in the macOS VM** — Qt is staged, the runner works, and
+   entries 224 and 231 both have assertions only a macOS run exercises.
+5. Blocked or upstream, with numbers: `IOutputPane::toolBarWidgets()` until Qt
+   SerialPort exists in one of the two Qt builds, and
+   `RunWorkerConflictTest::testConflict`, which reports twenty-two real
+   registration conflicts across plugins this branch never touches.
+
+Entry 173's crash is retired: never proven, gone since the test that showed it
+was rewritten onto the managed open/close pattern, and the four ownership bugs
+found since are the most likely thing it was.

@@ -142,6 +142,11 @@ ModelEditor::~ModelEditor()
 {
     closeCurrentDiagram(false);
     delete d->toolbar;
+    // Core::IContext keeps this in a QPointer and does not own it, and the
+    // editor manager only takes it out of the layout it put it in. The tool
+    // bar above is deleted for the same reason; the splitter was not, so
+    // every model opened stayed in memory with everything under it.
+    delete widget();
     delete d;
 }
 
