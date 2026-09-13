@@ -61099,3 +61099,102 @@ carries has a Quick-side home and something that fails when it stops working.
 The census is the thing to repeat rather than the list: this batch's bug was
 found by writing the missing test, not by reading the code - the code read
 correctly at every step.
+
+## 2026-09-13 — Measuring the way back, because the decision about it needs that (batch 253)
+
+### Why this and not the queue
+
+Two sweeps first, both of which came up empty and are worth recording so
+nobody runs them again:
+
+- **By-name `QMetaObject::invokeMethod` on an editor**, the bug class batch 252
+  found. Every remaining hit outside tests is FakeVim's *base* adapter, which
+  is correct for a real widget. The class is closed.
+- **`TextEditorWidget::fromEditor()` used and then given up on when null.**
+  Twenty-odd call sites across plugins; the two that match the "give up"
+  shape are `editorconfiguration.cpp` and `cppeditorplugin.cpp`, and both are
+  the *inverted* shape - they act when there is no widget. EmacsKeys and
+  `EditorConfiguration`, the two that looked most likely, already carry Quick
+  tests and comments about this exact thing. Closed.
+
+That leaves the queue: two decisions that are not mine, a crash that entry 247
+accepted, and two items entry 236 judged not worth doing. Rather than wait a
+seventeenth batch, this one produces the **measurement decision 1 needs**.
+
+`QTC_WIDGET_CPP_EDITOR` exists so that a reader who hits a problem has an
+answer. Retiring it means saying the Quick editor is trusted without one.
+Nobody had asked what the way back currently gives you.
+
+### What the way back actually gives you
+
+The suites, run with `QTC_WIDGET_CPP_EDITOR=1` against the same build:
+
+    -test CppEditor    1654 passed, 0 failed, 61 skipped, exit 0
+    -test FakeVim       571 passed, 0 failed, 14 skipped, exit 0
+    -test TextEditor    762 passed, 3 failed,  4 skipped, exit 3
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+
+**The way back works.** CppEditor and FakeVim are as green through the widget
+editor as through the Quick one, which is the part that matters: a reader sent
+back to it gets a working C++ editor, not a half-migrated one. That is a fact
+decision 1 can be taken on, and it was not in evidence before.
+
+The three TextEditor failures are **the tests, not the product**. All three
+assume C++ opens in the Quick view, and two say so in their own messages -
+"the C++ file opened in a widget editor, so this tests nothing" and "the C++
+file did not open in the Qt Quick editor". The third is the language census,
+which counts one row fewer because `CppEditorFactory` is no longer a Quick
+factory at all.
+
+### The gap this batch closed
+
+A documented way back that turns the suite red is not one a reader can be told
+to use: they set it to get round a problem, run the tests, and get three reds
+that have nothing to do with them. Two precedents already existed in this file
+for what to do - `expected.removeOne("CppEditor.C++Editor")` where the
+expectation shifts, `QSKIP` where the test *is* about the default - and all
+three were given the matching one:
+
+- the census expects one row fewer, since C++ has no Quick factory to census;
+- `testARealSplitOfACppFileIsTheSameEditorTwice` skips;
+- `testTheFoldColumnIsShownOnlyWhereTheLanguageFolds` skips, C++ being its
+  language that folds.
+
+    -test TextEditor  (switch on)   763 passed, 0 failed, 6 skipped, exit 0
+    -test QuickUi     (switch on)   226 passed, 0 failed, 0 skipped, exit 0
+
+### Negative controls
+
+The risk with a skip is entry 238's: a guard that fires when it should not,
+turning passing rows into skips nobody reads. Both new conditions were made
+unconditional and the **default** run measured:
+
+- **A - the fold-column `QSKIP` without its condition.** Skipped 3 to 4,
+  passed 766 to 764. The condition is load-bearing.
+- **B - `--expected` without its condition.** The census test fails in the
+  default run, `checked` 12 against 11.
+
+And the guard that matters most, checked directly rather than argued: with the
+switch off the totals are **unchanged at 766 passed, 0 failed, 3 skipped**, so
+none of the three new branches fires on an ordinary run. That is the check
+entry 238 wishes it had made.
+
+The "before" numbers above are the control for the fixes themselves - the same
+three tests, same build, failing under the switch - rather than a synthetic
+one.
+
+### What is next
+
+1. **The two decisions from entry 236.** Decision 1 now has its measurement:
+   the widget editor is green through the switch, so retiring it is a question
+   of whether a way back is wanted, not whether it works. Decision 2 - whether
+   the no-QtcQuick build is supported - still has nothing but a human answer.
+   Seventeen batches.
+2. The crash, per entry 247 - accepted and recorded.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+4. `VcsBaseSubmitEditor` and the Quick REPL rule - judged not worth doing in
+   entry 236.
+
+The suites should be run under `QTC_WIDGET_CPP_EDITOR=1` from time to time, or
+the way back rots exactly the way it had started to here. It is four ssh
+invocations and it found three stale tests the first time it was tried.

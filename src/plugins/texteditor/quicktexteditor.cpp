@@ -6237,8 +6237,12 @@ private slots:
         }
         QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
         // The list above is not empty on any build this runs on, and a census
-        // of nothing passes.
-        QCOMPARE(checked, sampleFor.size());
+        // of nothing passes. One row fewer with the way back turned on: C++
+        // has no Quick factory to census then, which is what it is for.
+        int expected = sampleFor.size();
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
+            --expected;
+        QCOMPARE(checked, expected);
     }
 
     // A census, the way the settings pages have one: every language that has
@@ -6850,6 +6854,9 @@ private slots:
     // tests that found them went through this path.
     void testARealSplitOfACppFileIsTheSameEditorTwice()
     {
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
+            QSKIP("QTC_WIDGET_CPP_EDITOR opens the C++ file this splits in a widget");
+
         Utils::TemporaryDirectory dir("real-split");
         QVERIFY(dir.isValid());
         const Utils::FilePath file = dir.filePath("main.cpp");
@@ -9586,6 +9593,11 @@ private slots:
 
     void testTheFoldColumnIsShownOnlyWhereTheLanguageFolds()
     {
+        // C++ is this test's language that folds, so the switch that opens it
+        // in a widget takes away what the column is measured on.
+        if (Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_CPP_EDITOR"))
+            QSKIP("QTC_WIDGET_CPP_EDITOR opens the folding language in a widget");
+
         Utils::TemporaryDirectory dir("fold-column");
         QVERIFY(dir.isValid());
 
