@@ -2721,7 +2721,17 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     // After the auto-completer has been asked, which reads the caret as the
     // reader left it rather than with a character already selected.
     takeOverwrittenCharacter(cursor);
+    // Where the text goes in, which is the start of whatever it replaces -
+    // a selection the reader made, or the character overwrite mode takes.
+    const int insertedAt = cursor.selectionStart();
     cursor.insertText(typed);
+    // Where inserting that must leave the cursor. It has been seen elsewhere:
+    // something edits the document while insertText() is running, the cursor
+    // comes back further on than it went in, and the closing half below then
+    // lands on the far side of whatever is between them. Silent until it
+    // happens, because printing in this path is enough to stop it happening
+    // at all.
+    QTC_CHECK(cursor.position() == insertedAt + typed.size());
     if (!closing.isEmpty()) {
         const int before = cursor.position();
         cursor.insertText(closing);

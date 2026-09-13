@@ -60053,3 +60053,91 @@ measurement in one, which is what the first attempt lacked.
    still supported**.
 3. **An async entry point for `Mcp::ToolRegistry`** (entry 239).
 4. Then: `VcsBaseSubmitEditor`, the Quick REPL rule.
+
+## 2026-09-13 — An invariant that fired seventeen times a run, and what it hid (batch 242)
+
+Entry 241 pinned the typing flake to one keystroke and left the queue item:
+find what edits the document while `insertText()` is running. This batch
+looked, got the instrument wrong, corrected it, and found the crash is
+somewhere else entirely. **No fix.**
+
+### The instrument, first version, was wrong
+
+`autoComplete()` cannot be the culprit: `replaceSelection()` takes a
+`const QTextCursor &` and only reads, and the completer is handed a `probe`
+copy precisely so it cannot move the caller's cursor. So the drift has to
+happen inside `cursor.insertText(typed)`, and the way to catch that is to
+check where it leaves the cursor:
+
+    const int insertedAt = cursor.position();
+    cursor.insertText(typed);
+    QTC_CHECK(cursor.position() == insertedAt + typed.size());
+
+**It fired in 12 runs out of 12, seventeen times per run.** Which sounds like
+finding the bug immediately and is the opposite: the rows it named were
+"a bracket around a selection", "overwriting two characters" and "overwriting
+past the line". `insertText()` replaces a selection, so it leaves the cursor
+at `selectionStart() + size`, and `takeOverwrittenCharacter()` makes a
+selection on purpose. The check was measuring its own mistake.
+
+    const int insertedAt = cursor.selectionStart();
+
+With that, **0 hits**. The invariant is sound now and it is silent, so the next
+real drift is caught at the moment it happens rather than reconstructed from
+the text afterwards. It has never fired in its correct form, which is worth
+writing down beside it.
+
+An assertion that fires on every run is not a strong signal. It is usually a
+wrong assertion, and this one took twelve runs and a look at *which* rows to
+tell apart from a find.
+
+### Where the crash actually is
+
+Two `-test TextEditor` runs in this batch died with no failure reported - exit
+255, the suite stopping mid-test. Both in the same place:
+
+    PASS : ...testTheCaretLandsWhereTheWidgetEditorsDoes(quick: a line)
+    (process gone, inside "quick: a bracket inside a string")
+
+    PASS : ...testTheCaretLandsWhereTheWidgetEditorsDoes(quick: a bracket inside a string)
+    (process gone, inside "quick: return between braces")
+
+and **the invariant did not fire in either**, so the corruption is not the
+cursor drift and not the insert path.
+
+That test is entry 231's. It opens two editors per row - a widget one and a
+Quick one, on separate files - for fifteen rows, which is thirty editors
+opened and closed inside one test function and more editor churn than
+anything else in the suite. Entries 228 to 230 found four editors that never
+freed their widgets and one that freed the widget and not the tool bar, and
+that last one crashed exactly this way. A fifth thing of that kind, or a
+reference outliving one of the deletions those batches added, is where to look
+next - not in the typing.
+
+### Measurements
+
+    -test TextEditor    778 passed, 0 failed, 18 skipped, exit 0 (and 2 crashes in ~18 runs)
+    -test QuickUi       226 passed, 0 failed, exit 0
+    -test CppEditor    1654 passed, 0 failed, 60 skipped, exit 0
+
+The typing flake itself did not recur in this batch's runs.
+
+### Negative controls
+
+None, and that is the honest report: nothing was fixed. The first instrument
+was disproved by reading which rows it named rather than by a control - it
+fired everywhere, which is the same information a control gives and arrives at
+it the other way round.
+
+### What is next
+
+1. **The crash, now localised**: `testTheCaretLandsWhereTheWidgetEditorsDoes`,
+   thirty editors in one function, twice in about eighteen runs, with the
+   insert path ruled out by a silent invariant. The ownership work of entries
+   228-230 is the neighbourhood.
+2. **The typing flake**, with entry 241's trace and this batch's invariant both
+   in place for the next sighting.
+3. The two decisions from entry 236: **retire `QTC_WIDGET_CPP_EDITOR`**, and
+   **decide whether the no-QtcQuick build is still supported**.
+4. **An async entry point for `Mcp::ToolRegistry`** (entry 239); then
+   `VcsBaseSubmitEditor` and the Quick REPL rule.
