@@ -60574,7 +60574,7 @@ None: nothing was changed. Said plainly rather than dressed up, as in entries
 3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
 4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
 
-## 248. Asking the Quick view for completions and reading what comes back
+## 2026-09-13 — Asking the Quick view for completions and reading what comes back (batch 248)
 
 ### The gap this batch closed
 
@@ -60682,3 +60682,106 @@ checked by something that fails when they stop being true. The branch's
 headline goal was met and guarded in entry 195; what has accumulated since is
 the evidence that it was safe to meet. That evidence is now complete, and the
 open work is decisions, not code.
+
+## 2026-09-13 — A quick fix, offered and applied, read back from the text (batch 249)
+
+### The gap this batch closed
+
+Entry 237 found three assertions in the flip's guard that could not fail, and
+quick fixes were one of them: `CppEditorDocument::quickFixAssistProvider()`
+returns `&cppQuickFixAssistProvider()` when nothing else is set, so asking the
+document whether it has one is asking whether a function returns non-null. It
+replaced that with the command being enabled in the Quick view - real, but a
+check on *reachability*, not on the fix working.
+
+Batch 248 took completion from that level to "it answers with C++". This does
+the same for quick fixes, and goes one step further than 248 could, because
+the view has the whole surface: `requestQuickFixes()`,
+`quickFixesAvailable(QStringList)`, `applyQuickFix(int)`. So the fix can be
+applied and the *text it produced* read back.
+
+`testAQuickFixIsOfferedAndAppliedInTheQuickView` opens
+
+    void use(bool alpha, bool beta)
+    {
+        if (alpha && beta)
+            return;
+    }
+
+in the Quick view, puts the caret on the `&&`, asks for fixes until
+"Split if Statement" is among them, applies that one, and then asks the
+document what it now says:
+
+    QVERIFY2(!after.contains("&&"), qPrintable(after));
+    QCOMPARE(after.count("if ("), 2);
+
+Asserted that way rather than against a literal block of text because the fix
+picks its own indentation, and pinning that would be asserting the formatter
+rather than the fix.
+
+### The bug in the first version, and why it was a 300-second hang
+
+The first run failed with `Received a fatal error` and no message. The log had
+the reason: `function time: 300001ms` and a backtrace parked in
+`QSignalSpy::wait`.
+
+`startFixes` can deliver **synchronously** - the early returns call
+`deliver({})` before `requestQuickFixes()` has returned, and so does a
+provider that answers on the spot. `QSignalSpy::wait()` waits for the *next*
+signal; a record already in the spy does not satisfy it. So each attempt threw
+away the answer it already had and then blocked the full timeout waiting for a
+second one that was never coming.
+
+    if (answered.isEmpty() && !answered.wait(1000))
+        return false;
+
+Worth writing down because it is invisible in the passing case: the completion
+test one function above uses the same shape and is correct only because that
+path happens to answer asynchronously. A spy that is waited on without first
+being checked is a test that works until the code under test gets faster.
+
+### Negative controls
+
+Two, one per half of the test, which is the point - the apply assertions must
+not be riding on the offer assertions:
+
+- **A - the view never asks the document for its provider.** `nullptr` in
+  place of `doc->quickFixAssistProvider()` in `startFixes`. Red at
+  `askOnce()`, with an empty list: the offer half is real.
+- **B - `applyQuickFix()` returns immediately.** The offer half stays
+  **green** and the text half goes red on `!after.contains("&&")`, printing
+  the unchanged function. So the two halves fail independently, and the second
+  is not a restatement of the first.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+
+766 is 765 plus this test. Built on macOS and Linux; no `.qbs` change.
+
+### A correction to entry 248
+
+Entry 248 closed by saying all five things the flip depends on are now checked
+by something that can fail. That was one batch early. Of the five commands
+entry 237 samples, Follow Symbol had a real assertion (control EC bit), and
+completion got one in 248 - but quick fixes had only the enabled check until
+this batch. Find Usages and Rename Symbol still have only that: the command
+lights up in the Quick view, and nobody has read what comes back.
+
+Stated plainly because entry 237's whole finding was that a guard can look
+complete while testing nothing, and the way that happens is someone writing
+"all five are covered now" in a document that gets cited back.
+
+### What is next
+
+1. **The two decisions from entry 236** - retire `QTC_WIDGET_CPP_EDITOR`, and
+   decide whether the no-QtcQuick build is still supported. Thirteen batches
+   waiting; every batch since has been work around them.
+2. **Find Usages and Rename Symbol, read back rather than counted enabled** -
+   the two commands still at entry 237's level, and the natural successor to
+   248 and this. `TextViewport::symbolRequests()` is the surface.
+3. The crash, per entry 247 - accepted and recorded.
+4. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+5. `VcsBaseSubmitEditor`, and the Quick REPL rule - both judged not worth doing
+   in entry 236, and nothing since has changed that.

@@ -4365,6 +4365,70 @@ private slots:
         }
     }
 
+    // The companion to the completion check above, for the other half of what
+    // the C++ editor configures. This one can go all the way: a quick fix is
+    // offered, applied, and the text it produced is read back.
+    void testAQuickFixIsOfferedAndAppliedInTheQuickView()
+    {
+        Utils::TemporaryDirectory dir("quick-cpp-quickfix");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("split.cpp");
+        QVERIFY(file.writeFileContents("void use(bool alpha, bool beta)\n"
+                                       "{\n"
+                                       "    if (alpha && beta)\n"
+                                       "        return;\n"
+                                       "}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY2(view, "the C++ file did not open in the Qt Quick view");
+
+        const int op = document->document()->toPlainText().indexOf("&&");
+        QVERIFY(op > 0);
+        QTextCursor caret(document->document());
+        caret.setPosition(op);
+        TextEditor::setTextCursorOf(editor, caret);
+
+        // The fixes come back on the signal, which this path may emit before
+        // requestQuickFixes() has returned - so the record is read whether it
+        // is already there or still to arrive.
+        const QString wanted = "Split if Statement";
+        QStringList offered;
+        const auto askOnce = [&] {
+            QSignalSpy answered(view, &TextViewport::quickFixesAvailable);
+            view->requestQuickFixes();
+            if (answered.isEmpty() && !answered.wait(1000))
+                return false;
+            offered = answered.last().at(0).toStringList();
+            return offered.contains(wanted);
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(askOnce(), 30000);
+        QVERIFY2(offered.contains(wanted),
+                 qPrintable("offered: " + offered.join(", ")));
+
+        view->applyQuickFix(offered.indexOf(wanted));
+
+        // What the fix says it does, asked of the text rather than of the
+        // list: the one condition became two, and the operator joining them
+        // is gone. Written this way because the fix chooses its own
+        // indentation and asserting that would be asserting the formatter.
+        const QString after = document->document()->toPlainText();
+        QVERIFY2(!after.contains("&&"), qPrintable(after));
+        QCOMPARE(after.count("if ("), 2);
+        QVERIFY2(after.contains("alpha") && after.contains("beta"), qPrintable(after));
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");
