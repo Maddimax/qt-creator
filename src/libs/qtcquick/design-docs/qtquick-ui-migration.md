@@ -59454,3 +59454,91 @@ The list this branch can act on is down to one item with substance:
    is the one that would add the most and it is not this branch's to do.
 5. Blocked or upstream: `IOutputPane::toolBarWidgets()` until Qt SerialPort
    exists in one of the two Qt builds, and `RunWorkerConflictTest::testConflict`.
+
+## 2026-09-13 — The plan has no next step, and what the switches turn out to guard (batch 236)
+
+**No code changed this batch.** The queue is empty of work this branch can act
+on, which is worth saying once, plainly, rather than filling with something.
+
+### What is actually left, checked rather than recalled
+
+Entry 235's list, item by item:
+
+1. **The flake** - parked by entry 231, and nothing to build until a sighting.
+   Not seen in roughly fifty runs against a rate of 2 in 25 measured before
+   the ownership fixes.
+2. **`VcsBaseSubmitEditor`** - the ninth editor, not a gap.
+3. **The Quick REPL's auto-scroll rule** - covering it would weaken the
+   shell-phase seam, which is worth more than the coverage.
+4. **The macOS VM** - not this branch's to do.
+5. **Blocked or upstream** - Qt SerialPort, and twenty-two registration
+   conflicts in plugins this branch never touches.
+
+The older gap tables are exhausted too. Entry 138's list of what the gutter
+still lacked had two entries; auto-scroll on a gutter drag was closed, and the
+fold-range highlight was never missing - that claim came from grepping
+`textviewport.cpp` for a C++ name when the behaviour was in `EditorGutter.qml`
+under another one.
+
+### The finding that reframes what "finished" means
+
+The migration's end state looks like deleting the widget views. Six env
+switches name them:
+
+    QTC_WIDGET_CPP_EDITOR      cppeditorplugin.cpp  (and six other files)
+    QTC_WIDGET_OPEN_DOCUMENTS  openeditorsview.cpp
+    QTC_WIDGET_BOOKMARKS       bookmarkmanager.cpp
+    QTC_WIDGET_SEARCH_RESULTS  searchresultwidget.cpp
+    QTC_WIDGET_OUTPUT_BUTTONS  outputpanemanager.cpp
+    QTC_WIDGET_LUA_PANE        luaplugin.cpp
+
+**Five of the six are not escape hatches.** Each sits beside
+`Core::hasQmlViewFactory()`:
+
+    if (!qtcEnvironmentVariableIsSet("QTC_WIDGET_LUA_PANE") && Core::hasQmlViewFactory())
+
+and that factory is installed by the QuickUi plugin, which is built
+
+    add_qtc_plugin(QuickUi
+      CONDITION TARGET QtcQuick
+
+So a build without QtcQuick has no QuickUi, no QML view factory, and every one
+of those views falls back to its widget. **The widget views behind those five
+switches are a supported configuration, not dead code**, and deleting them is a
+product decision rather than a cleanup.
+
+**`QTC_WIDGET_CPP_EDITOR` is the exception.** The C++ editor does not go
+through that seam at all: `TextEditorFactory` calls
+`Internal::createQuickTextEditor()` directly, because `TextEditor` has
+`DEPENDS ... QtcQuick` unconditionally. There is no build in which a C++ file
+falls back for want of a front end. That switch is purely a way back for a
+reader who reports a problem, and nothing else depends on it.
+
+### What is worth doing, and who decides
+
+1. **Retire `QTC_WIDGET_CPP_EDITOR`, then delete `CppEditorWidget`'s reason to
+   exist.** This is the branch's actual finish line, it is unblocked, and it is
+   a decision rather than a task: the switch exists so that a report of a
+   problem has an answer, and taking it away says the Quick editor is trusted
+   without one. The guard for the flip is already written -
+   `testWhichLanguagesOpenInTheQuickEditor` and
+   `testAQuickCppEditorHasEverythingTheFactoryConfigures` - and both have
+   passed since entry 195.
+2. **Decide whether the no-QtcQuick build is still supported.** If it is, the
+   other five widget views stay indefinitely and the switches are the least of
+   it; if it is not, `CONDITION TARGET QtcQuick` can go and roughly five views
+   with it. Either answer unblocks a lot; not answering leaves both halves of
+   every pane alive.
+3. Only after one of those: the flake, the ninth editor, the REPL rule.
+
+Neither 1 nor 2 should be taken unilaterally, which is why this batch stops
+here. Both were raised in the reply this entry accompanies.
+
+### Measurements
+
+    -test TextEditor   778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi      226 passed, 0 failed, exit 0
+
+Run to confirm the tree is where entry 235 left it, not to check a change.
+No negative controls: nothing was changed, and a control for an unchanged
+tree would be theatre.
