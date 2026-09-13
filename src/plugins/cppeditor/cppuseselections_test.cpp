@@ -1,6 +1,7 @@
 // Copyright (C) 2016 The Qt Company Ltd.
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
+#include "clangdsettings.h"
 #include "cppuseselections_test.h"
 
 #include <utils/textutils.h>
@@ -54,6 +55,19 @@ namespace CppEditor::Internal::Tests {
 
 // Check: If the user puts the cursor on e.g. a function-local variable,
 // a type name or a macro use, all occurrences of that entity are highlighted.
+// Whether the clang code model will actually answer. isClangCodeModelActive()
+// is a setting: with it on and no clangd binary present, the builtin model
+// replies instead, and one expectation below differs between the two. Asking
+// the setting alone makes that row expect clangd's answer and get the
+// builtin's.
+static bool clangCodeModelWillAnswer()
+{
+    if (!CppModelManager::isClangCodeModelActive())
+        return false;
+    const Utils::FilePath clangd = ClangdSettings::instance().data().clangdFilePath(nullptr);
+    return !clangd.isEmpty() && clangd.exists();
+}
+
 class UseSelectionsTestCase : public CppEditor::Tests::TestCase
 {
 public:
@@ -99,8 +113,9 @@ UseSelectionsTestCase::UseSelectionsTestCase(CppTestDocument &testFile,
 
     bool hasTimedOut;
     const SelectionList selections = waitForUseSelections(&hasTimedOut);
-    const bool clangCodeModel = CppModelManager::isClangCodeModelActive();
+    const bool clangCodeModel = clangCodeModelWillAnswer();
     if (clangCodeModel) {
+
         QEXPECT_FAIL("local use as macro argument 2 - argument eaten",
                      "https://github.com/clangd/clangd/issues/1844", Abort);
         QEXPECT_FAIL("macro use 1",
@@ -199,7 +214,7 @@ void SelectionsTest::testUseSelections_data()
 
     // clangd differentiates between constructor and class.
     SelectionList nonLocalUses;
-    if (!CppModelManager::isClangCodeModelActive())
+    if (!clangCodeModelWillAnswer())
         nonLocalUses << Selection(1, 7, 3);
     nonLocalUses << Selection(1, 13, 3);
     QTest::newRow("non-local uses")

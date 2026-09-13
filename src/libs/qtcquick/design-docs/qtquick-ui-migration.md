@@ -59653,3 +59653,110 @@ that move this branch:
 4. Parked with numbers: the CppEditor suite's 11-15 environmental failures,
    `IOutputPane::toolBarWidgets()` pending Qt SerialPort, and
    `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — What the CppEditor suite's eleven failures actually were (batch 238)
+
+Entry 237 parked "the CppEditor suite's 11-15 environmental failures" without
+looking at them, on the strength of two of the names. Batches 224 and 225 both
+found real bugs behind numbers parked that way, so this one looked.
+
+### First, a hypothesis that was wrong
+
+Entry 237 found the singular flip guard asserting document state that both
+views share. The obvious next suspect was its plural sibling,
+`testEveryQuickLanguageGetsWhatItsFactoryConfigures`. It is sound: every check
+there is conditional on the factory declaring the thing, and asserts either the
+*view* (`view->autoCompleter()`, `view->commentDefinition()`, the QML root's
+`showFoldMarkers`) or the absence of a fallback
+(`dynamic_cast<DocumentContentCompletionProvider *>`). The plural guard already
+had the pattern the singular one had to be given. Recorded because "the same
+bug is probably next door" is a good guess that has to be checked, not
+assumed.
+
+### The gap this batch closed
+
+Three runs, and the failures separate cleanly:
+
+| stable 3/3 | flaky |
+| --- | --- |
+| 5 × `CppMcpSupportTest` | `CppMcpSupportTest::testRenameSymbol*` (2/3) |
+| `ModelManagerTest::testExtraeditorsupportUiFiles` | `LocatorFilterTest(CppFunctionsFilter-ObjC)` (1/3) |
+| `SelectionsTest::testUseSelections(non-local uses)` | `GlobalRenamingTest::test(class/method)` (1/3) |
+
+The MCP ones all say `No registered tool named "..."` - no MCP server in this
+run. `SelectionsTest` was the one worth reading:
+
+    Actual   (selections) size: 2
+    Expected (expectedSelections) size: 1
+
+and its data says why:
+
+    // clangd differentiates between constructor and class.
+    if (!CppModelManager::isClangCodeModelActive())
+        nonLocalUses << Selection(1, 7, 3);
+    nonLocalUses << Selection(1, 13, 3);
+
+**`isClangCodeModelActive()` is a setting, not an answer.** With it on and no
+clangd binary present - `which clangd` in the image: nothing - the builtin
+model replies, with its two selections, against an expectation built for
+clangd's one. So the row asked one model and was marked against another.
+
+The predicate now says what it needs to:
+
+    static bool clangCodeModelWillAnswer()
+    {
+        if (!CppModelManager::isClangCodeModelActive())
+            return false;
+        const FilePath clangd = ClangdSettings::instance().data().clangdFilePath(nullptr);
+        return !clangd.isEmpty() && clangd.exists();
+    }
+
+used by both the data and the `QEXPECT_FAIL`s beside it.
+
+### The first fix was worse than the bug
+
+The first attempt was a `QSKIP` when the model is on without a binary, in the
+shape entry 225 used for the missing qbs. It turned **ten passing rows into
+skips**: the expectation only differs between the two models for one row, and
+skipping the test skipped the other fourteen with it. `5 passed, 0 failed, 10
+skipped` looks like a green run and is a loss.
+
+Correcting the predicate instead runs every row and passes: **15 passed, 0
+failed, 0 skipped**. A skip is right when the precondition for the *test* is
+missing; here what was missing was a fact the test had wrong, and those are
+not the same thing even though both show up as a red line.
+
+### Measurements
+
+    -test CppEditor    1652 passed, 5 failed, 57 skipped, exit 5
+    -test TextEditor    778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+From 1642-1646 passed and 11-15 failed to 1652 and 5. What is left, by name:
+
+- 3 × `CppMcpSupportTest` - no MCP server registered here.
+- `ModelManagerTest::testExtraeditorsupportUiFiles` - `projects.open()` returns
+  false; needs a working qmake project.
+- `LocatorFilterTest(CppFunctionsFilter-ObjC)` - flaky, 1 run in 3.
+
+The two `GlobalRenamingTest` rows and the two MCP rename rows did not appear in
+this run; they are the flaky half of the table above and are not claimed as
+fixed.
+
+### Negative controls
+
+**EG — the data asks `isClangCodeModelActive()` again.** Bit, with exactly the
+original failure:
+
+    testUseSelections(non-local uses) Compared lists have different sizes.
+
+### What is next
+
+1. The two decisions from entry 236, unchanged and still the only things that
+   move this branch: **retire `QTC_WIDGET_CPP_EDITOR`**, and **decide whether
+   the no-QtcQuick build is still supported**.
+2. The five CppEditor failures above, with their reasons. Three need an MCP
+   server, one needs a qmake project, one is flaky at 1 in 3.
+3. Then: the flake, `VcsBaseSubmitEditor`, the Quick REPL rule.
+4. Blocked or upstream: `IOutputPane::toolBarWidgets()` pending Qt SerialPort,
+   `RunWorkerConflictTest::testConflict`.
