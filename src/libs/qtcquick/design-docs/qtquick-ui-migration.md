@@ -62132,3 +62132,110 @@ run expecting nothing and found two real losses.
 Nine manual conflicts in 509 commits, three of them real ports. Entry 260's
 estimate of "roughly ten feature ports" is still about right, and the honest
 revision is that the rebase is perhaps three or four more batches, not one.
+
+## 2026-09-13 — The rebase, 1236 of 1420, and a feature master wrote in the shape we remove (batch 263)
+
+`wip/rebase-onto-master` is now `303e1c98437`, **1236 commits on master**, up
+from 509. 184 left. `utils-drop-printsupport` is untouched at `3782a4f8b71`.
+Resume with
+
+    git checkout -B wip/rebase-continue utils-drop-printsupport
+    git rebase --onto wip/rebase-onto-master \
+        f06db3093cbf56873f163044ceddd112a2840d1c
+
+### The incomplete Terminal commit, fixed
+
+Entry 262 left the replayed Terminal port with aspects and no page entries.
+362 commits sit on top of it, so amending it would rewrite all of them for a
+twelve-line addition. Applied as `fixup! QtcQuick: Port the Terminal page`
+instead - the intent is recorded and `--autosquash` can fold it when the stack
+is tidied. Said here so nobody reads the fixup as an afterthought: it is half
+of a port that rerere could not carry.
+
+### Conflicts resolved
+
+Trivial, both sides additive: `cmakeprojectplugin.cpp` and
+`profilerplugin.cpp` (a test registration each).
+
+`instantblame.cpp`, two hunks, and a genuine crossing: master **simplified**
+`BlameController::setContext` for widgets while our commit **extended** it for
+editors. The widget overload now takes five arguments and the editor one
+seven, so our call had to lose the two flags it used to pass and keep them
+where the editor overload still wants them. Taking either side whole would not
+have compiled.
+
+`markdowneditor.cpp`, three times so far - master's search-result mirroring
+against our conversion, below.
+
+### The CMake port, which is this batch's real work
+
+`TextEditor: Let a language say where a symbol is defined` turns
+`CMakeEditorWidget::findLinkAt` into a free `findCMakeLinkAt(TextDocument *, ...)`
+registered on the factory. Master, meanwhile, added
+**`CMakeProjectManager: Find and rename the symbols of a project`** - and wrote
+it as two more widget overrides:
+
+    void findUsages() final { findUsagesUnderCursor(this); }
+    void renameSymbolUnderCursor() final { Internal::renameSymbolUnderCursor(this); }
+
+That is a new feature written in exactly the shape this branch exists to
+remove. Deleting them with the rest would have lost it; keeping them would
+have kept a widget override on a language that opens in the Quick view - and
+the census says `CMakeProject.CMakeEditor` does.
+
+Ported instead, the way CppEditor answers the same two commands:
+
+- `cmakeusages.{h,cpp}` now takes `Core::IEditor *` and an optional cursor
+  rather than a `TextEditorWidget *`. The widget was used for exactly three
+  things - the cursor, the file path and the text - so the change is small and
+  the occurrence-finding is untouched.
+- `setupCMakeEditor()` connects `SymbolRequests::requestUsages` and
+  `requestRename` for every CMake editor that has a relay, and returns early
+  for one that does not, which is a widget editor answering for itself.
+
+The factory's optional-action mask already carries `FindUsage | RenameSymbol`,
+because master had to add them for its widget overrides. So the commands were
+already enabled; what was missing was somewhere for them to go - which is the
+standing instruction's sentence, arriving from master's side of the fence.
+
+### What stopped it
+
+`TextEditor: Show Markdown's text in the Qt Quick view` against master's
+`MarkdownEditor: Highlight search results in the other view`. Master's
+mirroring binds `m_editorHighlight.find` and `.view` to `m_textEditorWidget`
+and aggregates a `BaseTextFindBase` from it; our commit replaces that widget
+with a `TextViewport`. This is the case entry 260 predicted when it first read
+this file, and it is a port rather than a resolution: the mirroring has to be
+taught to reach whatever the Quick side aggregates find into.
+
+Two smaller hunks of the same feature were already carried across - the
+deferred `flushHighlights(m_editorHighlight)` on the tool bar's visibility
+change, and the three `MirroredHighlight` members our commit's member-list
+change would otherwise have deleted.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+
+Of the restored branch. Still nothing meaningful to measure on a partial
+replay, for the reason entry 261 recorded.
+
+### Negative controls
+
+None on the branch, which changed only by this entry. The added-line check
+from entry 262 was the intended control for files resolved by taking one side;
+this batch had none of those - every resolution was read and merged by hand,
+which is the more expensive way to get the same guarantee.
+
+### What is next
+
+1. **Port the Markdown search-result mirroring to the Quick view**, then
+   resume. That is the last known port; 184 commits remain after it.
+2. Fold the `fixup!` commit when the stack is tidied.
+3. Then the no-QtcQuick deletion (decision 2).
+
+Twelve manual conflicts over 1236 commits, four of them real ports - Terminal,
+Docker, CMake find/rename, and Markdown still to do. Entry 260's estimate of
+"roughly ten feature ports" now looks high; the true number is four or five,
+and the rebase is one or two more batches rather than three or four.
