@@ -60221,3 +60221,100 @@ now and the failure says whether the widget or the tool bar outlived.
    **decide whether the no-QtcQuick build is still supported**.
 4. **An async entry point for `Mcp::ToolRegistry`** (entry 239); then
    `VcsBaseSubmitEditor` and the Quick REPL rule.
+
+## 2026-09-13 — AddressSanitizer, and why it cannot see this either (batch 244)
+
+Entry 243 called for a sanitiser build as "the only instrument left that does
+not perturb what this bug reacts to". It exists now, it works, and it sees
+nothing. **No fix**, and the reason it sees nothing is the useful part.
+
+### The build
+
+A second build directory beside the working one, so nothing was disturbed:
+
+    cmake -S $SRC -B builds/linux-arm64/Asan -G Ninja \
+      -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=.../gcc_arm64 \
+      -DWITH_TESTS=ON -DBUILD_WITH_PCH=OFF -DBUILD_DEVELOPER_DOCS=OFF \
+      -DQTC_USE_SYSTEM_LIBARCHIVE=OFF -DBUILD_EXECUTABLE_CMDBRIDGE=OFF \
+      -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' \
+      -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' \
+      -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' \
+      -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address'
+
+7282 objects, about an hour in the container. Both the image and the VM
+already have `libasan.so.8`, so the result runs there unchanged. Run with
+`ASAN_OPTIONS=detect_leaks=0:log_path=/tmp/asan` - leak detection off because
+Qt Creator's shutdown leaks by design and the reports would bury anything real.
+
+**Checked that it is actually instrumented**, because the obvious check is
+wrong: `ldd ... | grep -i asan` matches the *build directory name* and says
+yes for an uninstrumented binary. What says it is
+`ldd bin/qtcreator | grep libasan` - `libasan.so.8 => /usr/lib/...` - and
+`nm -D libTextEditor.so | grep -c __asan_`, which is 37.
+
+### What it found
+
+    7 runs, 778 tests each, exit 0, zero report lines.
+
+### Why that is not the same as "there is no bug"
+
+ASan puts redzones around every allocation and checks accesses **in code it
+compiled**. Qt is not built with it here - only Qt Creator is. So a write past
+the end of a buffer *by Qt's own code* is not caught: the redzone is there, and
+nothing in `libQt6Quick.so` asks whether the address is in it.
+
+This branch drives an unusual amount of Qt Quick, and the crash appears in the
+test that opens and closes thirty editors - thirty QML scenes built and torn
+down. The corruption being in uninstrumented Qt code is consistent with
+everything measured so far, and it is the one place none of the four
+instruments tried could look.
+
+The instruments and what each showed:
+
+| instrument | runs | saw it |
+| --- | --- | --- |
+| the test on its own (243) | 6 | no |
+| gdb + `MALLOC_PERTURB_` (243) | 11 | no |
+| the ownership check inside the churn (243) | 8 | no |
+| ASan on Qt Creator (this batch) | 7 | no |
+
+Against a rate measured at 2 in 18 (entry 242). The first two perturb the
+allocator or the clock, which this failure reacts to. The third rules out the
+editors not being freed. The fourth rules out Qt Creator's own code writing
+out of bounds - and only that.
+
+### Measurements
+
+    -test TextEditor    778 passed, 0 failed, 18 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, exit 0
+
+and the ASan build, separately, 7 x 778 passed with no report.
+
+Roughly 40 runs since entry 242's two crashes, with nothing aimed at them.
+That is the rate being rare, not the bug being gone; nothing has changed that
+could have fixed it.
+
+### Negative controls
+
+None: nothing was changed. The nearest thing is the instrumentation check
+above - the first version of it (`grep -i asan`) passes on a binary with no
+sanitiser in it at all, which is a control failing open, and is why the symbol
+count is quoted beside it.
+
+### What is next
+
+1. **An ASan-built Qt**, if this is worth more. That is a Qt build, not a Qt
+   Creator one, and a different order of effort - worth saying out loud before
+   anyone starts it, because the four cheaper instruments are now exhausted and
+   the next step looks like "just one more sanitiser" and is not.
+2. **Or leave it**: two crashes in about sixty runs, in a test that exists to
+   compare carets and could compare them over fewer editors. Reducing the churn
+   would make the suite reliable without finding the bug, which is a trade
+   worth naming rather than making quietly.
+3. The two decisions from entry 236: **retire `QTC_WIDGET_CPP_EDITOR`**, and
+   **decide whether the no-QtcQuick build is still supported**.
+4. **An async entry point for `Mcp::ToolRegistry`** (entry 239); then
+   `VcsBaseSubmitEditor` and the Quick REPL rule.
+
+The ASan build is left at `builds/linux-arm64/Asan` - about 20 GB, outside git,
+and the only reason not to rebuild it next time.
