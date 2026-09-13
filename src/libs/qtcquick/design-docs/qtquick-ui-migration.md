@@ -61480,3 +61480,107 @@ Unchanged and still not mine:
 If another batch is asked for, the honest options are: run this mutation
 method with a different control (the follow-symbol one from entry 237, say),
 or stop. There is no feature gap left that I can find by reading.
+
+## 2026-09-13 — Two more mutations: one feature well guarded, one guarded by a single test (batch 257)
+
+Entry 256's own suggestion, taken: run the mutation method with a different
+control. Two this time, both from the standing instruction's list of things
+that must have somewhere to go on the Quick side.
+
+### EC - the C++ link finder removed
+
+`setLinkFinder(&findCppLinkAt)` deleted from `CppEditorFactory`.
+
+    -test CppEditor    1542 passed, 116 failed, 58 skipped, exit 116
+    -test TextEditor    764 passed,   2 failed,  3 skipped, exit 2
+
+Follow Symbol is **well guarded**. Fourteen distinct CppEditor test functions
+go red, both rows of the factory census go red, and two TextEditor guards
+name the problem precisely:
+
+    testEveryConvertedLanguageRegistersALinkFinder:
+        no link finder for: main.cpp, header.h
+    testADocumentsOwnLinkFinderBeatsItsLanguages:
+        no language answers Follow Symbol for a C++ file, so preferring the
+        document's own finder would prove nothing
+
+One follow-symbol test stayed green - `testFollowingASymbolAsksTheLanguage` -
+and that is correct: it drives CMake, not C++, on purpose. Checked rather than
+assumed, which is the whole point of reading the survivors.
+
+Nothing to fix here. Recorded because "we looked and it held" is a result.
+
+### EQ - the C++ quick-fix provider removed
+
+`CppEditorDocument::quickFixAssistProvider()` returning only the base, so a
+C++ document falls back to nothing rather than to `cppQuickFixAssistProvider()`.
+
+    -test CppEditor    1658 passed, 0 failed, 58 skipped, **exit 0**
+    -test TextEditor    765 passed, 1 failed,  3 skipped, exit 1
+
+**The entire CppEditor suite passes with C++ quick fixes disconnected.** The
+one test in the tree that notices is
+`testAQuickFixIsOfferedAndAppliedInTheQuickView`, written in entry 249, and it
+lives in TextEditor.
+
+Why the suite does not notice: CppEditor's quick-fix tests are extensive and
+drive the *factories* directly - they construct the operation and check the
+rewrite. None of them asks the document what provider it offers, so the wiring
+between the two is untested. The MCP `cpp_get_quick_fixes` tool reaches the
+factories the same way and stayed green too.
+
+And the census claimed to cover it. Entry 237 had already found that asking
+whether the document has *a* quick-fix provider cannot fail - it falls back to
+the C++ one - and replaced that with the `QUICKFIX_THIS` command being
+enabled. But the command comes from the factory's optional-action mask, so it
+is enabled whatever the document offers. Both the old assertion and its
+replacement are blind to this.
+
+Fixed by asking **which** provider, not whether there is one:
+
+    QVERIFY2(document->quickFixAssistProvider() == &cppQuickFixAssistProvider(),
+             "the document does not offer C++ quick fixes");
+
+Identity rather than type because the concrete class is file-local to
+`cppquickfixassistant.cpp`; the accessor is exported, so identity is available
+and is strictly stronger than a type check anyway.
+
+### Negative controls
+
+Each mutation is the control, and both are real code paths rather than
+sketches:
+
+- **EC**: 118 failures across two suites. No fix needed, no new assertion.
+- **EQ**, before the fix: CppEditor **green**, exit 0 - the finding.
+- **EQ**, after the fix: both census rows red, naming the provider.
+- **EQ reverted**, after the fix: green, so the new assertion does not fire on
+  a working tree.
+
+### Measurements
+
+    -test CppEditor    1658 passed, 0 failed, 58 skipped, exit 0
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+
+Built on macOS and Linux; no `.qbs` change.
+
+### The pattern across three mutations
+
+EA (entry 256), EC and EQ have now been run past everything. Two of the three
+found a census assertion that could not fail, and in both cases the *shape*
+was the same: **the census asked the factory about something the document
+owns.** Completion is installed on the document; quick fixes fall back on the
+document. The factory is the wrong thing to ask in exactly the cases where
+CppEditor does its work late, and those are the cases this branch created.
+
+If a fourth mutation is run, that is where to point it: anything else the
+document decides for itself after the factory has finished with it.
+
+### What is next
+
+Unchanged, and still not mine:
+
+1. **The two decisions from entry 236** - twenty-one batches.
+2. The crash, per entry 247 - accepted.
+3. `VcsBaseSubmitEditor` and the Quick REPL rule - entry 236 argued against
+   both.

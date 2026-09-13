@@ -1462,6 +1462,12 @@ private slots:
                      document->completionAssistProvider()),
                  "the document completes like plain text, not like C++");
 
+        // Quick fixes, by identity rather than by existence: the document
+        // falls back to the C++ provider when nothing else is set, so asking
+        // whether it has one at all cannot fail while that fallback is there.
+        QVERIFY2(document->quickFixAssistProvider() == &cppQuickFixAssistProvider(),
+                 "the document does not offer C++ quick fixes");
+
         // Follow symbol.
         QVERIFY2(TextEditor::TextEditorFactory::linkFinderFor(document),
                  "no link finder reached the document");
