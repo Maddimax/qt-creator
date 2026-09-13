@@ -4296,6 +4296,75 @@ private slots:
         QVERIFY2(diverged.isEmpty(), qPrintable("\n  " + diverged.join("\n  ")));
     }
 
+    // In TextEditor rather than beside the other C++ editor checks because
+    // reaching a TextViewport needs Qt Quick, which CppEditor does not link.
+    void testCompletionAnswersInTheQuickViewWithCppMembers()
+    {
+        Utils::TemporaryDirectory dir("quick-cpp-completion");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("members.cpp");
+        QVERIFY(file.writeFileContents("struct Probe { int alpha; int beta; };\n"
+                                       "void use(Probe p)\n"
+                                       "{\n"
+                                       "    p.\n"
+                                       "}\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(true);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport * const view = Internal::viewportForEditor(editor);
+        QVERIFY2(view, "the C++ file did not open in the Qt Quick view");
+
+        // Just after the "p.", which is where the members are on offer.
+        const int dot = document->document()->toPlainText().indexOf("p.") + 2;
+        QVERIFY(dot > 1);
+        QTextCursor caret(document->document());
+        caret.setPosition(dot);
+        TextEditor::setTextCursorOf(editor, caret);
+
+        // Asked until it answers with something: the model parses the file on
+        // its own thread and an early request is answered with nothing, which
+        // is not a failure - it is the language still reading.
+        QStringList offered;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                QSignalSpy answered(view, &TextViewport::completionsAvailable);
+                view->requestCompletions();
+                if (!answered.wait(2000))
+                    return false;
+                offered = answered.last().at(0).toStringList();
+                return offered.contains("alpha") && offered.contains("beta");
+            }(),
+            30000);
+
+        QVERIFY2(offered.contains("alpha") && offered.contains("beta"),
+                 qPrintable("offered: " + offered.join(", ")));
+
+        // And not the other words in the file. Both member names are written
+        // in it, so a completer that only knows the words it has seen offers
+        // them too and would pass the check above; what it cannot do is leave
+        // out the ones that are not members of Probe.
+        //
+        // "Probe" is not one of those: a class injects its own name into its
+        // scope, so "p.Probe" names the type and the model offers it. Asked
+        // of a free function and a keyword instead, which nothing reachable
+        // through a "." can be.
+        for (const QString &notAMember : {QString("use"), QString("struct")}) {
+            QVERIFY2(!offered.contains(notAMember),
+                     qPrintable("\"" + notAMember + "\" was offered after \"p.\", so this is "
+                                "completing from the words in the file: " + offered.join(", ")));
+        }
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");

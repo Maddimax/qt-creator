@@ -60573,3 +60573,112 @@ None: nothing was changed. Said plainly rather than dressed up, as in entries
    ASan-built Qt is wanted.
 3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
 4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
+
+## 248. Asking the Quick view for completions and reading what comes back
+
+### The gap this batch closed
+
+Five things have to be true for a C++ file to be usefully edited in the Quick
+view, and four of them are checked. Entry 237 checks that the commands
+CppEditor installs - completion among them - are enabled on a Quick editor,
+and that the document's provider is a `CppCompletionAssistProvider` and not
+the fallback word completer. Both are checks on *wiring*: that the command
+exists and that the right object is hanging off the document.
+
+Neither says a completion request made in the Quick view comes back with C++
+in it. The one test that did check that was skipped in entry 239, because it
+went through `editor_get_completions`, which is async and has no synchronous
+entry point. The skip was correct and the coverage went with it, and it has
+been missing for nine batches.
+
+`testCompletionAnswersInTheQuickViewWithCppMembers` in `QuickTextEditorTest`
+closes it. It writes
+
+    struct Probe { int alpha; int beta; };
+    void use(Probe p)
+    {
+        p.
+    }
+
+opens it with `setUsesQuickEditor(true)`, puts the caret after the `p.`, and
+drives the view's own path rather than a test-only one:
+
+    TextViewport * const view = Internal::viewportForEditor(editor);
+    QSignalSpy answered(view, &TextViewport::completionsAvailable);
+    view->requestCompletions();
+
+retried under `QTRY_VERIFY_WITH_TIMEOUT` until a non-empty answer arrives,
+because the model parses on its own thread and an early request is answered
+with nothing - which is the language still reading, not a failure.
+
+It lives in TextEditor rather than beside the other C++ editor checks for the
+reason entry 233 hit: `textviewport.h` includes `QQuickItem`, and CppEditor
+does not link Qt Quick and should not start. The C++ model answers through the
+document either way, so the test does not need to be in the plugin that owns
+the model.
+
+### What "it answered" had to mean
+
+The first version asserted `alpha` and `beta` were offered. That passes
+against a completer that has never heard of C++: both words are written in the
+file, so anything that offers the words it has seen would pass it. An
+assertion that cannot distinguish the two things it is there to tell apart is
+not covering anything - the point of the batch was the *C++* part.
+
+The discriminator is what is *not* offered after a `.`. The first list was
+`use`, `Probe`, `struct`, and it failed on `Probe`: a class injects its own
+name into its own scope, so `p.Probe` names the type and the model offers it
+correctly. My list was wrong about C++, not the view about completion. `use`
+is a free function and `struct` is a keyword, and nothing reachable through a
+`.` is either.
+
+Worth writing down because the failure read exactly like a bug in the code
+under test, and was a bug in the assertion's model of the language. The three
+items actually offered - `Probe`, `alpha`, `beta` - are the whole proof on
+their own: a word completer cannot produce a list that *short*.
+
+### Negative controls
+
+One, and it bit precisely:
+
+- `m_completionAssistProvider = nullptr` in `CppEditorDocument::Private`
+  instead of `CppModelManager::completionAssistProvider()`, which is entry
+  238's EA. The test goes red on `use`, and the diagnostic prints what the
+  fallback offers:
+
+      global example, struct, Probe, int, alpha, beta, void, use
+
+  Eight items, every word in the file, against the model's three. That is the
+  two behaviours separated by the assertion, which is what a control is for -
+  and it is why the "not offered" list is load-bearing and the "offered" list
+  alone was not.
+
+### Measurements
+
+    -test TextEditor    765 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+
+765 is 764 plus this test. No crash in this batch's runs; entry 247's
+recommendation on that flake stands unchanged.
+
+Built on macOS and on Linux; no `.qbs` change, so nothing to re-resolve.
+
+### What is next
+
+Unchanged from entry 247, and the order matters more each batch:
+
+1. **The two decisions from entry 236**: retire `QTC_WIDGET_CPP_EDITOR`, and
+   decide whether the no-QtcQuick build is still supported. Twelve batches
+   waiting. Every batch since has been work *around* them.
+2. The crash, per entry 247 - accepted and recorded unless an ASan-built Qt is
+   wanted.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+   This batch got the coverage back by going around the MCP tool rather than
+   through it, so the registry limit is still there for the next caller.
+4. `VcsBaseSubmitEditor`, and the Quick REPL rule.
+
+With this entry the five preconditions the mime-type flip rests on are all
+checked by something that fails when they stop being true. The branch's
+headline goal was met and guarded in entry 195; what has accumulated since is
+the evidence that it was safe to meet. That evidence is now complete, and the
+open work is decisions, not code.
