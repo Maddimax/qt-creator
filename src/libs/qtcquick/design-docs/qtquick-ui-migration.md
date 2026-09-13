@@ -60996,3 +60996,106 @@ is the next one of these worth doing.
 4. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
 5. `VcsBaseSubmitEditor` and the Quick REPL rule - judged not worth doing in
    entry 236.
+
+## 2026-09-13 — The census's last item found a live bug (batch 252)
+
+### The gap this batch closed
+
+Entry 251's census left one item from `CppEditorWidget`'s overrides unchecked:
+`inInlineRename()`, which is how the rest of Creator asks whether a rename is
+being typed into. FakeVim is the caller - it has to leave Escape and Enter
+alone while one is running, or the rename cannot be finished.
+
+The chain looked sound on reading. `CppLocalRenaming::isActive()` is a real
+`override` of `EditHandler::isActive()`, `TextViewport::hasActiveEditHandler()`
+walks the handlers, and FakeVim's Quick adapter overrides `inInlineRename()`
+to ask it. The adapter even carries a comment saying the default - asking the
+host by name - reaches a `QuickWidget` that has never heard of either method.
+
+The test for it did not exist. Its sibling did: `testVimLeavesASnippetItsOwnKeys`,
+whose comment names **both** halves - "a snippet being filled in, or an
+in-place rename" - and tests the snippet one.
+
+### What the test found
+
+`testVimLeavesAnInPlaceRenameItsOwnKeys` passed its own assertions on the
+first run and failed in `cleanup()`, on the fixture's standing guard against
+Qt printing things:
+
+    QMetaObject::invokeMethod: No such method QtcQuick::QuickWidget::inSnippetMode(bool *)
+
+**`FakeVimHandler::Private::editorTakesKeys()` still asked by name.** Two call
+sites ask these questions; 4591 was converted to the adapter and carries the
+comment about why, and 28365 was missed:
+
+    QMetaObject::invokeMethod(editor(), "inSnippetMode", Q_ARG(bool *, &active));
+
+`editor()` is the Qt Quick host, which has neither method, so both answered
+false. What that gates is `setThinCursor()`, which is `setOverwriteMode(!enable)`
+- so in the Qt Quick editor **the caret stayed a Vim block while a snippet or
+a rename was being typed into**, instead of becoming the thin insert caret,
+and the log gained two lines on every cursor move. The fix is the one the
+other site already had:
+
+    return m_adapter && (m_adapter->inSnippetMode() || m_adapter->inInlineRename());
+
+Worth saying plainly: this is the second time a conversion to the adapter was
+done at one call site and not the other, and both times the symptom was
+silent - `invokeMethod` on a missing method returns false, which is a
+perfectly ordinary answer.
+
+### Asserting it, rather than the log line
+
+The log guard is what caught it, but a cleanup-time guard against a string is
+a poor place to leave a finding. `setThinCursor` is `setOverwriteMode`, and
+`TextViewport::overwriteMode()` is public, so the caret shape is directly
+assertable:
+
+    view->setCursorPosition(view->cursorPosition() + 1);
+    QTRY_VERIFY2(!view->overwriteMode(),
+                 "the caret stayed a Vim block while the rename was being typed into");
+
+Moved within the name, because a move outside it would end the rename rather
+than test it.
+
+### Negative controls
+
+- **A - `editorTakesKeys()` put back to asking by name**, which is the
+  pre-fix code rather than a sketch of it. Red on the caret assertion *and* on
+  the log guard, now four lines. Both halves of the finding reproduce.
+- **B - the adapter's `inInlineRename()` returns false.** Red on the caret
+  assertion. This is the other end of the same chain, and it bites on its own.
+
+**A control that did not bite, reported rather than dressed up:** the test's
+final assertion - that Escape ends the rename - stayed **green under both A
+and B**. So it is not carrying the finding; the caret assertion is. Both
+controls act on the cursor-shape path, and Escape evidently reaches the view
+by another route regardless of what the adapter answers. The assertion is kept
+because it leaves the rename finished rather than dangling, but it should not
+be cited as covering key routing, and this entry says so rather than letting
+the next reader assume it.
+
+### Measurements
+
+    -test FakeVim       571 passed, 0 failed, 14 skipped, exit 0
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+
+FakeVim run because this batch changes it. Built on macOS and Linux; no `.qbs`
+change.
+
+### What is next
+
+With this, entry 251's census is complete: every override `CppEditorWidget`
+carries has a Quick-side home and something that fails when it stops working.
+
+1. **The two decisions from entry 236** - retire `QTC_WIDGET_CPP_EDITOR`, and
+   decide whether the no-QtcQuick build is still supported. Sixteen batches.
+2. The crash, per entry 247 - accepted and recorded.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+4. `VcsBaseSubmitEditor` and the Quick REPL rule - judged not worth doing in
+   entry 236.
+
+The census is the thing to repeat rather than the list: this batch's bug was
+found by writing the missing test, not by reading the code - the code read
+correctly at every step.

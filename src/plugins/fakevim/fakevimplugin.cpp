@@ -2268,6 +2268,68 @@ private slots:
                  "Vim took Escape from the snippet, so it could not be given up");
     }
 
+    // The other half of the comment above: a rename being typed into. Vim
+    // has to leave Escape alone for it too, and the answer comes a different
+    // way from the snippet's - through the edit handler CppEditor parents to
+    // the editor, rather than from anything the view keeps itself.
+    void testVimLeavesAnInPlaceRenameItsOwnKeys()
+    {
+        const bool wasOn = settings().useFakeVim();
+        const QScopeGuard restore([wasOn] { settings().useFakeVim.setValue(wasOn); });
+        settings().useFakeVim.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-rename-keys");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents(
+            "int main()\n{\n    int alpha = 1;\n    return alpha + alpha;\n}\n"));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the C++ file opened in a widget editor, so this tests nothing");
+
+        auto * const view = qobject_cast<TextEditor::TextViewport *>(
+            TextEditor::keyTargetOf(editor));
+        QVERIFY2(view, "FakeVim is not driving this editor at all");
+        QVERIFY2(dd->m_editorToHandler.value(editor, {}).handler,
+                 "no FakeVim handler was installed on the Quick editor");
+
+        // Nothing is being typed into yet, so the answer has to be no before
+        // it can mean anything when it is yes.
+        QVERIFY2(!view->hasActiveEditHandler(),
+                 "something claimed to be mid-edit in a file just opened");
+
+        // The rename over the three uses of alpha. Asked until it takes: the
+        // uses come from the code model, which reads the file on its own
+        // thread, and until it has there is nothing local to rename.
+        editor->gotoLine(3, 10);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                TextEditor::renameSymbolUnderCursorIn(editor);
+                return view->hasActiveEditHandler();
+            }(),
+            30000);
+
+        // Vim draws its block cursor by putting the editor in overwrite mode,
+        // and while the editor is taking the keys the caret has to be the thin
+        // insert one instead. Asked after a cursor move, which is what
+        // recomputes the shape - and moved within the name so the rename is
+        // still the thing being typed into.
+        view->setCursorPosition(view->cursorPosition() + 1);
+        QTRY_VERIFY2(!view->overwriteMode(),
+                     "the caret stayed a Vim block while the rename was being typed into");
+
+        // Escape, which means "done renaming" to the view and "leave insert
+        // mode" to Vim. The view has to get it, or the rename cannot be
+        // finished at all.
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &escape);
+        QVERIFY2(!view->hasActiveEditHandler(),
+                 "Vim took Escape from the rename, so it could not be given up");
+    }
+
     // The in-editor command line. It parented a MiniBuffer to a
     // TextEditorWidget and reserved a strip at the bottom so it never covers
     // text, so with a C++ file - which opens in the Qt Quick editor - the

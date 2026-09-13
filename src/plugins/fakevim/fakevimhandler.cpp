@@ -29275,14 +29275,7 @@ bool FakeVimHandler::Private::editorTakesKeys() const
 #ifdef FAKEVIM_STANDALONE
     return false;
 #else
-    if (!editor())
-        return false;
-    bool active = false;
-    QMetaObject::invokeMethod(editor(), "inSnippetMode", Q_ARG(bool *, &active));
-    if (active)
-        return true;
-    QMetaObject::invokeMethod(editor(), "inInlineRename", Q_ARG(bool *, &active));
-    return active;
+    return m_adapter && (m_adapter->inSnippetMode() || m_adapter->inInlineRename());
 #endif
 }
 
