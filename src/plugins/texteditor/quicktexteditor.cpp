@@ -6194,7 +6194,15 @@ private slots:
             // Completions. A document may have chosen its own since - that is
             // what CppEditorDocument does once it knows its mime type - so
             // what is wrong is falling back to the words already in the file.
-            if (factory->completionAssistProvider()
+            //
+            // Asking the factory alone skipped the one language this work is
+            // for: CppEditorFactory names no provider, because the document
+            // installs it. Measured rather than noticed - with CppEditor's
+            // provider removed, every other completion check in two suites
+            // went red and this census stayed green.
+            static const QSet<QString> completesThroughItsDocument{"CppEditor.C++Editor"};
+            if ((factory->completionAssistProvider()
+                 || completesThroughItsDocument.contains(id))
                 && dynamic_cast<DocumentContentCompletionProvider *>(
                     document->completionAssistProvider())) {
                 complain("completes from the words in the file, not from the language");

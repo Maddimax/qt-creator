@@ -61385,3 +61385,98 @@ Item 3 of the old list is done, and it was the last unblocked one. Anything
 further is either a decision, a day of machine time nobody has asked for, or
 work entry 236 already argued against. The honest statement is that the next
 batch should not invent one.
+
+## 2026-09-13 — Running one mutation past every guard (batch 256)
+
+Entry 255 said the next batch should not invent one, and this does not. It
+follows a defect entry 255 *measured*: a test that stayed green with C++
+completion removed entirely. Having run that same control by hand in four
+batches now, this ran it once against everything.
+
+### The method, and why this mutation
+
+Take the one change that should break the most: `CppEditorDocument` installs
+no completion provider (entry 238's control EA, the pre-fix code of a real
+bug). Apply it, run the suites, and read **which guards stay green**. A guard
+that survives a change it exists to catch is not a guard.
+
+    -test CppEditor    1653 passed, 5 failed, 58 skipped, exit 5
+    -test TextEditor    765 passed, 1 failed,  3 skipped, exit 1
+
+Six failures, all of them the right ones:
+
+- `testCppCompletionIsOfferedInEitherView` - the provider type, and it also
+  asserts the *interface* is a `CppCompletionAssistInterface`, which is a type
+  check rather than a word check and therefore sound.
+- `testACppEditorHasEverythingTheFactoryConfigures`, both rows.
+- `testGetCompletions`, both rows - the discriminator entry 255 added, biting.
+- `testCompletionAnswersInTheQuickViewWithCppMembers` - entry 248's.
+
+### The one that stayed green
+
+**`testEveryQuickLanguageGetsWhatItsFactoryConfigures`**, which is the census
+whose whole job includes noticing exactly this:
+
+    complain("completes from the words in the file, not from the language");
+
+It never ran that check for C++. The guard in front of it is
+
+    if (factory->completionAssistProvider() && dynamic_cast<...>)
+
+and **`CppEditorFactory` names no completion provider at all** -
+`CppEditorDocument` installs one when it learns its mime type. So the
+factory-driven census silently skipped the one language this whole branch is
+about, and had done since it was written.
+
+The comment two lines above the guard already knew - "A document may have
+chosen its own since - that is what CppEditorDocument does once it knows its
+mime type". The comment described the case the condition then failed to
+handle. That is a specific and repeatable way to be wrong: the knowledge was
+there, in prose, next to the code that did not act on it.
+
+Fixed by naming the languages whose completion arrives through the document
+rather than the factory. One entry, and the comment says why it cannot be
+derived - the census's virtue is being factory-driven, and this is the seam
+where that is not enough.
+
+### Negative controls
+
+The mutation *is* the control here, and it is the strongest kind available:
+not a sketch of broken code but the pre-fix state of a bug that shipped.
+
+- Pre-fix census + EA: **green** - the finding.
+- Post-fix census + EA: **red**, `CppEditor.C++Editor: completes from the
+  words in the file, not from the language`.
+- Post-fix census, EA reverted: **green**, so the new branch does not fire on
+  a working tree.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+    -test CppEditor    1658 passed, 0 failed, 58 skipped, exit 0
+
+Built on macOS and Linux; no `.qbs` change.
+
+### Worth repeating, not worth automating yet
+
+One mutation, four suites, about forty minutes, and it found a guard that had
+never once done its job. The cheap version of this - pick the control a batch
+already wrote, run it against everything rather than against the one test it
+was written for - is worth doing whenever a control is written. Six of seven
+guards held, which is also worth knowing.
+
+### What is next
+
+Unchanged and still not mine:
+
+1. **The two decisions from entry 236** - retire `QTC_WIDGET_CPP_EDITOR`
+   (measured 253, guarded 254), and whether the no-QtcQuick build is still
+   supported. Twenty batches.
+2. The crash, per entry 247 - accepted.
+3. `VcsBaseSubmitEditor` and the Quick REPL rule - entry 236 argued against
+   both.
+
+If another batch is asked for, the honest options are: run this mutation
+method with a different control (the follow-symbol one from entry 237, say),
+or stop. There is no feature gap left that I can find by reading.
