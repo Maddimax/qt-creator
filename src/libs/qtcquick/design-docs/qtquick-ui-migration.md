@@ -62866,3 +62866,72 @@ Unchanged from entry 269, with one item now sized rather than guessed at:
 None of these is a batch of the kind this plan has been running. The branch is
 on current master, both decisions are enacted, and the goal has been true and
 guarded since entry 195.
+
+## 2026-09-13 — The plan has no next step, and what the branch measures (batch 271)
+
+**No code changed.** Entry 270 listed four things and said none was a batch of
+the kind this plan has been running. That is still true, and one of them now
+has a number rather than a shrug.
+
+### The one item that was mine, priced
+
+Folding `fixup! QtcQuick: Port the Terminal page` into the commit it belongs to
+would rewrite **1284 commits** - that is how far down the stack the Terminal
+port sits. Twelve lines of QML, against a 1284-commit replay on a branch where
+one rebase has already been fumbled and three splice errors were made in two
+batches.
+
+Not worth taking unasked. It belongs in a deliberate tidy before the branch is
+pushed, together with whatever else that pass wants to do, and the number is
+recorded here so the next reader does not have to measure it again.
+
+### What the branch measures today
+
+    -test TextEditor     774 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi        226 passed, 0 failed,  0 skipped, exit 0
+    -test Core           293 passed, 0 failed,  0 skipped, exit 0
+    -test CppEditor     1658 passed, 0 failed, 58 skipped, exit 0
+    -test FakeVim        600 passed, 0 failed, 14 skipped, exit 0
+    -test Lua             13 passed, 0 failed,  0 skipped, exit 0
+    -test Todo            11 passed, 0 failed,  0 skipped, exit 0
+
+3575 passing, nothing failing, seven suites, one build. Against current
+master: **1431 ahead, 0 behind**, re-fetched for this entry rather than taken
+from entry 264.
+
+### What is left, and who it belongs to
+
+1. **A tidy of the stack before pushing** - the `fixup!` above, and anything
+   else a reviewer would rather not read. 1284 commits of replay; a decision
+   about when, not whether.
+2. **A Windows run for the console-host port** (entry 264). It is checked to
+   compile and to draw, never to work. Nobody here has a Windows machine.
+3. **The crash** (entry 247) - accepted with its measured rate, roughly 1 in 7
+   to 1 in 8 of TextEditor runs, six instruments unable to see it. Reopening it
+   wants an ASan-built Qt, which is a day.
+4. **Two uncovered behaviours** (entries 267, 269, 270): a line arriving
+   scrolls the REPL down, and hiding a button in the model hides what a reader
+   sees. Entry 270 established what is actually missing - a way to give a
+   pane's scene a size outside its host, and a writable `ButtonVisibleRole` -
+   so this is a piece of test infrastructure, sized but not started.
+
+### What I would do next, asked rather than assumed
+
+None of the four is the shape of a batch. What the branch needs now is a
+**reader**, not another commit: 1431 commits, nobody has reviewed it end to
+end, and the two decisions that shaped it were taken in entry 259 on evidence
+this document holds rather than anything a reviewer has seen.
+
+If another batch is wanted, the honest candidates in order are:
+
+- **The test-hosting work in item 4** - real, sized, and it buys back the only
+  two behaviours these five deletions uncovered.
+- **The stack tidy in item 1**, if the branch is close to being pushed.
+- Nothing else. The mutation sweep is exhausted (entries 256-258), the census
+  is complete (251, 252), the rebase is done (264), and both decisions are
+  enacted (259, 265-269).
+
+The goal this work exists for - a C++ file opens in `TextEditor::TextViewport`
+rather than `TextEditorWidget` - has been true since entry 195, is guarded by
+tests that have each been shown to fail when it stops being true, and survives
+a rebase onto current master.
