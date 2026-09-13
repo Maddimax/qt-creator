@@ -6191,18 +6191,23 @@ private slots:
                 continue;
             }
 
+            // A language whose document installs its own completion provider
+            // after the factory has finished with it, which is what
+            // CppEditorDocument does when it learns its mime type. Asking the
+            // factory alone skips exactly the language this work is for.
+            //
+            // Completion only: the indenter arrives the same way, but a C++
+            // document cannot be made to indent as plain text - the code
+            // style factory hands one to every document, and taking that away
+            // is a null indenter and a crash rather than a fallback. Nothing
+            // to guard against, so nothing is asserted.
+            static const QSet<QString> completesThroughItsDocument{"CppEditor.C++Editor"};
+            const bool ownDocument = completesThroughItsDocument.contains(id);
+
             // Completions. A document may have chosen its own since - that is
             // what CppEditorDocument does once it knows its mime type - so
             // what is wrong is falling back to the words already in the file.
-            //
-            // Asking the factory alone skipped the one language this work is
-            // for: CppEditorFactory names no provider, because the document
-            // installs it. Measured rather than noticed - with CppEditor's
-            // provider removed, every other completion check in two suites
-            // went red and this census stayed green.
-            static const QSet<QString> completesThroughItsDocument{"CppEditor.C++Editor"};
-            if ((factory->completionAssistProvider()
-                 || completesThroughItsDocument.contains(id))
+            if ((factory->completionAssistProvider() || ownDocument)
                 && dynamic_cast<DocumentContentCompletionProvider *>(
                     document->completionAssistProvider())) {
                 complain("completes from the words in the file, not from the language");

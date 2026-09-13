@@ -61584,3 +61584,111 @@ Unchanged, and still not mine:
 2. The crash, per entry 247 - accepted.
 3. `VcsBaseSubmitEditor` and the Quick REPL rule - entry 236 argued against
    both.
+
+## 2026-09-13 — Three mutations at the document, and two of them were not mutations (batch 258)
+
+Entry 257 predicted where the next one should point: "anything else the
+document decides for itself after the factory has finished with it."
+`CppEditorDocument` decides two more things - its indenter and its syntax
+highlighter, neither of which `CppEditorFactory` names. The prediction was
+worth testing and it did not pay out, which is the result.
+
+### EI - the constructor's setIndenter removed. Not a mutation.
+
+    -test CppEditor   1658 passed, 0 failed, exit 0
+    -test TextEditor   758 passed, 8 failed, exit 8
+
+Eight behavioural failures - string splitting, line breaking, pasted blocks -
+and the census green. That reads exactly like the completion finding: the
+census keyed on `factory->indenterCreator()`, which is null for C++, so it
+skips the check. I generalised the census the same way and it **still passed**.
+
+Instrumenting instead of pushing harder: dump the indenter each language ends
+up with.
+
+    INDENTER "CppEditor.C++Editor" N9CppEditor8Internal18CppQtStyleIndenterE
+
+**The C++ document still had its own indenter.** The constructor's
+`setIndenter` is not the only one - `EditorConfiguration::configureEditor`
+sets a code style, and the code style hands over an indenter. So EI never
+removed the thing it claimed to, the eight failures were a perturbation rather
+than a removal, and **the census's green was correct**. My fix was a fix to
+nothing, and it was already written before I checked.
+
+### EI2 - the code style's indenter creator removed. Not available.
+
+`setIndenterCreator` gone from `CppEditorFactory`'s code style and from
+`decorateCppDocument`. `ICodeStylePreferencesFactory::createIndenter` then
+returns nullptr, and the test run **crashed**: exit 255, log stopping mid-test.
+
+A null indenter is not a state the product supports, so "a C++ file indents as
+plain text" is not reachable. There is nothing for the census to guard there,
+and the generalisation was withdrawn. What is left in its place is a comment
+saying the indenter was checked and why it is not in the set - so the next
+reader does not spend this batch again.
+
+### EH - the C++ syntax highlighter removed. A real mutation, well guarded.
+
+    -test CppEditor    539 passed, 3 failed  (the run aborts partway)
+    -test TextEditor   764 passed, 2 failed, exit 2
+
+    testACppDocumentKeepsItsOwnHighlighter:
+        a C++ file in the Quick editor is highlighted by something else
+    testFoldsSurviveASaveAndRestore, both rows - folding comes from the
+        highlighter, so it goes with it.
+
+A dedicated test with a precise message, plus folding coverage in both views.
+Nothing to fix.
+
+### What this batch actually changed
+
+One comment. The census behaves exactly as entry 256 left it; what is new is
+that it now records which of the document's own settings were checked and why
+only completion is named. Said plainly because the temptation was to keep the
+indenter line - it costs nothing, it looks like more coverage, and it asserts
+a state that cannot occur. Entry 237's whole finding was assertions of that
+kind.
+
+Re-verified after editing the file the entry-256 fix lives in: with the
+completion provider removed, the census is red with
+`CppEditor.C++Editor: completes from the words in the file, not from the
+language`, and green with it back.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+    -test CppEditor    1658 passed, 0 failed, 58 skipped, exit 0
+
+Built on macOS and Linux; no `.qbs` change.
+
+One process note: a `cmake --build` for macOS was issued on the same line as a
+`cd` into the test rig, so it ran in the wrong directory and built nothing -
+and the `grep error:` that "checked" it found nothing, which reads exactly
+like success. Re-run from the right place, it links. A grep for errors cannot
+tell a clean build from no build; only output that names the target can.
+
+### What the mutation method has produced, five mutations in
+
+EA found a blind census. EQ found a feature guarded by one test in another
+plugin. EC, EH: well guarded, nothing to do. EI, EI2: not mutations at all.
+
+Two findings, two confirmations and two duds. The duds cost as much as the
+findings and the method has no way to tell them apart in advance - but the way
+to find out is cheap, and the failure mode is loud: a mutation that changes
+behaviour without removing the feature shows up as *behavioural* tests failing
+while the *structural* ones pass. That pattern is the signal to instrument
+before fixing anything.
+
+### What is next
+
+Unchanged, and still not mine:
+
+1. **The two decisions from entry 236** - twenty-two batches.
+2. The crash, per entry 247 - accepted.
+3. `VcsBaseSubmitEditor` and the Quick REPL rule - entry 236 argued against
+   both.
+
+The mutation seam is worked out: every feature `CppEditorFactory` or
+`CppEditorDocument` configures has now been removed in turn and the guards
+read. I would stop here rather than mutate further afield.
