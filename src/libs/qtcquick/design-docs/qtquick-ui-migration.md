@@ -62239,3 +62239,114 @@ Twelve manual conflicts over 1236 commits, four of them real ports - Terminal,
 Docker, CMake find/rename, and Markdown still to do. Entry 260's estimate of
 "roughly ten feature ports" now looks high; the true number is four or five,
 and the rebase is one or two more batches rather than three or four.
+
+## 2026-09-13 — The rebase is done, and the build found what the replay could not (batch 264)
+
+**`utils-drop-printsupport` is on current master.** 1424 commits ahead, **0
+behind**, all three suites green. The old tip is kept at
+`backup/pre-rebase-261` and the checkpoints at `wip/rebase-onto-master` and
+`wip/rebase-continue` until somebody says otherwise.
+
+### The last port
+
+`TextEditor: Show Markdown's text in the Qt Quick view` against master's
+`MarkdownEditor: Highlight search results in the other view`. Master binds
+`m_editorHighlight.find` to a `BaseTextFindBase` aggregated onto
+`m_textEditorWidget`; our commit replaces that widget with a Quick host. It
+turned out to need no new machinery: `createQuickTextView` already aggregates
+a `QuickTextFind` onto the host, and the host is a `QWidget`, which is all the
+mirroring asks of `view` (it calls `isVisible()`). So the port is three
+substitutions - `m_textView` for `m_textEditorWidget` in the query, the
+binding and the `view` - and the feature works in the Quick view.
+
+Then 76 more commits with one trivial conflict, and the replay finished.
+
+### What only a build could find
+
+Every conflict had been resolved and every resolution read. The tree still did
+not compile, in **eight** places, and each is a different way for two correct
+sides to produce a wrong whole:
+
+1. **`paintBoxDrawingCharacter` undefined.** Master added `boxdrawing.cpp` to
+   the terminal library; our commit split that library in two, and the
+   auto-merged source list put the file in the model half while its only
+   caller is in the view half. Moved to the view library - in CMake **and** in
+   both `.qbs` files, per the sync rule.
+2. **`debuggersourcepathmappingwidget.h` missing.** Our branch deletes it;
+   master's `debuggerengine.cpp` still included it. The declarations our
+   branch wants are in `sourcepathmap.h`.
+3. **...and then five functions undefined at link.** Removing the include was
+   not enough: master had added `qtBuildSourceRoots`, `debugInfoDirectory`,
+   `debugInfoFile` and a new `mergePlatformQtPath` overload, and their
+   *definitions* were in the widget `.cpp` this branch deletes. Moved into
+   `sourcepathmap.cpp`, which is where this branch keeps that code, replacing
+   its older `mergePlatformQtPath` with master's.
+4. **`BlameController::setContext` crossed.** Entry 263 resolved it the wrong
+   way round: master simplified the widget overload to five arguments, but
+   this branch's *definitions* and its `m_allowModifiedDocument` member need
+   seven on both. Restored to the branch's shape and the call sites with it.
+5. **`createDebugServerReadyTest` undeclared** - dropped by entry 262's "take
+   ours", restored.
+6. **...and then undefined at run time**, because I put the declaration after
+   the closing brace of `namespace BareMetal::Internal`. The mangled name in
+   the plugin-load error said so: `_Z26createDebugServerReadyTestv`, no
+   namespace in it.
+7. **`QTimer` incomplete** - another include lost to the same "take ours".
+8. **CMake's missing-source-file quick fix** typed its callback
+   `void(TextEditorWidget *)` and published markers through
+   `textEditorWidgetsForDocument`, which finds nothing for a Quick view. Now
+   `void(Core::IEditor *)` and `m_document->setRefactorMarkers`.
+
+### The census earned its keep twice
+
+With everything compiling, `-test QuickUi` failed - and both failures were
+mine, in the Terminal port:
+
+    Terminal: .../TerminalSettingsPage.qml:34:13: AspectDelegate is not a type
+
+`AspectDelegate` does not exist; a `FilePathAspect` is drawn by
+`StringDelegate`, as six other pages do. Then, with that fixed:
+
+    these pages lost a setting on the way to Qt Quick:
+    Terminal: AllowClipboardWrite, Terminal: ConfirmUnsafePaste
+
+Master's two new Terminal settings were in the container - I had kept them
+when resolving the header, both sides being additive - and drawn nowhere. The
+census that entry 256 fixed for C++ completion is the same one that caught
+this, and it named the settings and told me where to record an exception if
+they were deliberate. They were not.
+
+### Measurements
+
+    -test TextEditor    774 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+    -test CppEditor    1658 passed, 0 failed, 58 skipped, exit 0
+
+774 rather than 766: master brought eight tests of its own. These are the
+first numbers in four batches that mean anything, because they are the first
+taken on a whole tree.
+
+`.qbs` files were edited (the box drawing move) and kept in sync with CMake by
+hand. **No qbs resolve was run** - there is no qbs build configured here - so
+that half of the sync rule is unverified, and says so rather than being
+claimed.
+
+### Negative controls
+
+The build was the control, and an unusually good one: eight failures, each
+pointing at a specific wrong merge, and two more from the QuickUi census after
+that. A conflict resolved in isolation is a guess until the whole tree is
+compiled - **twelve of the twelve issues above were invisible at the moment
+the conflict was resolved**, and four of them came from resolutions I had read
+carefully and still got wrong.
+
+### What is next
+
+1. **Decision 2: delete the no-QtcQuick build.** `CONDITION TARGET QtcQuick`
+   and the widget halves behind `QTC_WIDGET_OPEN_DOCUMENTS`,
+   `QTC_WIDGET_BOOKMARKS`, `QTC_WIDGET_SEARCH_RESULTS`,
+   `QTC_WIDGET_OUTPUT_BUTTONS`, `QTC_WIDGET_LUA_PANE`. One view at a time.
+2. **Fold `fixup! QtcQuick: Port the Terminal page`** when the stack is tidied.
+3. The Windows console-host port wants a Windows run before anyone believes
+   it; it is checked to compile and to draw, not to work.
+4. The crash, per entry 247 - still accepted.
