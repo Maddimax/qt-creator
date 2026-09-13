@@ -47,8 +47,9 @@ public:
     // A search that is running can be cancelled and cannot be repeated; one
     // that has finished is the other way round.
     bool canCancel() const { return m_searching && !m_cancelRequested; }
-    bool canSearchAgain() const { return m_searchAgainSupported && !m_searching; }
-    bool canReplace() const { return m_count > 0; }
+    bool canSearchAgain() const
+    { return m_searchAgainSupported && m_searchAgainEnabled && !m_searching; }
+    bool canReplace() const { return m_replaceEnabled && m_count > 0; }
 
     // What went wrong, where anything did. Empty is the ordinary case.
     QString message() const { return m_message; }
@@ -97,6 +98,10 @@ public:
     void setAdditionalNote(const QString &note);
 
     void setSearchAgainSupported(bool supported);
+    // Asked for by whoever started the search, over and above what the state
+    // above allows - the two buttons used to carry this themselves.
+    void setSearchAgainEnabled(bool enabled);
+    void setReplaceEnabled(bool enabled);
 
     // Asked for once: a search being stopped cannot be stopped again, and the
     // button went away by being hidden directly before this was state.
@@ -112,6 +117,8 @@ signals:
 private:
     bool m_searching = true;
     bool m_searchAgainSupported = false;
+    bool m_searchAgainEnabled = true;
+    bool m_replaceEnabled = true;
     bool m_cancelRequested = false;
     bool m_replaceSupported = false;
     bool m_showingReplaceUi = false;
@@ -307,21 +314,8 @@ private:
     QFrame *m_messageWidget = nullptr;
     Utils::InfoBar m_infoBar;
     Utils::InfoBarDisplay m_infoBarDisplay;
-    QWidget *m_topReplaceWidget = nullptr;
-    QLabel *m_replaceLabel = nullptr;
-    QLineEdit *m_replaceTextEdit = nullptr;
-    QToolButton *m_replaceButton = nullptr;
-    QToolButton *m_searchAgainButton = nullptr;
-    QCheckBox *m_preserveCaseCheck = nullptr;
-    QCheckBox *m_additionalOptionCheck = nullptr;
     QWidget *m_quickRow = nullptr;
-    Utils::InfoLabel *m_additionalNoteLabel = nullptr;
-    QWidget *m_descriptionContainer = nullptr;
-    QLabel *m_label = nullptr;
-    QLabel *m_searchTerm = nullptr;
     Utils::InfoLabel *m_messageLabel = nullptr;
-    QToolButton *m_cancelButton = nullptr;
-    QLabel *m_matchesFoundLabel = nullptr;
 };
 
 } // Internal

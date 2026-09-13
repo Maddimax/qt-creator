@@ -154,43 +154,6 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     layout->setSpacing(0);
     setLayout(layout);
 
-    // The Qt Quick pane draws the row and the results alike, and is what a
-    // reader gets. QTC_WIDGET_SEARCH_RESULTS asks for the widgets, and a
-    // build with no front end to host QML gets them without asking. Decided
-    // here, built after the tree below: the scene reads the results model as
-    // it loads, so there has to be one.
-    const bool quick = !Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_SEARCH_RESULTS")
-                       && Core::hasQmlViewFactory();
-
-    QFrame *topWidget = new QFrame;
-    QPalette pal;
-    pal.setColor(QPalette::Window,     creatorColor(Theme::InfoBarBackground));
-    pal.setColor(QPalette::WindowText, creatorColor(Theme::InfoBarText));
-    topWidget->setPalette(pal);
-    if (creatorTheme()->flag(Theme::DrawSearchResultWidgetFrame)) {
-        topWidget->setFrameStyle(QFrame::Panel | QFrame::Raised);
-        topWidget->setLineWidth(1);
-    }
-    topWidget->setAutoFillBackground(true);
-    topWidget->setVisible(!quick);
-    auto topLayout = new QVBoxLayout(topWidget);
-    topLayout->setContentsMargins(2, 2, 2, 2);
-    topLayout->setSpacing(2);
-    topWidget->setLayout(topLayout);
-    layout->addWidget(topWidget);
-
-    auto topFindWidget = new QWidget(topWidget);
-    auto topFindLayout = new QHBoxLayout(topFindWidget);
-    topFindLayout->setContentsMargins(0, 0, 0, 0);
-    topFindWidget->setLayout(topFindLayout);
-    topLayout->addWidget(topFindWidget);
-
-    m_topReplaceWidget = new QWidget(topWidget);
-    auto topReplaceLayout = new QHBoxLayout(m_topReplaceWidget);
-    topReplaceLayout->setContentsMargins(0, 0, 0, 0);
-    m_topReplaceWidget->setLayout(topReplaceLayout);
-    topLayout->addWidget(m_topReplaceWidget);
-
     m_messageWidget = new QFrame;
     if (creatorTheme()->flag(Theme::DrawSearchResultWidgetFrame)) {
         m_messageWidget->setFrameStyle(QFrame::Panel | QFrame::Raised);
@@ -207,114 +170,47 @@ SearchResultWidget::SearchResultWidget(QWidget *parent) :
     layout->addWidget(m_messageWidget);
     m_messageWidget->setVisible(false);
 
+    // Built and never shown: the Qt Quick scene reads the results out of this
+    // view's model as it loads, so there has to be one.
     m_searchResultTreeView = new SearchResultTreeView(this);
     connect(m_searchResultTreeView, &SearchResultTreeView::filterInvalidated,
             this, &SearchResultWidget::filterInvalidated);
     connect(m_searchResultTreeView, &SearchResultTreeView::filterChanged,
             this, &SearchResultWidget::filterChanged);
+    m_searchResultTreeView->setVisible(false);
+    layout->addWidget(m_searchResultTreeView, 0);
 
-    m_searchResultTreeView->setVisible(!quick);
-    layout->addWidget(m_searchResultTreeView, quick ? 0 : 1);
-
-    if (quick) {
-        auto * const row = new SearchResultRow(&m_header, this);
-        m_quickRow = Core::createQmlView(
-            QUrl("qrc:/qt/qml/QtCreator/Core/SearchResultsPane.qml"), row);
-        if (m_quickRow)
-            layout->insertWidget(0, m_quickRow, 1);
-        else
-            delete row;
-    }
+    auto * const row = new SearchResultRow(&m_header, this);
+    m_quickRow = Core::createQmlView(
+        QUrl("qrc:/qt/qml/QtCreator/Core/SearchResultsPane.qml"), row);
+    QTC_ASSERT(m_quickRow, delete row; return);
+    layout->insertWidget(0, m_quickRow, 1);
 
     m_infoBarDisplay.setTarget(layout, 2);
     m_infoBarDisplay.setInfoBar(&m_infoBar);
 
-    m_descriptionContainer = new QWidget(topFindWidget);
-    auto descriptionLayout = new QHBoxLayout(m_descriptionContainer);
-    m_descriptionContainer->setLayout(descriptionLayout);
-    descriptionLayout->setContentsMargins(0, 0, 0, 0);
-    m_descriptionContainer->setMinimumWidth(200);
-    m_descriptionContainer->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_label = new QLabel(m_descriptionContainer);
-    m_label->setVisible(false);
-    m_searchTerm = new QLabel(m_descriptionContainer);
-    m_searchTerm->setTextFormat(Qt::PlainText);
-    m_searchTerm->setVisible(false);
-    descriptionLayout->addWidget(m_label);
-    descriptionLayout->addWidget(m_searchTerm);
-    m_cancelButton = new QToolButton(topFindWidget);
-    m_cancelButton->setText(Tr::tr("Cancel"));
-    m_cancelButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    connect(m_cancelButton, &QAbstractButton::clicked, this, &SearchResultWidget::cancel);
-    m_searchAgainButton = new QToolButton(topFindWidget);
-    m_searchAgainButton->setToolTip(Tr::tr("Repeat the search with same parameters."));
-    m_searchAgainButton->setText(Tr::tr("&Search Again"));
-    m_searchAgainButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_searchAgainButton->setVisible(false);
-    connect(m_searchAgainButton, &QAbstractButton::clicked, this, &SearchResultWidget::searchAgain);
-
-    m_replaceLabel = new QLabel(Tr::tr("Repla&ce with:"), m_topReplaceWidget);
-    m_replaceTextEdit = new WideEnoughLineEdit(m_topReplaceWidget);
-    m_replaceLabel->setBuddy(m_replaceTextEdit);
-    m_replaceTextEdit->setMinimumWidth(120);
-    setTabOrder(m_replaceTextEdit, m_searchResultTreeView);
-    m_preserveCaseCheck = new QCheckBox(m_topReplaceWidget);
-    m_preserveCaseCheck->setObjectName("preserveCase");
-    m_preserveCaseCheck->setText(Tr::tr("Preser&ve case"));
-    m_preserveCaseCheck->setEnabled(false);
-    m_additionalNoteLabel = new Utils::InfoLabel({}, Utils::InfoLabelType::Information,
-                                                 m_topReplaceWidget);
-    m_additionalOptionCheck = new QCheckBox(m_topReplaceWidget);
-    m_additionalOptionCheck->setObjectName("additionalReplaceOption");
-    m_replaceButton = new QToolButton(m_topReplaceWidget);
-    m_replaceButton->setToolTip(Tr::tr("Replace all occurrences."));
-    m_replaceButton->setText(Tr::tr("&Replace"));
-    m_replaceButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_replaceButton->setEnabled(false);
-
-    m_preserveCaseCheck->setChecked(Find::hasFindFlag(FindPreserveCase));
-    connect(m_preserveCaseCheck, &QAbstractButton::clicked, Find::instance(), &Find::setPreserveCase);
-
-    m_matchesFoundLabel = new QLabel(topFindWidget);
-    updateHeader();
-
-    topFindLayout->addWidget(m_descriptionContainer);
-    topFindLayout->addWidget(m_cancelButton);
-    topFindLayout->addWidget(m_searchAgainButton);
-    topFindLayout->addStretch(2);
-    topFindLayout->addWidget(m_matchesFoundLabel);
-    topReplaceLayout->addWidget(m_replaceLabel);
-    topReplaceLayout->addWidget(m_replaceTextEdit);
-    topReplaceLayout->addWidget(m_preserveCaseCheck);
-    topReplaceLayout->addWidget(m_additionalNoteLabel);
-    topReplaceLayout->addWidget(m_additionalOptionCheck);
-    topReplaceLayout->addWidget(m_replaceButton);
-    topReplaceLayout->addStretch(2);
     setShowReplaceUI(m_header.supportsReplace());
     setSupportPreserveCase(true);
+    m_header.setPreserveCaseChecked(Find::hasFindFlag(FindPreserveCase));
 
-    connect(&m_header, &SearchResultHeader::changed,
-            this, &SearchResultWidget::updateHeader);
-    // The two widgets a reader edits are editors of the header's state, not
-    // the place it lives: what they are told, they tell back.
-    connect(m_replaceTextEdit, &QLineEdit::textChanged, &m_header,
-            &SearchResultHeader::setTextToReplace);
-    connect(m_preserveCaseCheck, &QCheckBox::toggled, &m_header,
-            &SearchResultHeader::setPreserveCaseChecked);
-    connect(m_additionalOptionCheck, &QCheckBox::toggled, &m_header,
-            &SearchResultHeader::setAdditionalOptionChecked);
-    updateHeader();
+    // The row edits the header, so what used to hang off the two widgets a
+    // reader typed into hangs off the header's own change instead. Guarded on
+    // the previous value: "changed" says something moved, not which thing.
+    connect(&m_header, &SearchResultHeader::changed, this,
+            [this, replaceText = m_header.textToReplace(),
+             preserveCase = m_header.preserveCaseChecked()]() mutable {
+        if (const QString text = m_header.textToReplace(); text != replaceText) {
+            replaceText = text;
+            emit replaceTextChanged(text);
+        }
+        if (const bool checked = m_header.preserveCaseChecked(); checked != preserveCase) {
+            preserveCase = checked;
+            Find::setPreserveCase(checked);
+        }
+    });
 
     connect(m_searchResultTreeView, &SearchResultTreeView::jumpToSearchResult,
             this, &SearchResultWidget::handleJumpToSearchResult);
-    connect(m_replaceTextEdit, &QLineEdit::returnPressed,
-            this, &SearchResultWidget::handleReplaceButton);
-    connect(m_replaceTextEdit, &QLineEdit::textChanged,
-            this, &SearchResultWidget::replaceTextChanged);
-    connect(m_replaceButton, &QAbstractButton::clicked,
-            this, &SearchResultWidget::handleReplaceButton);
-
-    topFindWidget->setMinimumHeight(m_cancelButton->sizeHint().height());
 }
 
 SearchResultWidget::~SearchResultWidget()
@@ -401,8 +297,6 @@ bool SearchResultWidget::supportsReplace() const
 void SearchResultWidget::setTextToReplace(const QString &textToReplace)
 {
     m_header.setTextToReplace(textToReplace);
-    m_replaceTextEdit->setText(textToReplace);
-    m_replaceTextEdit->selectAll();
 }
 
 QString SearchResultWidget::textToReplace() const
@@ -419,10 +313,7 @@ void SearchResultWidget::setShowReplaceUI(bool visible)
 {
     m_searchResultTreeView->model()->setShowReplaceUI(visible);
     m_header.setShowingReplaceUi(visible);
-    if (visible)
-        m_replaceTextEdit->setFocus();
-    else
-        m_searchResultTreeView->setFocus();
+    setFocusInternally();
 }
 
 bool SearchResultWidget::hasFocusInternally() const
@@ -430,26 +321,16 @@ bool SearchResultWidget::hasFocusInternally() const
     // The widgets below are built and hidden when the Qt Quick pane is the
     // one on screen, so asking them is asking about something no reader can
     // reach.
-    if (m_quickRow) {
-        const QWidget * const focused = QApplication::focusWidget();
-        return focused && (focused == m_quickRow || m_quickRow->isAncestorOf(focused));
-    }
-    return m_searchResultTreeView->hasFocus()
-           || (m_header.isShowingReplaceUi() && m_replaceTextEdit->hasFocus());
+    const QWidget * const focused = QApplication::focusWidget();
+    return m_quickRow && focused && (focused == m_quickRow || m_quickRow->isAncestorOf(focused));
 }
 
 void SearchResultWidget::setFocusInternally()
 {
     if (!canFocusInternally() || hasFocusInternally())
         return;
-    if (m_quickRow) {
+    if (m_quickRow)
         m_quickRow->setFocus();
-        return;
-    }
-    if (m_header.isShowingReplaceUi() && (!focusWidget() || focusWidget() == m_replaceTextEdit))
-        m_replaceTextEdit->setFocus();
-    else
-        m_searchResultTreeView->setFocus();
 }
 
 bool SearchResultWidget::canFocusInternally() const
@@ -549,7 +430,7 @@ void SearchResultWidget::setSearchAgainSupported(bool supported)
 
 void SearchResultWidget::setSearchAgainEnabled(bool enabled)
 {
-    m_searchAgainButton->setEnabled(enabled);
+    m_header.setSearchAgainEnabled(enabled);
 }
 
 void SearchResultWidget::setFilter(SearchResultFilter *filter)
@@ -569,7 +450,7 @@ void SearchResultWidget::showFilterWidget(QWidget *parent)
 
 void SearchResultWidget::setReplaceEnabled(bool enabled)
 {
-    m_replaceButton->setEnabled(enabled);
+    m_header.setReplaceEnabled(enabled);
 }
 
 void SearchResultWidget::finishSearch(bool canceled, const QString &reason)
@@ -605,9 +486,9 @@ void SearchResultWidget::handleJumpToSearchResult(const SearchResultItem &item)
 
 void SearchResultWidget::handleReplaceButton()
 {
-    // check if button is actually enabled, because this is also triggered
-    // by pressing return in replace line edit
-    if (m_replaceButton->isEnabled())
+    // Asked of the state rather than of a button: this is also reached by
+    // pressing Return in the field the row draws.
+    if (m_header.canReplace())
         doReplace();
 }
 
@@ -750,6 +631,22 @@ void SearchResultHeader::setSearchAgainSupported(bool supported)
     emit changed();
 }
 
+void SearchResultHeader::setSearchAgainEnabled(bool enabled)
+{
+    if (m_searchAgainEnabled == enabled)
+        return;
+    m_searchAgainEnabled = enabled;
+    emit changed();
+}
+
+void SearchResultHeader::setReplaceEnabled(bool enabled)
+{
+    if (m_replaceEnabled == enabled)
+        return;
+    m_replaceEnabled = enabled;
+    emit changed();
+}
+
 void SearchResultHeader::startSearch()
 {
     m_searching = true;
@@ -777,26 +674,9 @@ void SearchResultHeader::finishSearch(bool canceled, const QString &reason)
     emit changed();
 }
 
-// The one place the header's answers reach the widgets that draw them.
+// The one widget the pane still draws itself: the row has no message strip.
 void SearchResultWidget::updateHeader()
 {
-    m_matchesFoundLabel->setText(m_header.matchesFound());
-    m_label->setText(m_header.label());
-    m_label->setVisible(!m_header.label().isEmpty());
-    m_descriptionContainer->setToolTip(m_header.toolTip());
-    m_searchTerm->setText(m_header.term());
-    m_searchTerm->setVisible(!m_header.term().isEmpty());
-    m_topReplaceWidget->setVisible(m_header.isShowingReplaceUi());
-    m_preserveCaseCheck->setVisible(m_header.supportsPreserveCase());
-    m_additionalOptionCheck->setText(m_header.additionalOptionLabel());
-    m_additionalOptionCheck->setToolTip(m_header.additionalOptionToolTip());
-    m_additionalOptionCheck->setVisible(m_header.hasAdditionalOption());
-    m_additionalNoteLabel->setText(m_header.additionalNote());
-    m_additionalNoteLabel->setVisible(!m_header.additionalNote().isEmpty());
-    m_cancelButton->setVisible(m_header.canCancel());
-    m_searchAgainButton->setVisible(m_header.canSearchAgain());
-    m_replaceButton->setEnabled(m_header.canReplace());
-    m_preserveCaseCheck->setEnabled(m_header.canReplace());
     if (!m_header.message().isEmpty())
         m_messageLabel->setText(m_header.message());
     m_messageWidget->setVisible(!m_header.message().isEmpty());
@@ -950,37 +830,33 @@ private slots:
 
     void testTypingIntoTheReplaceFieldReachesWhatAReplaceWillUse()
     {
-        // The two widgets a reader edits are editors of the row's state. If
-        // they do not tell it back, a replace uses whatever was last set
-        // programmatically and quietly ignores what was typed.
+        // The row a reader types into is QML, and it writes the state through
+        // the controller the scene is given. So the controller is what this
+        // drives - the same call the binding makes - rather than a QLineEdit
+        // that no longer exists. If it does not tell the state back, a replace
+        // uses whatever was last set programmatically and quietly ignores
+        // what was typed.
         SearchResultWidget widget;
-        const QList<QLineEdit *> edits = widget.findChildren<QLineEdit *>();
-        QCOMPARE(edits.size(), 1);
-        auto * const preserveCase = widget.findChild<QCheckBox *>("preserveCase");
-        QVERIFY(preserveCase);
+        auto * const row = widget.findChild<SearchResultRow *>();
+        QVERIFY2(row, "the pane built no controller for its Qt Quick row");
 
         widget.setSupportsReplace(true, {});
         widget.setSupportPreserveCase(true);
 
-        edits.first()->setText("typed");
+        row->setTextToReplace("typed");
         QCOMPARE(widget.textToReplace(), QString("typed"));
 
-        preserveCase->setChecked(true);
+        row->setPreserveCaseChecked(true);
         QVERIFY2(widget.headerForTesting().preserveCase(),
                  "ticking the box beside the field reaches nothing");
 
         // And the extra option the caller named, which is the one that used
         // to be a QWidget handed in from another plugin.
-        auto * const extra = widget.findChild<QCheckBox *>("additionalReplaceOption");
-        QVERIFY(extra);
-        // isHidden(), not isVisibleTo(): the whole widget strip is hidden
-        // when the Qt Quick row is the one on screen, so what is asked here
-        // is whether this box was hidden in its own right.
-        QVERIFY2(extra->isHidden(), "an option nobody named is drawn anyway");
+        QVERIFY2(!row->hasAdditionalOption(), "a search offers a nameless extra option");
         widget.setAdditionalReplaceOption("Rename 2 files", "a.cpp\nb.cpp");
-        QCOMPARE(extra->text(), QString("Rename 2 files"));
-        QVERIFY2(!extra->isHidden(), "the option was named and is not drawn");
-        extra->setChecked(true);
+        QVERIFY2(row->hasAdditionalOption(), "the option was named and is not offered");
+        QCOMPARE(row->additionalOptionLabel(), QString("Rename 2 files"));
+        row->setAdditionalOptionChecked(true);
         QVERIFY2(widget.additionalReplaceOptionChecked(),
                  "ticking the extra option reaches nothing");
     }

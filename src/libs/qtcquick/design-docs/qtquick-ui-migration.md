@@ -62602,3 +62602,85 @@ remedy; naming the whole fragment is.
 Two views: `QTC_WIDGET_SEARCH_RESULTS` - its own batch, per above - and
 `QTC_WIDGET_LUA_PANE`, last and knowingly, since its widget carries the only
 auto-scroll coverage there is.
+
+## 2026-09-13 — The fourth view: Search Results, and a test that could be kept (batch 268)
+
+`QTC_WIDGET_SEARCH_RESULTS` is gone, with the whole widget strip above the
+results: the description, the search term, Cancel, Search Again, the matches
+count, the replace field, Preserve Case, the extra option, its note and the
+Replace button - thirteen members.
+
+Four of five views done. Only the Lua pane is left.
+
+### Why this one was deferred, and what made it tractable
+
+Entry 267 put it off because it is not a choice between two views: it is a
+`const bool quick` threaded through one constructor, and the tree view it
+hides is *not* a fallback - the Qt Quick scene reads the results model out of
+it, so the view is built either way and never shown.
+
+What made it a batch rather than a rewrite was measuring first: **the state
+had already moved.** `SearchResultHeader` is the source of truth, the
+`SearchResultRow` controller already publishes every field as a `Q_PROPERTY`,
+and setters like `setInfo()` already wrote only the header. The widgets were a
+second copy kept in step by one mirror method. So the work was deleting a
+mirror, not building a replacement.
+
+Two things genuinely lived on the widgets and had to be re-homed:
+
+- **`setSearchAgainEnabled()` and `setReplaceEnabled()`** - public API, called
+  from four other plugins, which used to enable and disable two buttons. The
+  header derives `canSearchAgain()` and `canReplace()` from its own state, so
+  each gained an override flag folded into that derivation. Checked before
+  assuming they were vestigial: ProjectExplorer, CppEditor, TextEditor and
+  LanguageClient all call one of them.
+- **The two editors** - the replace field told the header what was typed, and
+  the Preserve Case box told `Find`. Both now hang off the header's own
+  `changed()`, guarded on the previous value, because `changed()` says
+  something moved rather than which thing.
+
+### The third oracle casualty, and the first one that could be rescued
+
+`testTypingIntoTheReplaceFieldReachesWhatAReplaceWillUse` drove a `QLineEdit`
+and a `QCheckBox` to prove they write back to the state. Both are gone.
+
+Unlike entries 265 and 267, this one did not have to be weakened or deleted:
+**the QML row writes through `SearchResultRow`, and that controller is
+reachable from C++**. The test now calls `row->setTextToReplace("typed")` -
+the same call the binding makes - and asserts the pane's `textToReplace()`
+sees it. Same claim, same strength, one layer further in.
+
+The rule that has emerged over four views: a comparison test dies with the
+widget it compared against, but a test of *what a reader's edit reaches*
+survives if the Quick side has a controller, because the controller is the
+edit. Entry 267's loss was neither - it asked what a QToolButton drew, and
+nothing draws in C++ any more.
+
+### Negative controls
+
+- **`SearchResultRow::setTextToReplace()` does not write the header.** Red on
+  the rewritten test *and* on `testTheQuickRowReadsTheSameHeaderAndCanActOnIt`.
+  The rewrite is guarded by more than itself.
+- Reverted: green.
+
+### Measurements
+
+    -test Core          293 passed, 0 failed, 0 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+
+No `.qbs` change. Every run gated on the build's error count.
+
+The splice rule from entry 267 held: every removal here was an exact, asserted
+string replacement, and the one large change - the constructor - was replaced
+whole rather than cut into. No failed builds from mis-anchored edits this time.
+
+### What is next
+
+One view: **`QTC_WIDGET_LUA_PANE`**, and it should be taken knowingly. Its
+`LuaReplView` carries `testALineArrivingFollowsItDownInTheWidgetView`, the only
+auto-scroll coverage there is, and entry 236 judged that covering the Quick
+REPL's rule would cost more of the shell-phase seam than it is worth. On the
+evidence of this batch the first question to ask is whether the Lua pane has a
+controller the test could be re-aimed at - if it does, the coverage survives
+the way this batch's did.
