@@ -61198,3 +61198,85 @@ one.
 The suites should be run under `QTC_WIDGET_CPP_EDITOR=1` from time to time, or
 the way back rots exactly the way it had started to here. It is four ssh
 invocations and it found three stale tests the first time it was tried.
+
+## 2026-09-13 — The way back, guarded by an ordinary run (batch 254)
+
+### The gap this batch closed
+
+Entry 253 measured the documented way back and found it working, then ended on
+a risk of its own making: "the suites should be run under
+`QTC_WIDGET_CPP_EDITOR=1` from time to time, or the way back rots exactly the
+way it had started to here". A habit is not a guard, and the thing that had
+just gone stale in three places went stale because nothing ran it.
+
+`testAQuickCppEditorHasEverythingTheFactoryConfigures` - entry 237's census,
+the one test written for the goal itself - only ever asked the Quick view. It
+is now `testACppEditorHasEverythingTheFactoryConfigures`, driven by a
+`_data()` function with two rows:
+
+    QTest::newRow("widget") << false;
+    QTest::newRow("quick")  << true;
+
+and it sets the factory itself rather than reading the environment, so **both
+rows run in every ordinary run**. No ssh invocations to remember.
+
+    QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+Both rows pass: a widget C++ editor still opens, carries the C++ language
+context, gets the C++ completion provider and a link finder, and lights up all
+five commands.
+
+### What the controls showed, including the limit
+
+- **A - `CppEditorDocument` installs no completion provider** (entry 238's EA).
+  **Both** rows red, each named in the failure. The census is live on the new
+  row, not decorative.
+- **B - both rows open the Quick view** (`setUsesQuickEditor(true)` regardless
+  of the fetched value). **Only the widget row** red. This is entry 246's
+  lesson asked of a new data row before it can bite: two rows that quietly
+  exercise the same thing look exactly like two rows that work.
+
+**The limit, measured rather than glossed:** almost everything the census asks
+is set on `CppEditorFactory` - `addEditorContext(CXX_LANGUAGE_ID)`,
+`setOptionalActionMask(...)`, the context menu id, the completion provider on
+the document - and is therefore shared by both views. So a control that fails
+the widget row *alone* cannot be built out of the census's current questions;
+control A demonstrates that by failing both. The widget row guards the widget
+path's **plumbing** - that such an editor still opens and still reaches the
+commands - rather than a distinct set of settings. That is worth having and is
+less than it looks, and the distinction belongs here rather than in a claim
+that the way back is now covered.
+
+### Measurements
+
+    -test CppEditor    1656 passed, 0 failed, 60 skipped, exit 0
+    -test TextEditor    766 passed, 0 failed,  3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed,  0 skipped, exit 0
+
+    -test CppEditor  (QTC_WIDGET_CPP_EDITOR=1)
+                       1655 passed, 0 failed, 61 skipped, exit 0
+
+1656 is 1655 plus the second row. The switch-on run is one lower because a
+test that skips under the switch does so whichever way this one is driven -
+the new rows are unaffected by the variable, which is the point of setting the
+factory in the test.
+
+Built on macOS and Linux; no `.qbs` change.
+
+### What is next
+
+1. **The two decisions from entry 236.** Decision 1 has had its measurement
+   since entry 253 and now has a guard: the widget editor is green, and stays
+   green in every run without anyone remembering anything. What remains is
+   whether a way back is *wanted*. Decision 2 still has nothing but a human
+   answer. Eighteen batches.
+2. The crash, per entry 247 - accepted and recorded.
+3. **An async entry point for `Mcp::ToolRegistry`** (entry 239, sized in 245).
+   This is now the only remaining item on this plan that is code and unblocked.
+4. `VcsBaseSubmitEditor` and the Quick REPL rule - judged not worth doing in
+   entry 236, and nothing since has changed that.
+
+Said plainly, because it is the third batch in a row to end this way: the
+guards around the goal are as complete as I can make them without a decision.
+The next batch has item 3 or it has nothing, and item 3 is not about the
+editor.

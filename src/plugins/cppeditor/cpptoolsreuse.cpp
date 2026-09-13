@@ -1387,8 +1387,20 @@ private slots:
     // unread - only testEveryQuickLanguageGetsWhatItsFactoryConfigures() is
     // driven by the factory itself, and only for the settings it knows to ask
     // about. Adding something to CppEditorFactory means adding it here too.
-    void testAQuickCppEditorHasEverythingTheFactoryConfigures()
+    void testACppEditorHasEverythingTheFactoryConfigures_data()
     {
+        QTest::addColumn<bool>("quick");
+        // The widget row is the documented way back, which nothing ran until
+        // it had already gone stale in three places. Asked here so that it
+        // cannot go stale again without an ordinary run saying so.
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testACppEditorHasEverythingTheFactoryConfigures()
+    {
+        QFETCH(bool, quick);
+
         // The commands this test ends by asserting are on. Sampled here so
         // that the assertions below say something: all five are off with no
         // C++ editor open, so finding them on afterwards is this view turning
@@ -1419,14 +1431,13 @@ private slots:
         const bool wasQuick = factory->usesQuickEditor();
         const QScopeGuard restore(
             [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
-        factory->setUsesQuickEditor(true);
+        factory->setUsesQuickEditor(quick);
 
         Core::IEditor * const editor = Core::EditorManager::openEditor(file);
         QVERIFY(editor);
         const QScopeGuard closeIt(
             [editor] { Core::EditorManager::closeEditors({editor}, false); });
-        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
-                 "the C++ file opened in a widget editor, so this tests nothing");
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
         auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
         QVERIFY(document);
 
@@ -1482,7 +1493,9 @@ private slots:
         // command reaches *here*. Every one of them was off above.
         for (const Utils::Id &id : commands) {
             QTRY_VERIFY2(enabledNow(id),
-                         qPrintable(id.toString() + " is off in the Qt Quick C++ editor"));
+                         qPrintable(id.toString() + " is off in the "
+                                    + QLatin1String(quick ? "Qt Quick" : "widget")
+                                    + " C++ editor"));
         }
     }
 
