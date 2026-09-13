@@ -63100,3 +63100,82 @@ Nothing that is a gap in this work. The remainder, unchanged:
 And the thing this branch actually needs, which entry 271 said and this entry
 repeats: a reader. 1431 commits, no end-to-end review, and the two decisions
 that shaped it taken on evidence that lives in this document.
+
+## 2026-09-13 — The gutter's change bar: a real gap, a test that would not hold (batch 274)
+
+**No code changed.** An attempt at an untested rule in the editor's own QML,
+withdrawn because the test passed alone and failed in the suite.
+
+### The gap, which is real and still open
+
+Entries 272 and 273 pointed the stub-the-contract method at two output panes.
+It had never been pointed at the thing this branch is for. `EditorGutter.qml`
+draws the change bar from a rule that lives entirely in QML:
+
+    visible: change.changeState !== 0
+    color: change.changeState === TextViewport.Saved ? root.viewport.savedLineColor
+                                                     : root.viewport.changedLineColor
+
+Three states - a line untouched draws nothing, one edited draws in the changed
+colour, one edited before the file was written draws in the saved colour. The
+distinction is worth having: `Saved` means edited *this session* with the file
+written since, which the widget editor calls `RevisionReverted`. Grepped for:
+**nothing anywhere tests any of it.**
+
+### What was built, and what it proved
+
+A test in `QuickTextEditorTest`, plus `objectName: "gutterChangeBar"` on the
+delegate - the gutter already names `gutterLineNumber`, `gutterMarkColumn` and
+four others, so naming the one unnamed drawn part follows the file rather than
+serving the test.
+
+It passes alone, and **both controls bite**, each on its own half:
+
+- `visible: true` - red with "a line nobody touched is marked as changed".
+- the colour ternary collapsed to one colour - red on the saved-colour
+  comparison.
+
+One thing it caught on the way, worth keeping because it is in
+`~/.claude/qt-quick.md` already and I wrote it there: **a Repeater's delegates
+are not QObject children**, so `findChildren()` returns none of them and the
+lookup has to walk `childItems()`.
+
+### Why it was withdrawn
+
+In the full suite it fails at the first assertion - "the gutter draws no
+change bars at all" - while passing in isolation. The gutter is drawn only
+where `root.showLineNumbers || root.showFoldMarkers`, and those are global
+settings other tests write, so the obvious cause was one of them left off.
+Setting `displayLineNumbers` with a restore guard **did not fix it**, so the
+cause is something else and I did not find it.
+
+A test that passes alone and fails in the suite is worse than no test: it
+teaches the next reader to re-run until green. Withdrawn rather than committed,
+and the whole thing is recorded here so the next attempt starts from the
+controls rather than from scratch.
+
+### A flake, checked rather than assumed
+
+The reverted tree then failed differently - exit 255 at 122 passed, with
+`testTypingALineOfCppLeavesTheSameFileInEitherView` reporting a doubled quote.
+That is entry 247's accepted crash, but it was not called one on sight: the
+tree was confirmed byte-identical to the last commit and TextEditor re-run,
+which gave **774 passed, 0 failed, exit 0**. One sighting in this batch is
+consistent with the 1-in-7-to-8 rate entry 247 measured.
+
+### Measurements
+
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Of the reverted tree.
+
+### What is next
+
+1. **The change bar, again** - the rule, the two controls and the `childItems()`
+   lookup are all worked out above; what is missing is why the gutter has no
+   bars under the full suite. Start by finding which test leaves what behind,
+   not by rewriting the test.
+2. **A tidy of the stack before pushing** - 1284 commits (entry 271).
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247) - accepted, and sighted once more here.
