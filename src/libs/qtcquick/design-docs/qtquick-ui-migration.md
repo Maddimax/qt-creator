@@ -58818,3 +58818,109 @@ only reason it is caught now is that the test was widened from "the view" to
    auto-scroll, entry 199's QML root with no `controller` property,
    `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
    Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — The suspects, measured: one more leak and two greps that were wrong (batch 230)
+
+Entry 229 listed six upstream `IEditor` subclasses flagged by counting
+`setWidget(` against `delete .*[Ww]idget`, and said each needed a file it would
+open before it could be checked. Three could be opened. One leaks.
+
+### The gap this batch closed
+
+**`Android::Internal::IconEditor` never freed either of its widgets.** It is
+what opens an `AndroidManifest.xml`:
+
+    setEditorCreator([]() -> Core::IEditor * {
+        auto combinedWidget = new AndroidIconSplashEditorWidget();
+        ...
+        return new IconEditor(combinedWidget, document);
+    });
+
+an unparented widget handed to an editor that has no destructor - the same
+shape as entries 228 and 229. And the same second half: `m_toolBar = new
+QToolBar(widget)` is a child of that widget, so it looked safe, but **the
+editor manager reparents a tool bar into the bar it draws**, so by the time the
+editor dies it is no longer a child of anything the editor owns. Deleting only
+the widget left the tool bar behind, which the test said in as many words.
+
+    delete m_toolBar;
+    delete widget();
+
+That reparenting is worth remembering: a tool bar being a child of the editor's
+widget is not a reason to think it will go with it.
+
+### Two greps that were wrong, and one editor that could not be asked
+
+The test now runs six rows over five editors from four plugins, and what
+answered each was printed rather than assumed:
+
+| row | editor | verdict |
+| --- | --- | --- |
+| c++ widget view | `TextEditor::BaseTextEditor` | fine, and the control |
+| c++ quick view | `TextEditor::Internal::QuickTextEditor` | fixed in 228/229 |
+| markdown | `TextEditor::Internal::MarkdownEditor` | fixed in 229 |
+| qrc | `ResourceEditor::Internal::ResourceEditorImpl` | fine |
+| svg | `ImageViewer::Internal::ImageViewer` | fine |
+| android manifest | `Android::Internal::IconEditor` | **leaked, fixed here** |
+
+`ResourceEditorImpl` and `ImageViewer` were both on entry 229's suspect list
+and both are fine. The grep that produced that list has now been wrong twice
+and right twice; it was a way to choose what to measure, not a finding.
+
+**The manifest row also caught me making an unmeasured change.** The suspect
+list named `androidmanifesteditor`, so `AndroidManifestEditor` got a destructor
+- and the row went on failing, because that class is not what
+`openEditor` builds. It is an internal helper held by
+`AndroidIconSplashEditorWidget`, whose widget may be reparented into a tab
+widget, so deleting it there could have been a double free. Reverted, and the
+real one fixed instead. The test is what told the difference; the grep pointed
+at the wrong file with the right name.
+
+**`.qmodel` cannot be asked at all.** A fabricated minimal model file makes the
+model editor abort - `Received a fatal error`, taking the whole process with
+it. That row is not in the test. `vcsbasesubmiteditor`,
+`profilertraceeditor` and the icon editors reached through their own widgets
+are not openable by file name either, so three of entry 229's six remain
+unmeasured, and are left alone rather than fixed blind.
+
+### Measurements
+
+    -test TextEditor        760 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+758 to 760: the svg and android manifest rows. The one red is
+`RunWorkerConflictTest::testConflict`, upstream and out of scope since entry
+225. The typing flake did not appear in this batch's runs.
+
+### Negative controls
+
+**DR — `IconEditor` loses its destructor.** Bit, naming its row:
+
+    (android manifest) 'widget.isNull()' returned FALSE.
+    (the editor's widget outlived the editor)
+
+The tool bar half needed no separate control: it was found by the test failing
+in flight, after the widget half was fixed and before the tool bar was, with
+`'toolBar.isNull()' returned FALSE` - the same evidence a control produces,
+arrived at from the other direction.
+
+### What is next
+
+1. **The typing flake.** Entry 229 ruled out the two global settings. Three
+   sightings, three different outputs, the last one with a bracket *inside*
+   the string rather than after it. The next attempt should stop treating it
+   as "the closers were not stepped over" - that was one sighting's shape, not
+   the defect.
+2. **Three editors that cannot be opened by file name**: `vcsbasesubmiteditor`,
+   `profilertraceeditor`, and the model editor. The first two are reached
+   through actions rather than files; a test for them would have to drive
+   whatever opens them, which is a different kind of test from this one.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. The rest, with numbers: entry 173's crash, entry 196's uncovered widget
+   auto-scroll, entry 199's QML root with no `controller` property,
+   `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
+   Qt builds, and `RunWorkerConflictTest::testConflict` upstream.

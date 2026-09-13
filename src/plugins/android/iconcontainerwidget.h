@@ -27,6 +27,7 @@ class IconEditor : public Core::IEditor
 
 public:
     explicit IconEditor(QWidget *widget, Core::IDocument *document);
+    ~IconEditor() override;
 
     Core::IDocument *document() const override;
     QWidget *toolBar() override;

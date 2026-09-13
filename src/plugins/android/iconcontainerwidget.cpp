@@ -502,6 +502,18 @@ IconEditor::IconEditor(QWidget *widget, Core::IDocument *document)
     setWidget(widget);
 }
 
+
+// Core::IContext keeps the widget in a QPointer and does not own it, and the
+// factory hands one in with no parent, so this is what frees it. The tool bar
+// is made a child of that widget, but the editor manager reparents it into
+// the bar it draws, so it no longer goes with it - first, while it is still
+// certain to be there.
+IconEditor::~IconEditor()
+{
+    delete m_toolBar;
+    delete widget();
+}
+
 QWidget *IconEditor::toolBar()
 {
     return m_toolBar;
