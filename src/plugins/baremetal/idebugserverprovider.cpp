@@ -12,6 +12,7 @@
 
 #include <utils/qtcassert.h>
 
+#include <QTimer>
 #include <QUuid>
 
 using namespace Debugger;

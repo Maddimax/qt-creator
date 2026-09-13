@@ -364,14 +364,15 @@ private:
             marker.cursor = QTextCursor(block);
             marker.cursor.movePosition(QTextCursor::EndOfBlock);
             marker.tooltip = createFileDescription(source.filePath, cmakeFile);
-            marker.callback = [filePath = source.filePath, cmakeFile](TextEditorWidget *) {
+            marker.callback = [filePath = source.filePath, cmakeFile](Core::IEditor *) {
                 createSourceFile(filePath, cmakeFile);
             };
             markers.insert(block.blockNumber(), marker);
         }
 
-        for (TextEditorWidget *widget : TextEditorWidget::textEditorWidgetsForDocument(m_document))
-            widget->setRefactorMarkers(markers.values(), REFACTOR_MARKER_ID);
+        // Set on the document, so the markers reach whichever view shows it -
+        // a CMakeLists.txt opens in the Qt Quick one, which is not a widget.
+        m_document->setRefactorMarkers(REFACTOR_MARKER_ID, markers.values());
     }
 
     TextDocument * const m_document;

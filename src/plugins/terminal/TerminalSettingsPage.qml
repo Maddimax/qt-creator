@@ -22,6 +22,8 @@ AspectPage {
             BoolDelegate { aspect: root.aspects.AudibleBell }
             BoolDelegate { aspect: root.aspects.AllowBlinkingCursor }
             BoolDelegate { aspect: root.aspects.EnableMouseTracking }
+            BoolDelegate { aspect: root.aspects.AllowClipboardWrite }
+            BoolDelegate { aspect: root.aspects.ConfirmUnsafePaste }
         }
     }
 
@@ -31,7 +33,7 @@ AspectPage {
 
         ColumnLayout {
             TextDisplayDelegate { aspect: root.aspects.ConsoleHostStatus }
-            AspectDelegate { aspect: root.aspects.ConsoleHostDirectory }
+            StringDelegate { aspect: root.aspects.ConsoleHostDirectory }
             ButtonDelegate { aspect: root.aspects.DownloadConsoleHost }
         }
     }

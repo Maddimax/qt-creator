@@ -10,10 +10,10 @@
 #include "debuggerengineinterface.h"
 #include "debuggeritem.h"
 #include "debuggerruncontrol.h"
-#include "debuggersourcepathmappingwidget.h"
 #include "enginemanager.h"
 #include "gdb/gdbengine.h"
 #include "registerhandler.h"
+#include "sourcepathmap.h"
 
 #include <coreplugin/documentmanager.h>
 #include <coreplugin/editormanager/editormanager.h>

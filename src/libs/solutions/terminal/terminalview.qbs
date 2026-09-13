@@ -7,6 +7,8 @@ QtcLibrary {
     cpp.defines: base.concat("TERMINALLIB_LIBRARY")
 
     files: [
+        "boxdrawing.cpp",
+        "boxdrawing.h",
         "glyphcache.cpp",
         "glyphcache.h",
         "terminal.qrc",

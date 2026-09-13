@@ -166,7 +166,9 @@ public:
                     const Utils::FilePath &topLevel,
                     const QString &ref,
                     const QString &commandFilePath,
-                    const Utils::FilePath &workingFilePath);
+                    const Utils::FilePath &workingFilePath,
+                    bool allowModifiedDocument,
+                    bool useDocumentContents);
     void setEnabled(bool enabled);
     void schedule(int delay = 0);
     void clear();
@@ -186,6 +188,8 @@ private:
     QString m_ref;
     QString m_commandFilePath;
     Utils::FilePath m_workingFilePath;
+    bool m_allowModifiedDocument = false;
+    bool m_useDocumentContents = false;
     bool m_enabled = false;
     Utils::TextEncoding m_encoding;
     Author m_author;
@@ -511,7 +515,9 @@ bool InstantBlame::setEditor(Core::IEditor *editor)
                                                               : sourceFilePath;
     m_controller->setContext(editor, topLevel,
                              m_document->property("GitReference").toString(),
-                             workingFilePath.path(), workingFilePath);
+                             workingFilePath.path(), workingFilePath,
+                             /*allowModifiedDocument=*/true,
+                             /*useDocumentContents=*/true);
     m_controller->setEnabled(true);
     return true;
 }
@@ -699,7 +705,9 @@ void BlameController::setContext(Core::IEditor *editor,
                                  const FilePath &topLevel,
                                  const QString &ref,
                                  const QString &commandFilePath,
-                                 const FilePath &workingFilePath)
+                                 const FilePath &workingFilePath,
+                                 bool allowModifiedDocument,
+                                 bool useDocumentContents)
 {
     clear();
     ++m_contextGeneration;
@@ -710,6 +718,8 @@ void BlameController::setContext(Core::IEditor *editor,
     m_ref = ref;
     m_commandFilePath = commandFilePath;
     m_workingFilePath = workingFilePath;
+    m_allowModifiedDocument = allowModifiedDocument;
+    m_useDocumentContents = useDocumentContents;
     m_encoding = gitClient().defaultCommitEncoding();
     m_author = {};
     loadRepositoryConfiguration();
@@ -1002,7 +1012,9 @@ BaselineBlame::BaselineBlame(TextEditorWidget *widget,
     : QObject(widget)
     , m_controller(new BlameController(this))
 {
-    m_controller->setContext(widget, topLevel, ref, relativeFile, workingFilePath);
+    m_controller->setContext(widget, topLevel, ref, relativeFile, workingFilePath,
+                             /*allowModifiedDocument=*/true,
+                             /*useDocumentContents=*/true);
     connect(widget, &PlainTextEdit::cursorPositionChanged, this, [this] {
         if (settings().instantBlame())
             m_controller->schedule(500);
@@ -1227,7 +1239,7 @@ void InstantBlameTest::testBlameDocumentContents()
     latinWidget.setTextCursor(latinCursor);
 
     BlameController latinController;
-    latinController.setContext(&latinWidget, repo, {}, "file.txt", file);
+    latinController.setContext(&latinWidget, repo, {}, "file.txt", file, true, true);
     latinController.setEnabled(true);
 
     const auto latinMarkToolTip = [&latinDocument](int line) {

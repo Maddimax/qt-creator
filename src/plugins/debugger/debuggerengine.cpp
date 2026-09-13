@@ -10,9 +10,9 @@
 #include "debuggericons.h"
 #include "debuggerkitaspect.h"
 #include "debuggerrunconfigurationaspect.h"
-#include "debuggersourcepathmappingwidget.h"
 #include "debuggertooltipmanager.h"
 #include "debuggertr.h"
+#include "sourcepathmap.h"
 
 #include "breakhandler.h"
 #include "disassembleragent.h"

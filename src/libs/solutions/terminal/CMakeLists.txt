@@ -1,7 +1,6 @@
 add_qtc_library(TerminalModel
   DEPENDS Qt::Gui libvterm
   SOURCES
-    boxdrawing.cpp boxdrawing.h
     celliterator.cpp celliterator.h
     keys.cpp keys.h
     scrollback.cpp scrollback.h
@@ -16,6 +15,7 @@ add_qtc_library(TerminalLib
   DEPENDS Qt::Widgets
   PUBLIC_DEPENDS TerminalModel
   SOURCES
+    boxdrawing.cpp boxdrawing.h
     glyphcache.cpp glyphcache.h
     terminal_global.h
     terminal.qrc

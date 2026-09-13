@@ -537,6 +537,7 @@ TerminalSettings::TerminalSettings()
     enableMouseTracking.setDefaultValue(true);
 
     allowClipboardWrite.setSettingsKey("AllowClipboardWrite");
+    allowClipboardWrite.setQmlName("AllowClipboardWrite");
     allowClipboardWrite.setLabelText(Tr::tr("Allow programs to set the clipboard"));
     allowClipboardWrite.setToolTip(
         Tr::tr("Lets a program running in the terminal replace the clipboard contents "
@@ -544,6 +545,7 @@ TerminalSettings::TerminalSettings()
     allowClipboardWrite.setDefaultValue(false);
 
     confirmUnsafePaste.setSettingsKey("ConfirmUnsafePaste");
+    confirmUnsafePaste.setQmlName("ConfirmUnsafePaste");
     confirmUnsafePaste.setLabelText(Tr::tr("Confirm pasting control characters"));
     confirmUnsafePaste.setToolTip(
         Tr::tr("Asks before pasting text that contains control characters into a program "

@@ -132,4 +132,8 @@ private:
     std::function<IDebugServerProvider *()> m_creator;
 };
 
+#ifdef WITH_TESTS
+QObject *createDebugServerReadyTest();
+#endif // WITH_TESTS
+
 } // namespace BareMetal::Internal
