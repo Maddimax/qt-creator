@@ -61907,3 +61907,125 @@ semantically.** Master keeps adding features to the functions the branch is
 removing, and those read as ordinary conflicts. The measurement that matters
 is not "how many files conflict" - it is "in how many of them did we delete
 the thing master extended".
+
+## 2026-09-13 — The rebase, 239 of 1419, and the Terminal page ported (batch 261)
+
+### Entry 260's first item was wrong, in two ways
+
+It said: "Port the Terminal console-host group to the Quick settings page. Do
+it on the branch as it stands, so the rebase then has nothing to decide there."
+
+**Not executable.** The console host is entirely new on master - ten Terminal
+commits since the merge base, `consolehost.cpp/h` among them. The branch has
+none of it, so there is nothing on the branch to port. The port can only
+happen where both halves exist, which is *inside* the rebase.
+
+**Not necessary either.** Before assuming infrastructure was missing, I
+checked what the Quick aspect pages can express, and master's group needs
+nothing new:
+
+    QLabel, updated on change   ->  StringAspect + LabelDisplay -> TextDisplayDelegate
+    QPushButton "Download..."   ->  ActionAspect -> ButtonDelegate
+    FilePathAspect + placeholder ->  PathChooser -> FilePath kind, placeholderText
+                                     already plumbed through aspectmodels.cpp
+    platform gating             ->  setVisible() on the aspects
+
+Three other plugins already draw a label that way. So the vocabulary was
+there and the port is a port, not a feature of its own.
+
+### What the rebase did
+
+Resumed. `rerere` replayed the four trivial resolutions from entry 260 without
+asking, and a small loop staged each replayed file and continued. It reached
+**239 of 1419** and stopped four more times:
+
+- `gitplugin.cpp` - two test slot declarations, one from each side. Both.
+- `pythonsettings.h` - a helper declaration from master, a test factory from
+  ours. Both.
+- `terminalsettings.{h,cpp}` - **the port**, below.
+- `qtoptionspage.cpp` - stopped here, and it is the same class as the Terminal
+  one: master generalised the Qt version from qmake to qtpaths
+  (`qmakeFilePath()` to `qtFilePath()`, a better warning message) while our
+  commit converted `createConfigurationWidget()` to
+  `createConfigurationAspects()`. Both changes are wanted and neither side
+  contains the other.
+
+### The Terminal port
+
+Master put the whole console-host group inside the layout lambda: the label,
+the button, the `connect`s, the downloader and the `setEnabled(false)` around
+it. The standing rule for this work is that a closure that *lists* is not the
+place for behaviour, and porting to Quick forces the issue - a QML page can
+only list. So the behaviour moved to the constructor, beside the
+`consoleHostDirectory` setup that was already there, and the page lists three
+delegates:
+
+    TextDisplayDelegate { aspect: root.aspects.ConsoleHostStatus }
+    AspectDelegate      { aspect: root.aspects.ConsoleHostDirectory }
+    ButtonDelegate      { aspect: root.aspects.DownloadConsoleHost }
+
+with `visible: root.aspects.ConsoleHostStatus.visible` standing in for
+master's "build the group only where it shows" trick, which existed because
+`If` builds both branches and drops one. Two new aspects carry what were two
+raw widgets, and `setVisible(ConsoleHost::isSupportedPlatform())` replaces
+returning `nullptr`.
+
+Windows-only code, ported on a Mac against a Linux build: it is checked to
+compile and to be expressible, not to behave. That wants a Windows run before
+anyone believes it.
+
+### Why there are no test numbers for the port
+
+**A mid-rebase tree is not a state anyone intended.** Building at 239/1419
+failed in CMake:
+
+    FWAppKit ... NOTFOUND, linked by target "tst_manual_quick_terminal"
+
+which is a manual test whose CMake guard arrives in a branch commit not yet
+replayed. The tree at that moment is master plus a third of the branch, and
+neither its build nor its tests mean anything. Worth writing down because the
+instinct is to build after every resolution, and doing so reports failures
+that are artefacts of where the replay happens to be.
+
+### Stopping cleanly rather than leaving a rebase in the tree
+
+Aborted on purpose at the fifth conflict. The cost of abandoning is close to
+zero and was checked rather than assumed:
+
+- **268 rerere resolutions** are recorded in the common git dir, so the next
+  attempt replays every one of them, including the Terminal `.cpp`/`.h`.
+- What rerere does **not** replay is a file that never conflicted, and the QML
+  page is one - my edit to it is part of the resolution but invisible to
+  rerere. Both halves of the port are saved as patches at
+  `~/projects/qt/vm-testing/rebase-wip/`.
+- `git diff backup/pre-rebase-259 HEAD` is the batch-260 doc commit and
+  nothing else, so the branch is intact at `bc2383a15a7`.
+
+### Measurements
+
+    -test TextEditor    766 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+
+Of the restored tree, to show the aborted rebase left nothing behind - not of
+a change, since the branch has none this batch.
+
+### Negative controls
+
+None. Nothing on the branch changed, and the work that did happen lives inside
+an aborted rebase where a control cannot be run. Said plainly rather than
+dressed up.
+
+### What is next
+
+1. **Resume the rebase.** rerere replays 268 resolutions; re-apply the two
+   Terminal patches when `terminalsettings` comes round, since the QML half
+   will not replay itself.
+2. **`qtoptionspage.cpp`** is the next decision and is a real one: take
+   master's qmake-to-qtpaths generalisation *and* our aspect conversion.
+3. Then whatever the remaining ~1180 commits raise. Four manual conflicts in
+   the first 239 is roughly one per sixty commits; expect twenty or so, of
+   which perhaps half are ports rather than resolutions.
+4. Then the no-QtcQuick deletion (decision 2).
+
+The estimate in entry 260 - "roughly ten small feature ports" - is holding so
+far: two of the five conflicts seen are ports, three were both-sides-additive.
