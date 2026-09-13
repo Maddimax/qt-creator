@@ -14389,16 +14389,20 @@ void QuickUiTest::testAQmlViewThatWillNotLoadIsRefusedRatherThanDrawnBlank()
     QVERIFY2(Utils::anyOf(complaints, [](const QString &c) { return c.contains("Broken.qml"); }),
              qPrintable("nothing said why the view was refused: " + complaints.join("; ")));
 
-    // A root with no controller property is *not* refused: the seam hands the
-    // controller over with setInitialProperties(), and failing that is a
-    // warning rather than a load error. The view comes back and is useless.
-    // Pinned as it is rather than fixed here - refusing it would be a second
-    // rule about what a scene must declare, and this one is at least loud.
+    // A root with no controller property is refused too. It loads - handing
+    // the controller over is setInitialProperties(), and failing that is a
+    // warning rather than a load error - so without this the caller gets a
+    // view drawing its defaults and answering nothing, which is worse than
+    // the blank box the refusal above exists to prevent.
     complaints.clear();
     auto * const bareController = new QObject;
-    const std::unique_ptr<QWidget> bare(
-        Core::createQmlView(QUrl::fromLocalFile(noController.toFSPathString()), bareController));
-    QVERIFY2(bare, "a scene with no controller property is refused now, so this note is stale");
+    QPointer<QObject> bareSurvives = bareController;
+    QVERIFY2(!Core::createQmlView(QUrl::fromLocalFile(noController.toFSPathString()),
+                                  bareController),
+             "a scene that never took its controller was handed back anyway");
+    QVERIFY2(bareSurvives, "the controller went with the host, so the caller's delete is a double one");
+    QVERIFY2(!bareSurvives->parent(), "the controller is still parented to a host that is gone");
+    delete bareController;
     QVERIFY2(Utils::anyOf(complaints,
                           [](const QString &c) { return c.contains("controller"); }),
              qPrintable("a view that cannot be given its controller said nothing: "

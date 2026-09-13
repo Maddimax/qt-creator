@@ -59049,3 +59049,102 @@ not cover, which is more useful than fifteen.
    auto-scroll, entry 199's QML root with no `controller` property,
    `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in one of the two
    Qt builds, and `RunWorkerConflictTest::testConflict` upstream.
+
+## 2026-09-13 — A scene that never took its controller is refused now (batch 232)
+
+Entry 231 parked the typing flake until there is another sighting to read. The
+next thing on the list with substance is entry 199's parked finding, which has
+been quoted in every "what is next" since and never acted on.
+
+### The gap this batch closed
+
+**A QML root that does not declare `controller` came back as a working view.**
+
+The seam already refuses a scene that fails to load, because the caller would
+otherwise get a blank box where its view should be. A scene that *loads* and
+never takes the controller is worse: it draws its defaults, answers nothing,
+and looks like a view. Entry 199 found this and deliberately pinned it:
+
+> Pinned as it is rather than fixed here - refusing it would be a second rule
+> about what a scene must declare, and this one is at least loud.
+
+Two things have changed since. There are now about ten Quick views going
+through this seam, so the rule is not hypothetical; and "at least loud" means a
+warning among the warnings a loading scene already prints, which is not loud at
+all when the symptom is a view that draws.
+
+Handing the controller over is `setInitialProperties()`, and failing that is a
+warning rather than a load error - so the seam cannot learn about it from the
+status. It asks the root instead:
+
+    QObject * const root = host->rootObject();
+    if (!root || root->property("controller").value<QObject *>() != controller)
+        return refuse();
+
+Asked of the root rather than inferred from the warning: what matters is that
+the object the caller passed is the one the scene is driving, and that is a
+question with an answer.
+
+The refusal path is now a lambda shared with the load-error one, so the
+controller goes back unparented either way - which is what the callers' widget
+fallbacks delete.
+
+### Every shipped scene already declared it
+
+The first run after the change was 225 passed, 1 failed, and the one failure
+was the pinning test saying its own note was stale:
+
+    'bare' returned FALSE. (a scene with no controller property is refused now,
+                            so this note is stale)
+
+Everything else - the Open Documents sidebar, the output pane rows, the search
+results pane, the Lua REPL, and the censuses that count which views are Quick -
+passed unchanged. That is the evidence that no real scene is affected: the new
+rule refuses exactly the fixture written to be broken.
+
+### Measurements
+
+    -test QuickUi           226 passed, 0 failed, exit 0
+    -test TextEditor        775 passed, 0 failed, 18 skipped, exit 0
+    -test Core              293 passed, 0 failed, exit 0
+    -test ProjectExplorer   531 passed, 1 failed, 5 skipped, exit 1
+    -test Lua               13 passed, 0 failed, exit 0
+    -test Todo              11 passed, 0 failed, exit 0
+
+Counts unchanged: the pinning test became an asserting one rather than a new
+test being added. The one red is `RunWorkerConflictTest::testConflict`,
+upstream and out of scope since entry 225.
+
+### Negative controls
+
+**DU — the seam stops asking the root what it got.** Bit:
+
+    '!Core::createQmlView(..., bareController)' returned FALSE.
+    (a scene that never took its controller was handed back anyway)
+
+**DV — the seam refuses every scene**, to find out whether over-refusing is
+watched at all. Bit on **18** tests: the two censuses of which views are Quick,
+and every Open Documents sidebar test.
+
+DV is the one worth keeping in mind. A refusal is a fallback to the widget
+view, which is a working UI - exactly the kind of change that can be too
+aggressive and leave nothing failing. It does not: the censuses count what is
+Quick, so a seam that quietly stops building Quick views is caught by the same
+tests that were written to prove they were built in the first place.
+
+### What is next
+
+1. **The flake, when it next appears.** Entry 231 built the trace and the
+   caret comparison for it; nothing more until there is a sighting to read.
+2. **Three editors that cannot be opened by file name**: `vcsbasesubmiteditor`,
+   `profilertraceeditor`, the model editor. Reached through actions, not
+   files, so a test for them has to drive whatever opens them.
+3. **Automatic login in the macOS VM** — Qt is staged, the runner works.
+4. The rest, with numbers: entry 173's crash, entry 196's uncovered widget
+   auto-scroll, `IOutputPane::toolBarWidgets()` once Qt SerialPort exists in
+   one of the two Qt builds, and `RunWorkerConflictTest::testConflict`
+   upstream.
+
+Entry 199's list is now empty: the type loader's cached directory listing and
+the redundant error logging were dealt with when they were found, and this was
+the last of the three.

@@ -56,11 +56,23 @@ private:
             // already falls back to its widget view. Qt has already said what
             // was wrong with it. The controller goes back unparented, because
             // that is what those fallbacks delete.
-            if (host->quickWidget()->status() == QQuickWidget::Error) {
+            const auto refuse = [host, controller] {
+                // The controller goes back unparented, because that is what
+                // those fallbacks delete.
                 controller->setParent(nullptr);
                 delete host;
-                return nullptr;
-            }
+                return static_cast<QWidget *>(nullptr);
+            };
+            if (host->quickWidget()->status() == QQuickWidget::Error)
+                return refuse();
+            // A scene that loaded but never took the controller is just as
+            // useless, and quieter about it: setInitialProperties() only warns
+            // when the root does not declare what it is given, so the view
+            // comes back drawing its defaults and answering nothing. Ask the
+            // root what it got rather than trusting that it was handed over.
+            QObject * const root = host->rootObject();
+            if (!root || root->property("controller").value<QObject *>() != controller)
+                return refuse();
             return host;
         });
         // The panes draw output into a QTextDocument and need something to
