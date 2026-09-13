@@ -29,6 +29,7 @@
 #include "extraencodingsettings.h"
 #include "highlighter.h"
 #include "icodestylepreferences.h"
+#include "marginsettings.h"
 #include "storagesettings.h"
 #include "texteditor.h"
 #include "typingsettings.h"
@@ -4658,6 +4659,86 @@ private slots:
             QVERIFY2(bandTop() + highlight->height() <= *below,
                      "the band reaches into the line below the one it marks");
         }
+    }
+
+    // The right margin is two drawn things with two different rules: the line
+    // itself, which is there whenever there is a margin, and the tint over
+    // everything past it, which is there only when it was asked for. Nothing
+    // covered either. Where the line sits is asked of the text layout rather
+    // than of the number the line is bound to - rectangleAt() reaches it by
+    // laying the line out, marginX by measuring a space - so the two agreeing
+    // says something about both.
+    void testTheRightMarginSitsAtItsColumnAndOutlivesTheTint()
+    {
+        MarginSettings &margins = marginSettings();
+        const MarginSettingsData was = margins.data();
+        const QScopeGuard restoreSettings([&margins, was] { margins.setData(was); });
+        MarginSettingsData asked = was;
+        asked.m_showMargin = true;
+        asked.m_tintMarginArea = true;
+        asked.m_marginColumn = 10;
+        margins.setData(asked);
+
+        Utils::TemporaryDirectory dir("quick-editor-margin");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("margin.txt");
+        // Wider than either column asked about below, so that there is a
+        // character at each of them to ask the layout where it starts.
+        QVERIFY(file.writeFileContents(QString(40, ' ').toUtf8() + "X\nsecond\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 1);
+
+        auto * const area = form->findChild<QQuickItem *>("marginArea");
+        QVERIFY2(area, "the form has no margin area at all");
+        auto * const line = form->findChild<QQuickItem *>("marginLine");
+        QVERIFY2(line, "the form has no margin line at all");
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        const int base = document->document()->findBlockByNumber(0).position();
+        // The widget editor puts the line four pixels past the column so that
+        // a line exactly that long does not touch it.
+        const auto columnStartsAt = [viewport, base](int column) {
+            return viewport->rectangleAt(base + column).x() + 4;
+        };
+
+        QTRY_VERIFY2(line->isVisible(), "the margin line is not drawn at all");
+        QVERIFY2(area->isVisible(), "the area past the margin is not tinted");
+        QTRY_COMPARE(line->x(), columnStartsAt(10));
+        QCOMPARE(area->x(), line->x());
+
+        // Only the tint is turned off. The line is a separate rule and stays:
+        // one of them answering for both is the thing worth catching.
+        asked.m_tintMarginArea = false;
+        margins.setData(asked);
+        QTRY_VERIFY2(!area->isVisible(), "the area stayed tinted after the tint was turned off");
+        QVERIFY2(line->isVisible(), "turning the tint off took the margin line with it");
+        QCOMPARE(line->x(), columnStartsAt(10));
+
+        // And the column is followed rather than read once.
+        asked.m_tintMarginArea = true;
+        asked.m_marginColumn = 20;
+        margins.setData(asked);
+        QTRY_COMPARE(line->x(), columnStartsAt(20));
+        QVERIFY2(area->isVisible(), "turning the tint back on did not reach the editor");
+        QCOMPARE(area->x(), line->x());
+
+        // No margin asked for: neither of them is drawn.
+        asked.m_showMargin = false;
+        margins.setData(asked);
+        QTRY_VERIFY2(!line->isVisible(), "the margin line is drawn without a margin to draw");
+        QVERIFY2(!area->isVisible(), "the area past a margin that is not there is tinted");
     }
 
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()

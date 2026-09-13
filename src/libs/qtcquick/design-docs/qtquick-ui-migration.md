@@ -63448,3 +63448,77 @@ patch and revert `CodeViewport.qml`, which is why the tree was checked against
 2. **A tidy of the stack before pushing** — 1284 commits (entry 271).
 3. **A Windows run** for the console-host port (entry 264).
 4. **The crash** (entry 247) — accepted; not sighted in this batch's six runs.
+
+## 2026-09-14 — The right margin: two drawn things, two rules (batch 278)
+
+`testTheRightMarginSitsAtItsColumnAndOutlivesTheTint` is in
+`QuickTextEditorTest`, three controls bite, and the suite has run clean six
+times with it.
+
+### Which gap this closes
+
+The right margin had **no coverage at all** — `marginArea`, `marginLine`,
+`marginX` and `tintMarginArea` did not appear anywhere in the test file. It is
+two drawn things whose rules differ by one term:
+
+    marginLine   visible: viewport.marginX >= 0 && x < viewport.width
+    marginArea   visible: viewport.tintMarginArea && viewport.marginX >= 0 && width > 0
+
+The line is drawn whenever there *is* a margin; the tint over everything past
+it only when it was asked for. One rule serving both would look perfectly
+correct until someone turned the tint off and lost the line with it — which is
+control A, and which nothing would have caught.
+
+### Asking the layout, not the binding
+
+Where the line sits is asked of `rectangleAt()`, which reaches the column by
+laying the line out, rather than of `marginX`, which the QML is bound to and
+which gets there by measuring a space. Two different routes to the same
+number, so their agreeing is worth asserting. Probed first:
+
+    column 10   marginX 75.875    rectAt(col 10).x 71.875   + 4
+    column 20   marginX 147.75    rectAt(col 20).x 143.75   + 4
+
+The four is the nudge the C++ comment describes — "the widget editor puts the
+line four pixels past the column so that a line exactly that long does not
+touch it" — and it now has a test. Note this is a composite: setting to C++
+`marginX` to QML `x`, which is why control C is a C++ edit rather than a QML
+one. A control belongs where the defect would be, not where the test looks.
+
+### Controls, all three biting, one per rule
+
+- marginLine gains `viewport.tintMarginArea &&` — "turning the tint off took
+  the margin line with it".
+- marginArea loses `viewport.tintMarginArea &&` — "the area stayed tinted after
+  the tint was turned off".
+- `textviewport.cpp` loses the `+ 4` — "Compared doubles are not the same".
+
+### Measurements
+
+    -test TextEditor    778 passed, 0 failed, 3 skipped, exit 0   x6
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+778 is 777 plus this test. No `.qbs` change. `marginsettings.h` is now included
+by `quicktexteditor.cpp`; it was not before.
+
+The six runs took two goes: the host killed the first batch after three runs
+for memory. The three that had finished were kept rather than rerun — they are
+three independent orders either way — and the rest run without a rebuild, the
+binary already being deployed. Worth knowing that six suite runs plus three
+control builds is enough to run this machine out of memory.
+
+### What is next
+
+1. **More of `CodeViewport.qml`**, two left from entry 276's list:
+   - `minimap` (line 1057) — `width: visible ? 100 : 0`, the "gives its room
+     back" shape, untested.
+   - `indentGuide` (688–693) — a tab guide and a space guide differ in x, width
+     and height, all four decided in QML. The most intricate of these rules and
+     the one most likely to be wrong.
+   The method is settled: find an item whose position comes from a *different*
+   binding chain than the thing under test, probe the relationship, and only
+   then choose between an equality and a tolerance.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271).
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247) — accepted; not sighted in this batch's six runs
+   either, which is now twelve clean runs across two batches.
