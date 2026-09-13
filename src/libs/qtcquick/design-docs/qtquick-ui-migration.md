@@ -63361,3 +63361,90 @@ measured rate. No `.qbs` change.
 3. **A Windows run** for the console-host port (entry 264).
 4. **The crash** (entry 247) — accepted, sighted once more here. Note that the
    order finding above closes off the obvious way to make it reproducible.
+
+## 2026-09-14 — Where the current-line band is drawn, and a probe that changed the test (batch 277)
+
+`testTheCurrentLineHighlightSitsOnTheLineItMarks` is in `QuickTextEditorTest`,
+**three** controls bite, one per assertion, and the suite has run clean six
+times with it.
+
+### Which gap this closes
+
+`testTheEditorDrawsWhatTheDisplaySettingsAskFor` already covers *whether* the
+current-line band is drawn — both the value the form is built with and a change
+pushed into an open editor. Nothing covered **where**, and that is the half
+that is arithmetic in `CodeViewport.qml`:
+
+    x: viewport.x
+    y: viewport.y + viewport.cursorRectangle.y
+    height: viewport.lineHeight
+
+The `y` line carries a comment saying what happens without the `viewport.y`
+term: "it sits a margin above the line it is meant to be on". That bug has
+already been made once and nothing would catch it being made again.
+
+The band and the gutter's line numbers are placed by *different* sums — the
+numbers from the visible-row model, the band from the caret rectangle — so the
+test asks that the two agree rather than asking either about itself. Asking the
+band where it is and comparing against its own binding would prove nothing.
+
+### The probe earned its keep
+
+Whether the two chains line up by construction was an open question, so it was
+measured before anything was asserted. Cursor on lines 0, 2 and 4:
+
+    line 0   band top 4    number top 4    lineHeight 16
+    line 2   band top 36   number top 36   lineHeight 16
+    line 4   band top 68   number top 68   lineHeight 16
+
+They agree **to the pixel**, so the assertion can be an equality rather than a
+tolerance. And the number that mattered: `viewport.y` is 4, against a line
+height of 16. Dropping the inset moves the band by a quarter of a line — still
+nearer its own line than any other.
+
+**The test that was originally planned would not have caught the bug it was
+written for.** "The band's centre is nearest the current line's number" passes
+with the inset dropped. Only the exact compare bites. Ten minutes of probe for
+an assertion that works instead of one that looks like it does.
+
+The probe also cost one cycle to a wrong assumption of its own: `cursorLine`
+counts from one, so `setCursorPosition` to block 0 reports line 1. Found by the
+probe failing rather than by reading, which is the cheap way round.
+
+### Controls, all three biting, one per assertion
+
+- `y: viewport.cursorRectangle.y` — the pre-fix code the comment describes.
+  "Compared doubles are not the same (fuzzy compare)".
+- `x: 0` — "the band runs through the gutter instead of starting at the text".
+- `height: viewport.lineHeight * 2` — "the band reaches into the line below the
+  one it marks".
+
+`height: viewport.lineHeight` appears **nine** times in the file, so control C
+is anchored on the two-line pair with the `y` binding above it. The patcher
+asserts its search string occurs exactly once and refuses otherwise, which is
+what turned that from a silent wrong-line edit into a caught one.
+
+### Measurements
+
+    -test TextEditor    777 passed, 0 failed, 3 skipped, exit 0   x6
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+777 is 776 plus this test. Six different test orders (entry 276), no crash in
+this set. No `.qbs` change, and no production file was touched — the controls
+patch and revert `CodeViewport.qml`, which is why the tree was checked against
+`git status` afterwards rather than trusted.
+
+### What is next
+
+1. **More of `CodeViewport.qml`.** Unchanged from entry 276 less the one done:
+   - `minimap` (line 1057) — `width: visible ? 100 : 0`, the "gives its room
+     back" shape, untested.
+   - `marginArea` / `marginLine` (619, 632) — shown only where `marginX >= 0`.
+   - `indentGuide` (688–693) — a tab guide and a space guide differ in x, width
+     and height, all four decided in QML.
+   The method is now routine: name the drawn part if it is not named, find an
+   *independent* item whose position comes from a different binding chain, and
+   probe the relationship before choosing between an equality and a tolerance.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271).
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247) — accepted; not sighted in this batch's six runs.

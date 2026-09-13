@@ -4571,6 +4571,95 @@ private slots:
         QTRY_COMPARE(viewport->x(), textStartsAt);
     }
 
+    // Where the current-line band is drawn. Whether it is drawn at all is
+    // covered by testTheEditorDrawsWhatTheDisplaySettingsAskFor; this is the
+    // rest of it, which is arithmetic in CodeViewport.qml over the caret
+    // rectangle. The band and the gutter's numbers are placed by different
+    // sums - the numbers from the visible-row model - so asking that they
+    // agree says more than asking either on its own.
+    void testTheCurrentLineHighlightSitsOnTheLineItMarks()
+    {
+        DisplaySettings &display = displaySettings();
+        const bool wasNumbers = display.displayLineNumbers();
+        const bool wasCurrent = display.highlightCurrentLine();
+        const QScopeGuard restoreSettings([&display, wasNumbers, wasCurrent] {
+            display.displayLineNumbers.setValue(wasNumbers);
+            display.highlightCurrentLine.setValue(wasCurrent); });
+        display.displayLineNumbers.setValue(true);
+        display.highlightCurrentLine.setValue(true);
+
+        Utils::TemporaryDirectory dir("quick-editor-current-line");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("current.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\nfour\nfive\nsix\n"));
+
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditor(file, QUICK_TEXT_EDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const quick = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(quick && quick->rootObject());
+        QQuickItem * const form = quick->rootObject();
+        auto * const viewport = form->findChild<TextViewport *>();
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 4);
+        auto * const highlight = form->findChild<QQuickItem *>("currentLineHighlight");
+        QVERIFY2(highlight, "the form has no current-line highlight at all");
+        auto * const gutter = form->findChild<QQuickItem *>("codeGutter");
+        QVERIFY(gutter);
+
+        const std::function<void(QQuickItem *, QList<QQuickItem *> &)> collect =
+            [&collect](QQuickItem *item, QList<QQuickItem *> &found) {
+                if (item->objectName() == QLatin1String("gutterLineNumber"))
+                    found << item;
+                const QList<QQuickItem *> children = item->childItems();
+                for (QQuickItem * const child : children)
+                    collect(child, found);
+            };
+        const auto numberTop = [form, &collect](int row) -> std::optional<qreal> {
+            QList<QQuickItem *> found;
+            collect(form, found);
+            for (QQuickItem * const number : found) {
+                if (number->property("row").toInt() == row)
+                    return number->mapToItem(form, QPointF(0, 0)).y();
+            }
+            return std::nullopt;
+        };
+        const auto bandTop = [form, highlight] {
+            return highlight->mapToItem(form, QPointF(0, 0)).y();
+        };
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QTRY_VERIFY2(highlight->isVisible(), "the current line is not marked at all");
+        QVERIFY2(highlight->x() >= gutter->x() + gutter->width(),
+                 "the band runs through the gutter instead of starting at the text");
+
+        for (const int line : {0, 2, 3}) {
+            viewport->setCursorPosition(
+                document->document()->findBlockByNumber(line).position());
+            // cursorLine counts from one.
+            QTRY_COMPARE(viewport->property("cursorLine").toInt(), line + 1);
+
+            const std::optional<qreal> top = numberTop(line);
+            QVERIFY2(top, "the gutter draws no number for the line the cursor is on");
+            // Both are inset by the viewport's own offset. Leaving that out of
+            // one of them moves the band by less than half a line, so it still
+            // lands nearer its own line than any other: close enough to pass a
+            // test that only asked which line was nearest, and still wrong on
+            // screen.
+            QTRY_COMPARE(bandTop(), *top);
+
+            const std::optional<qreal> below = numberTop(line + 1);
+            QVERIFY(below);
+            QVERIFY2(bandTop() + highlight->height() <= *below,
+                     "the band reaches into the line below the one it marks");
+        }
+    }
+
     void testAnEditElsewhereKeepsWhatTheViewPutIn_data()
     {
         QTest::addColumn<bool>("quick");
