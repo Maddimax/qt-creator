@@ -24,7 +24,6 @@ namespace Internal {
 
 class ICorePrivate;
 class MainWindow;
-class OutputPaneManageButton;
 
 // The row of output-pane buttons, as a model: one row per pane, in the order
 // the status bar shows them, which is by priority in the status bar.
@@ -140,7 +139,6 @@ private:
     friend class Core::ICore;
     friend class ICorePrivate;
     friend class MainWindow;
-    friend class OutputPaneManageButton;
     friend class OutputPaneButtonModel;
     friend class Core::IOutputPane;
 #ifdef WITH_TESTS
@@ -154,7 +152,6 @@ private:
     static void initialize();
     static void setupButtons();
     // The one place a pane's button is written to, from the model's row.
-    void updateButton(int row);
     static void destroy();
 
     void shortcutTriggered(int idx);
@@ -172,7 +169,6 @@ private:
 
     OutputPaneButtonModel *m_buttonModel = nullptr;
     QLabel *m_titleLabel = nullptr;
-    OutputPaneManageButton *m_manageButton = nullptr;
 
     QAction *m_clearAction = nullptr;
     QAction *m_closeAction = nullptr;

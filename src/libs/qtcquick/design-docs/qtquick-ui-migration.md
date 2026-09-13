@@ -62523,3 +62523,82 @@ Lua last, and knowingly: its widget view carries
 there is, and entry 236 judged that covering the Quick REPL's rule would cost
 more of the shell-phase seam than it is worth. That test dies with the widget
 and nothing replaces it.
+
+## 2026-09-13 — The third view: the output pane buttons, and a test that could not be kept (batch 267)
+
+`QTC_WIDGET_OUTPUT_BUTTONS`, `OutputPaneToggleButton` and
+`OutputPaneManageButton` are gone, with `OutputPaneData::button`,
+`OutputPaneManager::updateButton()` and `m_manageButton`. Three of five views
+done.
+
+### Search Results was looked at first, and put back
+
+`QTC_WIDGET_SEARCH_RESULTS` is not the same shape as the sidebars. It is not a
+choice between two views: it is a `const bool quick` threaded through one
+constructor, and the tree view it hides is **not a fallback** - the Quick scene
+reads the results model out of it, which is why the code builds the tree
+either way and only hides it. Deleting the widget half there means unpicking
+`topWidget` and the ten or so members the class's methods drive through it.
+That is a batch of its own and is left as one, rather than started here and
+half-finished.
+
+### What the deletion cost
+
+Two tests in `OutputPaneButtonModelTest` were written against the widget
+button, and only one survived.
+
+`testASecondPassRebuildsTheRowRatherThanDoublingIt` asked which widget comes
+last in the row, branching on whether a manage button existed. It now asserts
+the row itself comes last, because the Quick row draws its own arrow.
+
+**`testTheButtonDrawsWhatTheModelSays` is deleted, and nothing replaces it.**
+It stood a `OutputPaneToggleButton` into `g_outputPanes[row].button` precisely
+because the shell's row is the Quick one and there was no `QToolButton` to
+write to - its own comment says so. With the class gone there is nothing to
+stand in: a QML delegate cannot be reached from C++ without the coupling the
+shell-phase seam exists to prevent, which entry 236 judged worth more than the
+coverage.
+
+What is lost is specific and should be said rather than rounded off: nothing
+now checks that `setButtonVisible(row, false)` hides the button a reader sees,
+or that a badge makes the button wider. `testTheOutputPaneButtonsCanBeARowOfQtQuickOnes`
+checks the row is a Quick one with the right model and row count, which is not
+the same claim. This is the second oracle casualty in three views, as entry
+265 said it would be.
+
+### Negative controls
+
+- **`createButtonRow()` returns nullptr.** Red in both suites, each naming it:
+  Core's `testASecondPassRebuildsTheRowRatherThanDoublingIt` with "the status
+  bar's row is empty, so nothing here is being tested", and QuickUi's
+  `testTheOutputPaneButtonsCanBeARowOfQtQuickOnes` with "the row was not built
+  at all".
+- Reverted: green.
+
+### Measurements
+
+    -test Core          293 passed, 0 failed, 0 skipped, exit 0
+    -test QuickUi       226 passed, 0 failed, 0 skipped, exit 0
+    -test TextEditor    774 passed, 0 failed, 3 skipped, exit 0
+
+293 rather than 294: the deleted test. No `.qbs` change.
+
+### The splice mistake, a third and fourth time
+
+Entry 266 called cutting by "the next `};`" a habit. It cost three more failed
+builds here: a cut that swallowed `} // Internal` between two classes, leaving
+`OutputPanePlaceHolderPrivate` outside its namespace; a `ValueError` that threw
+after the header had already been written, so the header lost a declaration the
+source still called; and one more mis-anchored end.
+
+The fix was not care, it was method: revert both files and redo every removal
+as an **exact, asserted string replacement** - eleven of them, each printing
+what it dropped. That worked first time. Index arithmetic over a 2700-line file
+with interleaved test code is not a technique, and "be more careful" is not a
+remedy; naming the whole fragment is.
+
+### What is next
+
+Two views: `QTC_WIDGET_SEARCH_RESULTS` - its own batch, per above - and
+`QTC_WIDGET_LUA_PANE`, last and knowingly, since its widget carries the only
+auto-scroll coverage there is.

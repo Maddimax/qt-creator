@@ -81,47 +81,6 @@ private:
     static const int m_padding = 6;
 };
 
-class OutputPaneToggleButton : public QToolButton
-{
-    Q_OBJECT
-
-public:
-    OutputPaneToggleButton(int number, const QString &text, QAction *action);
-
-    QSize sizeHint() const override;
-    void paintEvent(QPaintEvent*) override;
-    void flash(int count = 3);
-    void setIconBadgeNumber(int number);
-
-    void contextMenuEvent(QContextMenuEvent *e) override;
-
-signals:
-    void contextMenuRequested();
-
-private:
-    void updateToolTip();
-    void checkStateSet() override;
-
-    QString m_number;
-    QString m_text;
-    QAction *m_action;
-    QTimeLine *m_flashTimer;
-    BadgeLabel m_badgeNumberLabel;
-};
-
-class OutputPaneManageButton : public QToolButton
-{
-    Q_OBJECT
-public:
-    OutputPaneManageButton();
-    void paintEvent(QPaintEvent *) override;
-
-    void contextMenuEvent(QContextMenuEvent *e) override;
-
-signals:
-    void menuRequested();
-};
-
 } // Internal
 
 class OutputPanePlaceHolderPrivate
@@ -325,7 +284,6 @@ public:
 
     IOutputPane *pane = nullptr;
     Id id;
-    OutputPaneToggleButton *button = nullptr;
     QAction *action = nullptr;
     // Built once, and the flag that says this pane has been set up before.
     QPointer<QWidget> toolBar;
@@ -372,7 +330,6 @@ IOutputPane::~IOutputPane()
 {
     const int i = Utils::indexOf(g_outputPanes, Utils::equal(&OutputPaneData::pane, this));
     QTC_ASSERT(i >= 0, return);
-    delete g_outputPanes.at(i).button;
     g_outputPanes.removeAt(i);
 
 }
@@ -775,15 +732,6 @@ void OutputPaneButtonModel::reset()
 
 // OutputPaneButtons
 
-// The Qt Quick row draws the buttons, and the arrow that manages them, from
-// the model above. QTC_WIDGET_OUTPUT_BUTTONS asks for the QToolButtons
-// instead, and a build with no front end to host QML gets them without asking.
-static bool useQuickButtonRow()
-{
-    return !Utils::qtcEnvironmentVariableIsSet("QTC_WIDGET_OUTPUT_BUTTONS")
-           && hasQmlViewFactory();
-}
-
 QWidget *OutputPaneManager::createButtonRow()
 {
     OutputPaneManager * const manager = instance();
@@ -903,15 +851,6 @@ OutputPaneManager::OutputPaneManager(QWidget *parent) :
     // reaches the button here and nowhere else. There may be no button yet -
     // a pane can report a badge while the shell is still starting - which is
     // what the guard is for.
-    connect(m_buttonModel, &QAbstractItemModel::dataChanged, this,
-            [this](const QModelIndex &topLeft, const QModelIndex &bottomRight) {
-        for (int row = topLeft.row(); row <= bottomRight.row(); ++row)
-            updateButton(row);
-    });
-    connect(m_buttonModel, &OutputPaneButtonModel::flashRequested, this, [](int row) {
-        if (OutputPaneToggleButton * const button = g_outputPanes.at(row).button)
-            button->flash();
-    });
 
     auto toolBar = new StyledBar;
     auto clearButton = new QToolButton;
@@ -1017,15 +956,6 @@ void OutputPaneManager::initialize()
     const int currentIdx = m_instance->currentIndex();
     if (QTC_GUARD(currentIdx >= 0 && currentIdx < g_outputPanes.size()))
         m_instance->m_titleLabel->setText(g_outputPanes[currentIdx].pane->displayName());
-    if (!useQuickButtonRow()) {
-        m_instance->m_manageButton = new OutputPaneManageButton;
-        m_instance->m_buttonsWidget->layout()->addWidget(m_instance->m_manageButton);
-        connect(m_instance->m_manageButton,
-                &OutputPaneManageButton::menuRequested,
-                m_instance,
-                &OutputPaneManager::popupMenu);
-    }
-
     updateMaximizeButton(false); // give it an initial name
 
     m_instance->readSettings();
@@ -1038,28 +968,12 @@ void OutputPaneManager::initialize()
     m_instance->m_initialized = true;
 }
 
-void OutputPaneManager::updateButton(int row)
-{
-    QTC_ASSERT(row >= 0 && row < g_outputPanes.size(), return);
-    const OutputPaneData &data = g_outputPanes.at(row);
-    if (!data.button)
-        return;
-    data.button->setVisible(data.buttonVisible);
-    data.button->setChecked(data.checked);
-    data.button->setIconBadgeNumber(data.badge);
-}
-
 void OutputPaneManager::setupButtons()
 {
     // A lazily loaded plugin with a pane of its own asks for all of this
     // again, so whatever the last time round drew has to go first. Cleared,
     // not just deleted: unregistering a pane's action below makes the model
-    // say a row changed, and updateButton() has no way to tell a button that
-    // is gone from one that is merely not built yet.
-    for (auto &pane : g_outputPanes) {
-        delete pane.button;
-        pane.button = nullptr;
-    }
+    // say a row changed, and the row has to be rebuilt from it.
     delete m_instance->m_quickButtonRow;
     m_instance->m_quickButtonRow = nullptr;
 
@@ -1074,10 +988,6 @@ void OutputPaneManager::setupButtons()
     OutputPaneButtonModel * const model = m_instance->m_buttonModel;
     // Sorted and about to be renumbered, so nothing a row said still holds.
     model->reset();
-
-    // Asked here and built after the loop, because what a row draws - its
-    // number, its tooltip - is only settled once the loop has been through it.
-    const bool quickRow = useQuickButtonRow();
 
     int shortcutNumber = 1;
     const Id baseId = "QtCreator.Pane.";
@@ -1218,34 +1128,14 @@ void OutputPaneManager::setupButtons()
         connect(data.commandAction, &QAction::changed, model, [model, i] {
             model->toolTipChanged(i);
         });
-        if (!quickRow) {
-            auto button = new OutputPaneToggleButton(shortcutNumber,
-                                                     outPane->displayName(),
-                                                     paneAction.commandAction());
-            data.button = button;
-            connect(button, &OutputPaneToggleButton::contextMenuRequested, m_instance, [] {
-                m_instance->popupMenu();
-            });
-
-            // At the pane's own position, not appended: on a second pass the
-            // manage button is already in the layout and has to stay last.
-            auto * const row = qobject_cast<QBoxLayout *>(m_instance->m_buttonsWidget->layout());
-            if (QTC_GUARD(row))
-                row->insertWidget(i, button);
-            connect(button, &QAbstractButton::clicked, m_instance, [i] {
-                m_instance->buttonTriggered(i);
-            });
-        }
-
         ++shortcutNumber;
 
         // A pane with no priority in the status bar has no button until a
         // reader asks for one from the menu.
         model->setButtonVisible(i, outPane->priorityInStatusBar() >= 0);
-        m_instance->updateButton(i);
     }
 
-    if (quickRow) {
+    {
         m_instance->m_quickButtonRow = createButtonRow();
         // At the front, not appended: the manage button is put in the layout
         // once and stays there, so a later run would land behind it.
@@ -1549,210 +1439,6 @@ int OutputPaneManager::currentIndex() const
 }
 
 
-///////////////////////////////////////////////////////////////////////
-//
-// OutputPaneToolButton
-//
-///////////////////////////////////////////////////////////////////////
-
-OutputPaneToggleButton::OutputPaneToggleButton(int number, const QString &text, QAction *action)
-    : m_number(QString::number(number))
-    , m_text(text)
-    , m_action(action)
-    , m_flashTimer(new QTimeLine(1000, this))
-{
-    setFocusPolicy(Qt::NoFocus);
-    setCheckable(true);
-    QFont fnt = QApplication::font();
-    setFont(fnt);
-    if (m_action)
-        connect(m_action, &QAction::changed, this, &OutputPaneToggleButton::updateToolTip);
-
-    m_flashTimer->setDirection(QTimeLine::Forward);
-    m_flashTimer->setEasingCurve(QEasingCurve::SineCurve);
-    m_flashTimer->setFrameRange(0, 92);
-    auto updateSlot = QOverload<>::of(&QWidget::update);
-    connect(m_flashTimer, &QTimeLine::valueChanged, this, updateSlot);
-    connect(m_flashTimer, &QTimeLine::finished, this, updateSlot);
-    updateToolTip();
-}
-
-void OutputPaneToggleButton::updateToolTip()
-{
-    QTC_ASSERT(m_action, return);
-    setToolTip(m_action->toolTip());
-}
-
-QSize OutputPaneToggleButton::sizeHint() const
-{
-    ensurePolished();
-
-    QSize s = fontMetrics().size(Qt::TextSingleLine, m_text);
-
-    // Expand to account for border image
-    s.rwidth() += numberAreaWidth() + 1 + buttonBorderWidth + buttonBorderWidth;
-
-    if (!m_badgeNumberLabel.text().isNull())
-        s.rwidth() += m_badgeNumberLabel.sizeHint().width() + 1;
-
-    return s;
-}
-
-static QRect bgRect(const QRect &widgetRect)
-{
-    // Removes/compensates the left and right margins of StyleHelper::drawPanelBgRect
-    return StyleHelper::toolbarStyle() == StyleHelper::ToolbarStyle::Compact
-               ? widgetRect : widgetRect.adjusted(-2, 0, 2, 0);
-}
-
-void OutputPaneToggleButton::paintEvent(QPaintEvent*)
-{
-    const QFontMetrics fm = fontMetrics();
-    const int baseLine = (height() - fm.height() + 1) / 2 + fm.ascent();
-    const int numberWidth = fm.horizontalAdvance(m_number);
-
-    QPainter p(this);
-
-    QStyleOption styleOption;
-    styleOption.initFrom(this);
-    const bool hovered = !HostOsInfo::isMacHost() && (styleOption.state & QStyle::State_MouseOver);
-
-    if (creatorTheme()->flag(Theme::FlatToolBars)) {
-        Theme::Color c = Theme::BackgroundColorDark;
-
-        if (hovered)
-            c = Theme::BackgroundColorHover;
-        else if (isDown() || isChecked())
-            c = Theme::BackgroundColorSelected;
-
-        if (c != Theme::BackgroundColorDark)
-            StyleHelper::drawPanelBgRect(&p, bgRect(rect()), creatorColor(c));
-    } else {
-        const QImage *image = nullptr;
-        if (isDown()) {
-            static const QImage pressed(
-                        StyleHelper::dpiSpecificImageFile(":/utils/images/panel_button_pressed.png"));
-            image = &pressed;
-        } else if (isChecked()) {
-            if (hovered) {
-                static const QImage checkedHover(
-                            StyleHelper::dpiSpecificImageFile(":/utils/images/panel_button_checked_hover.png"));
-                image = &checkedHover;
-            } else {
-                static const QImage checked(
-                            StyleHelper::dpiSpecificImageFile(":/utils/images/panel_button_checked.png"));
-                image = &checked;
-            }
-        } else {
-            if (hovered) {
-                static const QImage hover(
-                            StyleHelper::dpiSpecificImageFile(":/utils/images/panel_button_hover.png"));
-                image = &hover;
-            } else {
-                static const QImage button(
-                            StyleHelper::dpiSpecificImageFile(":/utils/images/panel_button.png"));
-                image = &button;
-            }
-        }
-        if (image)
-            StyleHelper::drawCornerImage(*image, &p, rect(), numberAreaWidth(), buttonBorderWidth, buttonBorderWidth, buttonBorderWidth);
-    }
-
-    if (m_flashTimer->state() == QTimeLine::Running)
-    {
-        QColor c = creatorColor(Theme::OutputPaneButtonFlashColor);
-        c.setAlpha (m_flashTimer->currentFrame());
-        if (creatorTheme()->flag(Theme::FlatToolBars))
-            StyleHelper::drawPanelBgRect(&p, bgRect(rect()), c);
-        else
-            p.fillRect(rect().adjusted(numberAreaWidth(), 1, -1, -1), c);
-    }
-
-    p.setFont(font());
-    p.setPen(creatorColor(Theme::OutputPaneToggleButtonTextColorChecked));
-    p.drawText((numberAreaWidth() - numberWidth) / 2, baseLine, m_number);
-    if (!isChecked())
-        p.setPen(creatorColor(Theme::OutputPaneToggleButtonTextColorUnchecked));
-    int leftPart = numberAreaWidth() + buttonBorderWidth;
-    int labelWidth = 0;
-    if (!m_badgeNumberLabel.text().isEmpty()) {
-        const QSize labelSize = m_badgeNumberLabel.sizeHint();
-        labelWidth = labelSize.width() + 3;
-        m_badgeNumberLabel.paint(&p, width() - labelWidth, (height() - labelSize.height()) / 2, isChecked());
-    }
-    p.drawText(leftPart, baseLine, fm.elidedText(m_text, Qt::ElideRight, width() - leftPart - 1 - labelWidth));
-}
-
-void OutputPaneToggleButton::checkStateSet()
-{
-    //Stop flashing when button is checked
-    QToolButton::checkStateSet();
-    m_flashTimer->stop();
-}
-
-void OutputPaneToggleButton::flash(int count)
-{
-    setVisible(true);
-    //Start flashing if button is not checked
-    if (!isChecked()) {
-        m_flashTimer->setLoopCount(count);
-        if (m_flashTimer->state() != QTimeLine::Running)
-            m_flashTimer->start();
-        update();
-    }
-}
-
-void OutputPaneToggleButton::setIconBadgeNumber(int number)
-{
-    QString text = (number ? QString::number(number) : QString());
-    m_badgeNumberLabel.setText(text);
-    updateGeometry();
-}
-
-void OutputPaneToggleButton::contextMenuEvent(QContextMenuEvent *)
-{
-    emit contextMenuRequested();
-}
-
-///////////////////////////////////////////////////////////////////////
-//
-// OutputPaneManageButton
-//
-///////////////////////////////////////////////////////////////////////
-
-OutputPaneManageButton::OutputPaneManageButton()
-{
-    setFocusPolicy(Qt::NoFocus);
-    setCheckable(true);
-    setFixedWidth(StyleHelper::toolbarStyle() == Utils::StyleHelper::ToolbarStyle::Compact ? 17
-                                                                                           : 21);
-    connect(this, &QToolButton::clicked, this, &OutputPaneManageButton::menuRequested);
-}
-
-void OutputPaneManageButton::paintEvent(QPaintEvent*)
-{
-    QPainter p(this);
-    if (!creatorTheme()->flag(Theme::FlatToolBars)) {
-        static const QImage button(StyleHelper::dpiSpecificImageFile(QStringLiteral(":/utils/images/panel_manage_button.png")));
-        StyleHelper::drawCornerImage(button, &p, rect(), buttonBorderWidth, buttonBorderWidth, buttonBorderWidth, buttonBorderWidth);
-    }
-    QStyle *s = style();
-    QStyleOption arrowOpt;
-    arrowOpt.initFrom(this);
-    constexpr int arrowSize = 8;
-    arrowOpt.rect = QRect(0, 0, arrowSize, arrowSize);
-    arrowOpt.rect.moveCenter(rect().center());
-    arrowOpt.rect.translate(0, -3);
-    s->drawPrimitive(QStyle::PE_IndicatorArrowUp, &arrowOpt, &p, this);
-    arrowOpt.rect.translate(0, 6);
-    s->drawPrimitive(QStyle::PE_IndicatorArrowDown, &arrowOpt, &p, this);
-}
-
-void OutputPaneManageButton::contextMenuEvent(QContextMenuEvent *)
-{
-    emit menuRequested();
-}
-
 BadgeLabel::BadgeLabel()
 {
     m_font = QApplication::font();
@@ -2038,14 +1724,11 @@ private slots:
 
         QCOMPARE(layout->count(), before);
 
-        // Whichever row is built, the arrow that manages it comes last: the
-        // Quick row draws its own, the widget row has a QToolButton beside it.
+        // The row draws the arrow that manages it, so the row is what comes
+        // last - there is no QToolButton beside it to come after.
         OutputPaneManager * const manager = OutputPaneManager::instance();
         QWidget * const last = layout->itemAt(layout->count() - 1)->widget();
-        if (manager->m_manageButton)
-            QCOMPARE(last, static_cast<QWidget *>(manager->m_manageButton));
-        else
-            QCOMPARE(last, manager->m_quickButtonRow);
+        QCOMPARE(last, manager->m_quickButtonRow);
     }
 
     void testThePaneNamesItsZoomButtonsRatherThanBuildingThem()
@@ -2692,56 +2375,6 @@ private slots:
         QCOMPARE(toggle->isChecked(), !was);
     }
 
-    void testTheButtonDrawsWhatTheModelSays()
-    {
-        OutputPaneButtonModel * const model = OutputPaneManager::instance()->m_buttonModel;
-        QVERIFY(model);
-        QVERIFY(model->rowCount() > 0);
-        const int row = 0;
-        // The shell's row is the Qt Quick one, so no QToolButton is there to
-        // be written to. Stand one in the row's place: what is under test is
-        // that the model reaches whichever button the row has. The holder
-        // keeps it off screen and outlives the guard that unhooks it.
-        QWidget holder;
-        OutputPaneToggleButton * const existing = g_outputPanes.at(row).button;
-        if (!existing) {
-            auto * const standIn = new OutputPaneToggleButton(g_outputPanes.at(row).number,
-                                                              g_outputPanes.at(row).pane->displayName(),
-                                                              g_outputPanes.at(row).action);
-            standIn->setParent(&holder);
-            g_outputPanes[row].button = standIn;
-        }
-        const QScopeGuard putBack([existing] { g_outputPanes[row].button = existing; });
-        OutputPaneToggleButton * const button = g_outputPanes.at(row).button;
-        QVERIFY(button);
-
-        const bool wasVisible = model->isButtonVisible(row);
-        const QScopeGuard restore([model, wasVisible] {
-            model->setButtonVisible(row, wasVisible); });
-
-        // Whether a pane has a button at all is what the manage menu changes
-        // and the session remembers. isVisibleTo(), not isVisible(): the
-        // whole row is inside a window nothing has shown.
-        model->setButtonVisible(row, true);
-        QVERIFY(button->isVisibleTo(button->window()));
-        model->setButtonVisible(row, false);
-        QVERIFY2(!button->isVisibleTo(button->window()),
-                 "the button stayed after the model took it away");
-        model->setButtonVisible(row, true);
-        QVERIFY(button->isVisibleTo(button->window()));
-
-        // The badge is the model's too, and the button makes room for it.
-        IOutputPane * const pane = IOutputPane::allOutputPanes().at(row);
-        const QVariant badge = model->index(row).data(OutputPaneButtonModel::BadgeRole);
-        const QScopeGuard restoreBadge([pane, badge] {
-            pane->setIconBadgeNumber(badge.toString().toInt()); });
-        pane->setIconBadgeNumber(0);
-        const int plain = button->sizeHint().width();
-        pane->setIconBadgeNumber(88);
-        QVERIFY2(button->sizeHint().width() > plain,
-                 qPrintable(QString("the button asks for %1 either way")
-                                .arg(button->sizeHint().width())));
-    }
 };
 
 QObject *createOutputPaneButtonModelTest()
