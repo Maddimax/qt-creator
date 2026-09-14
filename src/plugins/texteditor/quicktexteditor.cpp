@@ -4193,9 +4193,12 @@ private slots:
     // and closing thirty of them measured nothing this test is about - what
     // closing an editor leaves behind is testClosingAnEditorLetsGoOfItsDocument's
     // question, asked there deliberately and over more kinds of editor - and
-    // it is where the suite has twice died of heap corruption. That is not a
-    // fix: entry 244 could not find the bug with four instruments, and this
-    // takes the test out of its way rather than getting it out of everyone's.
+    // it is where the suite has died of heap corruption. That is not a fix:
+    // entry 244 could not find the bug with four instruments, and this takes
+    // the test out of its way rather than getting it out of everyone's. This
+    // test still dies about twice in a hundred runs of it on its own, as a
+    // segmentation fault or an abort, and not once in a hundred and forty
+    // under a debugger.
     void testTheCaretLandsWhereTheWidgetEditorsDoes()
     {
         Utils::TemporaryDirectory dir("caret-lockstep");

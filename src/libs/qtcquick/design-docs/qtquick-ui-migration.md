@@ -64104,3 +64104,91 @@ happens.
 4. **The crash** (entry 247), accepted. Its rate deserves the same treatment
    the typing flake just got: entry 247's "1 in 7-8" is also a small-sample
    figure, and the same 55 logs would price it properly.
+
+## 2026-09-14 — Entry 247's crash: priced, reproduced cheaply, and why gdb never saw it (batch 285)
+
+Entry 284's last item was to price the crash the way the typing flake had just
+been priced. Doing it turned up a good deal more than a number.
+
+### The rate
+
+    full-suite logs on disk                  1 truncation in 58 runs   (1.7%)
+    the test alone, 100 plain runs           2 crashes                 (2%)
+    the test alone, 130 runs in total        3 crashes                 (2.3%)
+
+Entry 247 has been quoted as "about one in seven or eight" ever since it was
+written, and every entry since has called sightings "in line with its measured
+rate". **It is about one in forty-five.** Whether the original figure was a
+small-sample artefact or the crash has genuinely become rarer cannot be told
+from what is on disk, and is not claimed either way here.
+
+One methodological note, because it nearly went in wrong: the first count of
+truncated runs said 24 of 58, by treating "fewer than 27 test objects" as
+truncation. Twenty-three of those had **26** objects and the full 781 passes —
+one test object simply has no `cleanupTestCase` slot. A detector that counts
+what finished has to be checked against a run that finished.
+
+### It reproduces from one test function
+
+    -test "TextEditor,testTheCaretLandsWhereTheWidgetEditorsDoes"
+
+About ten seconds a run, and it dies in roughly one run in forty-five: a
+segmentation fault twice and an abort once, which is the pair of endings heap
+corruption gives. The whole suite is not needed. That is a handle perhaps
+twenty times cheaper than the one entry 244 was working with, and it is the
+thing this batch is actually worth.
+
+The *location* was not news — the comment above that test already said the
+suite "has twice died of heap corruption" there, and entry 244 had been there
+before. What is new is that it happens with nothing else running.
+
+### Why four instruments found nothing
+
+    under gdb, plain                          0 crashes in  40 runs
+    under gdb with MALLOC_CHECK_=3            0 crashes in 100 runs
+    no debugger                               3 crashes in 130 runs
+
+At the measured 2.3%, seeing none in 140 runs has a probability of about 0.04.
+So **the debugger suppresses it**, and entry 244's failure "with four
+instruments" was not bad luck or bad technique. Anything that stops the process
+or changes allocation appears to change whether it happens at all — which the
+comment at `textviewport.cpp:2734` says about printing, in the same file, for
+what may well be the same reason.
+
+What follows for whoever picks this up: do not start with a debugger. Reach for
+something that watches without stopping - a build with frame pointers and a
+sampling profiler, or logging that is written and not printed - or accept that
+the instrument has to be inside the program.
+
+Apport is configured on the VM (`core_pattern` pipes to it) but keeps nothing
+for this binary, so the cores the shell reports are not recoverable. Anyone
+wanting one will have to take `core_pattern` for themselves first.
+
+### What this batch changed
+
+One comment, which counted the deaths, now states the rate and the fact that a
+debugger does not see it. The counting version was true and is now a measured
+statement in the place the next person will be standing.
+
+No control: nothing was fixed, and a comment has no behaviour to disable. The
+measurements above are the evidence, and each says how many runs it rests on.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Test count unchanged at 781.
+
+### What is next
+
+1. **The crash**, now cheap to reproduce and known to hide from gdb. The next
+   instrument has to be one that does not stop the process. Worth an hour
+   before the stack tidy, because it is the only defect on this branch that
+   loses a whole run.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271), the
+   oldest open item.
+3. **The typing flake** (entries 282–284): narrowed, priced at ~1 in 54 suite
+   runs, and now reporting which of two faults it is on its next appearance.
+   Do not land the one-line fix — entry 284 says why.
+4. **A Windows run** for the console-host port (entry 264).
