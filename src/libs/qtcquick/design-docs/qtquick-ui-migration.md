@@ -64427,3 +64427,80 @@ Everything the batches could reach has been done: the Quick editor is what a
 C++ file opens in, the census guards it, and every drawn part of the editor's
 QML with a conditional rule behind it is covered. What is left is either a
 decision, a machine, or a wait.
+
+## 2026-09-14 — The stack tidy, measured and then done (batch 289)
+
+Entry 271 called this "a decision about when, not whether" and every entry
+since has carried it forward as the oldest open item. It was deferred because
+nobody knew what it cost. It cost two minutes.
+
+### What the stack actually was
+
+    commits on the branch          1510
+    fixup! commits                    1
+    squash! commits                   0
+
+**One** fixup — `fixup! QtcQuick: Port the Terminal page`, eleven lines added to
+one QML file. The "1284 commits rewritten" of entry 271 was never a count of
+fixups; it is the distance from the fixup's target to the tip. There was no
+cheap version to find: the target sits 1302 commits back, and even *rewording*
+the fixup in place would have rewritten the 939 after it.
+
+### Dry-run first, on a worktree that was not the branch
+
+    git worktree add -b tidy-dryrun <scratch> utils-drop-printsupport
+    GIT_SEQUENCE_EDITOR=true git rebase --autosquash -i <base>
+
+    exit 0, 121 seconds, zero conflicts
+
+Then the checks, before anything was applied:
+
+    commits         1510 -> 1509        the fixup folded
+    fixup! left     0
+    the 11 lines    in QtcQuick: Port the Terminal page, where they belong
+    the tree        byte-identical to the branch it would replace
+
+The last of those is the one that matters. Folding a fixup must change no file
+content; `git diff` between the two branches was empty, so the rewrite moved
+history and nothing else. Nothing about the build or the tests can have changed
+because nothing they read changed.
+
+### Applied
+
+With that on the table it stopped being a judgement call and became a
+question with an answer, and it was put as one. Applied by moving the branch
+onto the dry-run result — `git branch -f` refuses a checked-out branch, so
+`git reset --hard` in a clean tree — and the scratch worktree and branch
+removed afterwards.
+
+    utils-drop-printsupport   1509 commits, 0 fixups, 0 behind c/master
+    refs/backup/pre-tidy      the previous tip, a098aca3250
+
+The backup ref is kept deliberately. Undoing this is
+`git reset --hard refs/backup/pre-tidy`, and it will stay true until someone
+deletes that ref.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Run before the tidy, on identical file content — which is exactly what makes
+them still valid after it. No control: the tidy has no behaviour, and the
+identical-tree check is the whole of its correctness.
+
+### What is next
+
+The branch is tidy, 1509 commits, nothing to push and nothing pushed. What is
+left needs a machine, a wait, or a few hours nobody has given it:
+
+1. **A dedicated ASan session** for entry 247's crash — priced in entry 288,
+   with the recipe there. About one run in forty, invisible to gdb and to a
+   handler in its own file.
+2. **The typing flake** (entries 282-284) — waiting on a sighting, which will
+   now name its own cause. Do not land the one-line fix; entry 284 says why.
+3. **A Windows run** for the console-host port (entry 264).
+
+The work the batches could do is done. A C++ file opens in the Quick editor,
+the census fails if that stops being true, every drawn part of the editor's
+QML with a rule behind it is covered, and the history is clean enough to read.
