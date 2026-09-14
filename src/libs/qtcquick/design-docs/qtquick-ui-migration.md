@@ -64349,3 +64349,81 @@ No control: nothing was changed. Test count unchanged at 781.
 4. **The typing flake** (entries 282-284): priced at ~1 in 54 suite runs and
    self-diagnosing on its next appearance. Do not land the one-line fix.
 5. **A Windows run** for the console-host port (entry 264).
+
+## 2026-09-14 — The sanitiser build, priced and not started (batch 288)
+
+No code change. Entry 287 said to finish the ASan build as a batch of its own
+with nothing else running. That was done, and the answer is that it is not a
+batch's work. The numbers, so nobody has to find them again:
+
+    whole ASan build, targets left       4573
+    rate at -j2, the most this host took  ~3 targets a minute
+    therefore                             the better part of a day
+
+    ninja -n qtcreator                      31 edges
+    ninja -n TextEditor                    570 edges
+    ninja -n CppEditor                    1007 edges
+
+The build directory is sound — it holds 5276 objects from before — and it is
+configured right. What it is not is affordable: a day's drift in the source
+dirties nearly everything, and this machine has already killed the job twice
+for memory at -j4 and -j2.
+
+### Why the cheap version does not work either
+
+570 targets for `TextEditor` looks like the way out, and it is not. Everything
+*not* rebuilt stays linked against the core it was built with a day ago, and
+the crash is hunted with `-test TextEditor -load all`, which loads all of it.
+Covering what the test actually touches means `CppEditor` as well — 1007
+targets, about five and a half hours here — and running with fewer plugins
+instead is its own risk, since this crash is sensitive enough to vanish under a
+debugger and under a handler compiled into its own file (entries 285, 286).
+
+### Not started, deliberately
+
+Batch 287 established that a killed build's container keeps running. A
+five-hour build on this host would be killed, orphaned, and left racing
+whatever the next batches build — which is the failure mode 287 spent a batch
+diagnosing. Starting one and handing the problem forward would be worse than
+leaving it.
+
+So: **ASan on this crash needs a dedicated session**, with nothing else running
+and a few hours to give it. The recipe, whole, so that session need not
+rediscover it:
+
+    cmake --build builds/linux-arm64/Asan -- -j2      # hours; name the container
+    vm-testing/run-asan.sh 'TextEditor,testTheCaretLandsWhereTheWidgetEditorsDoes'
+
+with `ASAN_OPTIONS=detect_leaks=0:log_path=/tmp/asan` (the script sets it), and
+expect to need about forty runs at the measured one-in-forty. Two things to
+know going in: the container survives a killed job, so `docker ps` after any
+kill; and ASan is worth it despite the cost precisely because it does not wait
+for the crash — it checks each access, so it can report the bad one in a run
+that would have survived, which is what gdb and an in-file handler could not.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Run before anything was built, so they had the machine to themselves. No
+control: nothing was changed. No containers left running.
+
+### What is next
+
+The plan is now honest about having no batch-sized technical work left. In
+order of what is worth someone's time:
+
+1. **A tidy of the stack before pushing** — 1284 commits (entry 271). The
+   oldest item, the largest, and the only thing standing between this branch
+   and another reader. It needs a decision about when, which is not the
+   batches' to make.
+2. **A dedicated ASan session** for the crash, priced above.
+3. **The typing flake** (entries 282-284) — waiting on a sighting, which now
+   reports its own cause. Do not land the one-line fix.
+4. **A Windows run** for the console-host port (entry 264).
+
+Everything the batches could reach has been done: the Quick editor is what a
+C++ file opens in, the census guards it, and every drawn part of the editor's
+QML with a conditional rule behind it is covered. What is left is either a
+decision, a machine, or a wait.
