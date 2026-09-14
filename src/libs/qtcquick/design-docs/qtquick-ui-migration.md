@@ -64275,3 +64275,77 @@ before these ran.
 3. **The typing flake** (entries 282-284): narrowed, priced, and now
    self-diagnosing on its next appearance. Do not land the one-line fix.
 4. **A Windows run** for the console-host port (entry 264).
+
+## 2026-09-14 — Why the builds kept dying, and what ASan costs (batch 287)
+
+No code change. Entry 286 left one instrument untried for the crash — a
+sanitiser build. Trying it did not get as far as the crash, and turned up
+something that has been quietly wrong for several batches.
+
+### A killed build is not a stopped build
+
+The host has killed a job for memory in six of the last eight batches. Entries
+281 and 283 blamed a second background job polling alongside the work, and
+dropped the pollers. **That was a guess and it was wrong.**
+
+What actually happens: the job that is killed is the `docker run` *client*. The
+container carries on compiling, unwatched and unattached to anything. The
+retry then starts a second container on the **same build directory** — which is
+the thing this project's own instructions forbid, arrived at by accident.
+Caught in the act:
+
+    laughing_agnesi   CPU 200%   (the -j2 retry)
+    zen_engelbart     CPU 317%   (the -j4 job, "killed" half an hour earlier)
+
+Two builds of one directory, 500% of CPU between them, on a machine that was
+being killed for memory. The pattern fits every kill since batch 280 far better
+than the pollers did: each kill left a container running, and each retry added
+another.
+
+So: after a build job is killed, **`docker ps` before doing anything else**, and
+`docker stop` what is still there. Nothing else this session has been as
+expensive as not knowing that.
+
+It also puts a question mark over the last few batches' builds - a run may have
+been racing a leftover. It does not touch any *measurement*, which were all
+made by running a binary rather than building one, and the suites have been
+green throughout.
+
+### The sanitiser build does not fit in a batch
+
+    incremental ASan rebuild, -j4    killed for memory
+    incremental ASan rebuild, -j2    killed for memory, container ran on
+    total elapsed                    over 75 minutes, never reached the link
+
+Configured correctly (`-fsanitize=address -fno-omit-frame-pointer`) and it has
+worked before — a whole `QuickTextEditorTest` ran under it on 2026-09-13 — but
+a day's drift means most of the tree, and this machine will not carry that and
+anything else at once. Stopped deliberately rather than left running: 5276
+object files are built and kept, so this resumes rather than restarts.
+
+**ASan therefore remains untried on the crash**, which is worth saying plainly
+rather than leaving the impression it was ruled out. It is still the most
+promising instrument, because unlike a debugger or an in-file handler (entry
+286) it checks every access rather than waiting for the consequence — so it can
+report the invalid one even in a run that would have survived.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+No control: nothing was changed. Test count unchanged at 781.
+
+### What is next
+
+1. **A tidy of the stack before pushing** — 1284 commits (entry 271). The
+   oldest open item, and now by a long way the largest piece of real work left.
+   Every technical lead below is either priced out or waiting on a sighting.
+2. **Finish the ASan build and run the crash under it.** Resumable: the build
+   directory holds 5276 objects. Best done as a batch of its own with nothing
+   else running, since that is what this one proved it needs.
+3. **The crash** (entry 247): about one run in forty, from a single test
+   function, invisible to gdb and to a handler in its own file.
+4. **The typing flake** (entries 282-284): priced at ~1 in 54 suite runs and
+   self-diagnosing on its next appearance. Do not land the one-line fix.
+5. **A Windows run** for the console-host port (entry 264).
