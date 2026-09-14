@@ -63929,3 +63929,89 @@ batch sharpened a test rather than adding one.
    oldest open item.
 3. **A Windows run** for the console-host port (entry 264).
 4. **The crash** (entry 247), still accepted at its measured rate.
+
+## 2026-09-14 — Three things the typing flake is not (batch 283)
+
+No code change. Entry 282's next step was to find what edits the document during
+`insertText()`, because that would give the deterministic repro a fix needs.
+It was not found. What was found narrows it, and two of the four results are
+things worth not repeating.
+
+### It is not anything in its own test class
+
+    -test TextEditor,QuickTextEditorTest    10 runs    0 soft asserts, 0 failures
+
+Detected on the soft assert at `textviewport.cpp:2734` rather than on the test
+failing, which is the more sensitive signal: it fires whenever the cursor
+misbehaves, damaged end state or not. Within a test object QTest runs slots in
+declaration order, so every same-class predecessor runs before the typing test
+every time — and the fault does not appear. **The trigger is another test
+object.**
+
+### Watching contentsChange cannot see it
+
+The first probe counted `QTextDocument::contentsChange` emissions during
+`cursor.insertText(typed)`, expecting exactly one and reporting anything else.
+It reported sixty times a run, every one benign, and the change list was always
+**empty**. The reason is four lines above the insertion:
+
+    if (group)
+        cursor.beginEditBlock();
+
+Inside an edit block `QTextDocument` defers `contentsChange` to `endEditBlock()`,
+so the signal cannot see a re-entrant edit *inside* the block — which is exactly
+where this one would be. A whole class of probe is useless here; that cost a
+build to learn and is written down so it costs nobody another one.
+
+The second probe reported only the real anomaly — `cursor.position() !=
+insertedAt + typed.size()`, with the character count, revision and edit-block
+state alongside. **0 hits in 6 suite runs**, which at a rate of 1 in 6 to 14 is
+uninformative either way. Worth remembering that the comment on that line warns
+"printing in this path is enough to stop it happening at all", so a probe in
+this path may be suppressing what it is looking for.
+
+### No single predecessor is sufficient
+
+The failing run's log names the 24 test objects that ran before
+`QuickTextEditorTest`. Every one of them also ran before it in at least one
+**passing** run, across 18 logs. So no neighbour causes this on its own.
+
+### The one lead, and how strong it is
+
+Where `QuickTextEditorTest` ran in the order:
+
+    the failing run          position 25 of 27
+    30 passing runs          1 … 24, median 12, none at 25 or later
+
+Under the null — position irrelevant — the chance the single failure lands
+above all thirty passing runs is about 1 in 31. That is **one sample**, so it
+is a lead and not a cause: it points at accumulation across the run rather than
+at a particular neighbour, which fits "no single predecessor is sufficient" and
+would explain why 10 runs of the class alone show nothing.
+
+It also makes a prediction that costs nothing to check: **record the position
+of `QuickTextEditorTest` on every future sighting.** Two or three more late
+ones would turn this into a cause; one early one would kill it outright.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Of the reverted tree — both probes were removed and `git status` confirmed
+clean before these ran, with the `QTC_CHECK` at 2734 intact. Test count
+unchanged at 781.
+
+### What is next
+
+1. **The typing flake**, with the search narrowed: not its own class, not any
+   one neighbour, plausibly lateness in the run. The next useful step is
+   cheap — take the position on the next sighting before doing anything else.
+   The fix itself is still one line (`cursor.setPosition(insertedAt +
+   typed.size())`), still waiting on a repro to control it against.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271), the
+   oldest open item.
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247). Worth noting it is also a late-in-the-run
+   phenomenon; whether the two share a cause is a question nobody has asked
+   with a measurement, and it is not claimed here.
