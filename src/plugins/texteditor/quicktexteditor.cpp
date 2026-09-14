@@ -3915,10 +3915,29 @@ private slots:
                 key = Qt::Key_Tab;
             }
             const QString text = key == Qt::Key_unknown ? QString(ch) : QString();
+            const int caretBefore = caretPositionOf(editor);
+            const int lengthBefore = document->document()->characterCount();
             QKeyEvent press(QEvent::KeyPress, key, modifiers, text);
             QCoreApplication::sendEvent(target, &press);
 
             const int caret = caretPositionOf(editor);
+            // A key may leave the caret past whatever it added, and one place
+            // further than that to step over a character already there. Beyond
+            // that the caret has walked off the text: the key after it is then
+            // typed somewhere nobody asked for, which is how a line ends up
+            // with two of every closing character.
+            const int grew = document->document()->characterCount() - lengthBefore;
+            const int moved = caret - caretBefore;
+            if (moved > qMax(1, grew)) {
+                if (trace) {
+                    *trace << QString("%1 -> %2 | caret %3   <- moved %4 having added %5")
+                                  .arg(text.isEmpty() ? QString::number(key, 16) : text,
+                                       document->document()->toPlainText(),
+                                       QString::number(caret), QString::number(moved),
+                                       QString::number(grew));
+                }
+                return false;
+            }
             if (carets)
                 *carets << caret;
             if (trace) {
@@ -4013,7 +4032,10 @@ private slots:
 
         QStringList trace;
 
-        QVERIFY(typeScript(editor, script, &trace, nullptr));
+        QVERIFY2(typeScript(editor, script, &trace, nullptr),
+                 qPrintable(QString("the typing stopped before the end of the script, key by "
+                                    "key:\n  %1")
+                                .arg(trace.join("\n  "))));
 
         QVERIFY2(document->document()->toPlainText() == expected,
                  qPrintable(QString("got %1, wanted %2, key by key:\n  %3")

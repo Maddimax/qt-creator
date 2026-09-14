@@ -63813,3 +63813,119 @@ mostly restate the model, so they are **not** proposed as the next batch.
 If none of those is wanted, the honest answer is that the QML-coverage seam is
 worked out and the next real work is elsewhere: either the stack, or picking
 up the mime-type flip itself and finding what still breaks.
+
+## 2026-09-14 — The typing flake has a cause, and the goal is already guarded (batch 282)
+
+Two findings, one of which was going to be a batch until it turned out to be
+already done.
+
+### The goal is met, and a regression out of it would be caught
+
+Before writing anything, this batch checked what a C++ file actually opens in
+today. `CppEditorFactory` carries an unconditional `setUsesQuickEditor(true)`
+(batch 259), so the mime-type contest the standing warning is about was never
+entered: CppEditor keeps its claim on the C++ mime types and builds a Quick
+editor. **A C++ file opened in Qt Creator opens in `TextViewport`.**
+
+The next question was whether anything asserts it, since every test in the tree
+*forces* a view with a scope guard. It does:
+`testEveryQuickLanguageGetsWhatItsFactoryConfigures` opens `main.cpp` through
+`Core::EditorManager::openEditor(file)` with **no editor id** — the ordinary
+path — checks `preferredFactoryFor()` picked CppEditorFactory, and checks the
+editor came up with a `TextViewport`.
+
+And it notices a language *leaving*, which was the gap this batch expected to
+find. The loop skips factories that have not opted in, so opting out would make
+C++ vanish from it silently — except for the last line:
+
+    QCOMPARE(checked, sampleFor.size());
+
+Twelve languages in the table, twelve must be checked. A `setUsesQuickEditor(false)`
+on CppEditorFactory drops the count to eleven and fails. **No gap; nothing
+written.** Recorded because the next reader will ask the same question.
+
+### What the typing flake actually is
+
+Entry 279 left it "open, unexplained". It is explained now, and not by guessing:
+the failing run's own log had the answer twice over.
+
+**First, the trace.** The test prints every key with the text and caret after
+it. Reading entry 279's recorded failure:
+
+    " -> void f() { g("")}     caret 14    <- pair inserted, caret between them
+    a -> void f() { g("a")}    caret 16    <- one character typed, caret moved two
+    " -> void f() { g("a""")}  caret 17    <- nothing to step over now, so a new pair
+
+Everything after is consequence. The defect is **not** the quote handling: a
+plain `a` left the caret two further on, past the closing quote, and the
+doubled characters follow from that.
+
+**Second, the soft assert.** Production already checks this, at
+`textviewport.cpp:2734`:
+
+    // something edits the document while insertText() is running, the cursor
+    // comes back further on than it went in, and the closing half below then
+    // lands on the far side of whatever is between them.
+    QTC_CHECK(cursor.position() == insertedAt + typed.size());
+
+It fired three times in the failing test, at the failing timestamp. So the
+mechanism is the one that comment describes, and it is a *measured* cause with
+a file and a line rather than a hypothesis. Worth noting it had been sitting in
+the log all along: **read a test run's warnings.**
+
+### The rate, measured
+
+    isolated, 30 runs of the test alone      0 failures
+    in the full suite                        1 in 6 (entry 279), 1 in 14 total
+
+So it is an interaction with whatever ran before it, and entry 276's finding —
+a different test order every run — is why it comes and goes. A deterministic
+repro was not found, which is why **no fix was attempted**: the obvious one
+(force the cursor to `insertedAt + typed.size()` rather than checking it) can
+be written in a line and cannot be control-tested against a bug that will not
+reproduce on demand. Proposed below instead.
+
+### What this batch did change
+
+The test failed at the end state and left the cause to be worked out from the
+wreckage. It now fails at the key:
+
+    A key may leave the caret past whatever it added, and one place further
+    than that to step over a character already there. Beyond that the caret
+    has walked off the text.
+
+`moved > qMax(1, grew)` — which holds for all thirty rows (auto-inserting a
+pair grows two and moves one; stepping over grows none and moves one;
+overwriting grows none and moves one; Tab grows four and moves four).
+
+Control, biting: an extra `cursor.movePosition(NextCharacter)` after
+`cursor.insertText(typed)` in `TextViewport::insertText`, which is the real
+mechanism rather than a sketch of it. Six rows go red, each naming its key —
+and **only `quick:` rows**, the widget path being untouched, which is a useful
+check that the control is aimed where it was meant to be.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0     x5
+    -test TextEditor    131 passed, 0 failed, exit 255              x1
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+The truncated run is entry 247's crash: zero failures, no invariant message,
+stopped mid-suite. Distinct from the typing flake, which is exit 1 with a
+failure — the two signatures entry 279 separated, and this is the first run
+since where telling them apart mattered. Test count unchanged at 781: this
+batch sharpened a test rather than adding one.
+
+### What is next
+
+1. **Fix the caret after `insertText`.** `textviewport.cpp:2734` knows where
+   the cursor must be and only checks it. Making it authoritative —
+   `cursor.setPosition(insertedAt + typed.size())` — would stop the damage
+   whatever is moving the document underneath. What is missing is a
+   deterministic repro to control the fix against; finding *what* edits the
+   document during `insertText()` would give one, and the suite-only nature
+   says it is something a neighbouring test leaves running.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271), now the
+   oldest open item.
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247), still accepted at its measured rate.
