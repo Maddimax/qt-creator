@@ -64192,3 +64192,86 @@ Test count unchanged at 781.
    runs, and now reporting which of two faults it is on its next appearance.
    Do not land the one-line fix — entry 284 says why.
 4. **A Windows run** for the console-host port (entry 264).
+
+## 2026-09-14 — The crash hides from an instrument in its own file (batch 286)
+
+Entry 285 said the next instrument had to be one that does not stop the
+process, and named the kind: something inside the program. That was tried. It
+does not work either, and finding out why corrected entry 285's reasoning.
+
+### What was tried
+
+A `SIGSEGV`/`SIGABRT` handler in `quicktexteditor.cpp` calling `backtrace()`
+and `backtrace_symbols_fd()`. It costs nothing while the test runs — a signal
+handler is not called until the process dies — so on entry 285's reasoning it
+should have seen everything the debugger could not.
+
+    with the handler, same source        0 crashes in 150 runs
+
+Qt Creator's own crash handler was looked at first and set aside: it is gated
+on `QTC_USE_CRASH_HANDLER` and puts up a dialog, which is no use in a loop.
+Redirecting `core_pattern` away from apport, which would have given a
+post-mortem core and perturbed nothing at all, needs root, and the VM has no
+passwordless sudo. Not pursued rather than worked around.
+
+### The confound, and varying it
+
+Zero in 150 looks like suppression, but installing the handler meant
+**rebuilding**, and a rebuild moves code and heap about — exactly what a heap
+fault can turn on. Entry 285 would have written "the handler suppresses it" and
+been guessing. So the probe was reverted, the committed source built again, and
+the same 150 runs repeated:
+
+    committed source, no handler         3 crashes in 150 runs   (2%)
+
+**The repro survives a rebuild.** So rebuilding is not what stops it, and what
+stops it is the instrument. A measurement that varies what the answer depends
+on, which is the rule this nearly broke.
+
+### Everything measured about this crash so far
+
+    plain, one build                     4 crashes in ~134 runs   (3.0%)
+    plain, rebuilt from the same source  3 crashes in  150 runs   (2.0%)
+    under gdb                            0 crashes in  140 runs
+    under gdb with MALLOC_CHECK_=3       (included above)
+    with a backtrace handler in the file 0 crashes in  150 runs
+
+Seven crashes in 284 plain runs, about one in forty. None at all in 290 runs
+with something watching. Both suppressors are of the "look closer and it stops"
+kind that entry 244 met four times, and the comment at `textviewport.cpp:2734`
+describes for printing in a different path of the same file.
+
+What that leaves: an instrument here has to be one the crash cannot feel. A
+post-mortem core (needs root on the VM), a sanitiser build, or watching from
+outside the process. Adding code to this translation unit is now measured to be
+no better than attaching a debugger, and the comment above the test says so, in
+the place someone would try it.
+
+### What this batch changed
+
+Three lines of comment. No control: nothing was fixed, and the measurements are
+the evidence — each stated with the number of runs it rests on, since at 2% a
+result from fewer than about a hundred runs means nothing, which entry 279's
+"one in six" and entry 247's "one in seven or eight" both learned the hard way.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Test count unchanged at 781. The probe was reverted and `git diff` checked
+before these ran.
+
+### What is next
+
+1. **A tidy of the stack before pushing** — 1284 commits (entry 271). Now the
+   oldest open item by a wide margin and the one thing between this branch and
+   another reader. It is a decision about when, not whether, and the batches
+   have run out of cheaper work worth doing.
+2. **The crash**, characterised but not caught: about one run in forty, from a
+   single test function, invisible to a debugger and to an in-file handler. The
+   untried instruments are a sanitiser build and a post-mortem core, the latter
+   needing root on the test VM.
+3. **The typing flake** (entries 282-284): narrowed, priced, and now
+   self-diagnosing on its next appearance. Do not land the one-line fix.
+4. **A Windows run** for the console-host port (entry 264).

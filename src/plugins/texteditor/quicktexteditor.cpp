@@ -4198,7 +4198,10 @@ private slots:
     // the test out of its way rather than getting it out of everyone's. This
     // test still dies about twice in a hundred runs of it on its own, as a
     // segmentation fault or an abort, and not once in a hundred and forty
-    // under a debugger.
+    // under a debugger. Nor in a hundred and fifty with a backtrace handler
+    // added to this file, while the same build without one died three times
+    // in as many - so an instrument put here is no better than the debugger,
+    // and rebuilding on its own is not what stops it.
     void testTheCaretLandsWhereTheWidgetEditorsDoes()
     {
         Utils::TemporaryDirectory dir("caret-lockstep");
