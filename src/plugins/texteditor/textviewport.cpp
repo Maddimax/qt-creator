@@ -2724,6 +2724,7 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     // Where the text goes in, which is the start of whatever it replaces -
     // a selection the reader made, or the character overwrite mode takes.
     const int insertedAt = cursor.selectionStart();
+    const int lengthBefore = doc->document()->characterCount();
     cursor.insertText(typed);
     // Where inserting that must leave the cursor. It has been seen elsewhere:
     // something edits the document while insertText() is running, the cursor
@@ -2731,6 +2732,17 @@ void TextViewport::insertTypedText(QTextCursor &cursor, const QString &text)
     // lands on the far side of whatever is between them. Silent until it
     // happens, because printing in this path is enough to stop it happening
     // at all.
+    //
+    // How much the document grew says which of the two it was: as much as was
+    // typed and nothing else was written, so the cursor moved on its own;
+    // more than that and something inserted text the cursor was right to
+    // move over.
+    if (cursor.position() != insertedAt + typed.size()) {
+        qWarning("Inserting text at %d should have left the cursor at %d but left it at %d, "
+                 "with the document going from %d characters to %d.",
+                 insertedAt, int(insertedAt + typed.size()), cursor.position(), lengthBefore,
+                 doc->document()->characterCount());
+    }
     QTC_CHECK(cursor.position() == insertedAt + typed.size());
     if (!closing.isEmpty()) {
         const int before = cursor.position();

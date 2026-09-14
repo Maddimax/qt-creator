@@ -64015,3 +64015,92 @@ unchanged at 781.
 4. **The crash** (entry 247). Worth noting it is also a late-in-the-run
    phenomenon; whether the two share a cause is a question nobody has asked
    with a measurement, and it is not claimed here.
+
+## 2026-09-14 — The typing flake's rate, and a fix that would have been wrong (batch 284)
+
+Entry 283 said to take the position on the next sighting before doing anything
+else. There is no need to wait for one: fifty-five run logs from this session
+were still on disk, and reading them corrects two things this plan has been
+repeating.
+
+### The rate is 1 in 54, not 1 in 6
+
+    runs with the mechanism (textviewport.cpp:2734)    1
+    full-suite runs in the logs                       54
+
+Entry 279 said "one in six". That was six runs with one failure in them — a
+small-sample estimate quoted ever since as though it were measured. **It is
+about 2%.** Which means entry 283's six probe runs finding nothing was the
+expected outcome and said nothing at all, and that anyone brute-forcing a repro
+should budget about fifty suite runs — roughly three hours here — per sighting.
+
+The position lead from entry 283 now has a denominator: of 54 runs, only **two**
+put `QuickTextEditorTest` at position 25 or later, and the single sighting is
+one of them. Still one failure, so still a lead; but 2-in-54 is a sharper
+statement than "later than any passing run".
+
+### The one-line fix would have been wrong
+
+Entries 282 and 283 both proposed `cursor.setPosition(insertedAt + typed.size())`
+— make the check authoritative. Reading the recorded trace arithmetic before
+writing it:
+
+    before the key   "void f() { g(\"\")}"   17 characters, caret 14
+    after  the key   "void f() { g(\"a\")}"  18 characters, caret 16
+
+The document grew by **exactly the character typed**. So nothing else was
+inserted, and the cursor moved two on its own. That matters twice over:
+
+- It is evidence *against* the mechanism the comment on that line states —
+  "something edits the document while insertText() is running" — at least as a
+  net insertion. Whatever moved the cursor did not leave text behind.
+- And it shows the proposed fix is not obviously right. Had something inserted
+  text *before* the cursor, the cursor would have been **correct** to move over
+  it, and `insertedAt` would be stale too; forcing the position would then put
+  the caret in the wrong place and call it a fix. The one-liner happens to suit
+  the one case on record and is unsafe as a general rule.
+
+Written down because it was two entries away from being landed on the strength
+of being short.
+
+### What this batch changed
+
+The check reported only that the cursor had landed wrong. Which of the two
+cases it was had to be reconstructed by hand, from a test's key-by-key trace,
+two batches later. The document's length answers it directly, so it is now
+printed when the check has already failed:
+
+    Inserting text at 10 should have left the cursor at 11 but left it at 12,
+    with the document going from 12 characters to 13.
+
+Grown by what was typed and the cursor moved on its own; grown by more and
+something inserted text it was right to move over. Nothing is computed in that
+path except one `characterCount()`, and nothing is printed unless the fault has
+already happened — which matters, the comment there warning that printing in
+this path may stop the fault occurring at all.
+
+Control, biting: an extra `cursor.movePosition(NextCharacter)` after the
+insertion. Six rows go red and the report reads as above. It is the only way to
+make this code print, so the control is also the proof the message is right.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3, 0 reports
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Test count unchanged at 781. The zero reports are the point: silent until it
+happens.
+
+### What is next
+
+1. **The typing flake.** Search narrowed (entry 283: not its own class, no
+   single neighbour) and now priced (one sighting per ~50 suite runs). The next
+   sighting will say in one line which of the two faults it is, which is what
+   was missing. **Do not land the one-line fix** until it does — see above.
+2. **A tidy of the stack before pushing** — 1284 commits (entry 271), the
+   oldest open item, and the one thing standing between this branch and anyone
+   else reading it.
+3. **A Windows run** for the console-host port (entry 264).
+4. **The crash** (entry 247), accepted. Its rate deserves the same treatment
+   the typing flake just got: entry 247's "1 in 7-8" is also a small-sample
+   figure, and the same 55 logs would price it properly.
