@@ -480,9 +480,27 @@ private slots:
         QVERIFY2(boxRow.isValid(), "the outline lists no Rectangle");
 
         const int wasLine = editor->currentLine();
+        QVERIFY2(wasLine != 3, "the caret was already there, so nothing below asserts anything");
+
+        // While the reader is typing, the tree follows the caret and must not
+        // lead it: a row changing under a focused editor leaves the caret
+        // alone. Asserted first, and with the editor focused as the reader
+        // would have left it, so that the move below is one the pane made
+        // rather than one the caret was already making.
+        QVERIFY2(editor->widget()->hasFocus(), "the editor lost focus before the pane was asked");
+        tree->selectionModel()->select(boxRow, QItemSelectionModel::ClearAndSelect);
+        QCOMPARE(editor->currentLine(), wasLine);
+
+        // A reader choosing a row clicks it, and the click gives the tree the
+        // focus before the selection changes. Shown, because a hidden widget
+        // cannot take focus: the pane is on screen when anyone clicks in it.
+        tree->selectionModel()->clearSelection();
+        outline->show();
+        const QScopeGuard hideOutline([&outline] { outline->hide(); });
+        tree->setFocus();
+        QTRY_VERIFY2(tree->hasFocus(), "the tree did not take the focus a click would give it");
         tree->selectionModel()->select(boxRow, QItemSelectionModel::ClearAndSelect);
         QTRY_COMPARE(editor->currentLine(), 3);
-        QVERIFY2(wasLine != 3, "the caret was already there, so this asserts nothing");
     }
 };
 

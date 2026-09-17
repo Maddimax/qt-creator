@@ -64693,3 +64693,76 @@ alone here and listed below; it is not this batch's to fix blind.
    which is a port of that box rather than a change of id.
 4. Then the items entries 288-290 already list: the two-view tests' widget
    rows, the five specialised editors, ASan, the typing flake, Windows.
+
+## 2026-09-17 — The outline test that stopped modelling the click (batch 292)
+
+Entry 291's first item: two rows of `QmlJSOutlineTest::testTheOutlinePaneFollowsTheCaretInAnyView`
+failing on HEAD, in a plugin outside the standing suites. Fixed, and the fix
+is in the test, for a reason that was measured before it was believed.
+
+### What was wrong, measured
+
+Both rows landed the caret on line **4** where the test expected **3** - and
+both views agreed with each other, which already said the fault was not in
+either view. A probe at the moment the row is chosen:
+
+    widget row   editor widget hasFocus true   focusWidget QmlJSEditorWidget   tree hasFocus false
+    quick row    editor widget hasFocus true   focusWidget QQuickWidget        tree hasFocus false
+
+`QmlJSOutlineWidget::updateTextCursor()` returns before moving anything when
+`editorHasFocus()`, and it is right to: while the reader types, the tree
+follows the caret and must not lead it. So the caret never moved, and 4 is
+simply where the previous step - `caretAt("Text {")` - had left it. The test's
+own `wasLine != 3` guard said as much.
+
+### Why it used to pass
+
+The `3` and the focus guard arrived in the **same commit** (8a6aef800a9,
+2026-09-07), and a log from that night shows the widget row passing. So the
+test was green when written, with the editor *not* holding focus under the
+offscreen platform. It holds it now - the test shows the editor's widget as the
+only window, and something since 09-07 (editor activation on open, or the
+09-12 focus proxy on the Qt Quick host widget, both intended) gives that window
+the focus. Which one was not pinned; it would have needed a bisect of builds,
+and the fix is the same either way.
+
+**The test never modelled what a reader does.** A reader chooses a row by
+clicking it, and the click gives the tree the focus before the selection
+changes. The test chose the row programmatically with the editor still focused
+- an interaction nobody performs - and only passed while the guard happened not
+to fire.
+
+### The fix, in the test
+
+The pane is shown (a hidden widget cannot take focus), the tree is given focus
+as a click would, then the row is chosen. And the refusal is asserted first, as
+the other half of the behaviour: with the editor focused, choosing a row leaves
+the caret where it was. So the move that follows is one the pane made, not one
+the caret was already making.
+
+Control: drop `tree->setFocus()` so the row is chosen with no focus transfer -
+both rows go red on the compare, 2 passed 2 failed, each row landing on
+line 4 as before. The refusal half still passes under the control, which is
+what it should do: it is asserting the guard, and the guard is untouched.
+
+### Measurements
+
+    -test QmlJSEditor    44 passed, 0 failed, 0 skipped, exit 0   (was 42 / 2)
+    -test TextEditor     782 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+
+### A rule from this batch, applied to this batch
+
+The control script patches the source back and does not rebuild. Entry 291
+ran the control binary three times and read it as the change; this batch
+rebuilt before the suites above ran, and says so.
+
+### What is next
+
+1. **The remaining widget-id callers** (entry 291): `languageclient/client.cpp`,
+   `diffeditor`, `debugger` x2; `ieditorfactory.cpp:44` wants thought.
+2. **`languageclientsettings.cpp`** - a widget in a settings box, a port.
+3. **QmlJSEditor into the standing suites?** This break sat unnoticed because
+   nothing ran it. Worth deciding rather than discovering the next one.
+4. Then entries 288-290's list: the two-view tests' widget rows, the five
+   specialised editors, ASan, the typing flake, Windows.
