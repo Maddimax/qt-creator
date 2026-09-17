@@ -64602,3 +64602,94 @@ thing.** Mine asserted an invariant the suite holds the opposite of.
 2. **A dedicated ASan session** for entry 247's crash — priced in entry 288.
 3. **The typing flake** (entries 282-284) — waiting on a sighting.
 4. **A Windows run** for the console-host port (entry 264).
+
+## 2026-09-17 — The callers, not the factory (batch 291)
+
+Entry 290's first item, done: the code that asked for the plain text editor by
+id now asks for the Qt Quick one, and the widget factory - the suite's control
+- is untouched.
+
+### What changed
+
+`QUICK_TEXT_EDITOR_ID` was a `const char[]` local to `quicktexteditor.cpp`; no
+other plugin could name the Qt Quick editor at all. It is in
+`texteditorconstants.h` now, and the file-local definition is a `using` of it,
+so there is one definition. Four callers were pointed at it:
+
+    cppmodelmanager.cpp   x2   preprocessor output, written to a file and opened
+    qmljseditor.cpp       x2   what the code model knows about a type, no file
+
+Each needs an id and cannot go by mime type: preprocessed C++ would land in
+the C++ editor and be parsed, which is the opposite of "show this as text".
+
+### Correcting entry 290's count
+
+Entry 290 said "five production call sites". Two of the six it had in mind are
+not candidates, and the count of the rest was short by a good margin:
+
+- `fakevimplugin.cpp:1210` is a **test**, and casts to `TextEditorWidget` on
+  purpose.
+- `languageclientsettings.cpp:1008` calls `textEditor->editorWidget()` and
+  configures it for an embedded settings box - a genuine widget consumer, and
+  a separate port.
+- The grep that produced "five" was piped through `head`. Without it there are
+  more production users of the widget id: `languageclient/client.cpp`,
+  `diffeditor/diffeditorplugin.cpp` (several), `debugger/disassembleragent.cpp`,
+  `debugger/debuggerplugin.cpp`, and `coreplugin/ieditorfactory.cpp:44`, which
+  uses it in the fallback ordering itself. Those are the next callers.
+
+### The test, and what it covers
+
+`testTheQuickEditorShowsContentsThatWereNeverAFile`: contents opened by the
+Qt Quick id with no path at all - the route the two `qmljseditor` sites take
+and nothing had exercised. It asserts the text arrived, the document has no
+file, the editor is not a widget one, and the viewport shows lines. Control:
+ask for the widget id instead, which is exactly what the callers used to do -
+"contents with no file opened in a widget editor".
+
+### A measurement of my own mistake
+
+The first three suite runs after the control all failed on that one test,
+3 for 3, having passed alone. Entry 275's "worse than no test". Instrumented
+before guessing, and the instrumented run passed with `document id
+"TextEditor.QuickTextEditor"` - because the instrumented run had a **build step
+and the three failing ones did not.** The control script patches, builds,
+runs, and patches the *source* back; the binary in the VM stayed the control's
+until something rebuilt it. Three runs of the control, read as three runs of
+the change. `~/.claude/testing.md` has this as "a control runner that does not
+deploy measures the previous control"; this is the same fault from the other
+side, and it cost two builds.
+
+### Suites, and a baseline that mattered
+
+    -test TextEditor     782 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test CppEditor     1658 passed, 0 failed, 58 skipped, exit 0
+    -test QmlJSEditor     42 passed, 2 failed, exit 2
+
+Two failures in a plugin this batch touched. Not called pre-existing on sight:
+the change was saved as a patch, the tree put back to HEAD, rebuilt, and
+QmlJSEditor run again -
+
+    HEAD, without this change    42 passed, 2 failed   the same two
+
+`QmlJSOutlineTest::testTheOutlinePaneFollowsTheCaretInAnyView`, both rows,
+"Compared values are not the same". **Already broken on HEAD**, in a plugin
+whose suite the standing rules do not run, which is how it got there. Left
+alone here and listed below; it is not this batch's to fix blind.
+
+782 is 781 plus the new test.
+
+### What is next
+
+1. **`QmlJSOutlineTest`** - two rows failing on HEAD, unnoticed because the
+   suite is not in the standing set. Worth a look before anything else in that
+   plugin is touched.
+2. **The remaining widget-id callers**: `languageclient/client.cpp`,
+   `diffeditor`, `debugger` x2. Same shape as this batch. `ieditorfactory.cpp:44`
+   is different - it is the fallback ordering, not a caller - and wants
+   thought rather than a search-and-replace.
+3. **`languageclientsettings.cpp`** - a widget embedded in a settings box,
+   which is a port of that box rather than a change of id.
+4. Then the items entries 288-290 already list: the two-view tests' widget
+   rows, the five specialised editors, ASan, the typing flake, Windows.

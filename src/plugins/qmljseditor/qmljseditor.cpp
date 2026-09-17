@@ -415,7 +415,7 @@ static void inspectElementIn(Core::IEditor *editor)
     if (!cppValue) {
         QString title = Tr::tr("Code Model Not Available");
         const QString documentId = QML_JS_EDITOR_PLUGIN + QStringLiteral(".NothingToShow");
-        EditorManager::openEditorWithContents(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID, &title,
+        EditorManager::openEditorWithContents(TextEditor::Constants::QUICK_TEXT_EDITOR_ID, &title,
                                               Tr::tr("Code model not available.").toUtf8(), documentId,
                                               EditorManager::IgnoreNavigationHistory);
         return;
@@ -425,7 +425,7 @@ static void inspectElementIn(Core::IEditor *editor)
     const QString documentId = QML_JS_EDITOR_PLUGIN + QStringLiteral(".Class.")
                                + cppValue->metaObject()->className();
     IEditor *outputEditor = EditorManager::openEditorWithContents(
-                Core::Constants::K_DEFAULT_TEXT_EDITOR_ID, &title, QByteArray(),
+                TextEditor::Constants::QUICK_TEXT_EDITOR_ID, &title, QByteArray(),
                 documentId, EditorManager::IgnoreNavigationHistory);
 
     if (!outputEditor)

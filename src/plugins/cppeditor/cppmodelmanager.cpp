@@ -60,6 +60,7 @@
 
 #include <texteditor/refactoringchanges.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditorconstants.h>
 
 #include <utils/algorithm.h>
 #include <utils/environment.h>
@@ -387,7 +388,7 @@ void CppModelManager::showPreprocessedFile(bool inNextSplit)
             return;
         }
         f.close();
-        openEditor(filePath, inNextSplit, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        openEditor(filePath, inNextSplit, TextEditor::Constants::QUICK_TEXT_EDITOR_ID);
     };
 
     const FilePath &filePath = doc->filePath();
@@ -476,7 +477,7 @@ void CppModelManager::showPreprocessedFile(bool inNextSplit)
         if (isMsvc)
             saveAndOpen(outFilePath, compiler->rawStdOut(), inNextSplit);
         else
-            openEditor(outFilePath, inNextSplit, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+            openEditor(outFilePath, inNextSplit, TextEditor::Constants::QUICK_TEXT_EDITOR_ID);
     });
     compiler->start();
 }

@@ -110,7 +110,7 @@
 
 namespace TextEditor::Internal {
 
-const char QUICK_TEXT_EDITOR_ID[] = "TextEditor.QuickTextEditor";
+using Constants::QUICK_TEXT_EDITOR_ID;
 
 // A view of a document somebody else owns. CodeDocument opens a file and
 // CodeBuffer holds text of its own; an editor's document is opened by the
@@ -6611,6 +6611,33 @@ private slots:
                              QString("GLSLEditor.GLSLEditor")};
         expected.sort();
         QCOMPARE(quick, expected);
+    }
+
+    // Text that was never a file, shown by id. This is what code reaches for
+    // when it has something to display and no path for it - the code model's
+    // answer about a QML type, a preprocessor's output - and naming an editor
+    // is the point: going by mime type would hand preprocessed C++ to the C++
+    // editor and have it parsed, which is the opposite of what such a caller
+    // means. Nothing covered the contents-without-a-file route into this
+    // editor before the callers were pointed at it.
+    void testTheQuickEditorShowsContentsThatWereNeverAFile()
+    {
+        QString title = "Code Model of Thing";
+        Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+            Constants::QUICK_TEXT_EDITOR_ID, &title, QByteArray("shown as text\nand nothing more\n"));
+        QVERIFY2(editor, "nothing opened for contents with no file");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY2(document, "what opened has no text document");
+        QCOMPARE(document->plainText(), QString("shown as text\nand nothing more\n"));
+        QVERIFY2(document->filePath().isEmpty(), "a document with no file was given one");
+        QVERIFY2(!TextEditorWidget::fromEditor(editor),
+                 "contents with no file opened in a widget editor");
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "contents with no file opened without a Qt Quick viewport");
+        QTRY_VERIFY2(view->visibleLineCount() > 1, "the viewport shows none of the contents");
     }
 
     void testWhichLanguagesOpenInTheQuickEditor()
