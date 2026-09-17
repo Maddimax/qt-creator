@@ -64504,3 +64504,101 @@ left needs a machine, a wait, or a few hours nobody has given it:
 The work the batches could do is done. A C++ file opens in the Quick editor,
 the census fails if that stops being true, every drawn part of the editor's
 QML with a rule behind it is covered, and the history is clean enough to read.
+
+## 2026-09-17 — The plain text editor is the control, not a leftover (batch 290)
+
+The goal was widened: get rid of QWidgets altogether, and pick the target.
+The default text editor looked like the obvious one and it was the wrong one.
+Reverted; what it taught is worth more than the change would have been.
+
+### A correction first
+
+Asked what was still in widgets, this session answered that the default text
+editor was, and that `.txt` and `.md` still opened in a `TextEditorWidget`.
+**That was wrong.** `QuickTextEditorFactory` claims `text/plain` and `text/css`
+and is registered *before* `PlainTextEditorFactory`; the first claim on a mime
+type wins, and the lookup walks a type's parents. So a text file — and every
+language with no editor of its own, `.rs`, `.go`, `.yaml`, `.sh` — already
+opens in the Quick editor. `testWhichLanguagesOpenInTheQuickEditor` asserts it,
+row by row, and every row says `true`.
+
+The error came from reading one factory for `setUsesQuickEditor` and not asking
+who wins the mime claim. Two facts, one answer, and the wrong half was quoted.
+
+### What flipping it actually costs
+
+`PlainTextEditorFactory` still exists, is still a widget factory, and is
+reached **by id** — `Core.PlainTextEditor` — from five production call sites:
+`cppmodelmanager` twice (preprocessed output), `qmljseditor` twice (generated
+contents), `fakevim` once, plus `createPlainTextEditor()` in the language
+client's settings page. Making those Quick looked like a clean win: move the
+mime type out of `PlainTextEditorWidget::finalizeInitialization` into the
+document creator, delete the widget subclass, add `setUsesQuickEditor(true)`.
+
+It built, and the new by-id test passed, and both of its controls bit. Then the
+suite:
+
+    run 1    13 passed,  1 failed, exit 255
+    run 2   485 passed, 49 failed, exit 255
+    run 3    13 passed,  5 failed, exit 255
+
+Sixty-five of the failures are in `QuickTextEditorTest` itself, and they name
+the reason:
+
+    testTheWidgetEditorIsStillOfferedTo()
+        'base' returned FALSE. (the plain text editor is not a widget text editor)
+    testAWidgetEditorsDiagnosticsReachTheDocument()
+        'base' returned FALSE. (the plain text editor is not a BaseTextEditor any more)
+    testBothViewsDrawAKindTheyDoNotKnowTheNameOf()
+        'base' returned FALSE. (the plain text editor is not a BaseTextEditor any more)
+
+**The plain text widget editor is the control side of the two-view strategy.**
+Every test that shows the Quick view does what the widget view does gets its
+widget from this factory. Three tests exist to say so, one of them named for
+it. This was not an oversight to clean up; it is a designed invariant, and the
+suite said so immediately and by name rather than leaving it to be found.
+
+### What that means for the goal
+
+The widget editor cannot be taken away one factory at a time all the way to
+zero, because the last widget editor standing is what proves the Quick one
+behaves. The order has to be:
+
+1. **The callers, not the factory.** The five production sites can ask for
+   `TextEditor.QuickTextEditor` instead of `Core.PlainTextEditor` and get a
+   Quick editor, while the widget factory stays available to the tests. That
+   removes the widget from production without touching the control. It needs
+   checking that the Quick factory serves `openEditorWithContents` — contents
+   and no path — which `cppmodelmanager` and `qmljseditor` both use.
+2. **Then the comparison tests**, which is the real end of the widget editor:
+   retiring the widget row of every two-view test, deliberately, once the
+   Quick side is trusted on its own. That is a large, careful piece of work and
+   it is the thing that actually unblocks deleting `TextEditorWidget` — still
+   referenced in 161 files.
+3. **Then the five specialised editors** that remain on widgets for their own
+   reasons: VCS diff/blame/log (`vcsbaseeditor.h`), Designer's code view,
+   SCXML, Effect Composer's shader code, QML Designer's binding editor.
+
+Outside the editor there are 277 headers deriving directly from `QWidget`,
+`QDialog` or `QFrame` — a floor, not a census, since it misses anything
+deriving through an intermediate. Seven files reach the Quick view helpers.
+That is the scale of the widened goal.
+
+### Measurements
+
+    -test TextEditor    781 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi       228 passed, 0 failed, 0 skipped, exit 0
+
+Of the reverted tree. The attempt's own controls both bit before the suite
+rejected it — removing `setUsesQuickEditor(true)` failed on "still drawn by a
+widget", and dropping the moved mime type failed the type compare — which is
+worth noting: **a test with biting controls can still be testing the wrong
+thing.** Mine asserted an invariant the suite holds the opposite of.
+
+### What is next
+
+1. **The five callers** (above), which is production progress without
+   disturbing the control.
+2. **A dedicated ASan session** for entry 247's crash — priced in entry 288.
+3. **The typing flake** (entries 282-284) — waiting on a sighting.
+4. **A Windows run** for the console-host port (entry 264).
