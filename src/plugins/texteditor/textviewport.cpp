@@ -1283,7 +1283,7 @@ Utils::TextEditorLayout *TextViewport::editorLayout()
 
 bool TextViewport::isReadOnly() const
 {
-    return m_readOnly;
+    return m_readOnly || m_readOnlyAsked;
 }
 
 void TextViewport::setReadOnly(bool readOnly)
@@ -1293,6 +1293,19 @@ void TextViewport::setReadOnly(bool readOnly)
     m_readOnly = readOnly;
     // ImEnabled is answered from this, and the platform caches the answer until
     // it is told to ask again.
+    if (QGuiApplication::inputMethod())
+        QGuiApplication::inputMethod()->update(Qt::ImEnabled);
+    emit readOnlyChanged();
+}
+
+void TextViewport::setReadOnlyAsked(bool asked)
+{
+    if (m_readOnlyAsked == asked)
+        return;
+    const bool was = isReadOnly();
+    m_readOnlyAsked = asked;
+    if (isReadOnly() == was)
+        return;
     if (QGuiApplication::inputMethod())
         QGuiApplication::inputMethod()->update(Qt::ImEnabled);
     emit readOnlyChanged();

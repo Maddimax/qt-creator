@@ -64766,3 +64766,178 @@ rebuilt before the suites above ran, and says so.
    nothing ran it. Worth deciding rather than discovering the next one.
 4. Then entries 288-290's list: the two-view tests' widget rows, the five
    specialised editors, ASan, the typing flake, Windows.
+
+## 2026-09-17 — Two debugger paths off the widget, and a read-only seam (batch 293)
+
+Entry 291's remaining widget-id callers, classified one by one, and the two that
+were production ported. The classification is the larger part of the record,
+because most of what looked like candidates were not.
+
+### The census of the rest
+
+Of the sites entry 291 listed as "next":
+
+    languageclient/client.cpp:2916        test, "the widget editor on purpose"
+    diffeditor/diffeditorplugin.cpp x5    tests; three say an inline diff
+                                          decorates a TextEditorWidget on purpose
+    debugger/debuggerplugin.cpp:2022      production - ported
+    debugger/disassembleragent.cpp:322    production - ported
+    coreplugin/ieditorfactory.cpp:44      the fallback ordering, not a caller
+
+So of nine sites, two were production widget paths. The rest are tests that
+want the widget editor and say so, which is exactly what entry 290 learned the
+plain text factory is for.
+
+### debuggerplugin.cpp - the easy one
+
+A scratch copy of a view's contents, shown as text. It cast to `BaseTextEditor`
+and then touched only the **document**: a fallback save-as name, `setTemporary`,
+a connection on `filePathChanged`. So it asks for the Qt Quick editor by id and
+casts to the document instead. Nothing it did needed a widget; the cast was the
+only thing that did.
+
+### disassembleragent.cpp - the one that needed a seam
+
+It asked its widget for two things: `setReadOnly(true)` and
+`setRequestMarkEnabled(true)`. The second turned out to need nothing:
+`MainEditor.qml` binds `requestMarks: true`, so the Qt Quick editor's gutter
+offers a mark on a click without being told to - the half the widget had to be
+asked for is the Qt Quick side's default.
+
+Read-only did need a way in. `QuickTextEditor` is not declared in its header at
+all, so nothing outside `quicktexteditor.cpp` can reach it; what *is* reachable
+is `Internal::viewportForEditor()`. So the seam is `TextEditor::setReadOnlyOf(editor, bool)`,
+dispatching exactly as `setTextCursorOf()` does - widget first, else the view -
+and on the view side the request lands in `TextViewport::setReadOnlyAsked()`.
+
+### Why a second flag and not `view->setReadOnly(true)`
+
+The Qt Quick editor sets its view read-only for reasons of its own -
+`updateCannotDecodeInfo()`, on `openFinishedSuccessfully` and
+`conflictedChanged`, writes `view->setReadOnly(conflicted || decodingError)`.
+A bare `setReadOnly(true)` from outside would last exactly until that fired
+with both false. So the view keeps the outside request apart:
+
+    isReadOnly()  =  m_readOnly (its own reason)  ||  m_readOnlyAsked (from outside)
+
+`setReadOnly()` is unchanged; `setReadOnlyAsked()` notifies only when the
+*effective* answer changes. The recompute needs no edit at all, which is the
+sign the flag is in the right place. The widget editor has the same hazard -
+`TextEditorWidget::setReadOnly` versus its own `updateReadOnlyState()` - and
+nothing tests it there either; noted, not fixed here.
+
+### The test, and the controls
+
+`testReadOnlyAskedForFromOutsideOutlivesTheViewsOwnReasons`: contents opened by
+the Qt Quick id, the view's own reason cleared first (so what follows is the
+request and not the default), the request made, then the view's own reason
+cleared again - which is what the recompute does when a document turns out
+decodable - and the view must still be read-only. Then the reason arrives and
+leaves with the request still standing; then the request is taken back and the
+view is editable. Deterministic, without inducing the two document signals:
+`view->setReadOnly(false)` *is* what the recompute does.
+
+Controls - and a correction to what I first wrote here:
+
+- **A**, the seam's Qt Quick branch removed: "read-only asked for from outside
+  never reached the view". Bites on the first assertion, as intended.
+- **B**, the `|| m_readOnlyAsked` removed from `isReadOnly()`: bites - but on
+  the **same first assertion**, not on "outlives". With the OR gone the request
+  never makes the view read-only at all, so the test dies before reaching the
+  assertion the flag exists for. A control that bites is not thereby a control
+  on the right thing; I had written "one per assertion" before running them.
+- **B'**, the design this batch rejected - the request written straight into
+  the view's own `m_readOnly`, no flag of its own. It takes effect, so the first
+  assertion passes, and the view clearing its own reason then wipes it out:
+  2 passed, 1 failed - "the view clearing its own reason undid what was
+  asked for from outside".
+  That is the control the "outlives" assertion needed, and the one that says
+  why the second flag is there.
+
+Rebuilt before the suites below: the control script leaves the *last control's*
+binary deployed (entry 291).
+
+### The second widget dependency, found on the way out
+
+`configureMimeType()` in the same file had another: after setting the
+document's type to `text/x-qtcreator-generic-asm` it told every editor's
+*widget* to `configureGenericHighlighter()`. With the editor now the Qt Quick
+one that call finds no widget and does nothing - and the Qt Quick editor's own
+`configureHighlighter()` began with
+
+    if (m_document->filePath().isEmpty())
+        return;
+
+so a document with no file was never given a highlighter at all, and nothing
+re-ran it when the type changed later. The port as first written would have
+shown disassembly uncoloured. Caught only because a file dump scrolled past
+the right lines; the standing warning about "everything a widget was
+configured with" is exactly this, and a grep for `fromEditor` in the files
+being ported would have found it on purpose rather than by luck.
+
+Fixed where it belongs, in the Qt Quick editor: a document with a file still
+takes its type from the file, one without keeps the type it was given, and
+`configureHighlighter()` re-runs on `IDocument::mimeTypeChanged`. That signal
+already existed; `definitionsForDocument()` already fell back to the mime type
+when the path yields nothing. The disassembler's widget loop is left in place -
+it is harmless, and a widget editor showing that document would still want it.
+
+`testADocumentWithNoFileIsHighlightedByTheTypeItIsGiven`: contents opened by
+the Qt Quick id, the asm type set afterwards, a `Highlighter` with a valid
+definition must arrive. Alone: 3 passed, 0 failed - and it compiled, so
+`Highlighter::definition()` is reachable for the second assertion.
+
+Controls - and they came out better than I wrote before running them. I had
+expected both defects to share one observable, no highlighter ever arriving.
+They do not:
+
+- the `mimeTypeChanged` connection removed: 2 passed, 1 failed, on the
+  **second** assertion - "the highlighter was built with no definition behind
+  it". The construction-time run, no longer bailing on a path-less document,
+  installs a `Highlighter` with an empty definition (which is what the widget
+  editor does for a document nothing matches); the type then arrives and
+  nothing re-runs. So the connection is what supplies the *definition*, and
+  the test says exactly that.
+- the early return on an empty path put back: 2 passed, 1 failed, on the
+  **first** assertion - no `Highlighter` arrives at all, as before the fix.
+
+So one control per assertion after all, and the two defects are told apart by
+which one fires. The prediction was wrong; the measurement is what stands.
+
+
+### Measurements
+
+    -test TextEditor     784 passed, 0 failed, 3 skipped, exit 0   x2
+                         and one run exit 255 at 429 passed, 0 failed -
+                         died in testTheCaretLandsWhereTheWidgetEditorsDoes,
+                         entry 247's crash at the test entry 285 pinned it to
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Debugger       159 passed, 2 failed, exit 2 - and the same 159 / 2 on HEAD
+                         without this batch, the same two: DebuggerUnitTests
+                         testStateMachine and testGdbDapEngineRunsASession, both
+                         failing to open a .pro project. Pre-existing, measured,
+                         and nothing to do with editors; listed below.
+
+TextEditor's count is 784: 782 plus the two tests of this batch.
+
+### What is next
+
+1. **`ieditorfactory.cpp:44`** - the fallback the editor manager appends when no
+   mime type matched, so an unrecognised file (`application/octet-stream`, which
+   `text/plain` does not cover) opens in the widget editor today. Making it the
+   Qt Quick factory is one line, but Core cannot include TextEditor's header,
+   so the id needs a Core-side constant that TextEditor's then aliases. And it
+   is also what "Open With" always offers - worth a look at what that menu
+   shows before and after.
+2. **`languageclientsettings.cpp`** - `createPlainTextEditor()` for a widget
+   embedded in a settings box: a port of that box, not a change of id.
+3. **Two Debugger tests failing on HEAD** - `testStateMachine` and
+   `testGdbDapEngineRunsASession`, both on `projectManager.open(proFile)`, the
+   second also tripping over the first's leftover project. A `.pro` will not
+   open in the test VM, which reads as a missing qmake kit there rather than
+   a code fault; unnoticed because the suite is not in the standing set.
+4. **The widget editor's own read-only hazard** (above) - the same seam could
+   carry the fix, and the same test shape would prove it.
+5. Then entries 288-292's standing list: the two-view tests' widget rows, the
+   five specialised editors, QmlJSEditor into the standing suites, ASan, the
+   typing flake, Windows.

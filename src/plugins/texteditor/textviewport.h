@@ -1057,6 +1057,10 @@ public:
     Q_INVOKABLE void decreaseFontZoom();
     Q_INVOKABLE void resetFontZoom();
     void setReadOnly(bool readOnly);
+    // Read-only asked for from outside the view - a disassembly, contents
+    // shown as text. Held apart from the view's own reason so that the one
+    // coming and going does not undo the other; isReadOnly() answers for both.
+    void setReadOnlyAsked(bool asked);
     bool overwriteMode() const;
     void setOverwriteMode(bool overwrite);
     bool relativeLineNumbers() const;
@@ -1458,6 +1462,7 @@ private:
     // the one that puts the text in as it stands.
     bool m_skipFormatOnPaste = false;
     bool m_readOnly = true;
+    bool m_readOnlyAsked = false;
     // What is being composed but not yet typed, and how the input method wants
     // it drawn. Empty when nothing is being composed.
     QString m_preeditText;

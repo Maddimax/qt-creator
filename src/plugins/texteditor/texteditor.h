@@ -1175,6 +1175,11 @@ TEXTEDITOR_EXPORT QObject *keyTargetOf(Core::IEditor *editor);
 // for \a kind. Both dispatch on the view the same way the pair above does.
 TEXTEDITOR_EXPORT void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor);
 
+// Make \a editor's view refuse edits, or let it take them again. Asked for
+// from outside - a disassembly, a view's contents shown as text - it holds
+// through the view's own reasons for being read-only coming and going.
+TEXTEDITOR_EXPORT void setReadOnlyOf(Core::IEditor *editor, bool readOnly);
+
 // Where on screen a tooltip about \a position in \a editor belongs: just
 // under and right of the character, so that it does not cover what it is
 // about. Only the view can say, because it is the one that laid the text out.

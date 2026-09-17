@@ -431,6 +431,12 @@ public:
             configureHighlighter();
             configureLanguageServices();
         });
+        // The type can be set after the editor is showing the document -
+        // that is how a disassembly gets its own - and the definition has to
+        // follow it. Setting the type from the path above re-enters here once
+        // at most: a second pass sets the same type and nothing is emitted.
+        connect(m_document.get(), &Core::IDocument::mimeTypeChanged,
+                this, &QuickTextEditor::configureHighlighter);
 
         // Where the reader last changed something, which is what Go to Last
         // Edit goes to. TextEditorWidget sets this from its own cursor handler,
@@ -1288,13 +1294,15 @@ private:
         // - whose document already has a path - is highlighted too, and asking
         // the mime database about an empty path prints a warning and answers
         // nothing.
-        if (m_document->filePath().isEmpty())
-            return;
-
-        m_document->setMimeType(
-            Utils::mimeTypeForFile(m_document->filePath(),
-                                   Utils::MimeMatchMode::MatchDefaultAndRemote)
-                .name());
+        // A document with a file takes its type from the file. One without -
+        // contents shown as text, a disassembly - keeps whatever type it was
+        // given, which is the only thing a definition can be chosen by.
+        if (!m_document->filePath().isEmpty()) {
+            m_document->setMimeType(
+                Utils::mimeTypeForFile(m_document->filePath(),
+                                       Utils::MimeMatchMode::MatchDefaultAndRemote)
+                    .name());
+        }
 
         // A document that came with a highlighter of its own keeps it.
         // CppEditorDocument builds a CppHighlighter in its constructor, and
@@ -6638,6 +6646,76 @@ private slots:
         TextViewport * const view = viewportForEditor(editor);
         QVERIFY2(view, "contents with no file opened without a Qt Quick viewport");
         QTRY_VERIFY2(view->visibleLineCount() > 1, "the viewport shows none of the contents");
+    }
+
+    // Read-only asked for from outside the view - the disassembler's, a view's
+    // contents shown as text - and how it fares against the view's own reasons
+    // for being read-only coming and going. The view decides that for itself
+    // when the document's encoding or conflict state changes, by setting its
+    // reason directly; what was asked for from outside has to outlive that.
+    void testReadOnlyAskedForFromOutsideOutlivesTheViewsOwnReasons()
+    {
+        QString title = "Disassembler";
+        Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+            Constants::QUICK_TEXT_EDITOR_ID, &title, QByteArray("mov eax, 1\nret\n"));
+        QVERIFY2(editor, "nothing opened for contents with no file");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        TextViewport * const view = viewportForEditor(editor);
+        QVERIFY2(view, "contents opened without a Qt Quick viewport");
+        QTRY_VERIFY(view->visibleLineCount() > 1);
+
+        // Its own reason cleared, so that what is read-only below is what was
+        // asked for and not the view's default.
+        view->setReadOnly(false);
+        QVERIFY2(!view->isReadOnly(), "the view is read-only before anyone asked");
+
+        setReadOnlyOf(editor, true);
+        QVERIFY2(view->isReadOnly(), "read-only asked for from outside never reached the view");
+
+        // The view's own reason going away - which is what it does when a
+        // document turns out decodable after all - must not take with it what
+        // somebody else asked for.
+        view->setReadOnly(false);
+        QVERIFY2(view->isReadOnly(),
+                 "the view clearing its own reason undid what was asked for from outside");
+
+        // And the view's own reason arriving and leaving again, with the
+        // outside request still standing.
+        view->setReadOnly(true);
+        view->setReadOnly(false);
+        QVERIFY(view->isReadOnly());
+
+        // Taken back from outside: editable again, since the view has no
+        // reason of its own left.
+        setReadOnlyOf(editor, false);
+        QVERIFY2(!view->isReadOnly(), "taking the request back did not make the view editable");
+    }
+
+    // Contents that were never a file, given a type after the editor is
+    // already showing them - which is how the disassembler works: it opens an
+    // empty document by id, then sets text/x-qtcreator-generic-asm on it. The
+    // widget editor was told to re-read the type by hand; this editor has to
+    // notice on its own, and before this it did not - a document with no path
+    // was left with no highlighter at all.
+    void testADocumentWithNoFileIsHighlightedByTheTypeItIsGiven()
+    {
+        QString title = "Disassembler";
+        Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+            Constants::QUICK_TEXT_EDITOR_ID, &title, QByteArray("mov eax, 1\nret\n"));
+        QVERIFY2(editor, "nothing opened for contents with no file");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY2(document->filePath().isEmpty(), "a document with no file was given one");
+
+        document->setMimeType("text/x-qtcreator-generic-asm");
+        QTRY_VERIFY2(qobject_cast<Highlighter *>(document->syntaxHighlighter()),
+                     "given a type, the document was not given the highlighter for it");
+        auto * const highlighter = qobject_cast<Highlighter *>(document->syntaxHighlighter());
+        QVERIFY2(highlighter->definition().isValid(),
+                 "the highlighter was built with no definition behind it");
     }
 
     void testWhichLanguagesOpenInTheQuickEditor()

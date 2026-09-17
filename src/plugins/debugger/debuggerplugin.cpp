@@ -82,6 +82,7 @@
 
 #include <texteditor/texteditor.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditorconstants.h>
 #include <texteditor/fontsettings.h>
 
 #include <utils/filedialogs.h>
@@ -2018,14 +2019,16 @@ void openTextEditor(const QString &titlePattern0, const QString &contents)
     QByteArray data = contents.toUtf8();
     if (!data.isEmpty() && !data.endsWith('\n'))
         data.append('\n');
+    // The Qt Quick text editor, named: this is a view's contents shown as text,
+    // and going by mime type would give a .cpp to the C++ editor.
     IEditor *editor = EditorManager::openEditorWithContents(
-                CC::K_DEFAULT_TEXT_EDITOR_ID, &titlePattern, data, QString(),
+                TextEditor::Constants::QUICK_TEXT_EDITOR_ID, &titlePattern, data, QString(),
                 EditorManager::IgnoreNavigationHistory);
-    if (auto textEditor = qobject_cast<BaseTextEditor *>(editor)) {
+    // Everything below is about the document, which either view shows.
+    if (auto doc = qobject_cast<TextDocument *>(editor ? editor->document() : nullptr)) {
         QString suggestion = titlePattern;
         if (!suggestion.contains('.'))
             suggestion.append(".txt");
-        TextDocument *doc = textEditor->textDocument();
         doc->setFallbackSaveAsFileName(suggestion);
         // This is a scratch copy of view contents, not a real file. Mark it
         // temporary so it is not offered in the "save modified files" prompt on

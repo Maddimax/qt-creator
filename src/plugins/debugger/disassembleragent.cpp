@@ -18,6 +18,7 @@
 #include <texteditor/textmark.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
+#include <texteditor/texteditorconstants.h>
 
 #include <utils/mimeutils.h>
 #include <utils/qtcassert.h>
@@ -318,14 +319,14 @@ void DisassemblerAgent::setContentsToDocument(const DisassemblerLines &contents)
     QTC_ASSERT(d, return);
     if (!d->document) {
         QString titlePattern = "Disassembler";
+        // The Qt Quick text editor, named: disassembly shown as text. Its
+        // gutter asks for a mark on a click without being told to, which is
+        // the half of what the widget editor had to be asked for.
         IEditor *editor = EditorManager::openEditorWithContents(
-                Core::Constants::K_DEFAULT_TEXT_EDITOR_ID,
+                TextEditor::Constants::QUICK_TEXT_EDITOR_ID,
                 &titlePattern);
         QTC_ASSERT(editor, return);
-        if (auto widget = TextEditorWidget::fromEditor(editor)) {
-            widget->setReadOnly(true);
-            widget->setRequestMarkEnabled(true);
-        }
+        TextEditor::setReadOnlyOf(editor, true);
         d->document = qobject_cast<TextDocument *>(editor->document());
         QTC_ASSERT(d->document, return);
         d->document->setTemporary(true);

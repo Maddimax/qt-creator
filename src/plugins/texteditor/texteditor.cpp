@@ -11030,6 +11030,18 @@ void setTextCursorOf(Core::IEditor *editor, const QTextCursor &cursor)
         view->setTextCursor(cursor);
 }
 
+void setReadOnlyOf(Core::IEditor *editor, bool readOnly)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setReadOnly(readOnly);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->setReadOnlyAsked(readOnly);
+}
+
 void invokeAssistIn(Core::IEditor *editor, AssistKind kind, IAssistProvider *provider)
 {
     if (!editor)
