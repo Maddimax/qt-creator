@@ -9,10 +9,8 @@
 #include <utils/utilsicons.h>
 
 #include <QAction>
-#include <QComboBox>
-#include <QDebug>
+#include <QStandardItemModel>
 #include <QStringList>
-#include <QToolBar>
 
 using namespace Utils;
 
@@ -60,32 +58,99 @@ private:
 class VcsBaseEditorConfigPrivate
 {
 public:
-    VcsBaseEditorConfigPrivate(QToolBar *toolBar) : m_toolBar(toolBar)
-    {
-        if (!toolBar)
-            return;
-        toolBar->setContentsMargins(3, 0, 3, 0);
-        toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    }
-
     QStringList m_baseArguments;
     QList<VcsBaseEditorConfig::OptionMapping> m_optionMappings;
     QHash<QObject *, SettingMappingData> m_settingMapping;
-    QToolBar *m_toolBar;
+    QList<QAction *> m_actions;
+    QList<VcsBaseEditorChoice *> m_choices;
 };
 
 } // namespace Internal
 
+VcsBaseEditorChoice::VcsBaseEditorChoice(VcsBaseEditorConfig *config, const QString &title,
+                                         const QList<QVariant> &values, const QStringList &texts)
+    : ToolBarChoice(config)
+    , m_config(config)
+    , m_model(new QStandardItemModel(this))
+    , m_title(title)
+    , m_values(values)
+{
+    for (const QString &text : texts)
+        m_model->appendRow(new QStandardItem(text));
+}
+
+QAbstractItemModel *VcsBaseEditorChoice::model() const
+{
+    return m_model;
+}
+
+int VcsBaseEditorChoice::currentIndex() const
+{
+    return m_current;
+}
+
+QString VcsBaseEditorChoice::toolTip() const
+{
+    return m_title;
+}
+
+bool VcsBaseEditorChoice::isAvailable() const
+{
+    return true;
+}
+
+// A pick here is not one the language would have made differently, so there
+// is nothing to clear and no way back to offer.
+bool VcsBaseEditorChoice::isChosen() const
+{
+    return false;
+}
+
+void VcsBaseEditorChoice::choose(int index)
+{
+    if (index == m_current || index < 0 || index >= m_values.size())
+        return;
+    setCurrentIndex(index);
+    emit m_config->argumentsChanged();
+}
+
+void VcsBaseEditorChoice::clearChoice()
+{
+}
+
+int VcsBaseEditorChoice::count() const
+{
+    return m_values.size();
+}
+
+QVariant VcsBaseEditorChoice::currentValue() const
+{
+    return m_values.value(m_current);
+}
+
+int VcsBaseEditorChoice::indexOfValue(const QVariant &value) const
+{
+    return m_values.indexOf(value);
+}
+
+void VcsBaseEditorChoice::setCurrentIndex(int index)
+{
+    if (index == m_current || index < 0 || index >= m_values.size())
+        return;
+    m_current = index;
+    emit changed();
+}
+
 /*!
     \class VcsBase::VcsBaseEditorConfig
 
-    \brief The VcsBaseEditorConfig is a widget/action aggregator for use
+    \brief The VcsBaseEditorConfig is an action and choice aggregator for use
     with VcsBase::VcsBaseEditor, influencing for example the generation of
     version control diff output.
 
     The class maintains a list of command line arguments (starting from baseArguments())
-    which are set according to the state of the inside widgets. A change signal is provided
-    that should trigger the rerun of the version control operation.
+    which are set according to the state of its toggles and choices. A change signal is
+    provided that should trigger the rerun of the version control operation.
 */
 
 VcsBaseEditorConfig::ChoiceItem::ChoiceItem(const QString &text, const QVariant &val) :
@@ -94,8 +159,8 @@ VcsBaseEditorConfig::ChoiceItem::ChoiceItem(const QString &text, const QVariant 
 {
 }
 
-VcsBaseEditorConfig::VcsBaseEditorConfig(QToolBar *toolBar) :
-    QObject(toolBar), d(new Internal::VcsBaseEditorConfigPrivate(toolBar))
+VcsBaseEditorConfig::VcsBaseEditorConfig(QObject *parent) :
+    QObject(parent), d(new Internal::VcsBaseEditorConfigPrivate)
 {
     connect(this, &VcsBaseEditorConfig::argumentsChanged,
             this, &VcsBaseEditorConfig::handleArgumentsChanged);
@@ -118,7 +183,7 @@ void VcsBaseEditorConfig::setBaseArguments(const QStringList &b)
 
 QAction *VcsBaseEditorConfig::addReloadButton()
 {
-    auto action = new QAction(Icons::RELOAD_TOOLBAR.icon(), Tr::tr("Reload"), d->m_toolBar);
+    auto action = new QAction(Icons::RELOAD_TOOLBAR.icon(), Tr::tr("Reload"), this);
     connect(action, &QAction::triggered, this, &VcsBaseEditorConfig::argumentsChanged);
     addAction(action);
     return action;
@@ -144,7 +209,7 @@ QAction *VcsBaseEditorConfig::addToggleButton(const QStringList &options,
                                               const QString &label,
                                               const QString &tooltip)
 {
-    auto action = new QAction(label, d->m_toolBar);
+    auto action = new QAction(label, this);
     action->setToolTip(tooltip);
     action->setCheckable(true);
     connect(action, &QAction::toggled, this, &VcsBaseEditorConfig::argumentsChanged);
@@ -153,18 +218,25 @@ QAction *VcsBaseEditorConfig::addToggleButton(const QStringList &options,
     return action;
 }
 
-QComboBox *VcsBaseEditorConfig::addChoices(const QString &title,
-                                           const QStringList &options,
-                                           const QList<ChoiceItem> &items)
+VcsBaseEditorChoice *VcsBaseEditorConfig::addChoices(const QString &title,
+                                                     const QStringList &options,
+                                                     const QList<ChoiceItem> &items)
 {
-    auto cb = new QComboBox;
-    cb->setToolTip(title);
-    for (const ChoiceItem &item : items)
-        cb->addItem(item.displayText, item.value);
-    connect(cb, &QComboBox::currentIndexChanged, this, &VcsBaseEditorConfig::argumentsChanged);
-    d->m_toolBar->addWidget(cb);
-    d->m_optionMappings.append(OptionMapping(options, cb));
-    return cb;
+    QList<QVariant> values;
+    QStringList texts;
+    for (const ChoiceItem &item : items) {
+        values.append(item.value);
+        texts.append(item.displayText);
+    }
+    auto choice = new VcsBaseEditorChoice(this, title, values, texts);
+    d->m_choices.append(choice);
+    d->m_optionMappings.append(OptionMapping(options, choice));
+    return choice;
+}
+
+void VcsBaseEditorConfig::addAction(QAction *action)
+{
+    d->m_actions.append(action);
 }
 
 void VcsBaseEditorConfig::mapSetting(QAction *button, BoolAspect *setting)
@@ -178,31 +250,39 @@ void VcsBaseEditorConfig::mapSetting(QAction *button, BoolAspect *setting)
     }
 }
 
-void VcsBaseEditorConfig::mapSetting(QComboBox *comboBox, StringAspect *setting)
+void VcsBaseEditorConfig::mapSetting(VcsBaseEditorChoice *choice, StringAspect *setting)
 {
-    if (!d->m_settingMapping.contains(comboBox) && comboBox) {
-        d->m_settingMapping.insert(comboBox, Internal::SettingMappingData(setting));
+    if (!d->m_settingMapping.contains(choice) && choice) {
+        d->m_settingMapping.insert(choice, Internal::SettingMappingData(setting));
         if (setting) {
-            QSignalBlocker blocker(comboBox);
-            const int itemIndex = comboBox->findData(setting->value());
+            const int itemIndex = choice->indexOfValue(setting->value());
             if (itemIndex != -1)
-                comboBox->setCurrentIndex(itemIndex);
+                choice->setCurrentIndex(itemIndex);
         }
     }
 }
 
-void VcsBaseEditorConfig::mapSetting(QComboBox *comboBox, IntegerAspect *setting)
+void VcsBaseEditorConfig::mapSetting(VcsBaseEditorChoice *choice, IntegerAspect *setting)
 {
-    if (d->m_settingMapping.contains(comboBox) || !comboBox)
+    if (d->m_settingMapping.contains(choice) || !choice)
         return;
 
-    d->m_settingMapping.insert(comboBox, Internal::SettingMappingData(setting));
+    d->m_settingMapping.insert(choice, Internal::SettingMappingData(setting));
 
-    if (!setting || setting->value() < 0 || setting->value() >= comboBox->count())
+    if (!setting || setting->value() < 0 || setting->value() >= choice->count())
         return;
 
-    QSignalBlocker blocker(comboBox);
-    comboBox->setCurrentIndex(setting->value());
+    choice->setCurrentIndex(setting->value());
+}
+
+QList<QAction *> VcsBaseEditorConfig::actions() const
+{
+    return d->m_actions;
+}
+
+QList<VcsBaseEditorChoice *> VcsBaseEditorConfig::choices() const
+{
+    return d->m_choices;
 }
 
 void VcsBaseEditorConfig::handleArgumentsChanged()
@@ -234,11 +314,11 @@ QStringList VcsBaseEditorConfig::argumentsForOption(const OptionMapping &mapping
         return mapping.options;
 
     QStringList args;
-    auto cb = qobject_cast<const QComboBox *>(mapping.object);
-    if (!cb)
+    auto choice = qobject_cast<const VcsBaseEditorChoice *>(mapping.object);
+    if (!choice)
         return args;
 
-    const QString value = cb->itemData(cb->currentIndex()).toString();
+    const QString value = choice->currentValue().toString();
     if (value.isEmpty())
         return args;
 
@@ -263,27 +343,22 @@ void VcsBaseEditorConfig::updateMappedSettings()
             }
             case Internal::SettingMappingData::AspectString :
             {
-                auto cb = qobject_cast<const QComboBox *>(optMapping.object);
-                if (cb && cb->currentIndex() != -1)
-                    settingData.stringAspectSetting->setValue(cb->itemData(cb->currentIndex()).toString());
+                auto choice = qobject_cast<const VcsBaseEditorChoice *>(optMapping.object);
+                if (choice && choice->currentIndex() != -1)
+                    settingData.stringAspectSetting->setValue(choice->currentValue().toString());
                 break;
             }
             case Internal::SettingMappingData::AspectInt:
             {
-                auto cb = qobject_cast<const QComboBox *>(optMapping.object);
-                if (cb && cb->currentIndex() != -1)
-                    settingData.intAspectSetting->setValue(cb->currentIndex());
+                auto choice = qobject_cast<const VcsBaseEditorChoice *>(optMapping.object);
+                if (choice && choice->currentIndex() != -1)
+                    settingData.intAspectSetting->setValue(choice->currentIndex());
                 break;
             }
             case Internal::SettingMappingData::Invalid : break;
             } // end switch ()
         }
     }
-}
-
-void VcsBaseEditorConfig::addAction(QAction *action)
-{
-    d->m_toolBar->addAction(action);
 }
 
 } // namespace VcsBase

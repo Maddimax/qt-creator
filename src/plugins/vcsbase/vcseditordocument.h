@@ -283,6 +283,9 @@ public:
     // or an address, to open and to copy; and for a log or a diff, to paste
     // it. Built for the click and kept until the next.
     QList<QAction *> contextMenuActions(const QTextCursor &cursor) override;
+    // The editor config's toggles, for whichever view draws the document's
+    // tool bar actions - both do.
+    QList<QAction *> ownToolBarActions() const override;
 
 signals:
     // An annotation of \a file at \a change was asked for, from \a line of

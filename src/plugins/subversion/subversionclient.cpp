@@ -23,6 +23,7 @@
 #include <QFileInfo>
 #include <QLoggingCategory>
 #include <QTextStream>
+#include <QToolBar>
 
 using namespace Core;
 using namespace DiffEditor;

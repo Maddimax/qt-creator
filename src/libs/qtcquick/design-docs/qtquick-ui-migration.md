@@ -67098,3 +67098,151 @@ part of one:
    formats and its `setPlainText()` into `gitEditorParameters()`.
 4. The other seven VCS; the QmlDesigner-side two; the standing list (entry
    298).
+
+## 2026-09-19 — The editor config lists itself (batch 310)
+
+Entry 309's next item 1, the first half of it: `VcsBaseEditorConfig` -
+what a VCS command can be told, as toggles and choices, and the arguments
+they amount to - stops building itself into the widget editor's `QToolBar`
+and becomes a listing the views draw. The toggles reach both views through
+a seam that already existed; the choices reach the widget in this batch
+and the Qt Quick tool bar in the next.
+
+### What it did
+
+`VcsBaseEditorConfig(QToolBar *)`: `addToggleButton()` made a `QAction`
+and `toolBar->addAction()`ed it; `addChoices()` made a `QComboBox`,
+`toolBar->addWidget()`ed it and returned it - the VCS hand it back to
+`mapSetting(QComboBox *, aspect)`; `addReloadButton()` likewise;
+`argumentsForOption()` read the action's checked state or the combo's
+current item data. Git's `GitBaseConfig` took the editor widget itself, for
+its tool bar and for a `Filter` action it added to the tool bar directly.
+Fossil, Bazaar, Subversion, CVS and Perforce build theirs the same way;
+`VcsBaseClient`'s diff and log config creators take a `QToolBar *`.
+
+### What it is now
+
+- `explicit VcsBaseEditorConfig(QObject *parent = nullptr)`. The VCS still
+  pass `editor->toolBar()`, which is a `QObject`, and compile unchanged;
+  the config no longer touches it. Its actions are parented to the config.
+- `actions()` - toggles, reload and whatever `addAction()` was given, in
+  order; `addAction()` is public now, and Git's filter toggle goes through
+  it instead of the tool bar.
+- `choices()` - `VcsBaseEditorChoice`s. One is a
+  `TextEditor::ToolBarChoice`: `model()` (a `QStandardItemModel` of the
+  texts), `currentIndex()`, `toolTip()` (the title), always available,
+  never "chosen" (a pick here is not one the language would have made
+  differently, so no clear button), `choose(index)` sets and emits the
+  config's `argumentsChanged`, and `setCurrentIndex()` sets without - what
+  a setting says before anything has run. Plus `count()`,
+  `currentValue()`, `indexOfValue()`. Top-level rather than nested so that
+  it can carry `Q_OBJECT` and be `qobject_cast` in `argumentsForOption()`.
+- `addChoices()` returns one; `mapSetting()` takes one where it took a
+  combo box. The four VCS call sites
+  (`mapSetting(addChoices(...), &aspect)`) compile unchanged.
+
+### The views
+
+- **Both**: `VcsEditorDocument::ownToolBarActions()` returns the config's
+  actions, and `setEditorConfig()` emits `toolBarActionsChanged()`. The
+  widget editor draws a document's tool bar actions already
+  (`TextEditorWidgetPrivate::updateDocumentToolBarActions()`, at the left of
+  its tool bar) and so does the Qt Quick tool bar (`languageActions`, whose
+  delegates are checkable, hide with the action and show its tool tip) - so
+  the toggles cost neither view a line. The widget's toggles sit at the left
+  now where the config used to append them; the widget goes, so noted and
+  not chased.
+- **Widget**: `VcsBaseEditorWidget::setEditorConfig()` makes a `QComboBox`
+  per choice - items from the model, current index from the choice -
+  `insertExtraToolBarWidget(Left, ...)`, and keeps the two in step:
+  `currentIndexChanged` → `choose()`, `changed()` → `setCurrentIndex()`
+  under a signal blocker. The icon-only button style the config used to set
+  on the tool bar is set here.
+- **Qt Quick**: the combo per choice is next (below).
+
+### The test
+
+`VcsEditorDocumentTest::testAnEditorConfigListsItselfAndTheViewsDrawIt`: a
+config with base `log`, toggles `-w` and `-m --first-parent`, a
+three-way move-detection choice and a reload. It lists three actions and
+one choice with three rows, the right title, index 0, available, not
+chosen. Checking `-w` announces once and adds `-w`; `choose(2)` announces
+and adds `-M -C` split; choosing the same again announces nothing. A
+`BoolAspect` set true maps onto the second toggle without announcing, and
+unchecking writes false back; a `StringAspect` of `-M` maps the choice to
+row 1 without announcing, and `choose(0)` writes `""` back. Then on a VCS
+editor through the editor manager: the document does not list the toggle
+until `setEditorConfig()`, which tells the views once; afterwards all three
+actions are the document's tool bar actions and the widget's tool bar has
+the toggle; the tool bar has one combo box of three rows at 0; setting it
+to 2 moves the choice and announces; `choose(1)` moves the combo box.
+
+Alone: 3 passed, 0 failed, exit 0, at the first run - after one build
+failure, `QToolBar` incomplete in `vcsbaseeditor.cpp`, which had never
+included it because the config's file did. The same is why Fossil, Bazaar,
+Subversion, CVS and Perforce each gained `#include <QToolBar>`: they pass
+a forward-declared `QToolBar *` to a `QObject *` parameter now, and a
+pointer to an incomplete type cannot be converted to its base. Git's
+`testLogResolving` and `testDiffDescriptionEditor` (a `VcsBaseEditorConfig`
+user through `VcsBaseClient::diff()`) and the VcsBase state test ran too:
+3 passed, 0 failed, exit 0 each.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - `VcsEditorDocument::ownToolBarActions()` returns nothing: the
+  test fails on "the config's toggles are not the document's tool bar
+  actions".
+- **B** - the widget's `setEditorConfig()` iterates an empty list of
+  choices: "'combo' returned FALSE. (the widget's tool bar has no combo box
+  for the choice)".
+- **C** - `VcsBaseEditorChoice::choose()` sets the index and announces
+  nothing: the test fails on the count after `choose(2)`, actual 1 where 2
+  was expected - the arguments were right and nobody would have re-run the
+  command for them.
+
+The host killed the three-control run for memory during C's build (the two
+VMs hold most of it), with C's patch in the tree and A's and B's logs
+complete. The patch was reverted by hand, the tree checked for markers, and
+C run alone from a script of its own - entry 299's procedure.
+
+### Measurements
+
+    -test TextEditor     797 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         29 passed, 0 failed, 0 skipped, exit 0
+    -test Git            137 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and once:
+                           InstantBlameTest::testBlameDocumentContents
+                           'markToolTip(2).contains("-committed")'
+
+TextEditor and QuickUi unchanged, as nothing of theirs changed; three clean
+TextEditor runs. VcsBase is 29: 28 plus the config test. Git is batch 309's
+138 tests' worth again - the baseline's two failures - plus the entry-300
+load flake a second batch running: the `InstantBlameTest` object took
+**15966 ms** in the suite (16061 ms in 309, 16047 ms in 300) against 303-338
+ms in five solo runs on this binary, 0 failures. Instant blame runs `git
+blame` through `GitClient` with no editor config anywhere near it. Two
+batches in a row now; the VM is under the host's memory pressure (this
+batch's control run was killed for it), and the `git`-heavy test after
+three TextEditor suites is where it shows.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The Qt Quick tool bar draws the choices.** `EditorToolBar.qml` draws
+   one `ToolBarChoice` (`root.choice`, the parse context). A document has a
+   list of them now - the sections choice and the config's - so the seam
+   becomes `TextDocument::toolBarChoices()` with a change signal, the Quick
+   editor passes the list, and the form repeats a combo per choice. The
+   existing tests look the combo up by `objectName`; a Repeater's delegates
+   are visual children, so they will walk the items instead.
+2. Git's `GitLogFilterWidget` (grep, pickaxe and author line edits, a case
+   toggle, shown by the `Filter` action) - a shape the Quick tool bar can
+   draw, or a config extension for text fields.
+3. **The clients' handle** on the document (entry 308); `VcsEditorFactory`
+   on the Qt Quick editor for a VCS with no widget creator; Git's subclass
+   retired (entry 309).
+4. The other seven VCS; the QmlDesigner-side two; the standing list (entry
+   298).

@@ -18,6 +18,7 @@
 #include <QRegularExpression>
 #include <QTextStream>
 #include <QDebug>
+#include <QToolBar>
 
 using namespace Utils;
 using namespace VcsBase;

@@ -740,7 +740,6 @@ public:
                                            Tr::tr("Ignore whitespace only changes."));
         mapSetting(ignoreWSAction, &settings().ignoreSpaceChangesInDiff);
 
-        QToolBar *toolBar = editor->toolBar();
         QAction *diffButton = addToggleButton(patchOption, Tr::tr("Diff"),
                                               Tr::tr("Show difference."));
         mapSetting(diffButton, &settings().logDiff);
@@ -748,11 +747,11 @@ public:
         connect(diffButton, &QAction::toggled, ignoreWSAction, &QAction::setVisible);
         patienceAction->setVisible(diffButton->isChecked());
         ignoreWSAction->setVisible(diffButton->isChecked());
-        auto filterAction = new QAction(Tr::tr("Filter"), toolBar);
+        auto filterAction = new QAction(Tr::tr("Filter"), this);
         filterAction->setToolTip(Tr::tr("Filter commits by message or content."));
         filterAction->setCheckable(true);
         connect(filterAction, &QAction::toggled, editor, &GitEditorWidget::toggleFilters);
-        toolBar->addAction(filterAction);
+        addAction(filterAction);
     }
 };
 

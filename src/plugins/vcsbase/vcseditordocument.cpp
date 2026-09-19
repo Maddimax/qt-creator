@@ -539,6 +539,12 @@ VcsBaseEditorConfig *VcsEditorDocument::editorConfig() const
 void VcsEditorDocument::setEditorConfig(VcsBaseEditorConfig *config)
 {
     d->config = config;
+    emit toolBarActionsChanged();
+}
+
+QList<QAction *> VcsEditorDocument::ownToolBarActions() const
+{
+    return d->config ? d->config->actions() : QList<QAction *>();
 }
 
 void VcsEditorDocument::setDiffFilePattern(const QString &pattern)
@@ -1073,15 +1079,18 @@ void VcsEditorDocument::updateSections()
 #include <solutions/spinner/spinner.h>
 
 #include <utils/algorithm.h>
+#include <utils/aspects.h>
 #include <utils/environment.h>
 #include <utils/temporarydirectory.h>
 
 #include <QClipboard>
+#include <QComboBox>
 #include <QGuiApplication>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTest>
 #include <QTextLayout>
+#include <QToolBar>
 
 namespace VcsBase {
 
@@ -1344,6 +1353,113 @@ private slots:
                  "the widget's highlighter never reached the document");
         QTRY_VERIFY2(colourOfLine(answered, 1),
                      "the second line got no colour through the widget's answer");
+    }
+
+    // What a VCS command can be told - toggles and choices - used to build
+    // itself into the widget's QToolBar. It lists itself now and the views
+    // draw the list: the toggles through the document's tool bar actions,
+    // which both views draw already, and a choice as a combo box on the
+    // widget; the Qt Quick tool bar's combo is the next batch's.
+    void testAnEditorConfigListsItselfAndTheViewsDrawIt()
+    {
+        VcsBaseEditorConfig config;
+        config.setBaseArguments({"log"});
+        QAction * const whitespace = config.addToggleButton("-w", "Ignore Whitespace");
+        QAction * const firstParent
+            = config.addToggleButton({"-m", "--first-parent"}, "First Parent");
+        VcsBaseEditorChoice * const moves = config.addChoices(
+            "Move detection", {}, {{"None", ""}, {"Within", "-M"}, {"Between", "-M -C"}});
+        QAction * const reload = config.addReloadButton();
+        QSignalSpy changed(&config, &VcsBaseEditorConfig::argumentsChanged);
+
+        // What it lists.
+        QCOMPARE(config.actions(), (QList<QAction *>{whitespace, firstParent, reload}));
+        QCOMPARE(config.choices(), QList<VcsBaseEditorChoice *>{moves});
+        QCOMPARE(moves->count(), 3);
+        QCOMPARE(moves->model()->rowCount(), 3);
+        QCOMPARE(moves->model()->index(2, 0).data().toString(), QString("Between"));
+        QCOMPARE(moves->toolTip(), QString("Move detection"));
+        QCOMPARE(moves->currentIndex(), 0);
+        QVERIFY(moves->isAvailable());
+        QVERIFY(!moves->isChosen());
+
+        // What it amounts to.
+        QCOMPARE(config.arguments(), QStringList{"log"});
+        whitespace->setChecked(true);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(config.arguments(), (QStringList{"log", "-w"}));
+        moves->choose(2);
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(moves->currentValue().toString(), QString("-M -C"));
+        QCOMPARE(config.arguments(), (QStringList{"log", "-w", "-M", "-C"}));
+        moves->choose(2);
+        QCOMPARE(changed.count(), 2);
+
+        // A setting says where to start, without running anything; a change
+        // is written back to it.
+        BoolAspect parentSetting;
+        parentSetting.setValue(true);
+        config.mapSetting(firstParent, &parentSetting);
+        QVERIFY(firstParent->isChecked());
+        QCOMPARE(changed.count(), 2);
+        firstParent->setChecked(false);
+        QCOMPARE(changed.count(), 3);
+        QVERIFY(!parentSetting.value());
+        StringAspect moveSetting;
+        moveSetting.setValue("-M");
+        config.mapSetting(moves, &moveSetting);
+        QCOMPARE(moves->currentIndex(), 1);
+        QCOMPARE(changed.count(), 3);
+        moves->choose(0);
+        QCOMPARE(changed.count(), 4);
+        QCOMPARE(moveSetting.value(), QString());
+
+        // On a document: the toggles are its tool bar actions, and the views
+        // are told. On the widget: a combo box per choice, in step both ways.
+        class ConfigWidget final : public VcsBaseEditorWidget
+        {
+        public:
+            ConfigWidget() = default;
+
+        private:
+            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
+        };
+        const VcsBaseEditorParameters parameters{OtherContent,
+                                                 "VcsEditorDocumentTest.Config",
+                                                 "VCS document test config",
+                                                 "text/vnd.qtcreator.vcs-document-config-test",
+                                                 [] { return new ConfigWidget; },
+                                                 [](const FilePath &, const QString &) {}};
+        VcsEditorFactory factory(parameters);
+        QString title = "VCS document test config";
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditorWithContents(parameters.id, &title, QByteArray());
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
+        QVERIFY(widget);
+        VcsEditorDocument * const document = widget->vcsDocument();
+        QVERIFY(document);
+        QVERIFY(!document->toolBarActions().contains(whitespace));
+        QSignalSpy told(document, &TextEditor::TextDocument::toolBarActionsChanged);
+        widget->setEditorConfig(&config);
+        QCOMPARE(told.count(), 1);
+        const QList<QAction *> offered = document->toolBarActions();
+        QVERIFY2(offered.contains(whitespace) && offered.contains(firstParent)
+                     && offered.contains(reload),
+                 "the config's toggles are not the document's tool bar actions");
+        QVERIFY2(widget->toolBar()->actions().contains(whitespace),
+                 "the widget's tool bar does not draw the document's toggle");
+        auto * const combo = widget->toolBar()->findChild<QComboBox *>();
+        QVERIFY2(combo, "the widget's tool bar has no combo box for the choice");
+        QCOMPARE(combo->count(), 3);
+        QCOMPARE(combo->currentIndex(), 0);
+        combo->setCurrentIndex(2);
+        QCOMPARE(moves->currentIndex(), 2);
+        QCOMPARE(changed.count(), 5);
+        moves->choose(1);
+        QCOMPARE(combo->currentIndex(), 1);
+        QCOMPARE(changed.count(), 6);
     }
 
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()

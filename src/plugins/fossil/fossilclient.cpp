@@ -23,6 +23,7 @@
 #include <QTextStream>
 #include <QMap>
 #include <QRegularExpression>
+#include <QToolBar>
 
 using namespace Utils;
 using namespace VcsBase;

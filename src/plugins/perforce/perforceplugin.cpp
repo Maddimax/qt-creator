@@ -50,6 +50,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QRegularExpression>
+#include <QToolBar>
 
 using namespace Core;
 using namespace Utils;

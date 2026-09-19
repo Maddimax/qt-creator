@@ -45,6 +45,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMessageBox>
+#include <QToolBar>
 
 #ifdef WITH_TESTS
 #include <QTest>

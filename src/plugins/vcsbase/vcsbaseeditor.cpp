@@ -58,6 +58,7 @@
 #include <QTextCursor>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolBar>
 #include <QUrl>
 
 #include <algorithm>
@@ -1296,6 +1297,25 @@ void VcsBaseEditorWidget::setEditorConfig(VcsBaseEditorConfig *config)
     VcsEditorDocument * const document = vcsDocument();
     QTC_ASSERT(document, return);
     document->setEditorConfig(config);
+    if (!config)
+        return;
+    // The toggles reach the tool bar as the document's actions. A choice is a
+    // combo box here, kept in step with the choice both ways.
+    toolBar()->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    const QList<VcsBaseEditorChoice *> choices = config->choices();
+    for (VcsBaseEditorChoice * const choice : choices) {
+        auto combo = new QComboBox;
+        combo->setToolTip(choice->toolTip());
+        for (int i = 0; i < choice->count(); ++i)
+            combo->addItem(choice->model()->index(i, 0).data().toString());
+        combo->setCurrentIndex(choice->currentIndex());
+        connect(combo, &QComboBox::currentIndexChanged, choice, &VcsBaseEditorChoice::choose);
+        connect(choice, &TextEditor::ToolBarChoice::changed, combo, [combo, choice] {
+            const QSignalBlocker blocker(combo);
+            combo->setCurrentIndex(choice->currentIndex());
+        });
+        insertExtraToolBarWidget(Left, combo);
+    }
 }
 
 VcsBaseEditorConfig *VcsBaseEditorWidget::editorConfig() const
