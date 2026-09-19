@@ -4,8 +4,10 @@
 #include "vcseditordocument.h"
 
 #include "vcsbaseeditorconfig.h"
+#include "vcsbaseplugin.h"
 #include "vcsbasetr.h"
 
+#include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
@@ -14,13 +16,74 @@
 
 #include <utils/qtcassert.h>
 
+#include <QDesktopServices>
 #include <QPointer>
 #include <QTextBlock>
+#include <QTextCursor>
 #include <QTextDocument>
+#include <QUrl>
 
 using namespace Utils;
 
 namespace VcsBase {
+
+namespace Internal {
+
+// Whichever of \a pattern, a Jira key and a Gerrit Change-Id the cursor's
+// column falls in, on the cursor's line; the widget editor's URL handler, as
+// it was, minus the widget.
+static UrlUnderCursor underCursorMatching(const QTextCursor &cursor,
+                                          const QRegularExpression &pattern)
+{
+    static const QRegularExpression jira("(Fixes|Task-number): ([A-Z]+-[0-9]+)");
+    static const QRegularExpression gerrit("Change-Id: (I[a-f0-9]{40})");
+
+    UrlUnderCursor found;
+    QTextCursor line = cursor;
+    line.select(QTextCursor::LineUnderCursor);
+    if (!line.hasSelection())
+        return found;
+    const QString text = line.selectedText();
+    const int column = cursor.columnNumber();
+    struct {
+        const QRegularExpression &pattern;
+        int matchNumber;
+        QString urlPrefix;
+    } const candidates[] = {
+        {pattern, 0, ""},
+        {jira, 2, QString("%1/browse/").arg(Core::Constants::QT_JIRA_URL)},
+        {gerrit, 1, "https://codereview.qt-project.org/r/"},
+    };
+    for (const auto &candidate : candidates) {
+        QRegularExpressionMatchIterator i = candidate.pattern.globalMatch(text);
+        while (i.hasNext()) {
+            const QRegularExpressionMatch match = i.next();
+            const int start = match.capturedStart(candidate.matchNumber);
+            const QString url = match.captured(candidate.matchNumber);
+            if (start <= column && column < start + url.size()) {
+                found.startColumn = start;
+                found.length = int(url.size());
+                found.url = candidate.urlPrefix + url;
+                return found;
+            }
+        }
+    }
+    return found;
+}
+
+UrlUnderCursor urlUnderCursor(const QTextCursor &cursor)
+{
+    static const QRegularExpression http("https?\\://[^\\s]+");
+    return underCursorMatching(cursor, http);
+}
+
+UrlUnderCursor emailUnderCursor(const QTextCursor &cursor)
+{
+    static const QRegularExpression mail("[a-zA-Z0-9_\\.-]+@[^@ ]+\\.[a-zA-Z]+");
+    return underCursorMatching(cursor, mail);
+}
+
+} // namespace Internal
 
 int VcsEditorSections::rowCount(const QModelIndex &parent) const
 {
@@ -134,6 +197,53 @@ private:
     int m_caretLine = 1;
 };
 
+// What is under the cursor that a plain click can do something with, asked
+// in the order the widget editor asks its handlers: a change to describe,
+// a URL to open, an address to mail.
+static TextEditor::ActionLink actionLinkAt(VcsEditorDocument *document, const QTextCursor &cursor)
+{
+    TextEditor::ActionLink action;
+    const int blockStart = cursor.block().position();
+
+    const VcsBaseEditorParameters &parameters = document->parameters();
+    if (parameters.changeUnderCursor) {
+        const QString change = parameters.changeUnderCursor(cursor);
+        if (!change.isEmpty()) {
+            QTextCursor word = cursor;
+            word.select(QTextCursor::WordUnderCursor);
+            action.linkTextStart = word.selectionStart();
+            action.linkTextEnd = word.selectionEnd();
+            action.activate = [document = QPointer<VcsEditorDocument>(document), change] {
+                if (!document)
+                    return;
+                const auto &describe = document->parameters().describeFunc;
+                if (describe)
+                    describe(VcsBase::source(document), change);
+            };
+            return action;
+        }
+    }
+
+    const UrlUnderCursor url = urlUnderCursor(cursor);
+    if (url.isValid()) {
+        action.linkTextStart = blockStart + url.startColumn;
+        action.linkTextEnd = action.linkTextStart + url.length;
+        action.activate = [url = url.url] { QDesktopServices::openUrl(QUrl(url)); };
+        return action;
+    }
+
+    const UrlUnderCursor mail = emailUnderCursor(cursor);
+    if (mail.isValid()) {
+        action.linkTextStart = blockStart + mail.startColumn;
+        action.linkTextEnd = action.linkTextStart + mail.length;
+        action.activate = [address = mail.url] {
+            QDesktopServices::openUrl(QUrl("mailto:" + address));
+        };
+        return action;
+    }
+    return action;
+}
+
 class VcsEditorDocumentPrivate
 {
 public:
@@ -180,6 +290,13 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
     if (parameters.type == LogOutput || parameters.type == DiffOutput) {
         connect(this, &TextDocument::contentsChanged, this, &VcsEditorDocument::updateSections);
         d->choice = new Internal::VcsSectionsChoice(this, d->sections);
+    }
+    // What a plain click does on a change, a URL or an address - in a log or
+    // an annotation, which is where the widget editor's handlers are asked.
+    if (parameters.type == LogOutput || parameters.type == AnnotateOutput) {
+        setActionLinkFinder([this](TextEditor::TextDocument *, const QTextCursor &cursor) {
+            return Internal::actionLinkAt(this, cursor);
+        });
     }
 }
 
@@ -494,6 +611,84 @@ private slots:
         QVERIFY2(editor->currentLine() == 1,
                  qPrintable(QString("choosing the first entry left the caret on line %1")
                                 .arg(editor->currentLine())));
+    }
+
+    // What a log holds that a plain click can do something with: a change,
+    // a URL, a Jira key, an address - each offered over exactly itself, the
+    // change described with the document's source. Nothing over anything
+    // else, and nothing at all in a diff, where the widget editor's handlers
+    // were never asked either.
+    void testALogOffersWhatIsUnderThePointerToDoSomethingWith()
+    {
+        FilePath describedSource;
+        QString describedChange;
+        const VcsBaseEditorParameters parameters{
+            LogOutput,
+            "VcsEditorDocumentTest.Links",
+            "VCS document test links",
+            "text/vnd.qtcreator.vcs-document-links-test",
+            {},
+            [&describedSource, &describedChange](const FilePath &source, const QString &change) {
+                describedSource = source;
+                describedChange = change;
+            },
+            [](const QTextCursor &cursor) {
+                static const QRegularExpression eightHex(
+                    QRegularExpression::anchoredPattern("[0-9a-f]{8}"));
+                QTextCursor word = cursor;
+                word.select(QTextCursor::WordUnderCursor);
+                const QString text = word.selectedText();
+                return eightHex.match(text).hasMatch() ? text : QString();
+            }};
+        VcsEditorDocument document(parameters);
+        VcsBase::setSource(&document, FilePath::fromString("/repo/file.cpp"));
+        const QString text = "commit 1234abcd\n"
+                             "see https://example.org/x?a=1 now\n"
+                             "Task-number: QTCREATORBUG-123\n"
+                             "mail me@example.com\n";
+        document.setPlainText(text);
+
+        const TextEditor::ActionLinkFinder finder
+            = TextEditor::TextEditorFactory::actionLinkFinderFor(&document);
+        QVERIFY2(finder, "a log offers nothing to do under the pointer");
+        const auto at = [&document, &finder](int position) {
+            QTextCursor cursor(document.document());
+            cursor.setPosition(position);
+            return finder(&document, cursor);
+        };
+        const auto spanOf = [&text](const QString &what) {
+            const int start = int(text.indexOf(what));
+            return std::make_pair(start, start + int(what.size()));
+        };
+
+        const auto change = spanOf("1234abcd");
+        const TextEditor::ActionLink onChange = at(change.first + 3);
+        QVERIFY2(onChange.isValid(), "the change is not offered");
+        QCOMPARE(onChange.linkTextStart, change.first);
+        QCOMPARE(onChange.linkTextEnd, change.second);
+        onChange.activate();
+        QCOMPARE(describedChange, QString("1234abcd"));
+        QCOMPARE(describedSource, FilePath::fromString("/repo/file.cpp"));
+
+        // Not activated: that opens a browser.
+        for (const QString &what : {QString("https://example.org/x?a=1"),
+                                    QString("QTCREATORBUG-123"),
+                                    QString("me@example.com")}) {
+            const auto span = spanOf(what);
+            const TextEditor::ActionLink on = at(span.first + 2);
+            QVERIFY2(on.isValid(), qPrintable(what + " is not offered"));
+            QCOMPARE(on.linkTextStart, span.first);
+            QCOMPARE(on.linkTextEnd, span.second);
+        }
+        QVERIFY2(!at(spanOf("commit").first + 1).isValid(), "a plain word is offered");
+        QVERIFY2(!at(spanOf("now").first).isValid(), "the word after the URL is offered");
+
+        VcsBaseEditorParameters diffParameters = parameters;
+        diffParameters.type = DiffOutput;
+        diffParameters.id = "VcsEditorDocumentTest.DiffLinks";
+        VcsEditorDocument diff(diffParameters);
+        QVERIFY2(!TextEditor::TextEditorFactory::actionLinkFinderFor(&diff),
+                 "a diff offers something to do under the pointer");
     }
 };
 

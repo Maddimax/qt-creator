@@ -18,6 +18,11 @@ namespace Git::Internal {
 
 class GitLogFilterWidget;
 
+// The change under \a cursor: any word of seven to forty hex digits. What
+// the Git editors' parameters carry, so that a view that is not the widget
+// editor can offer to describe it.
+QString gitChangeUnderCursor(const QTextCursor &cursor);
+
 class GitEditorWidget : public VcsBase::VcsBaseEditorWidget
 {
     Q_OBJECT
@@ -62,7 +67,6 @@ private:
                           const QTextBlock &contextBlock) override;
     Utils::FilePath sourceWorkingDirectory() const;
 
-    const QRegularExpression m_changeNumberPattern;
     GitLogFilterWidget *m_logFilterWidget = nullptr;
     QVector<int> m_originalLines;
 };

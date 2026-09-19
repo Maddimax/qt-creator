@@ -442,7 +442,8 @@ public:
          Tr::tr("Git SVN Log Editor"),
          "text/vnd.qtcreator.git.svnlog",
          [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2)}};
+         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
+         gitChangeUnderCursor}};
 
     VcsEditorFactory logEditorFactory{
         {LogOutput,
@@ -450,7 +451,8 @@ public:
          Tr::tr("Git Log Editor"),
          "text/vnd.qtcreator.git.log",
          [] { return new GitLogEditorWidgetT<GitEditorWidget>; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2)}};
+         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
+         gitChangeUnderCursor}};
 
     VcsEditorFactory reflogEditorFactory{
         {LogOutput,
@@ -458,7 +460,8 @@ public:
          Tr::tr("Git Reflog Editor"),
          "text/vnd.qtcreator.git.reflog",
          [] { return new GitLogEditorWidgetT<GitReflogEditorWidget>; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2)}};
+         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
+         gitChangeUnderCursor}};
 
     VcsEditorFactory blameEditorFactory{
         {AnnotateOutput,
@@ -466,7 +469,8 @@ public:
          Tr::tr("Git Annotation Editor"),
          "text/vnd.qtcreator.git.annotation",
          [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2)}};
+         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
+         gitChangeUnderCursor}};
 
     VcsEditorFactory commitTextEditorFactory{
         {OtherContent,
@@ -474,7 +478,8 @@ public:
          Tr::tr("Git Commit Editor"),
          "text/vnd.qtcreator.git.commit",
          [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2)}};
+         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
+         gitChangeUnderCursor}};
 
     VcsEditorFactory rebaseEditorFactory{
         {OtherContent,
@@ -482,7 +487,8 @@ public:
          Tr::tr("Git Rebase Editor"),
          "text/vnd.qtcreator.git.rebase",
          [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2)}};
+         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
+         gitChangeUnderCursor}};
 
 private:
     QStringList lineRange(int &firstLine, bool allowSingleLine = false) const;
@@ -2422,6 +2428,7 @@ private slots:
     void testDiffFileResolving_data();
     void testDiffFileResolving();
     void testLogResolving();
+    void testTheLogKnowsAChangeUnderThePointer();
     void testGitRemote_data();
     void testGitRemote();
     void testInlineDiffFile();
@@ -2669,6 +2676,33 @@ void GitTest::testLogResolving()
                             "50a6b54 - (HEAD -> feature, tag: v1.8.2) HEAD@{0}: commit: "
                             "Update draft release notes to 1.8.2",
                             "3587b51 - HEAD@{1}: checkout: moving from master to feature");
+}
+
+// The log's document knows a change when the pointer is over one - what a
+// plain click describes in a view that is not the widget editor - and knows
+// that the word "commit" is not one.
+void GitTest::testTheLogKnowsAChangeUnderThePointer()
+{
+    QString title = "Git log test";
+    Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+        Git::Constants::GIT_LOG_EDITOR_ID, &title,
+        "commit 3587b513bafd7a83d8c816ac1deed72b5e3a27e9\nAuthor: someone\n");
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+    auto * const document = qobject_cast<VcsBase::VcsEditorDocument *>(editor->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+
+    const TextEditor::ActionLinkFinder finder
+        = TextEditor::TextEditorFactory::actionLinkFinderFor(document);
+    QVERIFY2(finder, "the log offers nothing to do under the pointer");
+    QTextCursor cursor(document->document());
+    cursor.setPosition(20);
+    const TextEditor::ActionLink onTheHash = finder(document, cursor);
+    QVERIFY2(onTheHash.isValid(), "the hash under the pointer is not offered as a change");
+    QCOMPARE(onTheHash.linkTextStart, 7);
+    QCOMPARE(onTheHash.linkTextEnd, 47);
+    cursor.setPosition(2);
+    QVERIFY2(!finder(document, cursor).isValid(), "the word \"commit\" is offered as a change");
 }
 
 class RemoteTest {

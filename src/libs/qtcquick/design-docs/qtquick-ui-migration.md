@@ -66083,3 +66083,109 @@ No `.qbs` edited: no file list changed.
    `firstLineNumber` on the gutter, `setRevisionsVisible(false)`; flip and
    retire one VCS at a time, constructor declarations into the parameters.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — Links that are actions, the VCS half (batch 302)
+
+Entry 301's step 3, the VCS side: the three cursor handlers as the document's
+`ActionLinkFinder`, so that a Qt Quick view of a log or an annotation offers
+what the widget editor offers on a plain hover and a plain click.
+
+### What moved, and how
+
+- **The URL and address finders** were the body of
+  `UrlTextCursorHandler::findContentsUnderCursor()`: the handler's own pattern
+  first (http(s), or the e-mail pattern in the subclass), then a Jira key after
+  `Fixes:`/`Task-number:` (prefixed with the Jira URL) and a Gerrit Change-Id
+  (prefixed with the review URL), whichever the column falls in. That loop is
+  `Internal::underCursorMatching()` in `vcseditordocument.cpp` now, behind
+  `urlUnderCursor()` and `emailUnderCursor()`; the handlers call them through a
+  virtual `urlAt()` and keep only their `UrlData`. `setUrlPattern()` and the
+  three pattern members are gone from the handler.
+- **The change** was `changeUnderCursor()`, a virtual on each widget subclass.
+  `VcsBaseEditorParameters` grows `std::function<QString(const QTextCursor &)>
+  changeUnderCursor` - the shape the description pane's parameters already had -
+  which a VCS sets when its pattern is a function of the text alone. Git's is:
+  `gitChangeUnderCursor()` (any word of seven to forty hex digits) is a free
+  function now, the widget's virtual calls it, and all six Git factories carry
+  it. The other seven VCS leave it unset until they move, and offer only URLs
+  and addresses in a Qt Quick view meanwhile; a change under the pointer there
+  does nothing rather than something wrong.
+- **The finder**: `VcsEditorDocument` registers one for `LogOutput` and
+  `AnnotateOutput` - `supportChangeLinks()` on the widget - asking in the
+  handlers' order: change, URL, address. The change's span is the word under
+  the cursor, as the handler underlined it; its action calls the parameters'
+  `describeFunc(source(document), change)`, which is what the widget's
+  `describeRequested` was connected to. The URL's action is
+  `QDesktopServices::openUrl()`; the address's, the same with `mailto:`.
+
+Not moved: the handlers' context-menu entries (copy revision, annotate this or
+a previous revision, open/copy URL, the per-VCS `addChangeActions()`), and
+`isValidRevision()`/`annotationPreviousVersions()`/`decorateVersion()` that
+they use - all still widget virtuals. That is the dynamic-actions piece,
+entry 298's step 3 tail.
+
+### The tests
+
+- `VcsEditorDocumentTest::testALogOffersWhatIsUnderThePointerToDoSomethingWith`:
+  a log document (no editor needed) with a `changeUnderCursor` of eight hex
+  digits and a recording `describeFunc`, holding a change, an https URL, a
+  `Task-number:` Jira key and an address. The change is offered over exactly
+  itself and, activated, describes `1234abcd` with the document's source; the
+  other three are offered over exactly themselves (not activated - that opens
+  a browser); `commit` and the word after the URL are not; a diff document has
+  no finder at all.
+- `GitTest::testTheLogKnowsAChangeUnderThePointer`: a Git log editor opened
+  through the editor manager with a `commit <40 hex>` line; the document is a
+  `VcsEditorDocument`, its finder offers the hash over its 40 characters and
+  not the word `commit`.
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals, distinct
+names, the tree checked clean at the end):
+
+- **A** - the document registers no finder: both tests fail on `finder`, "a log
+  offers nothing to do under the pointer".
+- **B** - a change is never offered: the VcsBase test fails on "the change is not
+  offered", the Git test on "the hash under the pointer is not offered as a
+  change" - the URLs and the address still pass, so B is about the change alone.
+- **C** - an address is never found: the VcsBase test fails on
+  "me@example.com is not offered", after the change, the URL and the Jira key
+  passed - so C is about the address alone.
+
+### Measurements
+
+    -test TextEditor     793 passed, 0 failed, 3 skipped, exit 0   x2
+                         792 passed, 1 failed, 3 skipped, exit 1   x1
+                           CodeAssistTests::testFollowSymbolBigFile, 'spy.wait(1000)'
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         23 passed, 0 failed, 0 skipped, exit 0
+    -test Git            136 passed, 2 failed, 0 skipped, exit 2
+
+VcsBase is 23: 22 plus this test. Git is 136 with the baseline's two failures
+(`testInlineDiffFile`, `testConflictedFileInTextEditor`): 135 plus this test,
+nothing new failing. TextEditor unchanged at 793 where it passed.
+
+`testFollowSymbolBigFile` for the second time in a suite run (entry 298: the
+first, 0 of 10 alone). Two sightings in the twenty-odd TextEditor suite runs
+since - about one in ten under the load of a full run, never alone. Nothing
+of this batch is in its path (it opens a big plain-text file after a
+follow-symbol from a widget editor); the same load-sensitive one-second wait.
+If it is to be fixed, the fix is in `codeassist_test.cpp`, bounding the wait
+on the editor opening rather than on a clock - not in this migration's code.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The context menu's dynamic actions**: what the handlers' `fillContextMenu()`
+   adds - copy revision, describe, annotate this/previous, open/copy URL,
+   `addChangeActions()`, and for a diff the Apply/Revert Chunk pair and
+   `addDiffActions()` - as actions the Qt Quick editor's `contextActions`
+   provider can be handed at a position. Needs a seam on the factory or the
+   document ("actions at this cursor"), and the per-VCS virtuals behind those
+   entries moving into the parameters the way `changeUnderCursor` did.
+2. Steps 4-6 (entry 298): diff navigation as a link finder; busy state,
+   `firstLineNumber` on the gutter, `setRevisionsVisible(false)`; flip and
+   retire one VCS at a time, constructor declarations into the parameters.
+3. The QmlDesigner-side two; the standing list (entry 298).

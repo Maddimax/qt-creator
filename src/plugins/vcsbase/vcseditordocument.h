@@ -19,6 +19,7 @@
 
 QT_BEGIN_NAMESPACE
 class QTextBlock;
+class QTextCursor;
 class QWidget;
 QT_END_NAMESPACE
 
@@ -28,7 +29,26 @@ namespace VcsBase {
 
 class VcsBaseEditorConfig;
 
-namespace Internal { class VcsEditorDocumentPrivate; }
+namespace Internal {
+
+class VcsEditorDocumentPrivate;
+
+// A URL under the cursor, as a log shows them: an http(s) URL, a Jira key
+// after "Fixes:" or "Task-number:", a Gerrit Change-Id - or an e-mail address.
+// The span is within the cursor's block; the url is what to open.
+class UrlUnderCursor
+{
+public:
+    bool isValid() const { return startColumn >= 0; }
+
+    int startColumn = -1;
+    int length = 0;
+    QString url;
+};
+UrlUnderCursor urlUnderCursor(const QTextCursor &cursor);
+UrlUnderCursor emailUnderCursor(const QTextCursor &cursor);
+
+} // namespace Internal
 
 enum EditorContentType
 {
@@ -47,6 +67,10 @@ public:
     QString mimeType;
     std::function<QWidget *()> editorWidgetCreator;
     std::function<void (const Utils::FilePath &, const QString &)> describeFunc;
+    // The change under a cursor - a revision, a change number - or nothing.
+    // What a plain click on it describes, in a view that is not the widget
+    // editor; a VCS that leaves it unset offers only its URLs there.
+    std::function<QString(const QTextCursor &)> changeUnderCursor;
 };
 
 // What the tool bar's entries browser offers: one row per file in a diff, or

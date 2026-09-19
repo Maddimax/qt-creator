@@ -94,10 +94,23 @@ public:
     QAction *caseAction;
 };
 
-GitEditorWidget::GitEditorWidget() :
-    m_changeNumberPattern(QRegularExpression::anchoredPattern(CHANGE_PATTERN))
+QString gitChangeUnderCursor(const QTextCursor &c)
 {
-    QTC_ASSERT(m_changeNumberPattern.isValid(), return);
+    static const QRegularExpression changeNumberPattern(
+        QRegularExpression::anchoredPattern(CHANGE_PATTERN));
+    QTextCursor cursor = c;
+    // Any number is regarded as change number.
+    cursor.select(QTextCursor::WordUnderCursor);
+    if (!cursor.hasSelection())
+        return {};
+    const QString change = cursor.selectedText();
+    if (changeNumberPattern.match(change).hasMatch())
+        return change;
+    return {};
+}
+
+GitEditorWidget::GitEditorWidget()
+{
     /* Diff format:
         diff --git a/src/plugins/git/giteditor.cpp b/src/plugins/git/giteditor.cpp
         index 40997ff..4e49337 100644
@@ -113,15 +126,7 @@ GitEditorWidget::GitEditorWidget() :
 
 QString GitEditorWidget::changeUnderCursor(const QTextCursor &c) const
 {
-    QTextCursor cursor = c;
-    // Any number is regarded as change number.
-    cursor.select(QTextCursor::WordUnderCursor);
-    if (!cursor.hasSelection())
-        return {};
-    const QString change = cursor.selectedText();
-    if (m_changeNumberPattern.match(change).hasMatch())
-        return change;
-    return {};
+    return gitChangeUnderCursor(c);
 }
 
 int GitEditorWidget::originalLineUnderCursor(const QTextCursor &c) const

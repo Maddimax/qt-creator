@@ -378,7 +378,9 @@ protected slots:
     virtual void slotOpenUrl();
 
 protected:
-    void setUrlPattern(const QString &pattern);
+    // What this handler is for under \a cursor: the same finder the document
+    // offers a view that is not this widget.
+    virtual UrlUnderCursor urlAt(const QTextCursor &cursor) const;
     QAction *createOpenUrlAction(const QString &text) const;
     QAction *createCopyUrlAction(const QString &text) const;
 
@@ -392,60 +394,27 @@ private:
     };
 
     UrlData m_urlData;
-    QRegularExpression m_pattern;
-    QRegularExpression m_jiraPattern;
-    QRegularExpression m_gerritPattern;
 };
 
 UrlTextCursorHandler::UrlTextCursorHandler(VcsBaseEditorWidget *editorWidget)
     : AbstractTextCursorHandler(editorWidget)
 {
-    setUrlPattern("https?\\://[^\\s]+");
-
-    m_jiraPattern = QRegularExpression("(Fixes|Task-number): ([A-Z]+-[0-9]+)");
-    m_gerritPattern = QRegularExpression("Change-Id: (I[a-f0-9]{40})");
 }
 
 bool UrlTextCursorHandler::findContentsUnderCursor(const QTextCursor &cursor)
 {
     AbstractTextCursorHandler::findContentsUnderCursor(cursor);
 
-    m_urlData.url.clear();
-    m_urlData.startColumn = -1;
-    m_urlData.urlLength = 0;
+    const UrlUnderCursor found = urlAt(cursor);
+    m_urlData.url = found.url;
+    m_urlData.startColumn = found.isValid() ? found.startColumn : -1;
+    m_urlData.urlLength = found.length;
+    return found.isValid();
+}
 
-    QTextCursor cursorForUrl = cursor;
-    cursorForUrl.select(QTextCursor::LineUnderCursor);
-    if (cursorForUrl.hasSelection()) {
-        const QString line = cursorForUrl.selectedText();
-        const int cursorCol = cursor.columnNumber();
-
-        struct {
-            QRegularExpression &pattern;
-            int matchNumber;
-            QString urlPrefix;
-        } const regexUrls[] = {
-            {m_pattern, 0, ""},
-            {m_jiraPattern, 2, QString("%1/browse/").arg(Core::Constants::QT_JIRA_URL)},
-            {m_gerritPattern, 1, "https://codereview.qt-project.org/r/"},
-        };
-        for (const auto &r : regexUrls) {
-            QRegularExpressionMatchIterator i = r.pattern.globalMatch(line);
-            while (i.hasNext()) {
-                const QRegularExpressionMatch match = i.next();
-                const int urlMatchIndex = match.capturedStart(r.matchNumber);
-                const QString url = match.captured(r.matchNumber);
-                if (urlMatchIndex <= cursorCol && cursorCol < urlMatchIndex + url.size()) {
-                    m_urlData.startColumn = urlMatchIndex;
-                    m_urlData.url = r.urlPrefix + url;
-                    m_urlData.urlLength = url.size();
-                    break;
-                }
-            }
-        }
-    }
-
-    return m_urlData.startColumn != -1;
+UrlUnderCursor UrlTextCursorHandler::urlAt(const QTextCursor &cursor) const
+{
+    return urlUnderCursor(cursor);
 }
 
 void UrlTextCursorHandler::highlightCurrentContents()
@@ -480,12 +449,6 @@ void UrlTextCursorHandler::fillContextMenu(QMenu *menu, EditorContentType type) 
 QString UrlTextCursorHandler::currentContents() const
 {
     return  m_urlData.url;
-}
-
-void UrlTextCursorHandler::setUrlPattern(const QString &pattern)
-{
-    m_pattern = QRegularExpression(pattern);
-    QTC_ASSERT(m_pattern.isValid(), return);
 }
 
 void UrlTextCursorHandler::slotCopyUrl()
@@ -528,12 +491,17 @@ public:
 
 protected slots:
     void slotOpenUrl() override;
+
+protected:
+    UrlUnderCursor urlAt(const QTextCursor &cursor) const override
+    {
+        return emailUnderCursor(cursor);
+    }
 };
 
 EmailTextCursorHandler::EmailTextCursorHandler(VcsBaseEditorWidget *editorWidget)
     : UrlTextCursorHandler(editorWidget)
 {
-    setUrlPattern("[a-zA-Z0-9_\\.-]+@[^@ ]+\\.[a-zA-Z]+");
 }
 
 void EmailTextCursorHandler::fillContextMenu(QMenu *menu, EditorContentType type) const
