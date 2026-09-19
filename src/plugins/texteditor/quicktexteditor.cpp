@@ -14403,6 +14403,53 @@ private slots:
         QVERIFY2(!none->barBesideEdit, "a bar beside an edited line in a view that marks none");
     }
 
+    // A document whose text is on its way - a VCS command's output - says so,
+    // and the view shows a spinner over itself meanwhile: after a moment, so
+    // that a command that answers at once flashes nothing, and gone the instant
+    // the text is there. The widget editor's spinner is VcsBase's own; this is
+    // the Qt Quick view's, for any document that says it is busy.
+    void testAViewSaysWhenItsDocumentIsBusy()
+    {
+        class BusyFactory final : public TextEditorFactory
+        {
+        public:
+            BusyFactory()
+            {
+                setId("QuickEditorBusyTest");
+                setDisplayName("Quick Editor Busy Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorBusyTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+        BusyFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([&editor] { editor->widget()->hide(); });
+        TextViewport * const view = viewportForEditor(editor.get());
+        QVERIFY(view);
+        QTRY_VERIFY(view->lineHeight() > 0);
+        TextDocument * const document = view->textDocument();
+        QVERIFY(document);
+        auto * const host = editor->widget()->findChild<QQuickWidget *>();
+        QQuickItem * const root = host ? host->rootObject() : nullptr;
+        QQuickItem * const spinner = root ? root->findChild<QQuickItem *>("documentBusy") : nullptr;
+        QVERIFY2(spinner, "the form has nothing to say that the document is busy");
+
+        QVERIFY(!view->documentBusy());
+        QVERIFY(!spinner->isVisible());
+        document->setBusy(true);
+        QVERIFY2(view->documentBusy(), "the view did not hear that the document is busy");
+        QVERIFY2(!spinner->isVisible(),
+                 "the spinner showed before the command had a moment to answer");
+        QTRY_VERIFY2(spinner->isVisible(), "the spinner never showed over a busy document");
+        document->setBusy(false);
+        QVERIFY(!view->documentBusy());
+        QVERIFY2(!spinner->isVisible(), "the spinner outlived the command");
+    }
+
     // The same embedded views cannot be split: the editor around them keeps
     // one form per text view, and a second view would have no form. The
     // widget path hands the factory's answer to the editor; the Qt Quick one

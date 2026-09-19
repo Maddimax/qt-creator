@@ -27,12 +27,19 @@ class QMenu;
 class QTextBlock;
 class QTextCursor;
 class QWidget;
+
+namespace QtTaskTree {
+class ExecutableItem;
+template <typename StorageStruct>
+class Storage;
+}
 QT_END_NAMESPACE
 
 namespace TextEditor { class ToolBarChoice; }
 
 namespace VcsBase {
 
+class CommandResult;
 class VcsBaseEditorConfig;
 
 namespace Internal {
@@ -180,6 +187,20 @@ public:
     // Where to go once the output has arrived.
     int defaultLineNumber() const;
     void setDefaultLineNumber(int line);
+    void gotoDefaultLine();
+
+    // Runs \a task - a VCS command - and makes its output this document's
+    // text, through setOutput(); busy meanwhile, at the default line after.
+    // A failure puts a line saying so in the text and the error in the VCS
+    // output pane. Starting another cancels the one running.
+    void executeTask(const QtTaskTree::ExecutableItem &task,
+                     const QtTaskTree::Storage<CommandResult> &resultStorage);
+    // What a command's output becomes: the text as it is, unless a hook says
+    // otherwise - the widget editor's virtual setPlainText(), which Git
+    // overrides to colour a log and to trim a blame.
+    using OutputHook = std::function<void(const QString &output)>;
+    void setOutputHook(const OutputHook &hook);
+    void setOutput(const QString &output);
 
     QString annotateRevisionTextFormat() const;
     void setAnnotateRevisionTextFormat(const QString &format);

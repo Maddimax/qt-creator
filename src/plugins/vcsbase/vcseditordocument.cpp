@@ -7,6 +7,8 @@
 #include "vcsbaseeditorconfig.h"
 #include "vcsbaseplugin.h"
 #include "vcsbasetr.h"
+#include "vcscommand.h"
+#include "vcsoutputwindow.h"
 
 #include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/documentmodel.h>
@@ -36,6 +38,9 @@
 #include <QTextDocument>
 #include <QUrl>
 
+#include <QtTaskTree/QSingleTaskTreeRunner>
+
+using namespace QtTaskTree;
 using namespace Utils;
 
 namespace VcsBase {
@@ -149,6 +154,16 @@ void VcsEditorSections::reset(const QStringList &entries, const QList<int> &line
 
 namespace Internal {
 
+// The editor to move for a document: the current one if it is showing it,
+// else whichever the editor manager has for it, else none.
+static Core::IEditor *editorShowing(Core::IDocument *document)
+{
+    Core::IEditor * const current = Core::EditorManager::currentEditor();
+    if (current && current->document() == document)
+        return current;
+    return Core::DocumentModel::editorsForDocument(document).value(0);
+}
+
 // The sections as the choice the tool bar shows: the row the caret is in is
 // current, choosing a row goes to its first line. Nothing here is a pick the
 // language would otherwise have made differently, so there is nothing to
@@ -182,9 +197,7 @@ public:
         const QList<int> lines = m_sections->lines();
         if (index < 0 || index >= lines.size())
             return;
-        Core::IEditor *editor = Core::EditorManager::currentEditor();
-        if (!editor || editor->document() != m_document)
-            editor = Core::DocumentModel::editorsForDocument(m_document).value(0);
+        Core::IEditor * const editor = editorShowing(m_document);
         if (!editor)
             return;
         const int lineNumber = lines.at(index) + 1;
@@ -272,6 +285,8 @@ public:
     Annotation annotation;
     VcsEditorDocument::DiffFileResolver diffFileResolver;
     VcsEditorDocument::BlockToString revisionSubject;
+    VcsEditorDocument::OutputHook outputHook;
+    QSingleTaskTreeRunner taskTreeRunner;
     VcsEditorSections *sections = nullptr;
     VcsSectionsChoice *choice = nullptr;
     QList<QAction *> contextActions;
@@ -429,6 +444,55 @@ int VcsEditorDocument::defaultLineNumber() const
 void VcsEditorDocument::setDefaultLineNumber(int line)
 {
     d->defaultLineNumber = line;
+}
+
+void VcsEditorDocument::gotoDefaultLine()
+{
+    if (d->defaultLineNumber < 0)
+        return;
+    if (Core::IEditor * const editor = Internal::editorShowing(this))
+        editor->gotoLine(d->defaultLineNumber, 0);
+}
+
+void VcsEditorDocument::executeTask(const ExecutableItem &task,
+                                    const Storage<CommandResult> &resultStorage)
+{
+    if (d->taskTreeRunner.isRunning())
+        d->taskTreeRunner.cancel();
+
+    const auto onSetup = [this] { setBusy(true); };
+    const auto onDone = [this, resultStorage](DoneWith doneWith) {
+        setBusy(false);
+        if (doneWith != DoneWith::Success) {
+            setPlainText(Tr::tr("Failed to retrieve data."));
+            VcsOutputWindow::appendError(resultStorage->workingDirectory(),
+                                         resultStorage->cleanedStdErr());
+            return;
+        }
+        setOutput(resultStorage->cleanedStdOut());
+        gotoDefaultLine();
+    };
+
+    const Group recipe {
+        resultStorage,
+        onGroupSetup(onSetup),
+        task,
+        onGroupDone(onDone)
+    };
+    d->taskTreeRunner.start(recipe);
+}
+
+void VcsEditorDocument::setOutputHook(const OutputHook &hook)
+{
+    d->outputHook = hook;
+}
+
+void VcsEditorDocument::setOutput(const QString &output)
+{
+    if (d->outputHook)
+        d->outputHook(output);
+    else
+        setPlainText(output);
 }
 
 QString VcsEditorDocument::annotateRevisionTextFormat() const
@@ -976,7 +1040,10 @@ void VcsEditorDocument::updateSections()
 
 #include "vcsbaseeditor.h"
 
+#include <solutions/spinner/spinner.h>
+
 #include <utils/algorithm.h>
+#include <utils/environment.h>
 #include <utils/temporarydirectory.h>
 
 #include <QClipboard>
@@ -1087,6 +1154,95 @@ private slots:
     // change described with the document's source. Nothing over anything
     // else, and nothing at all in a diff, where the widget editor's handlers
     // were never asked either.
+    // What a VCS client does once it has an editor: hands it a command whose
+    // output becomes the text. That ran on the widget, with a spinner over it
+    // meanwhile and a jump to the line asked for after. It is the document's
+    // now, so that a view of any kind can show it; the widget still shows the
+    // spinner, and still shapes the output through its virtual setPlainText().
+    void testACommandsOutputBecomesTheDocumentsText()
+    {
+        const FilePath sh = FilePath::fromString("sh").searchInPath();
+        if (sh.isEmpty())
+            QSKIP("no sh to run a command with");
+
+        class CommandWidget final : public VcsBaseEditorWidget
+        {
+        public:
+            CommandWidget() = default;
+            void setPlainText(const QString &text) final
+            {
+                VcsBaseEditorWidget::setPlainText(text.toUpper());
+            }
+
+        private:
+            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
+            BaseAnnotationHighlighterCreator annotationHighlighterCreator() const final
+            {
+                return {};
+            }
+        };
+        const VcsBaseEditorParameters parameters{OtherContent,
+                                                 "VcsEditorDocumentTest.Command",
+                                                 "VCS document test command",
+                                                 "text/vnd.qtcreator.vcs-document-test-command",
+                                                 [] { return new CommandWidget; },
+                                                 [](const FilePath &, const QString &) {}};
+        VcsEditorFactory factory(parameters);
+        QString title = "VCS document test command";
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditorWithContents(parameters.id, &title, QByteArray());
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
+        QVERIFY2(widget, "the factory did not build a VCS editor");
+        VcsEditorDocument * const document = widget->vcsDocument();
+        QVERIFY(document);
+        auto * const spinner = widget->findChild<SpinnerSolution::Spinner *>();
+        QVERIFY2(spinner, "the widget has no spinner to show over a running command");
+        QVERIFY(!spinner->isVisible());
+        QVERIFY(!document->isBusy());
+
+        TemporaryDirectory dir("vcs-command-test");
+        QVERIFY(dir.isValid());
+        // The command waits for a file the test writes once it has seen the
+        // spinner, so that "shown while running" is not a race against how
+        // fast the shell answers.
+        const FilePath gate = dir.filePath("gate");
+        widget->setDefaultLineNumber(3);
+        {
+            const Storage<CommandResult> resultStorage;
+            const ProcessTask task = vcsProcessTask(
+                {.runData = {{sh, {"-c", "until [ -e \"$0\" ]; do sleep 0.02; done; "
+                                        "printf 'one\\ntwo\\nthree\\n'",
+                                  gate.path()}},
+                             dir.path(),
+                             Environment::systemEnvironment()}},
+                resultStorage);
+            widget->executeTask(task, resultStorage);
+        }
+        QVERIFY2(document->isBusy(), "starting a command did not make the document busy");
+        QTRY_VERIFY2(spinner->isVisible(), "the widget shows no spinner over a running command");
+        QVERIFY(gate.writeFileContents("go"));
+        QTRY_VERIFY(!document->isBusy());
+        QVERIFY2(!spinner->isVisible(), "the spinner outlived the command");
+        // Through the widget's setPlainText(), which this one upper-cases.
+        QCOMPARE(document->plainText(), QString("ONE\nTWO\nTHREE\n"));
+        QCOMPARE(editor->currentLine(), 3);
+
+        // A command that fails leaves a line saying so - as it is, not through
+        // the hook: it is not output.
+        {
+            const Storage<CommandResult> resultStorage;
+            const ProcessTask task = vcsProcessTask(
+                {.runData = {{sh, {"-c", "exit 3"}}, dir.path(), Environment::systemEnvironment()}},
+                resultStorage);
+            widget->executeTask(task, resultStorage);
+        }
+        QVERIFY(document->isBusy());
+        QTRY_VERIFY(!document->isBusy());
+        QCOMPARE(document->plainText(), Tr::tr("Failed to retrieve data."));
+    }
+
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()
     {
         FilePath describedSource;

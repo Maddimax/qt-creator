@@ -66834,3 +66834,144 @@ No `.qbs` edited: no file list changed.
    `gitEditorParameters()`, which ends batch 299's staging area.
 2. The other seven VCS, one at a time, each the same way.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — The command runs on the document (batch 308)
+
+Entry 307's next item, the first half of it: what `VcsBaseEditorWidget`
+still *did* for a command - run it, spin meanwhile, put the output in the
+text, jump to the default line - moved to `VcsEditorDocument`, with both
+views showing the busy state. The flip itself, and Git's widget subclass,
+are the next batch: the clients still hold a `VcsBaseEditorWidget *` as
+their handle, and that is the piece the flip has to change (below).
+
+### What the widget did, and where it went
+
+`VcsBaseEditorWidget::executeTask(task, resultStorage)` - called by
+`VcsBaseClientImpl::executeInEditor()` and by `VcsBaseClient::diff()` for
+every VCS - ran a recipe: a `Spinner` in task storage shown after 100 ms,
+the task, and on done either `setPlainText(cleanedStdOut())` and
+`gotoDefaultLine()` or `Failed to retrieve data.` plus the error in the
+VCS output pane. Four things a Qt Quick view could not have:
+
+- **the runner** - `QSingleTaskTreeRunner`, now in the document's private
+  class; `VcsEditorDocument::executeTask()` is the same recipe minus the
+  spinner, cancelling a running one first as before;
+- **the busy state** - the spinner was the recipe's storage, living as long
+  as the task. `TextDocument::isBusy()`/`setBusy()`/`busyChanged()` say it
+  instead: "something outside the editor is producing this document's
+  text". The recipe's setup sets it, its done clears it before anything
+  else. Generic on purpose: a language server loading could say it too;
+- **the output** - the widget called its own virtual `setPlainText()`, which
+  `GitEditorWidget` overrides: a log goes through
+  `AnsiEscapeCodeHandler::setTextInDocument()` for its colours, a blame
+  through `sanitizeBlameOutput()`, which drops the path, author or date the
+  settings say to. The document's `setOutput(text)` calls an `OutputHook`
+  when one is set and `setPlainText()` when not; the widget installs
+  `[this](text) { setPlainText(text); }` in `finalizeInitialization()`, so
+  Git's override is still in the loop. The same shape as the diff-file
+  resolver and the revision-subject hook of batch 299 - staging for the
+  flip, when it becomes a parameters function per VCS. (Git's blame
+  sanitiser also fills `m_originalLines`, which `originalLineUnderCursor()`
+  reads and nobody calls - dead since the handlers went to the document.)
+  A *failed* command's message bypasses the hook, as the widget's
+  `textDocument()->setPlainText()` bypassed the virtual: it is not output;
+- **the jump** - `gotoDefaultLine()` goes to the editor showing the document:
+  the current one if it is, else the first the document model has. Batch
+  300's `VcsSectionsChoice::choose()` did the same lookup inline; it is
+  `Internal::editorShowing(document)` now and both use it. Through
+  `IEditor::gotoLine()`, which both editors implement.
+
+The widget's `executeTask()` and `gotoDefaultLine()` forward. The client
+code is untouched: `executeInEditor(workingDirectory, arguments, editor)`
+still takes the widget, and will take the document in the flip batch.
+
+### Two spinners
+
+- **Widget**: a long-lived `Spinner(SpinnerSize::Large, this)` made in
+  `finalizeInitialization()` and hidden at once - a child widget made
+  before its parent is shown would otherwise come up with it. On
+  `busyChanged`: busy → a 100 ms single shot that shows it if the document
+  is still busy; not busy → hide.
+- **Qt Quick**: `TextViewport` gets `documentBusy` (read from the document
+  when connected and on `busyChanged`, the batch-307 pattern), `CodeViewport`
+  an alias, and `MainEditor.qml` a `Timer { interval: 100; running:
+  code.documentBusy }` and a `BusyIndicator` (`objectName: "documentBusy"`,
+  Controls') with `visible: code.documentBusy && !busyDelay.running`. The
+  timer runs while the document is busy and stops itself when the moment is
+  up; stopping itself writes `running` from C++, which leaves the binding
+  standing, so the next busy period starts it again. No handlers.
+
+### The tests
+
+- `VcsEditorDocumentTest::testACommandsOutputBecomesTheDocumentsText`: a
+  VCS editor whose widget's `setPlainText()` upper-cases; `sh` (QSKIP
+  without it) told to wait for a gate file and then print three lines,
+  through the widget's `executeTask()` with the default line set to 3.
+  Busy at once; the widget's spinner (`findChild<Spinner *>()`) shown -
+  then the gate is written, so "shown while running" is not a race against
+  the shell; not busy, spinner gone, the text `ONE\nTWO\nTHREE\n`, the
+  editor on line 3 (`setPlainText()` alone would leave it on 4, entry 300).
+  Then `exit 3`: busy, then not, and the failure message as it is.
+- `QuickTextEditorTest::testAViewSaysWhenItsDocumentIsBusy` (Qt Quick
+  only - the widget's spinner is VcsBase's, above): a plain document in a
+  Quick editor; `setBusy(true)` → the viewport says so at once and the
+  indicator is *not* visible yet; then it is; `setBusy(false)` → gone.
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run - 328 ms for the
+command test with its two shells, 136 ms for the view's. The command test's
+log has two `This plugin does not support raise()`: the failing command
+puts its error in the VCS output pane, which raises itself, and the
+offscreen platform says it cannot. The two neighbours whose code moved ran
+too - `testTheWidgetEditorsStateIsTheDocuments` (the choice's jump goes
+through `editorShowing()` now) and `testTheFormDrawsTheLanguagesChoice`
+(`MainEditor.qml` gained items) - 3 passed, 0 failed, exit 0 each.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - the recipe's setup never sets busy: the command test fails at
+  once, "'document->isBusy()' returned FALSE. (starting a command did not
+  make the document busy)".
+- **B** - `MainEditor.qml`'s indicator is `visible: false`: the view test
+  fails on the wait, "'spinner->isVisible()' returned FALSE. (the spinner
+  never showed over a busy document)".
+- **C** - `setOutput()` calls `setPlainText()` whether or not a hook is set:
+  the command test fails on the text, actual `"one\ntwo\nthree\n"` where
+  `"ONE\nTWO\nTHREE\n"` was expected - the widget's override was skipped.
+- **D** - `gotoDefaultLine()` finds the editor and goes nowhere: the command
+  test fails on the caret, actual 4 where 3 was expected - the end of the
+  text, where `setPlainText()` leaves it.
+
+### Measurements
+
+    -test TextEditor     797 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         27 passed, 0 failed, 0 skipped, exit 0
+    -test Git            137 passed, 2 failed, 0 skipped, exit 2
+
+TextEditor is 797: batch 307's 796 plus the view test, all three runs clean
+again. VcsBase is 27: 26 plus the command test. Git is exactly batch 307's -
+137 passed and the baseline's two failures (`testInlineDiffFile`,
+`testConflictedFileInTextEditor`), nothing new although every Git editor's
+command now runs on the document. QuickUi unchanged.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The flip, Git first.** The clients' handle: `VcsBaseClientImpl::
+   createVcsEditor()` returns a `VcsBaseEditorWidget *` and everything a
+   client sets on it is document state already (source, working directory,
+   default and first line, editor config, annotate enabled, highlighting)
+   or a connection (`annotateRevisionRequested`, `diffChunkReverted`,
+   `describeRequested`) or this batch's `executeTask()`. So the handle
+   becomes the `VcsEditorDocument` (plus `IEditor` where `gotoLine()` or
+   the tool bar is needed), `executeInEditor()` takes it, and
+   `VcsEditorFactory` uses the Qt Quick editor for a VCS that supplies no
+   widget creator - which is what retiring Git's subclass means: its
+   constructor's patterns and formats and its `setPlainText()` into
+   `gitEditorParameters()` (an output function; `m_originalLines` goes),
+   ending batch 299's staging. Twenty-two files hold the widget pointer;
+   Git's client is the first.
+2. The other seven VCS, one at a time, each the same way.
+3. The QmlDesigner-side two; the standing list (entry 298).

@@ -366,6 +366,10 @@ public:
     // of the document counts from it.
     int firstLineNumber() const;
     void setFirstLineNumber(int lineNumber);
+    // Whether something outside the editor is producing this document's text
+    // - a VCS command whose output it will be. A view says so meanwhile.
+    bool isBusy() const;
+    void setBusy(bool busy);
     void addToolBarAction(QAction *action);
     void removeToolBarAction(QAction *action);
     // The choice the language offers in the toolbar, or nullptr where it
@@ -392,6 +396,7 @@ signals:
     void fontSettingsChanged();
     void extraSelectionsChanged();
     void firstLineNumberChanged();
+    void busyChanged();
 
     // This document has work it put off until a view is looking - a language's
     // outline model, its semantic highlighting. A view answers by calling

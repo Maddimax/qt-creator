@@ -5,6 +5,7 @@ pragma ComponentBehavior: Bound
 pragma FunctionSignatureBehavior: Enforced
 
 import QtQuick
+import QtQuick.Controls
 import QtCreator.Ui
 import QtCreator.TextEditor
 
@@ -32,6 +33,8 @@ Item {
     required property bool showRevisions
 
     CodeViewport {
+        id: code
+
         anchors.fill: parent
 
         source: root.source
@@ -54,5 +57,25 @@ Item {
         // action toggles. A preview keeps its own answer; an editor follows
         // the setting like every other editor does.
         wrapping: root.wrapLines
+    }
+
+    // A document whose text is on its way - a VCS command's output - gets a
+    // spinner over the view meanwhile. After a moment, so that a command that
+    // answers at once flashes nothing: the timer runs while the document is
+    // busy and stops itself when the moment is up, and only then is there
+    // something to show.
+    Timer {
+        id: busyDelay
+
+        interval: 100
+        running: code.documentBusy
+    }
+
+    BusyIndicator {
+        objectName: "documentBusy"
+
+        anchors.centerIn: parent
+        running: visible
+        visible: code.documentBusy && !busyDelay.running
     }
 }

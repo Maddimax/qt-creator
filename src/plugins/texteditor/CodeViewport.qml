@@ -85,6 +85,9 @@ Item {
     readonly property alias cursorPosition: viewport.cursorPosition
     readonly property alias selectionStart: viewport.selectionStart
     readonly property alias selectionEnd: viewport.selectionEnd
+    // Whether the document's text is still on its way from outside the
+    // editor. Whoever hosts this decides what to show meanwhile.
+    readonly property alias documentBusy: viewport.documentBusy
 
     // Puts text in at the caret, in place of the selection, and leaves the
     // caret after it - what a chooser beside the view does with what was

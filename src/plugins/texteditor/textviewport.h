@@ -153,6 +153,9 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // is an excerpt of a larger file. The highest number the gutter can show
     // is lineCount + firstLineNumber - 1.
     Q_PROPERTY(int firstLineNumber READ firstLineNumber NOTIFY firstLineNumberChanged)
+    // Whether the document's text is on its way from outside the editor - a
+    // VCS command's output - so that the form can say so meanwhile.
+    Q_PROPERTY(bool documentBusy READ documentBusy NOTIFY documentBusyChanged)
     // The first row on screen, counting rows and not document lines - what is
     // folded away is not a row.
     Q_PROPERTY(int firstVisibleLine READ firstVisibleLine NOTIFY metricsChanged)
@@ -556,6 +559,7 @@ public:
     QFont font() const;
     int lineCount() const;
     int firstLineNumber() const;
+    bool documentBusy() const;
     int visibleLineCount() const;
     // How many columns of this view's own font fit across it. The widget
     // editor answers the same question with columnCount().
@@ -1114,6 +1118,7 @@ signals:
     void scrollXChanged();
     void metricsChanged();
     void firstLineNumberChanged();
+    void documentBusyChanged();
     void mouseHiddenChanged();
     // Ctrl+Space, which is the form's cue to ask.
     void completionRequested();
@@ -1434,6 +1439,7 @@ private:
     QList<EditHandler *> editHandlers() const;
     void updateRelativeOrigin();
     void updateFirstLineNumber();
+    void updateDocumentBusy();
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one
@@ -1577,6 +1583,7 @@ private:
     QFont m_font;
     int m_lineCount = 0;
     int m_firstLineNumber = 1;
+    bool m_documentBusy = false;
     int m_firstVisibleLine = 0;
     QColor m_background;
 

@@ -3773,6 +3773,21 @@ void TextViewport::updateFirstLineNumber()
     emit firstLineNumberChanged();
 }
 
+bool TextViewport::documentBusy() const
+{
+    return m_documentBusy;
+}
+
+void TextViewport::updateDocumentBusy()
+{
+    const TextDocument * const doc = textDocument();
+    const bool busy = doc && doc->isBusy();
+    if (m_documentBusy == busy)
+        return;
+    m_documentBusy = busy;
+    emit documentBusyChanged();
+}
+
 bool TextViewport::overwriteMode() const
 {
     return m_overwriteMode;
@@ -5861,9 +5876,11 @@ void TextViewport::documentChangedInternal()
                 polish();
                 update();
             });
-            // Where the gutter counts from is the document's to say.
+            // Where the gutter counts from is the document's to say, and so
+            // is whether its text is still on its way.
             connect(doc, &TextDocument::firstLineNumberChanged, this,
                     &TextViewport::updateFirstLineNumber);
+            connect(doc, &TextDocument::busyChanged, this, &TextViewport::updateDocumentBusy);
             // The encoding and the line endings are part of what "the document
             // changed" covers - reopening with another encoding says so here.
             connect(doc, &Core::IDocument::changed, this, &TextViewport::fileFormatChanged);
@@ -5915,6 +5932,7 @@ void TextViewport::documentChangedInternal()
     }
 
     updateFirstLineNumber();
+    updateDocumentBusy();
 
     // Both of these are also done by the layout pass the polish below asks
     // for, so there is nothing to do here but ask for it.

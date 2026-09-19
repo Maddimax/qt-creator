@@ -31,7 +31,6 @@
 
 #include <solutions/spinner/spinner.h>
 
-#include <QtTaskTree/QSingleTaskTreeRunner>
 
 #include <texteditor/marginsettings.h>
 #include <texteditor/displaysettings.h>
@@ -518,7 +517,7 @@ public:
     bool m_mouseDragging = false;
     bool m_marginsEnabled = false;
 
-    QSingleTaskTreeRunner m_taskTreeRunner;
+    Spinner *m_spinner = nullptr;
 
 private:
     QComboBox *m_entriesComboBox = nullptr;
@@ -773,6 +772,25 @@ void VcsBaseEditorWidget::finalizeInitialization()
             this, &VcsBaseEditorWidget::annotateRevisionRequested);
     connect(document, &VcsEditorDocument::diffChunkReverted,
             this, &VcsBaseEditorWidget::diffChunkReverted);
+    // A command's output goes through setPlainText(), which a subclass may
+    // override to reshape it; and while the command runs the document is
+    // busy, shown here after a moment, so that a command that answers at
+    // once flashes nothing.
+    document->setOutputHook([this](const QString &output) { setPlainText(output); });
+    d->m_spinner = new Spinner(SpinnerSize::Large, this);
+    d->m_spinner->hide();
+    connect(document, &TextDocument::busyChanged, this, [this] {
+        const TextDocument * const doc = textDocument();
+        if (doc && doc->isBusy()) {
+            QTimer::singleShot(100, this, [this] {
+                const TextDocument * const stillDoc = textDocument();
+                if (stillDoc && stillDoc->isBusy())
+                    d->m_spinner->show();
+            });
+        } else {
+            d->m_spinner->hide();
+        }
+    });
     init();
 }
 
@@ -1310,34 +1328,9 @@ VcsBaseEditorConfig *VcsBaseEditorWidget::editorConfig() const
 void VcsBaseEditorWidget::executeTask(const ExecutableItem &task,
                                       const Storage<CommandResult> &resultStorage)
 {
-    if (d->m_taskTreeRunner.isRunning())
-        d->m_taskTreeRunner.cancel();
-
-    const Storage<Spinner> spinnerStorage{SpinnerSize::Large, this};
-
-    const auto onSetup = [spinnerStorage] {
-        QTimer::singleShot(100, spinnerStorage.activeStorage(), &Spinner::show);
-    };
-    const auto onDone = [this, resultStorage](DoneWith doneWith) {
-        if (doneWith != DoneWith::Success) {
-            textDocument()->setPlainText(Tr::tr("Failed to retrieve data."));
-            VcsOutputWindow::appendError(resultStorage->workingDirectory(),
-                                         resultStorage->cleanedStdErr());
-            return;
-        }
-        setPlainText(resultStorage->cleanedStdOut());
-        gotoDefaultLine();
-    };
-
-    const Group recipe {
-        spinnerStorage,
-        resultStorage,
-        onGroupSetup(onSetup),
-        task,
-        onGroupDone(onDone)
-    };
-
-    d->m_taskTreeRunner.start(recipe);
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    document->executeTask(task, resultStorage);
 }
 
 void VcsBaseEditorWidget::setDefaultLineNumber(int line)
@@ -1349,9 +1342,8 @@ void VcsBaseEditorWidget::setDefaultLineNumber(int line)
 
 void VcsBaseEditorWidget::gotoDefaultLine()
 {
-    const VcsEditorDocument * const document = vcsDocument();
-    if (document && document->defaultLineNumber() >= 0)
-        gotoLine(document->defaultLineNumber());
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->gotoDefaultLine();
 }
 
 void VcsBaseEditorWidget::setPlainText(const QString &text)

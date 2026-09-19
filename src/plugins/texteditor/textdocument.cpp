@@ -115,6 +115,7 @@ public:
     LinkFinder m_linkFinder;
     ActionLinkFinder m_actionLinkFinder;
     int m_firstLineNumber = 1;
+    bool m_busy = false;
     Utils::Guard m_modificationChangedGuard;
 
     SyntaxHighlighter *m_highlighter = nullptr;
@@ -706,6 +707,19 @@ void TextDocument::setFirstLineNumber(int lineNumber)
         return;
     d->m_firstLineNumber = lineNumber;
     emit firstLineNumberChanged();
+}
+
+bool TextDocument::isBusy() const
+{
+    return d->m_busy;
+}
+
+void TextDocument::setBusy(bool busy)
+{
+    if (d->m_busy == busy)
+        return;
+    d->m_busy = busy;
+    emit busyChanged();
 }
 
 void TextDocument::addToolBarAction(QAction *action)
