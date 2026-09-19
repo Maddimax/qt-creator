@@ -87,7 +87,6 @@ private:
     void aboutToOpen(const Utils::FilePath &filePath, const Utils::FilePath &realFilePath) override;
     QString changeUnderCursor(const QTextCursor &) const override;
     int originalLineUnderCursor(const QTextCursor &) const override;
-    VcsBase::BaseAnnotationHighlighterCreator annotationHighlighterCreator() const override;
     QString decorateVersion(const QString &revision) const override;
     QStringList annotationPreviousVersions(const QString &revision) const override;
     bool isValidRevision(const QString &revision) const override;

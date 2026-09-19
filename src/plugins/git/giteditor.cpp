@@ -143,10 +143,6 @@ int GitEditorWidget::originalLineUnderCursor(const QTextCursor &c) const
     return originalLine;
 };
 
-VcsBase::BaseAnnotationHighlighterCreator GitEditorWidget::annotationHighlighterCreator() const
-{
-    return VcsBase::getAnnotationHighlighterCreator<GitAnnotationHighlighter>();
-}
 
 /**
  * Optionally remove path, author or date specification from annotation, which is tabular:
@@ -495,6 +491,8 @@ VcsBase::VcsBaseEditorParameters gitEditorParameters(
     parameters.addChangeActions = gitAddChangeActions;
     parameters.addDiffActions = gitAddDiffActions;
     parameters.fileNameForLine = gitFileNameForLine;
+    parameters.annotationHighlighterCreator
+        = VcsBase::getAnnotationHighlighterCreator<GitAnnotationHighlighter>();
     // What the widget's supportChangeLinks() adds to the base's log and
     // annotation: a commit message and a rebase script name changes too.
     parameters.changeLinksInOtherContent = id == Id(Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID)

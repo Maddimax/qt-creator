@@ -66975,3 +66975,126 @@ No `.qbs` edited: no file list changed.
    Git's client is the first.
 2. The other seven VCS, one at a time, each the same way.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — The annotation's colours from the document (batch 309)
+
+Entry 308's next item is the flip with Git first; going through what a
+Quick *blame* would still lack before the clients' handle changes found one
+more rendering piece on the widget: the annotation highlighter. Batch 309
+moves it, and stops there - the flip's remaining pieces are listed below,
+with a new one.
+
+### What the widget did
+
+`VcsBaseEditorWidget::init()` connected `textChanged` to
+`slotActivateAnnotation()` for an `AnnotateOutput` widget; on the first
+text whose `annotationChanges()` was not empty it disconnected and installed
+`annotationHighlighterCreator()(annotation)` - a **pure virtual** every VCS
+widget subclass implements, each returning
+`getAnnotationHighlighterCreator<ItsHighlighter>()` - or, if a highlighter
+was already there, rehighlighted. `BaseAnnotationHighlighter` itself
+follows the text from then on (it connects `contentsChange` to recompute
+its change numbers), which is why once was enough.
+
+### Where it went
+
+- `VcsBaseEditorParameters::annotationHighlighterCreator` - the typedef and
+  the `getAnnotationHighlighterCreator<T>()` template moved from
+  `vcsbaseeditor.h` to `vcseditordocument.h`, which it includes.
+- `VcsEditorDocument::activateAnnotation()` on `contentsChanged` for an
+  annotation, the widget's logic line for line: nothing until there are
+  changes, the parameters' creator first, else one set through
+  `setAnnotationHighlighterCreator()` - the staging hook, as the diff-file
+  resolver and the revision-subject hook are - and nothing if neither.
+  The disconnect comes *after* the creator is found, so that a VCS whose
+  hook is not there yet keeps its chance (in practice the widget installs
+  it in `init()`, before any text).
+- `VcsBaseEditorWidget::init()`'s annotate case installs the hook when the
+  parameters do not name a creator; the virtual is no longer pure and
+  answers nothing by default. `slotActivateAnnotation()` and the widget's
+  `annotationChanges()` forwarder go.
+- Git: `gitEditorParameters()` names `GitAnnotationHighlighter`;
+  `GitEditorWidget::annotationHighlighterCreator()` goes. The description
+  editor's and the two test widgets' empty overrides go too.
+
+The other seven VCS still answer through the virtual; each moves its
+creator into its parameters when it goes.
+
+### The tests
+
+- `VcsEditorDocumentTest::testAnAnnotationIsColouredByTheDocument`: a
+  highlighter whose change number is a line's first eight characters, over
+  three lines of two changes. First a document made from parameters that
+  name it, with no widget anywhere: no highlighter while empty; after the
+  text, a `BaseAnnotationHighlighter`, and the lines' foreground colours -
+  read from the blocks' layout formats - line three the same as line one,
+  line two different. Then a widget whose *virtual* names it behind a
+  factory, its parameters silent: the document gets it all the same.
+- `GitTest::testABlameIsColouredThroughTheParameters`: a Git blame editor
+  through the editor manager (the entry pattern still comes from the widget
+  constructor); its document's parameters name a creator; two blame lines
+  → two changes and the highlighter installed.
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run. Three neighbours
+ran too, since their widgets lost an override or their code moved -
+`testTheWidgetEditorsStateIsTheDocuments`,
+`testACommandsOutputBecomesTheDocumentsText` and Git's `testLogResolving`:
+3 passed, 0 failed, exit 0 each.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - the document never connects `contentsChanged` for an annotation:
+  the VcsBase test fails on the parameters half, "the text arrived and no
+  annotation highlighter was installed".
+- **B** - `activateAnnotation()` takes the widget's answer only, never the
+  parameters': the same assertion, the same half - the widget half, which
+  runs after it, would have passed.
+- **C** - `gitEditorParameters()` names no highlighter: the Git test fails
+  at once, "Git's parameters name no annotation highlighter" - and with the
+  widget override gone, nothing would have coloured a blame.
+
+### Measurements
+
+    -test TextEditor     797 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         28 passed, 0 failed, 0 skipped, exit 0
+    -test Git            137 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and once:
+                           InstantBlameTest::testBlameDocumentContents
+                           'markToolTip(2).contains("-committed")'
+
+TextEditor and QuickUi unchanged, as nothing of theirs changed; three clean
+TextEditor runs. VcsBase is 28: 27 plus the coloured-annotation test. Git is
+138 tests' worth - 137 passed with the baseline's two failures, which is
+batch 308's 137 plus the blame test - and once the entry-300 load flake:
+the `InstantBlameTest` object took **16061 ms** in the suite (16047 ms in
+batch 300's run, 0.3 s when the VM is idle), and the test builds a
+repository with synchronous `git` runs and gives a blame five seconds. Its
+document is a `TextEditorWidget` of its own with no VCS editor and no
+annotation highlighter near it. Alone on this binary, five runs: 0
+failures, 300-337 ms each. The same third failure as batch 306's Git run;
+a suite order that puts a `git`-heavy test straight after three TextEditor
+runs finds it when the host is busy.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+The flip, Git first, and what is between here and it - each a batch or a
+part of one:
+
+1. **The editor config in the Qt Quick tool bar.** `VcsBaseEditorConfig` is
+   built over the widget's `QToolBar`: toggles as `QAction`s, choices as
+   `QComboBox`es (Git's blame, log and diff arguments; the other VCS's
+   likewise), plus Git's `GitLogFilterWidget` (grep, pickaxe, author line
+   edits, a case toggle). The Qt Quick tool bar draws
+   `TextDocument::addToolBarAction()` actions already; the choices and the
+   line edits need a shape it can draw. This is the largest gap left.
+2. **The clients' handle**: `VcsBaseClientImpl::createVcsEditor()` and
+   `executeInEditor()` on the document rather than the widget (entry 308).
+3. **`VcsEditorFactory` on the Qt Quick editor** for a VCS that supplies no
+   widget creator; Git's subclass retired, its constructor's patterns and
+   formats and its `setPlainText()` into `gitEditorParameters()`.
+4. The other seven VCS; the QmlDesigner-side two; the standing list (entry
+   298).

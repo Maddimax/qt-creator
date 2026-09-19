@@ -21,6 +21,7 @@
 
 #include <extensionsystem/pluginmanager.h>
 
+#include <texteditor/syntaxhighlighter.h>
 #include <texteditor/texteditor.h>
 #include <texteditor/textdocumentlayout.h>
 
@@ -286,6 +287,7 @@ public:
     VcsEditorDocument::DiffFileResolver diffFileResolver;
     VcsEditorDocument::BlockToString revisionSubject;
     VcsEditorDocument::OutputHook outputHook;
+    BaseAnnotationHighlighterCreator annotationHighlighterCreator;
     QSingleTaskTreeRunner taskTreeRunner;
     VcsEditorSections *sections = nullptr;
     VcsSectionsChoice *choice = nullptr;
@@ -380,6 +382,10 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
         connect(this, &TextDocument::contentsChanged, this, &VcsEditorDocument::updateSections);
         d->choice = new Internal::VcsSectionsChoice(this, d->sections);
     }
+    // An annotation is coloured by its changes once there are any. The text
+    // arrives later, so this waits for it.
+    if (parameters.type == AnnotateOutput)
+        connect(this, &TextDocument::contentsChanged, this, &VcsEditorDocument::activateAnnotation);
     // A line of a diff goes somewhere: Ctrl+click, Follow Symbol and Return
     // in a read-only view follow it, in whichever view. The line is the link
     // text; where it goes is the chunk header's answer, or the VCS's.
@@ -606,6 +612,30 @@ QSet<QString> VcsEditorDocument::annotationChanges() const
         changes.insert(match.captured(1));
     }
     return changes;
+}
+
+void VcsEditorDocument::setAnnotationHighlighterCreator(
+    const BaseAnnotationHighlighterCreator &creator)
+{
+    d->annotationHighlighterCreator = creator;
+}
+
+void VcsEditorDocument::activateAnnotation()
+{
+    if (annotationChanges().isEmpty())
+        return;
+    const BaseAnnotationHighlighterCreator creator = d->parameters.annotationHighlighterCreator
+                                                         ? d->parameters.annotationHighlighterCreator
+                                                         : d->annotationHighlighterCreator;
+    if (!creator)
+        return;
+    // Once: from here on the highlighter follows the text by itself.
+    disconnect(this, &TextDocument::contentsChanged, this, &VcsEditorDocument::activateAnnotation);
+    if (TextEditor::SyntaxHighlighter * const highlighter = syntaxHighlighter()) {
+        highlighter->rehighlight();
+        return;
+    }
+    resetSyntaxHighlighter([creator, annotation = d->annotation] { return creator(annotation); });
 }
 
 QString VcsEditorDocument::resolveDiffFile(const QString &fileName) const
@@ -1051,6 +1081,7 @@ void VcsEditorDocument::updateSections()
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTest>
+#include <QTextLayout>
 
 namespace VcsBase {
 
@@ -1074,10 +1105,6 @@ private slots:
 
         private:
             QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-            BaseAnnotationHighlighterCreator annotationHighlighterCreator() const final
-            {
-                return {};
-            }
             QString revisionSubject(const QTextBlock &block) const final
             {
                 return block.next().text().trimmed();
@@ -1176,10 +1203,6 @@ private slots:
 
         private:
             QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-            BaseAnnotationHighlighterCreator annotationHighlighterCreator() const final
-            {
-                return {};
-            }
         };
         const VcsBaseEditorParameters parameters{OtherContent,
                                                  "VcsEditorDocumentTest.Command",
@@ -1241,6 +1264,86 @@ private slots:
         QVERIFY(document->isBusy());
         QTRY_VERIFY(!document->isBusy());
         QCOMPARE(document->plainText(), Tr::tr("Failed to retrieve data."));
+    }
+
+    // An annotation's lines are coloured by change. The widget did that by
+    // installing the highlighter its VCS subclass named, once the text had
+    // changes to colour; the document does it now - from the parameters where
+    // the VCS has put it there, and from the widget's answer where it has not.
+    void testAnAnnotationIsColouredByTheDocument()
+    {
+        class TestAnnotationHighlighter final : public BaseAnnotationHighlighter
+        {
+        public:
+            using BaseAnnotationHighlighter::BaseAnnotationHighlighter;
+
+        private:
+            QString changeNumber(const QString &block) const final { return block.left(8); }
+        };
+        const auto colourOfLine = [](VcsEditorDocument *document, int line) -> std::optional<QColor> {
+            const QTextBlock block = document->document()->findBlockByNumber(line);
+            const QList<QTextLayout::FormatRange> formats = block.layout()->formats();
+            if (formats.isEmpty())
+                return {};
+            return formats.first().format.foreground().color();
+        };
+        const QString text = "aaaaaaaa 1 (x) one\nbbbbbbbb 2 (y) two\naaaaaaaa 3 (x) three\n";
+
+        // From the parameters, with no widget anywhere near.
+        VcsBaseEditorParameters parameters{AnnotateOutput,
+                                           "VcsEditorDocumentTest.Coloured",
+                                           "VCS document test coloured annotation",
+                                           "text/vnd.qtcreator.vcs-document-coloured-test",
+                                           {},
+                                           [](const FilePath &, const QString &) {}};
+        parameters.annotationHighlighterCreator
+            = getAnnotationHighlighterCreator<TestAnnotationHighlighter>();
+        VcsEditorDocument document(parameters);
+        document.setAnnotationEntryPattern("^([0-9a-f]{8}) ");
+        QVERIFY2(!document.syntaxHighlighter(), "an empty annotation already has a highlighter");
+        document.setPlainText(text);
+        QCOMPARE(document.annotationChanges().size(), 2);
+        QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(document.syntaxHighlighter()),
+                 "the text arrived and no annotation highlighter was installed");
+        QTRY_VERIFY2(colourOfLine(&document, 0), "the first line got no colour");
+        QTRY_VERIFY2(colourOfLine(&document, 1), "the second line got no colour");
+        QCOMPARE(colourOfLine(&document, 2), colourOfLine(&document, 0));
+        QVERIFY2(colourOfLine(&document, 1) != colourOfLine(&document, 0),
+                 "two changes got the same colour");
+
+        // From the widget's answer, for a VCS whose parameters do not say yet.
+        class AnswersWidget final : public VcsBaseEditorWidget
+        {
+        public:
+            AnswersWidget() { setAnnotationEntryPattern("^([0-9a-f]{8}) "); }
+
+        private:
+            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
+            BaseAnnotationHighlighterCreator annotationHighlighterCreator() const final
+            {
+                return getAnnotationHighlighterCreator<TestAnnotationHighlighter>();
+            }
+        };
+        const VcsBaseEditorParameters widgetParameters{
+            AnnotateOutput,
+            "VcsEditorDocumentTest.ColouredByWidget",
+            "VCS document test coloured by widget",
+            "text/vnd.qtcreator.vcs-document-coloured-widget-test",
+            [] { return new AnswersWidget; },
+            [](const FilePath &, const QString &) {}};
+        VcsEditorFactory factory(widgetParameters);
+        QString title = "VCS document test coloured";
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditorWithContents(widgetParameters.id, &title, QByteArray());
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+        auto * const answered = qobject_cast<VcsEditorDocument *>(editor->document());
+        QVERIFY(answered);
+        answered->setPlainText(text);
+        QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(answered->syntaxHighlighter()),
+                 "the widget's highlighter never reached the document");
+        QTRY_VERIFY2(colourOfLine(answered, 1),
+                     "the second line got no colour through the widget's answer");
     }
 
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()

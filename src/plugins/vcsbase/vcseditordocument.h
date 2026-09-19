@@ -71,6 +71,14 @@ enum EditorContentType
     OtherContent
 };
 
+using BaseAnnotationHighlighterCreator
+    = std::function<BaseAnnotationHighlighter *(const Annotation &annotation)>;
+template<typename T>
+BaseAnnotationHighlighterCreator getAnnotationHighlighterCreator()
+{
+    return [](const Annotation &annotation) { return new T(annotation); };
+}
+
 class DiffChunk;
 class DiffTarget;
 class VcsEditorDocument;
@@ -110,6 +118,8 @@ public:
     std::function<void(QMenu *menu, VcsEditorDocument *document, const DiffChunk &chunk)>
         addDiffActions;
     std::function<Utils::FilePath(VcsEditorDocument *document, int line)> fileNameForLine;
+    // What colours an annotation: a highlighter over its changes, the VCS's own.
+    BaseAnnotationHighlighterCreator annotationHighlighterCreator;
     // Whether an output of neither log nor annotation type has change links
     // all the same - Git's commit and rebase editors do.
     bool changeLinksInOtherContent = false;
@@ -224,6 +234,9 @@ public:
     Annotation annotation() const;
     // Every change an annotation names, up to its separator if it has one.
     QSet<QString> annotationChanges() const;
+    // What colours the annotation, where the parameters do not say: the widget
+    // subclass's answer, until its VCS's parameters carry it.
+    void setAnnotationHighlighterCreator(const BaseAnnotationHighlighterCreator &creator);
 
     // The file a diff names, on disk: looked for under the working directory,
     // beside the source, at the VCS top level above the source, and as given
@@ -283,6 +296,7 @@ signals:
 private:
     void requestAnnotation(const QString &change, int line);
     void updateHighlighter();
+    void activateAnnotation();
 
     Internal::VcsEditorDocumentPrivate *const d;
 };

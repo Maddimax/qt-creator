@@ -89,14 +89,6 @@ public:
     void finalizeInitialization() override;
 };
 
-using BaseAnnotationHighlighterCreator
-    = std::function<BaseAnnotationHighlighter *(const VcsBase::Annotation &annotation)>;
-template<typename T>
-BaseAnnotationHighlighterCreator getAnnotationHighlighterCreator()
-{
-    return [](const VcsBase::Annotation &annotation) { return new T(annotation); };
-}
-
 class VCSBASE_EXPORT VcsBaseEditorWidget : public TextEditor::TextEditorWidget
 {
     Q_OBJECT
@@ -207,15 +199,12 @@ protected:
 
     virtual void addChangeActions(QMenu *menu, const QString &change, int line = 0);
 
-    // Implement to return a set of change identifiers in
-    // annotation mode
-    QSet<QString> annotationChanges() const;
     // Implement to identify a change number at the cursor position
     virtual QString changeUnderCursor(const QTextCursor &) const = 0;
     // Implement to identify the original line of a change at the cursor position
     virtual int originalLineUnderCursor(const QTextCursor &) const { return 0; };
-    // Factory functions for highlighters
-    virtual BaseAnnotationHighlighterCreator annotationHighlighterCreator() const = 0;
+    // What colours an annotation, where the VCS's parameters do not say.
+    virtual BaseAnnotationHighlighterCreator annotationHighlighterCreator() const;
     // Returns a local file name from the diff file specification
     // (text cursor at position above change hunk)
     QString fileNameFromDiffSpecification(const QTextBlock &inBlock, QString *header = nullptr) const;
@@ -237,7 +226,6 @@ protected:
                                   const QTextBlock &contextBlock);
 
 private:
-    void slotActivateAnnotation();
     void refillEntriesComboBox();
     void slotJumpToEntry(int);
     void slotCursorPositionChanged() override;
@@ -295,7 +283,6 @@ public:
 protected:
     bool supportChangeLinks() const final;
     QString changeUnderCursor(const QTextCursor &cursor) const final;
-    BaseAnnotationHighlighterCreator annotationHighlighterCreator() const final;
     void addChangeActions(QMenu *menu, const QString &change, int line) final;
     bool isValidRevision(const QString &revision) const final;
 

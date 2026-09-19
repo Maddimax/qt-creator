@@ -2426,6 +2426,7 @@ private slots:
     void testLogResolving();
     void testTheLogKnowsAChangeUnderThePointer();
     void testTheLogFollowsADiffLineToItsFile();
+    void testABlameIsColouredThroughTheParameters();
     void testGitRemote_data();
     void testGitRemote();
     void testInlineDiffFile();
@@ -2708,6 +2709,29 @@ void GitTest::testTheLogKnowsAChangeUnderThePointer()
     QVERIFY2(offered.indexOf("Cherr&y-Pick 3587b513bafd7a83d8c816ac1deed72b5e3a27e9")
                  > offered.indexOf("&Describe Change 3587b513bafd7a83d8c816ac1deed72b5e3a27e9"),
              qPrintable(offered.join(", ")));
+}
+
+// A blame's lines are coloured by change. The widget named the highlighter
+// in a virtual; the parameters name it now, so that a view with no widget
+// gets the same colours. The pattern that finds the changes still comes from
+// the widget's constructor, which is why this goes through the editor.
+void GitTest::testABlameIsColouredThroughTheParameters()
+{
+    QString title = "Git blame test";
+    Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+        Git::Constants::GIT_BLAME_EDITOR_ID, &title, QByteArray());
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+    auto * const document = qobject_cast<VcsBase::VcsEditorDocument *>(editor->document());
+    QVERIFY2(document, "the blame editor's document is not a VCS document");
+    QVERIFY2(document->parameters().annotationHighlighterCreator,
+             "Git's parameters name no annotation highlighter");
+
+    document->setPlainText("3587b513 (someone 2026-01-01 12:00:00 +0100 1) one\n"
+                           "0a1b2c3d (someone 2026-01-02 12:00:00 +0100 2) two\n");
+    QCOMPARE(document->annotationChanges().size(), 2);
+    QVERIFY2(qobject_cast<VcsBase::BaseAnnotationHighlighter *>(document->syntaxHighlighter()),
+             "the blame arrived and no annotation highlighter was installed");
 }
 
 // A line of a diff in a Git log is a link to the file it changes. Outside a

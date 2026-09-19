@@ -652,12 +652,6 @@ QString VcsBaseDescriptionEditorWidget::changeUnderCursor(const QTextCursor &cur
     return m_parameters.changeUnderCursor ? m_parameters.changeUnderCursor(cursor) : QString();
 }
 
-BaseAnnotationHighlighterCreator
-VcsBaseDescriptionEditorWidget::annotationHighlighterCreator() const
-{
-    return {};
-}
-
 void VcsBaseDescriptionEditorWidget::addChangeActions(QMenu *menu, const QString &change, int line)
 {
     if (m_parameters.addChangeActions)
@@ -818,8 +812,10 @@ void VcsBaseEditorWidget::init()
                 this, &VcsBaseEditorWidget::slotCursorPositionChanged);
         break;
     case AnnotateOutput:
-        // Annotation highlighting depends on contents, which is set later on
-        connect(this, &PlainTextEdit::textChanged, this, &VcsBaseEditorWidget::slotActivateAnnotation);
+        // What colours the annotation is this widget's to say where its VCS's
+        // parameters do not - until they do.
+        if (!document->parameters().annotationHighlighterCreator)
+            document->setAnnotationHighlighterCreator(annotationHighlighterCreator());
         break;
     }
     // The document highlights a log or a diff itself; the view folds.
@@ -1120,26 +1116,9 @@ void VcsBaseEditorWidget::setMarginSettings(const TextEditor::MarginSettingsData
         TextEditorWidget::setMarginSettings({});
 }
 
-void VcsBaseEditorWidget::slotActivateAnnotation()
+BaseAnnotationHighlighterCreator VcsBaseEditorWidget::annotationHighlighterCreator() const
 {
-    // The annotation highlighting depends on contents (change number
-    // set with assigned colors)
-    if (contentType() != AnnotateOutput)
-        return;
-
-    const QSet<QString> changes = annotationChanges();
-    if (changes.isEmpty())
-        return;
-
-    disconnect(this, &PlainTextEdit::textChanged, this, &VcsBaseEditorWidget::slotActivateAnnotation);
-
-    if (SyntaxHighlighter *ah = textDocument()->syntaxHighlighter()) {
-        ah->rehighlight();
-    } else {
-        BaseAnnotationHighlighterCreator creator = annotationHighlighterCreator();
-        textDocument()->resetSyntaxHighlighter(
-            [creator, annotation = vcsDocument()->annotation()] { return creator(annotation); });
-    }
+    return {};
 }
 
 void VcsBaseEditorWidget::jumpToChangeFromDiff(QTextCursor cursor)
@@ -1412,11 +1391,6 @@ void VcsBaseEditorWidget::addChangeActions(QMenu *, const QString &, int line)
     Q_UNUSED(line);
 }
 
-QSet<QString> VcsBaseEditorWidget::annotationChanges() const
-{
-    const VcsEditorDocument * const document = vcsDocument();
-    return document ? document->annotationChanges() : QSet<QString>();
-}
 
 QString VcsBaseEditorWidget::decorateVersion(const QString &revision) const
 {
