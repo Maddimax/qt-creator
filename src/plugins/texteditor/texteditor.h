@@ -881,6 +881,10 @@ public:
     // beside, one to one; a second view would have no form.
     bool duplicatedSupported() const;
     void setMarksVisible(bool on);
+    // Whether a view of this language has a column for marks - breakpoints,
+    // bookmarks, diagnostics. False for output that is not a file and can
+    // carry none, so that the gutter does not keep an empty column's width.
+    bool marksVisible() const;
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
     // Whether the language has anything to fold. A view uses it to decide

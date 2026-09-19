@@ -321,8 +321,8 @@ public:
             return actions;
         });
 
-        QtcQuick::QuickWidget * const widget
-            = Internal::createQuickTextView(m_source.get(), &m_contextActions);
+        QtcQuick::QuickWidget * const widget = Internal::createQuickTextView(
+            m_source.get(), &m_contextActions, !m_factory || m_factory->marksVisible());
         // Before anything that configures the view: viewport() looks through
         // widget(), so everything below this line would silently do nothing.
         setWidget(widget);
@@ -1562,7 +1562,8 @@ QRect globalRectForBlocksIn(Core::IEditor *editor, int firstBlock, int lastBlock
 }
 
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
-                                           QtcQuick::ActionModel *contextActions)
+                                           QtcQuick::ActionModel *contextActions,
+                                           bool showMarks)
 {
     auto * const widget = new QtcQuick::QuickWidget;
     // Set before the source: the form's root property is required, and a
@@ -1576,7 +1577,10 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
          // whoever knows it: the editor does it in configureLanguageServices().
          {"showFoldMarkers", false},
          {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
-         {"showAnnotations", displaySettings().displayAnnotations()}});
+         {"showAnnotations", displaySettings().displayAnnotations()},
+         // The language's answer, not the user's: output that is not a file
+         // has no column for marks it can never carry.
+         {"showMarks", showMarks}});
     widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
     // Ctrl+F reaches a view by asking its widget for an IFindSupport, so this
@@ -14194,6 +14198,88 @@ private slots:
             for (QAction * const action : offered)
                 QCOMPARE(timesDrawnIn(toolBar, action), 1);
         }
+    }
+
+    // Output that is not a file - a VCS log, a diff, an annotation - can carry
+    // no mark, and its factory says so with setMarksVisible(false). The widget
+    // path passed that to its widget; the Qt Quick gutter reserved the mark
+    // column's width for everyone, and answered a click in it.
+    void testAFactoryCanSayItsLanguageHasNoMarkColumn_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFactoryCanSayItsLanguageHasNoMarkColumn()
+    {
+        QFETCH(bool, quick);
+
+        class MarksFactory final : public TextEditorFactory
+        {
+        public:
+            MarksFactory(bool quick, bool marks)
+            {
+                setId("QuickEditorMarkColumnTest");
+                setDisplayName("Quick Editor Mark Column Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorMarkColumnTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+                setMarksVisible(marks);
+            }
+        };
+
+        // What the gutter does about marks, asked of the view it belongs to.
+        struct MarkColumn { bool reserved = false; bool answersClicks = false; };
+        const auto markColumnOf = [quick](Core::IEditor *editor) -> std::optional<MarkColumn> {
+            if (!quick) {
+                TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+                if (!widget)
+                    return {};
+                return MarkColumn{widget->marksVisible(), widget->marksVisible()};
+            }
+            // Shown and polished first: the column's width is a line height,
+            // and the viewport works that out in updatePolish(), which an
+            // item nobody has shown never reaches.
+            editor->widget()->resize(400, 300);
+            editor->widget()->show();
+            const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+            TextViewport * const view = viewportForEditor(editor);
+            if (!view || !QTest::qWaitFor([view] { return view->lineHeight() > 0; }))
+                return {};
+            auto * const host = editor->widget()->findChild<QQuickWidget *>();
+            QQuickItem * const root = host ? host->rootObject() : nullptr;
+            QQuickItem * const gutter = root ? root->findChild<QQuickItem *>("codeGutter") : nullptr;
+            QQuickItem * const column = root ? root->findChild<QQuickItem *>("gutterMarkColumn") : nullptr;
+            if (!gutter || !column)
+                return {};
+            // The property, not QQuickItem::isEnabled(): a MouseArea declares an
+            // enabled of its own, which is what the QML binding sets and what
+            // decides whether a press reaches it; the item's stays true.
+            return MarkColumn{gutter->property("markWidth").toReal() > 0,
+                              column->property("enabled").toBool()};
+        };
+
+        // The default first, so that what follows is about the setting and
+        // not about this view never having a column.
+        MarksFactory withMarks(quick, true);
+        QCOMPARE(withMarks.marksVisible(), true);
+        const std::unique_ptr<Core::IEditor> marked(withMarks.createEditor());
+        QVERIFY2(marked.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(marked.get()) != nullptr, quick);
+        const std::optional<MarkColumn> some = markColumnOf(marked.get());
+        QVERIFY2(some, "the view has no gutter to ask");
+        QVERIFY2(some->reserved, "an ordinary editor has no room for a mark");
+        QVERIFY2(some->answersClicks, "an ordinary editor's mark column answers no click");
+
+        MarksFactory withoutMarks(quick, false);
+        QCOMPARE(withoutMarks.marksVisible(), false);
+        const std::unique_ptr<Core::IEditor> bare(withoutMarks.createEditor());
+        QVERIFY2(bare.get(), "the factory built nothing");
+        const std::optional<MarkColumn> none = markColumnOf(bare.get());
+        QVERIFY2(none, "the view has no gutter to ask");
+        QVERIFY2(!none->reserved, "the gutter keeps a mark column's width for a language that has none");
+        QVERIFY2(!none->answersClicks, "the mark column answers a click for a language that has no marks");
     }
 
     // The same embedded views cannot be split: the editor around them keeps

@@ -57,6 +57,11 @@ Item {
     // one would be offering it about a file that does not exist.
     property bool requestMarks: false
 
+    // Whether the gutter has a column for marks at all. Off for text that is
+    // not a file and can carry none - a VCS log, a diff - so that the gutter
+    // does not keep an empty column's width.
+    property bool showMarks: true
+
     // Whether long lines are broken across rows. Off for a preview, and the
     // viewport's own default, because with it on the cost of showing a file
     // stops being what is on screen.
@@ -125,6 +130,7 @@ Item {
             viewport: viewport
             showFoldMarkers: root.showFoldMarkers
             requestMarks: root.requestMarks
+            showMarks: root.showMarks
             visible: root.showLineNumbers || root.showFoldMarkers
             // No width when it is not shown, so the text starts where it would
             // have without a gutter rather than indented by an invisible one.

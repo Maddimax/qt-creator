@@ -80,7 +80,8 @@ Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
 // \a contextActions is what the right-click menu is built from, or null for a
 // view that offers none.
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
-                                           QtcQuick::ActionModel *contextActions);
+                                           QtcQuick::ActionModel *contextActions,
+                                           bool showMarks = true);
 
 // The same, over a document somebody else owns - which is what an editor has:
 // the editor manager opens the document before the editor is ever shown.

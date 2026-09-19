@@ -11187,6 +11187,11 @@ void TextEditorFactory::setMarksVisible(bool on)
     d->m_marksVisible = on;
 }
 
+bool TextEditorFactory::marksVisible() const
+{
+    return d->m_marksVisible;
+}
+
 void TextEditorFactory::setCodeFoldingSupported(bool on)
 {
     d->m_codeFoldingSupported = on;

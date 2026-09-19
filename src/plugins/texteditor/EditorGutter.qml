@@ -26,11 +26,15 @@ Item {
     // whose text is not a file - see CodeViewport.requestMarks.
     property bool requestMarks: false
 
+    // Whether there is a mark column at all. A language whose text can carry
+    // no mark says so, and its gutter is the numbers alone.
+    property bool showMarks: true
+
     // Room for a mark and for the highest number the document can reach,
     // measured in the font the numbers are drawn in. Both are reserved whether
     // or not anything is in them: a gutter that grew when the first error
     // arrived would move the text sideways under the reader.
-    readonly property real markWidth: root.viewport.lineHeight
+    readonly property real markWidth: root.showMarks ? root.viewport.lineHeight : 0
     readonly property real foldWidth: root.showFoldMarkers ? root.viewport.lineHeight : 0
     // Hard against the text, which is where the widget editor puts it.
     readonly property real foldX: Spacing.PaddingHS + markWidth + widest.width
@@ -60,7 +64,7 @@ Item {
         x: Spacing.PaddingHS
         width: root.markWidth
         height: root.height
-        enabled: root.requestMarks
+        enabled: root.requestMarks && root.showMarks
         acceptedButtons: Qt.LeftButton | Qt.RightButton
 
         // A mark can be dragged to another line - that is how a breakpoint is
@@ -238,7 +242,7 @@ Item {
             fillMode: Image.PreserveAspectFit
 
             source: mark.lineData.markIcon
-            visible: source !== ""
+            visible: root.showMarks && source !== ""
 
             ToolTip.text: mark.lineData.annotation
             ToolTip.visible: hover.hovered && ToolTip.text !== ""

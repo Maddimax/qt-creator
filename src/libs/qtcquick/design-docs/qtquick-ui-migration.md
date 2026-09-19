@@ -65495,3 +65495,229 @@ qbs products' usual ones).
    the standing suites, ASan, the typing flake, Windows, the two Debugger
    tests failing on HEAD (entry 293), the PNG hang (entry 294), the widget
    editor's read-only hazard (entry 293, deliberately last).
+
+## 2026-09-19 — The VCS editors: a census, and the mark column (batch 298)
+
+Entry 297's item 2: a census of what `VcsBaseEditorWidget` does against what
+the viewport has, **before any code**. This entry is mostly that census. The
+one gap it closed is the smallest one it found, and the one entry 296 had
+parked "until a view needs it": the factory's `setMarksVisible(false)`, which
+`VcsEditorFactory` sets and the Qt Quick gutter ignored.
+
+### Baselines on HEAD, before anything
+
+    -test VcsBase     19 passed, 0 failed, exit 0
+    -test Git        135 passed, 2 failed, exit 2
+        testInlineDiffFile           "Compared values are not the same"
+        testConflictedFileInTextEditor  'widget' returned FALSE
+
+Both Git failures want a `TextEditorWidget` for a file that opens in the
+Qt Quick editor now - the same family as the diff editor tests entry 293
+listed ("an inline diff decorates a TextEditorWidget on purpose"). Not this
+batch's; on the list. `testDiffFileResolving` x3 and `testLogResolving` pass,
+and they are the two that build a VCS editor through its factory.
+
+### What `VcsBaseEditorWidget` is
+
+1866 lines in `vcsbaseeditor.cpp`; eight subclasses (Git, Subversion,
+Perforce, Mercurial, Bazaar, CVS, ClearCase, Fossil) plus
+`VcsBaseDescriptionEditorWidget` for a commit's description pane; 22 files
+outside `vcsbase` touch it. What those files call on it, counted:
+
+    ->source()                 64      ->init()           15
+    ->workingDirectory()       32      ->editorConfig()   11
+    ->encoding()               23      getVcsBaseEditor()  6
+    ->firstLineNumber()         1
+
+- **State, no view in it.** `source`, `workingDirectory`, `encoding`,
+  `editorConfig` (the argument widget in the tool bar), `contentType`
+  (log / annotate / diff / other), `describeFunc`, the annotate text formats,
+  `defaultLineNumber`, `firstLineNumber`, the three regexps (diff file, log
+  entry, annotation entry/separator), `annotationChanges()`. This is what
+  every client reads and writes, and none of it is about drawing. It belongs
+  on the **document** - a `TextDocument` subclass the factory already makes
+  per editor (`new TextDocument(parameters.id)`), or a controller beside it.
+- **Read-only.** `VcsBaseEditor::finalizeInitialization()` sets it;
+  `setForceReadOnly()` again from the client. Viewport: `setReadOnlyOf()`,
+  enforced since batch 296. **Exists.**
+- **Highlighting.** `DiffAndLogHighlighter` on the document for logs and
+  diffs, plus `setCodeFoldingSupported(true)`; the per-VCS annotation
+  highlighter set on first `textChanged` once the changes are known. Both go
+  through `TextDocument::resetSyntaxHighlighter()`. **Document-level; exists.**
+  Folding is the viewport's own.
+- **`setRevisionsVisible(false)`** - the widget's green/red change bar. The
+  Qt Quick gutter has `gutterChangeBar`. **Gap**, the same shape as the marks
+  flag; not yet a getter on the factory either.
+- **Margins** - `setMarginsEnabled()` (Perforce only) and a
+  `setMarginSettings()` override that blanks them otherwise. Viewport:
+  `setMarginSettingsIn()`. **Exists.**
+- **Line numbers with an offset** - `firstLineNumber` (git blame of a range:
+  `gitclient.cpp:2043`), via `lineNumber(blockNumber)` and
+  `lineNumberDigits()` overrides. The Qt Quick gutter numbers from 1 and
+  measures its width from `lineCount`. **Gap**, small: a `firstLineNumber`
+  on the viewport or the source, used by the gutter's numbers and its width.
+- **The entries browser** - a `QComboBox` in the editor's tool bar, filled
+  from the text (diff: one entry per file header; log: one per log entry
+  with the subject), kept in step with the caret (`slotCursorPositionChanged`
+  → `sectionOfLine`) and jumping on activation (`slotJumpToEntry` →
+  `gotoLine`, with a navigation-history entry). The Qt Quick tool bar is
+  built from `TextDocument::toolBarActions()`, actions only; a combo box is
+  a widget. **Gap**, medium: the sections are a list model the document can
+  own (it already owns the regexps that find them), and the Qt Quick tool bar
+  needs a way to show a choice - which it has for the outline
+  (`ToolBarChoice` in `createQuickTextToolBar()`), so the shape exists.
+- **Change links** - `AbstractTextCursorHandler` and its three kinds:
+  a change (revision) under the cursor, a URL, an e-mail. Hover: highlight
+  the span as an extra selection and show a pointing hand. Click: the
+  handler's action - `describeRequested(source, change)`, open the URL,
+  mailto. Context menu: copy revision, annotate this / previous revision,
+  open / copy URL. Viewport: `LinkFinder` per factory gives a `Utils::Link`
+  with a `targetFilePath` and a position - a *file*; a change has none and
+  `hasValidTarget()` would drop it. **Gap**, medium: a link whose target is
+  an action rather than a place. Either `Utils::Link` grows a callback, or
+  the factory grows a second finder for "something to do here" that the
+  viewport asks alongside the link finder, for hover and click alike.
+- **Context menu** - beyond the handlers: CodePaster, Apply Chunk / Revert
+  Chunk with `diffChunk(cursor)` (a `DiffChunk` from the text around the
+  caret), per-VCS `addDiffActions()` and `addChangeActions()`. Qt Quick:
+  `contextMenuId` names an ActionManager menu, and `m_contextActions` is an
+  `ActionModel` with a provider asked each time the menu opens - so *dynamic*
+  actions are possible in principle, but nothing lets a language add its own
+  provider from outside the editor yet. **Gap**, medium.
+- **Diff navigation** - double-click or Return on a diff line jumps to the
+  file and line the chunk header names (`jumpToChangeFromDiff` →
+  `jumpToDiffTarget(filePath, line, column)`). That *is* a `Utils::Link`, so
+  a `LinkFinder` for diff lines gives Ctrl+click / F2 on the Qt Quick side for
+  free; Return and double-click are extra key/mouse bindings. **Mostly
+  exists.**
+- **`executeTask()`** - runs the VCS command with a `Utils::Spinner` over the
+  widget, then `setPlainText()` and `gotoDefaultLine()`; on failure writes
+  "Failed to retrieve data." into the text. The spinner is a widget overlay.
+  **Gap**, small: a busy state the view can draw, or `insertWidgetIn()`.
+- **The description pane** - `VcsBaseDescriptionEditorWidget`, with its own
+  `sizeHint()` and change links through std::function parameters. Part of the
+  submit editor, which is its own port.
+- **Git's extras** - `GitEditorWidget` overrides `aboutToOpen`,
+  `restoreState`, `setPlainText`, `fileNameForLine`,
+  `originalLineUnderCursor`, `keyPressEvent`, `init`; `instantblame.cpp`
+  holds a `TextEditorWidget` and puts `BlameMark`s on the document. The
+  marks are document-level; the widget handle is not.
+- **The tests** - `testDiffFileResolving` and `testLogResolving` build the
+  widget through the factory and read `d->entriesComboBox()->itemText(n)`.
+  With sections on the document they read the model instead.
+
+### The order this suggests
+
+1. **Move the state to the document.** A `VcsBaseEditorDocument` (or the
+   parameters + state as a QObject the document owns) carrying everything in
+   the first bullet, with the regexps and the *section finding* (the two
+   `slotPopulate*Browser` loops) as a list model. `VcsBaseEditorWidget`
+   forwards to it; the 64 `->source()` callers move to the document one
+   file at a time. No behaviour change; both views keep working; the two
+   resolving tests read the model. This is the batch that makes every later
+   one small.
+2. **The tool bar's choice** for the sections model, on the Qt Quick tool
+   bar, wired to the caret and to `gotoLine`.
+3. **Links that are actions** on the viewport, and the three handlers as
+   finders on the VCS factory; hover and click. Then the context menu's
+   dynamic actions.
+4. **Diff navigation** as a link finder; Return and double-click.
+5. **Busy state**, `firstLineNumber`, `setRevisionsVisible(false)`.
+6. Flip `VcsEditorFactory` to `setUsesQuickEditor(true)`; retire the widget
+   subclasses one VCS at a time; the description pane with the submit editor.
+
+### The gap closed here: the mark column
+
+`VcsEditorFactory` says `setMarksVisible(false)`. The widget path passed it to
+the widget (`createEditorHelper()`); the Qt Quick gutter reserved
+`markWidth: viewport.lineHeight` for every view - "both are reserved whether
+or not anything is in them: a gutter that grew when the first error arrived
+would move the text sideways", which is the right rule for a file and the
+wrong one for a diff that can never have an error - and its mark column
+answered a click whenever `requestMarks` was on. So: `TextEditorFactory::marksVisible()`
+(default true, as it was); the Quick editor passes `!m_factory ||
+m_factory->marksVisible()` into the scene as `showMarks`; `MainEditor.qml`
+requires it, `CodeViewport` and `EditorGutter` default it to true; without
+it the gutter's `markWidth` is 0, the mark column is not enabled, and no
+mark icon is drawn.
+
+`testAFactoryCanSayItsLanguageHasNoMarkColumn` (widget and quick rows): a
+factory with the default builds a view whose gutter keeps room for a mark
+and answers a click in that column; one with `setMarksVisible(false)` builds
+one that does neither. The quick row asks the gutter item (`codeGutter`) for
+`markWidth` and the click area (`gutterMarkColumn`) for `enabled`; the widget
+row asks `TextEditorWidget::marksVisible()`.
+
+First run: the quick row failed on the *default* case - `markWidth` was 0
+with marks on. Not the flag: `markWidth` is a line height, and
+`TextViewport::m_lineHeight` is computed in `updatePolish()`, which an item
+nobody has shown never reaches; a factory-made editor is not in the editor
+manager and nothing shows it. The test resizes and shows the widget and
+waits for `lineHeight() > 0` before asking the gutter, as the on-screen
+geometry tests already do. Second run: the quick row failed on the
+*without* case - `markWidth` 0 as asked, but the mark column "answers a
+click". Read: the test asked `QQuickItem::isEnabled()`, and a `MouseArea`
+declares an `enabled` of its own that shadows the item's for QML; the binding
+set the MouseArea's, the item's stayed true. The test reads
+`property("enabled")` now, which the metaobject resolves to the MouseArea's.
+(`~/.claude/qt-quick.md`.) Alone, after that: 4 passed, 0 failed, exit 0 - both rows.
+
+qmllint on the TextEditor module after the QML change: one warning,
+`EditorGutter.qml: Member "startDragDistance" not found on type "QObject"` -
+`Qt.styleHints.startDragDistance` in the mark-drag code, on HEAD before this
+batch (line 91 there), not from this change; qmllint cannot type
+`Qt.styleHints`. Left as found; the same single warning after the change.
+
+Controls, each the pre-fix shape of one assertion (`set -e`):
+
+- **A** - the Quick editor passes `true` whatever the factory said: quick row
+  fails, "the gutter keeps a mark column's width for a language that has none"
+  (3 passed, 1 failed; the widget row passes, as it should).
+- **B** - the gutter's `markWidth` ignores `showMarks`: the same assertion, the
+  same way. (The click assertion is behind it and is not reached under
+  either; a third control that broke only the `enabled` binding would show
+  it biting on its own. Not run - the binding is one line, read.)
+
+### Measurements
+
+    -test TextEditor     791 passed, 0 failed, 3 skipped, exit 0   x2
+                         790 passed, 1 failed, 3 skipped, exit 1   x1
+                           CodeAssistTests::testFollowSymbolBigFile
+                           'spy.wait(1000)' returned FALSE, codeassist_test.cpp:166
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Designer        11 passed, 0 failed, 0 skipped, exit 0
+    -test ScxmlEditor     13 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor is 791: 789 plus the two rows of the mark-column test. Designer
+and ScxmlEditor ran because the gutter is every Qt Quick view's, theirs
+included.
+
+**`testFollowSymbolBigFile`**, first seen here. The test writes a big file,
+invokes FollowSymbol on a *widget* editor with a provider whose one item
+opens that file, and gives `assistFinished` one second - so the second covers
+opening a freshly written big file in whatever editor claims it, which is the
+Qt Quick one now. It passed in the other two runs of this batch and in every
+one of the fourteen earlier logged suite runs. Its rate alone, ten runs on
+this batch's binary: 0 failures in 10 - so it needs the load of a full suite
+around it, or the one-in-fifteen-odd run where the VM is slow at that moment. Nothing in this batch touches follow-symbol,
+code assist or the opening of a file; the gutter's mark column is the only
+visible change to a view, and that file opens with marks on. Noted as a
+load-sensitive wait on a big-file open, not changed here: the file's tests
+are not this batch's, and a hard 1000 ms is the kind of wait the testing
+rules say to bound on a cause instead. If it shows again, the thing to
+measure is how long the Qt Quick editor takes to open that file on the VM.
+
+No `.qbs` edited this batch: no file list changed.
+
+### What is next
+
+1. **VCS step 1 above** - the state to the document, the sections as a
+   model, the two resolving tests reading it. Big diff, no behaviour change.
+2. Then steps 2-6 in order, one per batch or thereabouts.
+3. The QmlDesigner-side two (Effect Composer, binding editor) - not loaded
+   in the standing suites, so a run of their own is the first question.
+4. The standing list: the two-view tests' widget rows (now also Git's two
+   above), QmlJSEditor into the standing suites, ASan, the typing flake,
+   Windows, the two Debugger tests failing on HEAD (entry 293), the PNG hang
+   (entry 294), the widget editor's read-only hazard (entry 293, deliberately
+   last).
