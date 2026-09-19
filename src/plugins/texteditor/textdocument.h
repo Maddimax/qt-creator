@@ -318,6 +318,10 @@ public:
     // Only asked where there is a single caret: what these do is edit around
     // one, and several would each want their own answer.
     virtual bool handleKeyPress(QKeyEvent *event, const QTextCursor &cursor);
+    // A double click at \a cursor, before the view selects the word there:
+    // what the document adds to it - a VCS's diff opens the file and line a
+    // double-clicked line stands for. Asked by both views, not with Shift.
+    virtual void handleDoubleClick(const QTextCursor &cursor);
 
 signals:
     // Somebody's chance to answer a tooltip about \a position instead of the

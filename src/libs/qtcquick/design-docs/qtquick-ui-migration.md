@@ -69499,3 +69499,103 @@ edited. `texteditor.h` gained three declarations, so everything rebuilt.
    hook, and QTest cannot double-click a Quick item, so the test has to
    drive whatever hook is added directly.
 3. The standing list (entry 298).
+
+## 2026-09-20 — A double click on a diff line opens its file again (batch 328)
+
+Entry 327's second item, on the standing list since the VCS editors
+moved. `VcsBaseEditorWidget::mouseDoubleClickEvent()` - for a diff or a
+log, left button, no Shift - took the diff target under the click
+(`diffTargetAt()`) and opened its file at its line, then let the widget
+select the word as usual. The Qt Quick form's `onDoubleClicked` calls
+`viewport.selectWordAt()` and nothing else, so the jump went missing
+for every VCS. Ctrl+click, Follow Symbol and Return still followed a
+diff line through the document's link finder (entry 305); the double
+click is the last way in.
+
+### The gap closed: what a double click does is the document's to say
+
+- `TextDocument::handleDoubleClick(const QTextCursor &)`, a virtual
+  beside `handleKeyPress()`, nothing by default: what a document adds to
+  a double click before the view selects the word. Both views ask it,
+  not with Shift, which extends the selection: the widget in
+  `mouseDoubleClickEvent()` before the base selects the word, the Qt
+  Quick view in a new `TextViewport::doubleClickAt(position, modifiers)`
+  that the form's `onDoubleClicked` calls in place of `selectWordAt()`
+  and that selects the word after asking.
+- `VcsEditorDocument::handleDoubleClick()`: for a diff or a log - what
+  the widget's `hasDiff()` covered - through the document's own link
+  finder, so that a VCS with more to say about the line (Git resolves
+  it for the revision, entry 305's `resolveDiffTarget`) says it here
+  too, and `EditorManager::openEditorAt()` on the answer. A header line
+  is no link and opens nothing.
+
+### The tests
+
+- `QuickTextEditorTest::testADoubleClickAsksTheDocumentInEitherView`,
+  two rows, over a document that records what it is asked: at a
+  position inside "two", the document is asked with that position and
+  "two" is selected after; with Shift it is not asked. The widget row
+  double-clicks with `QTest::mouseDClick()` on the shown widget; the
+  quick row calls `doubleClickAt()`, what the form calls, because QTest
+  cannot double-click a Qt Quick item (the testing notes say how both
+  ways fail). The form's one-line change is not under test for that
+  reason, and is said so here.
+- `VcsEditorDocumentTest::testADiffsChunkAndItsTargetAreTheDocuments`
+  gains the double click on its diff: on the changed line the file
+  opens at line 2, on the header line nothing opens. The finder answers
+  at once for a document without a resolver, so the check follows the
+  call directly rather than waiting for something that would not come.
+- `GitTest::testTheLogFollowsADiffLineToItsFile` ran as the negative
+  side of the link finder: unchanged.
+
+First build failed to compile: the test's recording document is a class
+local to the test function, which cannot carry `Q_OBJECT`, and
+`qobject_cast` refuses such a type at compile time; the factory's own
+creator makes it, so a `static_cast` is the honest cast. Then, in the
+VM: the two-view test 4/0, the VcsBase test 3/0, the Git test 3/0,
+exit 0 each, at the first run; the runs' only warnings are the usual
+`raise()` and `isLoaded()` ones.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Three, one per view
+that has to ask and one for the document that has to answer:
+
+- **A** - `doubleClickAt()` selects the word without asking, as the
+  form did: the quick row, "Compared lists have different sizes. Actual
+  (document->positions) size: 0, Expected 1"; the widget row passes.
+- **B** - the widget's `mouseDoubleClickEvent()` does not ask: the
+  widget row, the same message; the quick row passes.
+- **C** - `VcsEditorDocument::handleDoubleClick()` returns at once:
+  "'showsTheFile()' returned FALSE. (a double click on a diff line
+  opened nothing)".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     814 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         36 passed, 0 failed, 0 skipped, exit 0
+    -test Git            144 passed, 2 failed, 0 skipped, exit 2
+                           testInlineDiffFile and
+                           testConflictedFileInTextEditor, this
+                           branch's baseline pair (entry 313)
+    -test DiffEditor      62 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor is 814: 812 plus the two-view test's rows. VcsBase's diff
+test carries the new assertions rather than adding any. Git and
+DiffEditor are what entry 327 recorded, the InstantBlame flake absent
+this time. No memory kill, no typing flake in the three TextEditor
+runs. No `.qbs` edited; the form's QML is in the module the build
+already lints.
+
+### What is next
+
+1. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor), the last `setEditorWidgetCreator()` callers besides the
+   Plain Text Editor's test-side factory; the standing suites do not
+   load QmlDesigner, so the verification has to be its own.
+2. The standing list (entry 298): the two-view tests' widget rows,
+   QmlJSEditor into the standing suites, ASan, the typing flake,
+   Windows, the two Debugger tests failing on HEAD, the PNG hang, the
+   widget editor's read-only hazard.

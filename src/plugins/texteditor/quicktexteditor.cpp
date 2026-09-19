@@ -15107,6 +15107,80 @@ private slots:
         QCOMPARE(after.position(), 5);
     }
 
+    // A double click asks the document before the word under it is selected -
+    // a VCS's diff opens the line's file - in either view, and not with Shift,
+    // which extends the selection. QTest cannot double-click a Qt Quick item,
+    // so the quick row calls what the form calls, doubleClickAt(); the widget
+    // row is double-clicked.
+    void testADoubleClickAsksTheDocumentInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testADoubleClickAsksTheDocumentInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        class RecordingDocument final : public TextDocument
+        {
+        public:
+            RecordingDocument() : TextDocument("QuickEditorDoubleClickTest") {}
+            void handleDoubleClick(const QTextCursor &cursor) override
+            {
+                positions << cursor.position();
+            }
+            QList<int> positions;
+        };
+        class RecordingFactory final : public TextEditorFactory
+        {
+        public:
+            explicit RecordingFactory(bool quick)
+            {
+                setId("QuickEditorDoubleClickTest");
+                setDisplayName("Quick Editor Double Click Test");
+                setDocumentCreator([] { return new RecordingDocument; });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        RecordingFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        // What the factory's creator made; a local class has no Q_OBJECT to
+        // qobject_cast through.
+        auto * const document = static_cast<RecordingDocument *>(editor->document());
+        QVERIFY(document);
+        document->setPlainText("one two three\n");
+        const int at = 5; // inside "two"
+
+        if (quick) {
+            TextViewport * const view = viewportForEditor(editor.get());
+            QVERIFY(view);
+            view->doubleClickAt(at);
+            QCOMPARE(document->positions, QList<int>({at}));
+            QCOMPARE(textCursorOf(editor.get()).selectedText(), QString("two"));
+            view->doubleClickAt(at, Qt::ShiftModifier);
+            QCOMPARE(document->positions, QList<int>({at}));
+        } else {
+            TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor.get());
+            QVERIFY(widget);
+            widget->resize(600, 300);
+            widget->show();
+            QVERIFY(QTest::qWaitForWindowExposed(widget));
+            QTextCursor c(document->document());
+            c.setPosition(at);
+            const QPoint p = widget->Utils::PlainTextEdit::cursorRect(c).center();
+            QTest::mouseDClick(widget->viewport(), Qt::LeftButton, Qt::NoModifier, p);
+            QCOMPARE(document->positions, QList<int>({at}));
+            QCOMPARE(textCursorOf(editor.get()).selectedText(), QString("two"));
+            QTest::mouseDClick(widget->viewport(), Qt::LeftButton, Qt::ShiftModifier, p);
+            QCOMPARE(document->positions, QList<int>({at}));
+        }
+    }
+
     // A document whose text is on its way - a VCS command's output - says so,
     // and the view shows a spinner over itself meanwhile: after a moment, so
     // that a command that answers at once flashes nothing, and gone the instant

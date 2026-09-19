@@ -849,6 +849,10 @@ public:
     // click, the line under a triple one.
     Q_INVOKABLE void selectWordAt(int position);
     Q_INVOKABLE void selectLineAt(int position);
+    // A double click at \a position, as the form reports it: the document is
+    // asked first - a VCS's diff opens the line's file - unless Shift extends
+    // the selection, and then the word is selected.
+    Q_INVOKABLE void doubleClickAt(int position, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
 
     // Ctrl and the wheel. Zoom is a global setting rather than this view's, so
     // every editor grows together - which is what the widget editor does, and

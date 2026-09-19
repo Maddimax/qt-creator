@@ -4293,6 +4293,18 @@ int TextViewport::cursorColumn() const
     return block.isValid() ? m_cursorPosition - block.position() + 1 : 0;
 }
 
+void TextViewport::doubleClickAt(int position, Qt::KeyboardModifiers modifiers)
+{
+    if (!(modifiers & Qt::ShiftModifier)) {
+        if (TextDocument * const document = textDocument()) {
+            QTextCursor cursor(document->document());
+            cursor.setPosition(position);
+            document->handleDoubleClick(cursor);
+        }
+    }
+    selectWordAt(position);
+}
+
 void TextViewport::selectWordAt(int position)
 {
     QTextCursor cursor = textCursor();

@@ -406,7 +406,7 @@ Item {
                 }
             }
             onDoubleClicked: (mouse) => {
-                viewport.selectWordAt(viewport.positionAt(mouse.x, mouse.y))
+                viewport.doubleClickAt(viewport.positionAt(mouse.x, mouse.y), mouse.modifiers)
                 tripleClick.restart()
             }
 

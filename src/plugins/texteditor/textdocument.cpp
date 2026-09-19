@@ -759,6 +759,11 @@ bool TextDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)
     return false;
 }
 
+void TextDocument::handleDoubleClick(const QTextCursor &cursor)
+{
+    Q_UNUSED(cursor)
+}
+
 void TextDocument::setCodeStyle(ICodeStylePreferences *preferences)
 {
     indenter()->setCodeStylePreferences(preferences);

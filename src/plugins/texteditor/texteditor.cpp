@@ -7114,6 +7114,13 @@ void TextEditorWidget::mouseDoubleClickEvent(QMouseEvent *e)
     QTextCursor eventCursor = cursorForPosition(QPoint(e->pos().x(), e->pos().y()));
     const int eventDocumentPosition = eventCursor.position();
 
+    // What the document adds before the word is selected - a VCS's diff opens
+    // the line's file. Not with Shift, which extends the selection.
+    if (e->button() == Qt::LeftButton && !(e->modifiers() & Qt::ShiftModifier)) {
+        if (TextDocument * const document = textDocument())
+            document->handleDoubleClick(eventCursor);
+    }
+
     PlainTextEdit::mouseDoubleClickEvent(e);
 
     // PlainTextEdit::mouseDoubleClickEvent just selects the word under the text cursor. If the

@@ -599,6 +599,22 @@ void VcsEditorDocument::setEditorConfig(VcsBaseEditorConfig *config)
     emit toolBarFieldsChanged();
 }
 
+void VcsEditorDocument::handleDoubleClick(const QTextCursor &cursor)
+{
+    // What the widget editor's hasDiff() covered: a diff, and a log, which
+    // carries diffs. Nothing where the line is no link - a header, a context
+    // line of nothing.
+    if (d->parameters.type != DiffOutput && d->parameters.type != LogOutput)
+        return;
+    const TextEditor::LinkFinder finder = TextEditor::TextEditorFactory::linkFinderFor(this);
+    if (!finder)
+        return;
+    finder(this, cursor, [](const Utils::Link &link) {
+        if (link.hasValidTarget())
+            Core::EditorManager::openEditorAt(link);
+    }, true, false);
+}
+
 QList<QAction *> VcsEditorDocument::ownToolBarActions() const
 {
     return d->config ? d->config->actions() : QList<QAction *>();
@@ -2090,6 +2106,24 @@ private slots:
         finder(&document, cursorAt("--- a/a.txt"),
                [&fromHeader](const Utils::Link &link) { fromHeader = link; }, true, false);
         QVERIFY2(!fromHeader.hasValidTarget(), "a header line is followed somewhere");
+
+        // And a double click on the line opens that place, as the widget
+        // editor's did - what both views ask the document on one; on a header
+        // line, nothing. The finder answers at once here, so an editor that
+        // was going to open is open when the call returns.
+        const auto showsTheFile = [file] {
+            Core::IDocument * const current = Core::EditorManager::currentDocument();
+            return current && current->filePath() == file;
+        };
+        QVERIFY2(!showsTheFile(), "the file is open before anything double-clicked it");
+        document.handleDoubleClick(cursorAt("+TWO"));
+        QVERIFY2(showsTheFile(), "a double click on a diff line opened nothing");
+        Core::IEditor * const opened = Core::EditorManager::currentEditor();
+        QCOMPARE(opened->currentLine(), 2);
+        Core::EditorManager::closeEditors({opened}, false);
+        QVERIFY(!showsTheFile());
+        document.handleDoubleClick(cursorAt("--- a/a.txt"));
+        QVERIFY2(!showsTheFile(), "a double click on a header line opened the file");
 
         // Where the VCS knows better, the parameters' resolver answers - given
         // the target and the link as found, and free to move it.

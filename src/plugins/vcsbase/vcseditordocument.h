@@ -344,6 +344,10 @@ public:
     // or an address, to open and to copy; and for a log or a diff, to paste
     // it. Built for the click and kept until the next.
     QList<QAction *> contextMenuActions(const QTextCursor &cursor) override;
+    // A double click on a line of a diff opens the file and line it stands
+    // for, as the widget editor's did; through the link finder, so the VCS's
+    // own answer for the line counts here too.
+    void handleDoubleClick(const QTextCursor &cursor) override;
     // The editor config's toggles, for whichever view draws the document's
     // tool bar actions - both do.
     QList<QAction *> ownToolBarActions() const override;
