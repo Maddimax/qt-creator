@@ -109,11 +109,13 @@ Result<> ScxmlEditorDocument::reload(ReloadFlag flag, ChangeType type)
     if (flag == FlagIgnore)
         return ResultOk;
     emit aboutToReload();
-    QString errorString;
-    emit reloadRequested(&errorString, filePath());
-    const bool success = errorString.isEmpty();
-    emit reloadFinished(success);
-    return makeResult(success, errorString);
+    // Through the design widget, which is what holds the chart, and then into
+    // the text, which is what Edit mode shows of it.
+    const Result<> loaded = open(filePath(), filePath());
+    if (loaded)
+        syncXmlFromDesignWidget();
+    emit reloadFinished(loaded.has_value());
+    return loaded;
 }
 
 

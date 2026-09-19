@@ -28,8 +28,6 @@ QtcPlugin {
         "scxmleditordocument.cpp",
         "scxmleditordocument.h",
         "scxmleditorplugin.cpp",
-        "scxmltexteditor.cpp",
-        "scxmltexteditor.h",
     ]
 
     Group {

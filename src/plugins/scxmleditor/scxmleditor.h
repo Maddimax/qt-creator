@@ -9,4 +9,8 @@ namespace ScxmlEditor::Internal {
 
 void setupScxmlEditor(QObject *guard);
 
+#ifdef WITH_TESTS
+QObject *createTextViewTest();
+#endif
+
 } // ScxmlEditor::Internal

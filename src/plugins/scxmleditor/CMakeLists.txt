@@ -89,7 +89,6 @@ add_qtc_plugin(ScxmlEditor
     scxmleditordocument.cpp scxmleditordocument.h
     scxmleditoricons.h
     scxmleditorplugin.cpp
-    scxmltexteditor.cpp scxmltexteditor.h
 )
 
 file(GLOB_RECURSE images RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/common common/images/*)

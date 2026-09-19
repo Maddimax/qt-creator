@@ -7,7 +7,6 @@
 #include "scxmleditorconstants.h"
 #include "scxmleditordocument.h"
 #include "scxmleditortr.h"
-#include "scxmltexteditor.h"
 
 #include <coreplugin/actionmanager/actionmanager.h>
 #include <coreplugin/coreconstants.h>
@@ -20,6 +19,8 @@
 #include <coreplugin/minisplitter.h>
 #include <coreplugin/modemanager.h>
 #include <coreplugin/outputpane.h>
+
+#include <texteditor/texteditor.h>
 
 #include <utils/fsengine/fileiconprovider.h>
 #include <utils/icon.h>
@@ -34,6 +35,15 @@
 #include <QUndoGroup>
 #include <QVBoxLayout>
 
+#ifdef WITH_TESTS
+#include <utils/algorithm.h>
+#include <utils/temporarydirectory.h>
+
+#include <QKeyEvent>
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 using namespace Core;
 using namespace ScxmlEditor::Common;
 using namespace ScxmlEditor::PluginInterface;
@@ -46,18 +56,18 @@ class ScxmlEditorStack final : public QStackedWidget
 public:
     ScxmlEditorStack() { setObjectName("ScxmlEditorStack"); }
 
-    void add(ScxmlTextEditor *editor, QWidget *widget)
+    void add(IEditor *editor, QWidget *widget)
     {
         connect(Core::ModeManager::instance(), &Core::ModeManager::currentModeAboutToChange,
                 this, &ScxmlEditorStack::modeAboutToChange);
 
         m_editors.append(editor);
         addWidget(widget);
-        connect(editor, &ScxmlTextEditor::destroyed,
+        connect(editor, &QObject::destroyed,
                 this, &ScxmlEditorStack::removeScxmlTextEditor);
     }
 
-    QWidget *widgetForEditor(ScxmlTextEditor *xmlEditor)
+    QWidget *widgetForEditor(IEditor *xmlEditor)
     {
         const int i = m_editors.indexOf(xmlEditor);
         QTC_ASSERT(i >= 0, return nullptr);
@@ -94,26 +104,18 @@ private:
     {
         // Sync the editor when entering edit mode
         if (m == Core::Constants::MODE_EDIT) {
-            for (auto editor: std::as_const(m_editors))
-                if (auto document = qobject_cast<ScxmlEditorDocument*>(editor->textDocument()))
+            for (IEditor *editor : std::as_const(m_editors))
+                if (auto document = qobject_cast<ScxmlEditorDocument*>(editor->document()))
                     document->syncXmlFromDesignWidget();
         }
     }
 
-    QList<ScxmlTextEditor*> m_editors;
+    QList<IEditor *> m_editors;
 };
 
-class ScxmlTextEditorWidget : public TextEditor::TextEditorWidget
-{
-public:
-    ScxmlTextEditorWidget() = default;
-
-    void finalizeInitialization() override
-    {
-        setReadOnly(true);
-    }
-};
-
+// The read-only text view of a state chart, shown in Edit mode. The chart is
+// edited in Design mode, and an info bar on the view says so. Read-only is
+// asked of whichever view draws the text, so nothing here names one.
 class ScxmlTextEditorFactory : public TextEditor::TextEditorFactory
 {
 public:
@@ -121,17 +123,19 @@ public:
     {
         setId(ScxmlEditor::Constants::K_SCXML_EDITOR_ID);
         addEditorContext(ScxmlEditor::Constants::C_SCXML_EDITOR);
-        setEditorCreator([] { return new ScxmlTextEditor; });
-        setEditorWidgetCreator([] { return new ScxmlTextEditorWidget; });
+        setUsesQuickEditor(true);
         setUseGenericHighlighter(true);
         setDuplicatedSupported(false);
         setToolBarVisible(false);
     }
 
-    ScxmlTextEditor *create(ScxmlEditor::Common::MainWidget *designWidget)
+    IEditor *create(ScxmlEditor::Common::MainWidget *designWidget)
     {
         setDocumentCreator([designWidget] { return new ScxmlEditorDocument(designWidget); });
-        return qobject_cast<ScxmlTextEditor*>(createEditor());
+        IEditor * const editor = createEditor();
+        if (editor)
+            TextEditor::setReadOnlyOf(editor, true);
+        return editor;
     }
 };
 
@@ -168,12 +172,10 @@ ScxmlEditorData::ScxmlEditorData()
     QObject::connect(EditorManager::instance(), &EditorManager::currentEditorChanged,
                      this, [this](IEditor *editor) {
         if (editor && editor->document()->id() == Constants::K_SCXML_EDITOR_ID) {
-            auto xmlEditor = qobject_cast<ScxmlTextEditor*>(editor);
-            QTC_ASSERT(xmlEditor, return );
-            QWidget *dw = m_widgetStack->widgetForEditor(xmlEditor);
+            QWidget *dw = m_widgetStack->widgetForEditor(editor);
             QTC_ASSERT(dw, return );
-            m_widgetStack->setVisibleEditor(xmlEditor);
-            m_mainToolBar->setCurrentEditor(xmlEditor);
+            m_widgetStack->setVisibleEditor(editor);
+            m_mainToolBar->setCurrentEditor(editor);
             updateToolBar();
             auto designWidget = static_cast<MainWidget*>(m_widgetStack->currentWidget());
             if (designWidget)
@@ -230,7 +232,7 @@ void ScxmlEditorData::fullInit()
 IEditor *ScxmlEditorData::createEditor()
 {
     auto designWidget = new MainWidget;
-    ScxmlTextEditor *xmlEditor = m_xmlEditorFactory->create(designWidget);
+    IEditor * const xmlEditor = m_xmlEditorFactory->create(designWidget);
 
     m_undoGroup->addStack(designWidget->undoStack());
     m_widgetStack->add(xmlEditor, designWidget);
@@ -349,4 +351,84 @@ void setupScxmlEditor(QObject *guard)
     (void) new ScxmlEditorFactory(guard);
 }
 
+#ifdef WITH_TESTS
+
+class TextViewTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // The text view of a state chart, shown in Edit mode: the chart's XML,
+    // read-only, highlighted, drawn by the Qt Quick text editor; one chart
+    // beside each view, so not to be split. And reloaded from disk through
+    // the chart, which is the document's own doing.
+    void testTheXmlViewIsTheQuickEditorAndReloadsThroughTheChart()
+    {
+        Utils::TemporaryDirectory dir("scxml-xml-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("chart.scxml");
+        // Not a raw string: moc takes the "//" in the namespace URL for a
+        // comment, loses the rest of the line, and then finds no class in
+        // the file.
+        const auto chart = [](const QString &state) {
+            return QString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                           "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\" version=\"1.0\""
+                           " initial=\"%1\">\n"
+                           "  <state id=\"%1\"/>\n"
+                           "</scxml>\n").arg(state).toUtf8();
+        };
+        QVERIFY(file.writeFileContents(chart("first")));
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(editor->document()->id(), Id(Constants::K_SCXML_EDITOR_ID));
+
+        QVERIFY2(!qobject_cast<TextEditor::BaseTextEditor *>(editor),
+                 "the XML view is still the widget editor");
+        QVERIFY2(Utils::anyOf(editor->widget()->findChildren<QWidget *>(),
+                              [](QWidget *part) { return part->inherits("QQuickWidget"); }),
+                 "the XML view is not drawn by a Qt Quick scene");
+        QVERIFY2(!editor->duplicateSupported(),
+                 "the XML view could be split, and the second view would have no chart");
+
+        auto * const document = qobject_cast<ScxmlEditorDocument *>(editor->document());
+        QVERIFY2(document, "the view's document is not the chart's");
+        // The text is written from the chart on the way into Edit mode; a
+        // chart opens in Design mode.
+        QCOMPARE(ModeManager::currentModeId(), Id(Core::Constants::MODE_DESIGN));
+        ModeManager::activateMode(Core::Constants::MODE_EDIT);
+        QVERIFY2(document->plainText().contains("first"), "the chart's XML never reached the text");
+        QVERIFY2(document->syntaxHighlighter(), "the XML is shown unhighlighted");
+
+        // Typed at the view, which must refuse it. Delivered straight to
+        // where keys go, so this is about read-only and not about focus.
+        const QString before = document->plainText();
+        QObject * const target = TextEditor::keyTargetOf(editor);
+        QVERIFY(target);
+        QKeyEvent typed(QEvent::KeyPress, Qt::Key_X, Qt::NoModifier, "x");
+        QCoreApplication::sendEvent(target, &typed);
+        QVERIFY2(document->plainText() == before, "the XML view took a keystroke");
+
+        // Changed on disk and reloaded: through the chart, into the text.
+        QVERIFY(file.writeFileContents(chart("second")));
+        const Result<> reloaded = document->reload(IDocument::FlagReload, IDocument::TypeContents);
+        if (!reloaded)
+            QFAIL(qPrintable(reloaded.error()));
+        QVERIFY2(document->plainText().contains("second"), "the reload did not reach the text");
+        QVERIFY2(!document->plainText().contains("first"), "the reload left the old chart in the text");
+    }
+};
+
+QObject *createTextViewTest()
+{
+    return new TextViewTest;
+}
+
+#endif // WITH_TESTS
+
 } // ScxmlEditor::Internal
+
+#ifdef WITH_TESTS
+#include "scxmleditor.moc"
+#endif

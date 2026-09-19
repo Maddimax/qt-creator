@@ -37,9 +37,6 @@ public:
     QString designWidgetContents() const;
     void setFilePath(const Utils::FilePath &filePath) override;
 
-signals:
-    void reloadRequested(QString *errorString, const Utils::FilePath &);
-
 protected:
     Utils::Result<> saveImpl(const Utils::FilePath &filePath, SaveOption option) override;
 

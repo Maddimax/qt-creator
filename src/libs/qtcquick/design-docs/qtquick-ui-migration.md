@@ -65377,3 +65377,121 @@ products would match "designer".
    the standing suites, ASan, the typing flake, Windows, the two Debugger
    tests failing on HEAD (entry 293), the PNG hang (entry 294), the widget
    editor's read-only hazard (entry 293, deliberately last).
+
+## 2026-09-19 — SCXML's chart XML off the widget editor (batch 297)
+
+Entry 296's item 1: the same shape as Designer's form view, and the recipe
+carried over almost line for line. What differed is recorded; what did not is
+in entry 296.
+
+### What the SCXML view was
+
+`ScxmlTextEditorFactory`: `setEditorCreator(ScxmlTextEditor)`,
+`setEditorWidgetCreator(ScxmlTextEditorWidget)`, generic highlighter, no
+duplicate, no tool bar. `ScxmlTextEditorWidget` was `setReadOnly(true)` in
+`finalizeInitialization()` and nothing else. `ScxmlTextEditor` had one real
+job: its `finalizeInitialization()` connected the document's
+`reloadRequested(QString *, FilePath)` signal to an `open()` that loaded the
+file through the design widget, wrote the chart back into the text with
+`syncXmlFromDesignWidget()`, and set the file path. That is: the document's
+`reload()` emitted a signal so that *an editor* would perform the document's
+reload. `ScxmlEditorDocument::open()` already did the first and last of those
+three steps itself.
+
+### The change
+
+- `ScxmlEditorDocument::reload()` does its own work: `open(filePath(), filePath())`
+  through the design widget, then `syncXmlFromDesignWidget()`, then
+  `reloadFinished()`. `reloadRequested` is gone; it had one emitter and one
+  receiver, and the receiver was the class being retired.
+- The factory sets `setUsesQuickEditor(true)`, drops both creators, and its
+  `create(designWidget)` returns the `Core::IEditor *` after
+  `TextEditor::setReadOnlyOf(editor, true)` - which enforces since batch 296,
+  and would not have before it.
+- `ScxmlEditorStack` holds `QList<IEditor *>`, connects `QObject::destroyed`,
+  and syncs on the way into Edit mode through `editor->document()`. The
+  `currentEditorChanged` handler drops its cast; `EditorToolBar` always took
+  an `IEditor *`. `scxmltexteditor.h/.cpp` deleted, from both build files.
+
+Left as found: `ScxmlEditorStack::add()` connects
+`ModeManager::currentModeAboutToChange` **every time an editor is added**, so
+with three charts open the sync runs three times per mode change. Harmless
+(idempotent) and not this batch's; noted for whoever touches the stack next.
+
+### The test
+
+The plugin keeps its tests inline under `#ifdef WITH_TESTS` with a
+`createXTest()` per file, so `TextViewTest` lives at the end of
+`scxmleditor.cpp` and is registered beside the statistics and colour tests.
+`testTheXmlViewIsTheQuickEditorAndReloadsThroughTheChart`: a minimal chart with
+one state, opened; the document id, not a `BaseTextEditor`, a `QQuickWidget`
+under the widget, not splittable; then - because the text is written from the
+chart on the way *into* Edit mode, and a chart opens in Design mode - the
+test asserts Design mode is current, activates Edit, and expects the state's
+id in a highlighted text; a key sent to `keyTargetOf(editor)` changes nothing;
+the file is rewritten with a second state and `document->reload()` must put
+the new id in the text and take the old one out.
+
+First run: **"0 passed, 0 failed, exit 0"** - nothing ran, and the exit code
+said fine. The log's first line: the plugin failed to load, `undefined symbol:
+_ZTVN11ScxmlEditor8Internal12TextViewTestE` - the test class's vtable. The
+generated `scxmleditor.moc` was 0 bytes and the AutoMoc output said "No
+relevant classes found" for the file, although `moc_predefs.h` had
+`WITH_TESTS` and the statistics test in the same plugin has the identical
+shape. Measured with moc by hand rather than theorised: the file as written,
+no output; the raw string literal holding the chart replaced by `"x"`, 3802
+bytes - so the raw string; the same raw string with `http://` made `http:/`,
+3810 bytes - so the `//`. **moc lexes `//` inside a raw string literal as a
+comment**, drops the rest of the line, and never recovers the class. The
+Designer batch's raw string had no URL in it. The chart is an ordinary string
+literal now, with a comment saying why. (`~/.claude/builds.md`.) Worth
+keeping in mind for the suites too: a test object that does not register
+counts as zero tests and exit 0, which is exactly what a green run looks like.
+
+Alone, after that: 3 passed, 0 failed, exit 0 - every assertion, including
+"Design mode is current after opening a chart" and the reload through the
+chart, held at the first real run. Two QWARNs from the offscreen platform
+("does not support propagateSizeHints()/raise()"), not from the view.
+
+Controls, each the pre-fix shape of one assertion (`set -e`):
+
+- **A** - `setReadOnlyOf()` not called: 2 passed, 1 failed, "the XML view took a
+  keystroke".
+- **B** - `setUsesQuickEditor(true)` removed, the widget editor as before: 2 passed,
+  1 failed, "the XML view is still the widget editor".
+- **C** - `reload()` loads the chart and does not write the text (what the
+  retired editor used to do after the load): 2 passed, 1 failed, "the reload did
+  not reach the text".
+
+### Measurements
+
+Baseline before the change, `-test ScxmlEditor` on HEAD: 10 passed, 0 failed,
+exit 0 (statistics and colour settings).
+
+    -test TextEditor     789 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test ScxmlEditor     13 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor unchanged at 789: nothing of TextEditor's changed in this batch.
+ScxmlEditor is 13: the baseline ten plus this test object's three. No
+entry-247 crash in three TextEditor runs.
+
+qbs: `scxmleditor.qbs` resolved (scratch profile `qt6now`): with
+`"doesnotexist.cpp"` added the resolve names `ScxmlEditor` and the file; as
+edited, no line names `plugins/scxmleditor/` (19 errors overall, the vendored
+qbs products' usual ones).
+
+### What is next
+
+1. **The Quick editor and `setMarksVisible(false)`** (entry 296) when a view
+   needs it; neither of the two ported views has marks.
+2. **VCS editors** - the big one. `vcsbaseeditor.cpp` is 1866 lines and 26
+   files use `VcsBaseEditorWidget`; a census of what the widget does (annotate
+   navigation, diff folding, change-number links, the "describe" round trip)
+   against what the viewport has, before any code.
+3. The QmlDesigner-side two (Effect Composer, binding editor) - not loaded in
+   the standing suites, so a run of their own is the first question.
+4. Then the standing list: the two-view tests' widget rows, QmlJSEditor into
+   the standing suites, ASan, the typing flake, Windows, the two Debugger
+   tests failing on HEAD (entry 293), the PNG hang (entry 294), the widget
+   editor's read-only hazard (entry 293, deliberately last).

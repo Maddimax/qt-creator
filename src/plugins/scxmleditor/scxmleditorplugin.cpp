@@ -26,6 +26,7 @@ private:
 #ifdef WITH_TESTS
         addTestCreator(ScxmlEditor::Common::createStatisticsTest);
         addTestCreator(ScxmlEditor::Common::createColorSettingsTest);
+        addTestCreator(createTextViewTest);
 #endif
     }
 
