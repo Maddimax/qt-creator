@@ -403,7 +403,6 @@ public:
         Git::Constants::GIT_SVN_LOG_EDITOR_ID,
         Tr::tr("Git SVN Log Editor"),
         "text/vnd.qtcreator.git.svnlog",
-        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory logEditorFactory{gitEditorParameters(
@@ -411,7 +410,6 @@ public:
         Git::Constants::GIT_LOG_EDITOR_ID,
         Tr::tr("Git Log Editor"),
         "text/vnd.qtcreator.git.log",
-        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory reflogEditorFactory{gitEditorParameters(
@@ -419,7 +417,6 @@ public:
         Git::Constants::GIT_REFLOG_EDITOR_ID,
         Tr::tr("Git Reflog Editor"),
         "text/vnd.qtcreator.git.reflog",
-        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory blameEditorFactory{gitEditorParameters(
@@ -427,7 +424,6 @@ public:
         Git::Constants::GIT_BLAME_EDITOR_ID,
         Tr::tr("Git Annotation Editor"),
         "text/vnd.qtcreator.git.annotation",
-        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory commitTextEditorFactory{gitEditorParameters(
@@ -435,7 +431,6 @@ public:
         Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID,
         Tr::tr("Git Commit Editor"),
         "text/vnd.qtcreator.git.commit",
-        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory rebaseEditorFactory{gitEditorParameters(
@@ -443,7 +438,6 @@ public:
         Git::Constants::GIT_REBASE_EDITOR_ID,
         Tr::tr("Git Rebase Editor"),
         "text/vnd.qtcreator.git.rebase",
-        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
 private:
@@ -2600,7 +2594,7 @@ void GitTest::testDiffFileResolving_data()
 
 void GitTest::testDiffFileResolving()
 {
-    VcsBaseEditorWidget::testDiffFileResolving(dd->commitTextEditorFactory);
+    VcsBaseEditor::testDiffFileResolving(dd->commitTextEditorFactory);
 }
 
 void GitTest::testLogResolving()
@@ -2626,7 +2620,7 @@ void GitTest::testLogResolving()
                 "    Signed-off-by: Junio C Hamano <gitster@pobox.com>\n"
                 );
 
-    VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data,
+    VcsBaseEditor::testLogResolving(dd->logEditorFactory, data,
                             "50a6b54c - Merge branch 'for-junio' of git://bogomips.org/git-svn",
                             "3587b513 - Update draft release notes to 1.8.2");
 
@@ -2634,7 +2628,7 @@ void GitTest::testLogResolving()
                 "50a6b54 (HEAD -> feature, tag: v1.8.2) HEAD@{0}: commit: "
                 "Update draft release notes to 1.8.2\n"
                 "3587b51 HEAD@{1}: checkout: moving from master to feature");
-    VcsBaseEditorWidget::testLogResolving(dd->reflogEditorFactory, reflogData,
+    VcsBaseEditor::testLogResolving(dd->reflogEditorFactory, reflogData,
                             "50a6b54 - (HEAD -> feature, tag: v1.8.2) HEAD@{0}: commit: "
                             "Update draft release notes to 1.8.2",
                             "3587b51 - HEAD@{1}: checkout: moving from master to feature");

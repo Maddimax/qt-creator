@@ -1330,7 +1330,7 @@ void SubversionTest::testLogResolving()
                 "   expectations, remove XFail.\n"
                 "\n"
                 );
-    VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "r1439551", "r1439540");
+    VcsBaseEditor::testLogResolving(dd->logEditorFactory, data, "r1439551", "r1439540");
 }
 
 // With no widget subclass left, the Subversion editors open in the Qt Quick

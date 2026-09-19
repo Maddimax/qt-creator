@@ -933,7 +933,7 @@ void BazaarPlugin::testDiffFileResolving_data()
 
 void BazaarPlugin::testDiffFileResolving()
 {
-    VcsBaseEditorWidget::testDiffFileResolving(d->diffEditorFactory);
+    VcsBaseEditor::testDiffFileResolving(d->diffEditorFactory);
 }
 
 void BazaarPlugin::testLogResolving()
@@ -956,7 +956,7 @@ void BazaarPlugin::testLogResolving()
                 "  (gz) Set approved revision and vote \"Approve\" when using lp-propose\n"
                 "   --approve (Jonathan Lange)\n"
                 );
-    VcsBaseEditorWidget::testLogResolving(d->logEditorFactory, data, "6572", "6571");
+    VcsBaseEditor::testLogResolving(d->logEditorFactory, data, "6572", "6571");
 }
 
 // With no widget subclass left, the Bazaar editors open in the Qt Quick

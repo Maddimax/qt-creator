@@ -55,7 +55,7 @@ VcsBase::VcsBaseEditorParameters bazaarEditorParameters(
     const QString &mimeType,
     const std::function<void(const Utils::FilePath &, const QString &)> &describe)
 {
-    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, {}, describe,
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, describe,
                                                 bazaarChangeUnderCursor};
     parameters.annotationHighlighterCreator
         = VcsBase::getAnnotationHighlighterCreator<BazaarAnnotationHighlighter>();

@@ -39,7 +39,7 @@ VcsBase::VcsBaseEditorParameters clearCaseEditorParameters(
     const QString &mimeType,
     const std::function<void(const Utils::FilePath &, const QString &)> &describe)
 {
-    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, {}, describe,
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, describe,
                                                 clearCaseChangeUnderCursor};
     parameters.annotationHighlighterCreator
         = VcsBase::getAnnotationHighlighterCreator<ClearCaseAnnotationHighlighter>();

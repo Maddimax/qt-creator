@@ -95,7 +95,6 @@ public:
     Utils::Id id;
     QString displayName;
     QString mimeType;
-    std::function<QWidget *()> editorWidgetCreator;
     std::function<void (const Utils::FilePath &, const QString &)> describeFunc;
     // The change under a cursor - a revision, a change number - or nothing.
     // What a plain click on it describes, in a view that is not the widget

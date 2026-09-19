@@ -1178,7 +1178,7 @@ void FossilTests::testDiffFileResolving_data()
 
 void FossilTests::testDiffFileResolving()
 {
-    VcsBaseEditorWidget::testDiffFileResolving(dd->diffFactory);
+    VcsBaseEditor::testDiffFileResolving(dd->diffFactory);
 }
 
 void FossilTests::testLogResolving()
@@ -1191,7 +1191,7 @@ void FossilTests::testLogResolving()
         "   EDITED src/core/scaler.cpp\n"
         "   EDITED src/core/scaler.h\n"
     );
-    VcsBaseEditorWidget::testLogResolving(dd->fileLogFactory, data, "ac6d1129b8", "56d6917c3b");
+    VcsBaseEditor::testLogResolving(dd->fileLogFactory, data, "ac6d1129b8", "56d6917c3b");
 }
 
 // With no widget subclass left, the Fossil editors open in the Qt Quick

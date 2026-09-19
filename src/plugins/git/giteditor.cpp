@@ -352,11 +352,9 @@ FilePath gitFileNameForLine(VcsBase::VcsEditorDocument *document, int line)
 
 VcsBase::VcsBaseEditorParameters gitEditorParameters(
     EditorContentType type, Id id, const QString &displayName, const QString &mimeType,
-    const std::function<QWidget *()> &editorWidgetCreator,
     const std::function<void(const FilePath &, const QString &)> &describe)
 {
-    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType,
-                                                editorWidgetCreator, describe,
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, describe,
                                                 gitChangeUnderCursor, gitResolveDiffTarget};
     parameters.isValidRevision = gitIsValidRevision;
     parameters.decorateVersion = gitDecorateVersion;

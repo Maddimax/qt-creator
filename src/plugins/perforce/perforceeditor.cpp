@@ -49,7 +49,7 @@ VcsBase::VcsBaseEditorParameters perforceEditorParameters(
     const QString &mimeType,
     const std::function<void(const Utils::FilePath &, const QString &)> &describe)
 {
-    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, {}, describe,
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, describe,
                                                 perforceChangeUnderCursor};
     parameters.annotationPreviousVersions = perforceAnnotationPreviousVersions;
     parameters.findDiffFile = perforceFindDiffFile;

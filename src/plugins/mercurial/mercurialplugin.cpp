@@ -838,7 +838,7 @@ void MercurialTest::testDiffFileResolving_data()
 
 void MercurialTest::testDiffFileResolving()
 {
-    VcsBaseEditorWidget::testDiffFileResolving(dd->diffEditorFactory);
+    VcsBaseEditor::testDiffFileResolving(dd->diffEditorFactory);
 }
 
 void MercurialTest::testLogResolving()
@@ -858,7 +858,7 @@ void MercurialTest::testLogResolving()
                 "date:        Sat Jan 19 04:08:16 2013 +0100\n"
                 "summary:     test-rebase: add another test for rebase with multiple roots\n"
                 );
-    VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "18473:692cbda1eb50", "18472:37100f30590f");
+    VcsBaseEditor::testLogResolving(dd->logEditorFactory, data, "18473:692cbda1eb50", "18472:37100f30590f");
 }
 
 // With no widget subclass left, the Mercurial editors open in the Qt Quick

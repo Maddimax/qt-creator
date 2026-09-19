@@ -104,23 +104,12 @@ namespace VcsBase {
 /*!
     \class VcsBase::VcsBaseEditor
 
-    \brief The VcsBaseEditor class implements an editor with no support for
-    duplicates.
+    \brief The VcsBaseEditor class holds what the VCS plugins ask about
+    editors and their sources.
 
-    Creates a browse combo in the toolbar for diff output.
-    It also mirrors the signals of the VcsBaseEditor since the editor
-    manager passes the editor around.
+    It was the widget editor's IEditor once; every VCS editor is the Qt Quick
+    editor over a VcsEditorDocument now, and only the statics remain.
 */
-
-VcsBaseEditor::VcsBaseEditor()
-{
-}
-
-void VcsBaseEditor::finalizeInitialization()
-{
-    QTC_ASSERT(qobject_cast<VcsBaseEditorWidget *>(editorWidget()), return);
-    editorWidget()->setReadOnly(true);
-}
 
 // ----------- VcsBaseEditorPrivate
 
@@ -1217,13 +1206,6 @@ TextEncoding VcsBaseEditor::getEncoding(const FilePath &workingDirectory, const 
     return getEncoding(workingDirectory / files.front());
 }
 
-VcsBaseEditorWidget *VcsBaseEditor::getVcsBaseEditor(const IEditor *editor)
-{
-    if (auto be = qobject_cast<const BaseTextEditor *>(editor))
-        return qobject_cast<VcsBaseEditorWidget *>(be->editorWidget());
-    return nullptr;
-}
-
 // Return line number of current editor if it matches.
 int VcsBaseEditor::lineNumberOfCurrentEditor(const FilePath &currentFile)
 {
@@ -1539,19 +1521,9 @@ VcsEditorFactory::VcsEditorFactory(const VcsBaseEditorParameters &parameters)
 
     setDocumentCreator([parameters] { return new VcsEditorDocument(parameters); });
 
-    // A VCS that still has a widget subclass gets it; one that has moved
-    // everything of it into the parameters gets the Qt Quick editor.
-    if (parameters.editorWidgetCreator) {
-        setEditorWidgetCreator([parameters] {
-            auto widget = parameters.editorWidgetCreator();
-            auto editorWidget = Aggregation::query<VcsBaseEditorWidget>(widget);
-            editorWidget->setParameters(parameters);
-            return widget;
-        });
-        setEditorCreator([] { return new VcsBaseEditor(); });
-    } else {
-        setUsesQuickEditor(true);
-    }
+    // The Qt Quick editor, for every VCS: what a widget subclass used to add
+    // is in the parameters, and the document reads it.
+    setUsesQuickEditor(true);
     setMarksVisible(false);
     setRevisionsVisible(false);
     // Output is not to be typed into, and is folded where it has chunks -
@@ -1575,10 +1547,9 @@ VcsEditorFactory::~VcsEditorFactory() = default;
 
 namespace VcsBase {
 
-// On the document, whichever editor the factory builds around it: the widget
-// one for a VCS that still has a subclass, the Qt Quick one for a VCS that
-// has moved everything into its parameters.
-void VcsBaseEditorWidget::testDiffFileResolving(const VcsEditorFactory &factory)
+// On the document of the editor the factory builds - the Qt Quick one, for
+// every VCS.
+void VcsBaseEditor::testDiffFileResolving(const VcsEditorFactory &factory)
 {
     const std::unique_ptr<IEditor> editor(factory.createEditor());
     QVERIFY(editor);
@@ -1594,10 +1565,10 @@ void VcsBaseEditorWidget::testDiffFileResolving(const VcsEditorFactory &factory)
     QVERIFY(document->fileNameFromDiffSpecification(block).endsWith(QString::fromLatin1(fileName)));
 }
 
-void VcsBaseEditorWidget::testLogResolving(const VcsEditorFactory &factory,
-                                           const QByteArray &data,
-                                           const QByteArray &entry1,
-                                           const QByteArray &entry2)
+void VcsBaseEditor::testLogResolving(const VcsEditorFactory &factory,
+                                     const QByteArray &data,
+                                     const QByteArray &entry1,
+                                     const QByteArray &entry2)
 {
     const std::unique_ptr<IEditor> editor(factory.createEditor());
     QVERIFY(editor);
@@ -1605,15 +1576,10 @@ void VcsBaseEditorWidget::testLogResolving(const VcsEditorFactory &factory,
     QVERIFY(document);
 
     document->setPlainText(QLatin1String(data));
-    // The document finds the entries.
+    // The document finds the entries; that the tool bar's browser shows them
+    // is TextEditor's to test.
     QCOMPARE(document->sections()->entries().value(0), QString::fromLatin1(entry1));
     QCOMPARE(document->sections()->entries().value(1), QString::fromLatin1(entry2));
-    // And the widget editor's browser in the tool bar shows what it found;
-    // the Qt Quick editor's is TextEditor's to test.
-    if (VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor.get())) {
-        QCOMPARE(widget->d->entriesComboBox()->itemText(0), QString::fromLatin1(entry1));
-        QCOMPARE(widget->d->entriesComboBox()->itemText(1), QString::fromLatin1(entry2));
-    }
 }
 
 } // VcsBase

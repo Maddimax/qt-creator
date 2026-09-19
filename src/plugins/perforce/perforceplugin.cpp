@@ -1590,7 +1590,7 @@ void PerforcePlugin::testLogResolving()
                 "\n"
                 "        Comment\n"
                 );
-    VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "12345", "12344");
+    VcsBaseEditor::testLogResolving(dd->logEditorFactory, data, "12345", "12344");
 }
 
 // With no widget subclass left, the Perforce editors open in the Qt Quick

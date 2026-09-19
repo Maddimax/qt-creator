@@ -41,12 +41,14 @@ class VcsEditorFactory;
 
 // Documentation inside
 
-class VCSBASE_EXPORT VcsBaseEditor : public TextEditor::BaseTextEditor
+// What the VCS plugins ask about editors and their sources: which encoding
+// output about a file is in, which editor shows what, where the caret is.
+// No editor of its own any more - every VCS editor is the Qt Quick editor
+// over a VcsEditorDocument - so nothing here is instantiated.
+class VCSBASE_EXPORT VcsBaseEditor
 {
-    Q_OBJECT
-
 public:
-    VcsBaseEditor();
+    VcsBaseEditor() = delete;
 
     // Utility to find the codec for a source (file or directory), querying
     // the editor manager and the project managers (defaults to system codec).
@@ -54,10 +56,6 @@ public:
     // output.
     static Utils::TextEncoding getEncoding(const Utils::FilePath &source);
     static Utils::TextEncoding getEncoding(const Utils::FilePath &workingDirectory, const QStringList &files);
-
-    // Utility to return the widget from the IEditor returned by the editor
-    // manager which is a BaseTextEditor.
-    static VcsBaseEditorWidget *getVcsBaseEditor(const Core::IEditor *editor);
 
     // Utility to find the line number of the current editor. Optionally,
     // pass in the file name to match it. To be used when jumping to current
@@ -86,7 +84,16 @@ public:
     static Core::IEditor* locateEditorByTag(const QString &tag);
     static QString editorTag(EditorContentType t, const Utils::FilePath &workingDirectory,
                              const QStringList &files, const QString &revision = {});
-    void finalizeInitialization() override;
+
+#ifdef WITH_TESTS
+    // What every VCS plugin's tests ask of an editor its factory builds: that
+    // the document finds a diff's file and a log's entries.
+    static void testDiffFileResolving(const VcsEditorFactory &factory);
+    static void testLogResolving(const VcsEditorFactory &factory,
+                                 const QByteArray &data,
+                                 const QByteArray &entry1,
+                                 const QByteArray &entry2);
+#endif
 };
 
 class VCSBASE_EXPORT VcsBaseEditorWidget : public TextEditor::TextEditorWidget
@@ -249,15 +256,6 @@ private:
 
     friend class Internal::ChangeTextCursorHandler;
     Internal::VcsBaseEditorWidgetPrivate *const d;
-
-#ifdef WITH_TESTS
-public:
-    static void testDiffFileResolving(const VcsEditorFactory &factory);
-    static void testLogResolving(const VcsEditorFactory &factory,
-                                 const QByteArray &data,
-                                 const QByteArray &entry1,
-                                 const QByteArray &entry2);
-#endif
 };
 
 struct VcsBaseDescriptionEditorParameters

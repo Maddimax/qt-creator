@@ -58,7 +58,7 @@ VcsBase::VcsBaseEditorParameters mercurialEditorParameters(
     VcsBase::EditorContentType type, Id id, const QString &displayName, const QString &mimeType,
     const std::function<void(const FilePath &, const QString &)> &describe)
 {
-    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, {}, describe,
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, describe,
                                                 mercurialChangeUnderCursor};
     parameters.decorateVersion = mercurialDecorateVersion;
     parameters.annotationPreviousVersions = mercurialAnnotationPreviousVersions;

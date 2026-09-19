@@ -1137,16 +1137,12 @@ void VcsEditorDocument::updateSections()
 #include "vcsbaseclientsettings.h"
 #include "vcsbaseeditor.h"
 
-#include <solutions/spinner/spinner.h>
-
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/environment.h>
-#include <utils/fancylineedit.h>
 #include <utils/temporarydirectory.h>
 
 #include <QClipboard>
-#include <QComboBox>
 #include <QGuiApplication>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -1163,33 +1159,24 @@ class VcsEditorDocumentTest final : public QObject
 private slots:
     // What a VCS editor is configured with lives on its document, and the
     // widget editor's accessors are a view on it: set on either side, seen
-    // on the other. What a subclass declares in its constructor, before there
-    // is a document, reaches the document too. And the sections follow the
-    // text, with the one thing the document cannot know - a log entry's
-    // subject - asked of the widget that knows.
-    void testTheWidgetEditorsStateIsTheDocuments()
+    // on the other. What a subclass declared in its constructor is the
+    // parameters' now, and reaches the document from there. And the sections
+    // follow the text, with the one thing the document cannot know - a log
+    // entry's subject - the parameters' to say too.
+    void testTheEditorsStateIsTheDocuments()
     {
-        class LogWidget final : public VcsBaseEditorWidget
-        {
-        public:
-            LogWidget() { setLogEntryPattern("^entry ([0-9]+)"); }
-
-        private:
-            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-            QString revisionSubject(const QTextBlock &block) const final
-            {
-                return block.next().text().trimmed();
-            }
+        VcsBaseEditorParameters parameters{LogOutput,
+                                           "VcsEditorDocumentTest.Log",
+                                           "VCS document test log",
+                                           "text/vnd.qtcreator.vcs-document-test",
+                                           [](const FilePath &, const QString &) {}};
+        parameters.logEntryPattern = "^entry ([0-9]+)";
+        parameters.revisionSubject = [](const QTextBlock &block) {
+            return block.next().text().trimmed();
         };
-        const VcsBaseEditorParameters parameters{LogOutput,
-                                                 "VcsEditorDocumentTest.Log",
-                                                 "VCS document test log",
-                                                 "text/vnd.qtcreator.vcs-document-test",
-                                                 [] { return new LogWidget; },
-                                                 [](const FilePath &, const QString &) {}};
         VcsEditorFactory factory(parameters);
-        // What the widget subclass says about its gutter in its constructor,
-        // said by the factory too, for the view that has no widget.
+        // What the widget subclass said about its gutter in its constructor,
+        // said by the factory, for the view that has no widget.
         QVERIFY2(!factory.marksVisible(), "a VCS view has a column for marks it cannot carry");
         QVERIFY2(!factory.revisionsVisible(), "a VCS view marks edited lines nobody saves");
         // Through the editor manager, as a client opens one: the choice below
@@ -1199,22 +1186,11 @@ private slots:
             = Core::EditorManager::openEditorWithContents(parameters.id, &title, QByteArray());
         QVERIFY(editor);
         const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
-        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
-        QVERIFY2(widget, "the factory did not build a VCS editor");
-        VcsEditorDocument * const document = widget->vcsDocument();
+        auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
         QVERIFY2(document, "the VCS editor's document is not a VCS document");
         QCOMPARE(document->contentType(), LogOutput);
-        QCOMPARE(widget->contentType(), LogOutput);
-
-        widget->setWorkingDirectory(FilePath::fromString("/somewhere/checked/out"));
-        QCOMPARE(document->workingDirectory(), FilePath::fromString("/somewhere/checked/out"));
-        document->setFirstLineNumber(41);
-        QCOMPARE(widget->firstLineNumber(), 41);
-        widget->setDefaultLineNumber(7);
-        QCOMPARE(document->defaultLineNumber(), 7);
-
         QVERIFY2(!document->logEntryPattern().pattern().isEmpty(),
-                 "the pattern the constructor declared never reached the document");
+                 "the pattern the parameters declared never reached the document");
 
         document->setPlainText("entry 1\n  first\nmore\nentry 2\n  second\n");
         QCOMPARE(document->sections()->entries(), QStringList({"1 - first", "2 - second"}));
@@ -1234,8 +1210,8 @@ private slots:
         QCOMPARE(choice->currentIndex(), 1);
         choice->followCaret(2);
         QCOMPARE(choice->currentIndex(), 0);
-        // Setting the text left the widget editor's caret at the end; what
-        // matters is that a choice moves it, in both directions.
+        // Wherever setting the text left the caret, a choice moves it, in
+        // both directions.
         QVERIFY2(editor->currentLine() != 4, "the caret starts where the jump would land");
         choice->choose(1);
         QVERIFY2(editor->currentLine() == 4,
@@ -1254,32 +1230,20 @@ private slots:
     // were never asked either.
     // What a VCS client does once it has an editor: hands it a command whose
     // output becomes the text. That ran on the widget, with a spinner over it
-    // meanwhile and a jump to the line asked for after. It is the document's
-    // now, so that a view of any kind can show it; the widget still shows the
-    // spinner, and still shapes the output through its virtual setPlainText().
+    // meanwhile and a jump to the line asked for after. It is the document's:
+    // busy while the command runs - which the Qt Quick view's spinner follows,
+    // TextEditor's to test - then the output its text and the default line
+    // gone to.
     void testACommandsOutputBecomesTheDocumentsText()
     {
         const FilePath sh = FilePath::fromString("sh").searchInPath();
         if (sh.isEmpty())
             QSKIP("no sh to run a command with");
 
-        class CommandWidget final : public VcsBaseEditorWidget
-        {
-        public:
-            CommandWidget() = default;
-            void setPlainText(const QString &text) final
-            {
-                VcsBaseEditorWidget::setPlainText(text.toUpper());
-            }
-
-        private:
-            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-        };
         const VcsBaseEditorParameters parameters{OtherContent,
                                                  "VcsEditorDocumentTest.Command",
                                                  "VCS document test command",
                                                  "text/vnd.qtcreator.vcs-document-test-command",
-                                                 [] { return new CommandWidget; },
                                                  [](const FilePath &, const QString &) {}};
         VcsEditorFactory factory(parameters);
         QString title = "VCS document test command";
@@ -1287,40 +1251,25 @@ private slots:
             = Core::EditorManager::openEditorWithContents(parameters.id, &title, QByteArray());
         QVERIFY(editor);
         const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
-        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
-        QVERIFY2(widget, "the factory did not build a VCS editor");
-        VcsEditorDocument * const document = widget->vcsDocument();
-        QVERIFY(document);
-        auto * const spinner = widget->findChild<SpinnerSolution::Spinner *>();
-        QVERIFY2(spinner, "the widget has no spinner to show over a running command");
-        QVERIFY(!spinner->isVisible());
+        auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+        QVERIFY2(document, "the VCS editor's document is not a VCS document");
         QVERIFY(!document->isBusy());
 
         TemporaryDirectory dir("vcs-command-test");
         QVERIFY(dir.isValid());
-        // The command waits for a file the test writes once it has seen the
-        // spinner, so that "shown while running" is not a race against how
-        // fast the shell answers.
-        const FilePath gate = dir.filePath("gate");
-        widget->setDefaultLineNumber(3);
+        document->setDefaultLineNumber(3);
         {
             const Storage<CommandResult> resultStorage;
             const ProcessTask task = vcsProcessTask(
-                {.runData = {{sh, {"-c", "until [ -e \"$0\" ]; do sleep 0.02; done; "
-                                        "printf 'one\\ntwo\\nthree\\n'",
-                                  gate.path()}},
+                {.runData = {{sh, {"-c", "printf 'one\\ntwo\\nthree\\n'"}},
                              dir.path(),
                              Environment::systemEnvironment()}},
                 resultStorage);
-            widget->executeTask(task, resultStorage);
+            document->executeTask(task, resultStorage);
         }
         QVERIFY2(document->isBusy(), "starting a command did not make the document busy");
-        QTRY_VERIFY2(spinner->isVisible(), "the widget shows no spinner over a running command");
-        QVERIFY(gate.writeFileContents("go"));
         QTRY_VERIFY(!document->isBusy());
-        QVERIFY2(!spinner->isVisible(), "the spinner outlived the command");
-        // Through the widget's setPlainText(), which this one upper-cases.
-        QCOMPARE(document->plainText(), QString("ONE\nTWO\nTHREE\n"));
+        QCOMPARE(document->plainText(), QString("one\ntwo\nthree\n"));
         QCOMPARE(editor->currentLine(), 3);
 
         // A command that fails leaves a line saying so - as it is, not through
@@ -1330,7 +1279,7 @@ private slots:
             const ProcessTask task = vcsProcessTask(
                 {.runData = {{sh, {"-c", "exit 3"}}, dir.path(), Environment::systemEnvironment()}},
                 resultStorage);
-            widget->executeTask(task, resultStorage);
+            document->executeTask(task, resultStorage);
         }
         QVERIFY(document->isBusy());
         QTRY_VERIFY(!document->isBusy());
@@ -1339,8 +1288,7 @@ private slots:
 
     // An annotation's lines are coloured by change. The widget did that by
     // installing the highlighter its VCS subclass named, once the text had
-    // changes to colour; the document does it now - from the parameters where
-    // the VCS has put it there, and from the widget's answer where it has not.
+    // changes to colour; the document does it, from the parameters.
     void testAnAnnotationIsColouredByTheDocument()
     {
         class TestAnnotationHighlighter final : public BaseAnnotationHighlighter
@@ -1365,7 +1313,6 @@ private slots:
                                            "VcsEditorDocumentTest.Coloured",
                                            "VCS document test coloured annotation",
                                            "text/vnd.qtcreator.vcs-document-coloured-test",
-                                           {},
                                            [](const FilePath &, const QString &) {}};
         parameters.annotationHighlighterCreator
             = getAnnotationHighlighterCreator<TestAnnotationHighlighter>();
@@ -1381,47 +1328,11 @@ private slots:
         QCOMPARE(colourOfLine(&document, 2), colourOfLine(&document, 0));
         QVERIFY2(colourOfLine(&document, 1) != colourOfLine(&document, 0),
                  "two changes got the same colour");
-
-        // From the widget's answer, for a VCS whose parameters do not say yet.
-        class AnswersWidget final : public VcsBaseEditorWidget
-        {
-        public:
-            AnswersWidget() { setAnnotationEntryPattern("^([0-9a-f]{8}) "); }
-
-        private:
-            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-            BaseAnnotationHighlighterCreator annotationHighlighterCreator() const final
-            {
-                return getAnnotationHighlighterCreator<TestAnnotationHighlighter>();
-            }
-        };
-        const VcsBaseEditorParameters widgetParameters{
-            AnnotateOutput,
-            "VcsEditorDocumentTest.ColouredByWidget",
-            "VCS document test coloured by widget",
-            "text/vnd.qtcreator.vcs-document-coloured-widget-test",
-            [] { return new AnswersWidget; },
-            [](const FilePath &, const QString &) {}};
-        VcsEditorFactory factory(widgetParameters);
-        QString title = "VCS document test coloured";
-        Core::IEditor * const editor
-            = Core::EditorManager::openEditorWithContents(widgetParameters.id, &title, QByteArray());
-        QVERIFY(editor);
-        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
-        auto * const answered = qobject_cast<VcsEditorDocument *>(editor->document());
-        QVERIFY(answered);
-        answered->setPlainText(text);
-        QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(answered->syntaxHighlighter()),
-                 "the widget's highlighter never reached the document");
-        QTRY_VERIFY2(colourOfLine(answered, 1),
-                     "the second line got no colour through the widget's answer");
     }
 
-    // What a VCS command can be told - toggles and choices - used to build
-    // itself into the widget's QToolBar. It lists itself now and the views
-    // draw the list: the toggles through the document's tool bar actions,
-    // which both views draw already, and a choice as a combo box on the
-    // widget; the Qt Quick tool bar's combo is the next batch's.
+    // What a VCS command can be told - toggles, choices, fields - used to
+    // build itself into the widget's QToolBar. It lists itself, the document
+    // it is set on offers the list to the tool bar, and the view draws it.
     void testAnEditorConfigListsItselfAndTheViewsDrawIt()
     {
         VcsBaseEditorConfig config;
@@ -1485,21 +1396,13 @@ private slots:
         grep->commit();
         QCOMPARE(changed.count(), 5);
 
-        // On a document: the toggles are its tool bar actions, and the views
-        // are told. On the widget: a combo box per choice, in step both ways.
-        class ConfigWidget final : public VcsBaseEditorWidget
-        {
-        public:
-            ConfigWidget() = default;
-
-        private:
-            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-        };
+        // On a document: the toggles are its tool bar actions, the choice and
+        // the field its tool bar choice and field, and the views are told.
+        // What a view draws of them is TextEditor's to test.
         const VcsBaseEditorParameters parameters{OtherContent,
                                                  "VcsEditorDocumentTest.Config",
                                                  "VCS document test config",
                                                  "text/vnd.qtcreator.vcs-document-config-test",
-                                                 [] { return new ConfigWidget; },
                                                  [](const FilePath &, const QString &) {}};
         VcsEditorFactory factory(parameters);
         QString title = "VCS document test config";
@@ -1507,17 +1410,15 @@ private slots:
             = Core::EditorManager::openEditorWithContents(parameters.id, &title, QByteArray());
         QVERIFY(editor);
         const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
-        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
-        QVERIFY(widget);
-        VcsEditorDocument * const document = widget->vcsDocument();
-        QVERIFY(document);
+        auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+        QVERIFY2(document, "the VCS editor's document is not a VCS document");
         QVERIFY(!document->toolBarActions().contains(whitespace));
         QVERIFY(document->toolBarChoices().isEmpty());
         QVERIFY(document->toolBarFields().isEmpty());
         QSignalSpy told(document, &TextEditor::TextDocument::toolBarActionsChanged);
         QSignalSpy toldChoices(document, &TextEditor::TextDocument::toolBarChoicesChanged);
         QSignalSpy toldFields(document, &TextEditor::TextDocument::toolBarFieldsChanged);
-        widget->setEditorConfig(&config);
+        document->setEditorConfig(&config);
         QCOMPARE(told.count(), 1);
         QCOMPARE(toldChoices.count(), 1);
         QCOMPARE(toldFields.count(), 1);
@@ -1527,42 +1428,6 @@ private slots:
         QVERIFY2(offered.contains(whitespace) && offered.contains(firstParent)
                      && offered.contains(reload),
                  "the config's toggles are not the document's tool bar actions");
-        QVERIFY2(widget->toolBar()->actions().contains(whitespace),
-                 "the widget's tool bar does not draw the document's toggle");
-        auto * const combo = widget->toolBar()->findChild<QComboBox *>();
-        QVERIFY2(combo, "the widget's tool bar has no combo box for the choice");
-        QCOMPARE(combo->count(), 3);
-        QCOMPARE(combo->currentIndex(), 0);
-        combo->setCurrentIndex(2);
-        QCOMPARE(moves->currentIndex(), 2);
-        QCOMPARE(changed.count(), 6);
-        moves->choose(1);
-        QCOMPARE(combo->currentIndex(), 1);
-        QCOMPARE(changed.count(), 7);
-
-        // And a line edit per field, typing into which is typing into the
-        // field, Return committing, and shown as the field is.
-        auto * const edit = widget->toolBar()->findChild<FancyLineEdit *>();
-        QVERIFY2(edit, "the widget's tool bar has no line edit for the field");
-        QCOMPARE(edit->placeholderText(), QString("Filter by message"));
-        QCOMPARE(edit->text(), QString("fix"));
-        edit->setText("bug");
-        QCOMPARE(grep->text(), QString("bug"));
-        QCOMPARE(changed.count(), 7);
-        QTest::keyClick(edit, Qt::Key_Return);
-        QCOMPARE(changed.count(), 8);
-        grep->setText("feature");
-        QCOMPARE(edit->text(), QString("feature"));
-        QAction *wrapping = nullptr;
-        const QList<QAction *> inBar = widget->toolBar()->actions();
-        for (QAction * const action : inBar) {
-            if (widget->toolBar()->widgetForAction(action) == edit)
-                wrapping = action;
-        }
-        QVERIFY2(wrapping, "the line edit is not in the tool bar as an action");
-        QVERIFY(wrapping->isVisible());
-        grep->setVisible(false);
-        QVERIFY2(!wrapping->isVisible(), "hiding the field left its line edit in the tool bar");
     }
 
     // What a VCS client is handed for the editor it is about to fill was the
@@ -1587,19 +1452,10 @@ private slots:
             }
             QList<QStringList> m_annotated;
         };
-        class HandleWidget final : public VcsBaseEditorWidget
-        {
-        public:
-            HandleWidget() = default;
-
-        private:
-            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-        };
         const VcsBaseEditorParameters parameters{AnnotateOutput,
                                                  "VcsEditorDocumentTest.Handle",
                                                  "VCS document test handle",
                                                  "text/vnd.qtcreator.vcs-document-handle-test",
-                                                 [] { return new HandleWidget; },
                                                  [](const FilePath &, const QString &) {}};
         VcsEditorFactory factory(parameters);
         VcsBaseSettings settings;
@@ -1614,9 +1470,7 @@ private slots:
         Core::IEditor * const editor = Core::DocumentModel::editorsForDocument(document).value(0);
         QVERIFY2(editor, "the document is in no editor");
         QVERIFY2(document->isTemporary(), "version control output is offered for saving");
-        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
-        QVERIFY(widget);
-        QVERIFY2(widget->isReadOnly(), "a VCS editor from the factory can be typed into");
+        QVERIFY2(factory.readOnly(), "a VCS editor from the factory can be typed into");
         QCOMPARE(VcsBase::source(document), source);
         QCOMPARE(document->defaultLineNumber(), 1);
         QCOMPARE(document->plainText(), Tr::tr("Working..."));
@@ -1677,19 +1531,10 @@ private slots:
             QList<QObject *> m_diffParents;
             QList<QObject *> m_logParents;
         };
-        class GenericWidget final : public VcsBaseEditorWidget
-        {
-        public:
-            GenericWidget() = default;
-
-        private:
-            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
-        };
         const VcsBaseEditorParameters parameters{DiffOutput,
                                                  "VcsEditorDocumentTest.Generic",
                                                  "VCS document test generic client",
                                                  "text/vnd.qtcreator.vcs-document-generic-test",
-                                                 [] { return new GenericWidget; },
                                                  [](const FilePath &, const QString &) {}};
         VcsEditorFactory factory(parameters);
         VcsBaseSettings settings;
@@ -1740,7 +1585,6 @@ private slots:
                                            "VcsEditorDocumentTest.Declared",
                                            "VCS document test declared",
                                            "text/vnd.qtcreator.vcs-document-declared-test",
-                                           {},
                                            [](const FilePath &, const QString &) {}};
         parameters.logEntryPattern = "^entry ([0-9]+)";
         parameters.annotationEntryPattern = "^([0-9a-f]{8}) ";
@@ -1811,7 +1655,6 @@ private slots:
                                            "VcsEditorDocumentTest.File",
                                            "VCS document test file",
                                            "text/vnd.qtcreator.vcs-document-file-test",
-                                           {},
                                            [](const FilePath &, const QString &) {}};
         parameters.readOnly = false;
         parameters.restoresState = false;
@@ -1849,7 +1692,6 @@ private slots:
                                            "VcsEditorDocumentTest.Mapped",
                                            "VCS document test mapped",
                                            "text/vnd.qtcreator.vcs-document-mapped-test",
-                                           {},
                                            [](const FilePath &, const QString &) {}};
         parameters.diffFilePattern = "^\\+{3} (.+)\\t";
         parameters.findDiffFile = [&asked](VcsEditorDocument *, const QString &fileName) {
@@ -1881,7 +1723,6 @@ private slots:
             "VcsEditorDocumentTest.Links",
             "VCS document test links",
             "text/vnd.qtcreator.vcs-document-links-test",
-            {},
             [&describedSource, &describedChange](const FilePath &source, const QString &change) {
                 describedSource = source;
                 describedChange = change;
@@ -1958,7 +1799,6 @@ private slots:
             "VcsEditorDocumentTest.Menu",
             "VCS document test menu",
             "text/vnd.qtcreator.vcs-document-menu-test",
-            {},
             [&describedSource, &describedChange](const FilePath &source, const QString &change) {
                 describedSource = source;
                 describedChange = change;
@@ -2067,7 +1907,6 @@ private slots:
                                            "VcsEditorDocumentTest.Answers",
                                            "VCS document test answers",
                                            "text/vnd.qtcreator.vcs-document-answers-test",
-                                           {},
                                            [](const FilePath &, const QString &) {},
                                            [](const QTextCursor &cursor) {
                                                static const QRegularExpression eightHex(
@@ -2160,7 +1999,6 @@ private slots:
                                            "VcsEditorDocumentTest.Diff",
                                            "VCS document test diff",
                                            "text/vnd.qtcreator.vcs-document-diff-test",
-                                           {},
                                            [](const FilePath &, const QString &) {},
                                            {}};
         parameters.addDiffActions = [](QMenu *menu, VcsEditorDocument *, const DiffChunk &chunk) {

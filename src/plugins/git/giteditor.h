@@ -42,10 +42,10 @@ void gitApplyDiffChunk(VcsBase::VcsEditorDocument *document, const VcsBase::Diff
 Utils::FilePath gitFileNameForLine(VcsBase::VcsEditorDocument *document, int line);
 
 // The parameters of a Git editor of \a type: the six above and the earlier
-// two, with the widget and the describe function the caller supplies.
+// two, with the describe function the caller supplies.
 VcsBase::VcsBaseEditorParameters gitEditorParameters(
     VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
-    const QString &mimeType, const std::function<QWidget *()> &editorWidgetCreator,
+    const QString &mimeType,
     const std::function<void(const Utils::FilePath &, const QString &)> &describe);
 
 // What a log is narrowed by, as git log arguments: the author, the message

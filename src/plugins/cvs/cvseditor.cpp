@@ -90,7 +90,7 @@ VcsBase::VcsBaseEditorParameters cvsEditorParameters(
     const std::function<void(const Utils::FilePath &, const QString &)> &describe)
 {
     VcsBase::VcsBaseEditorParameters parameters{
-        type, id, displayName, mimeType, {}, describe,
+        type, id, displayName, mimeType, describe,
         [type](const QTextCursor &cursor) { return cvsChangeUnderCursor(type, cursor); }};
     parameters.annotationPreviousVersions = cvsAnnotationPreviousVersions;
     parameters.annotationHighlighterCreator

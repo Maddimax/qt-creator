@@ -68566,3 +68566,148 @@ never had a `Q_OBJECT` class.
    creator with it.
 2. The QmlDesigner-side two; the standing list (entry 298), plus the
    double-click on a diff line and the VCS margins.
+
+## 2026-09-19 — No factory builds the widget VCS editor (batch 321)
+
+Entry 320's next item 1, as far as one batch carries it. The factory's
+widget branch, the `IEditor` subclass and the parameters' widget creator
+go; `VcsBaseEditorWidget` stays, for one user that is not a factory's.
+
+### What went
+
+- **`VcsEditorFactory`** built the widget editor for a VCS with an
+  `editorWidgetCreator` and the Qt Quick editor otherwise. No VCS has
+  one; it builds the Qt Quick editor, full stop, and
+  `VcsBaseEditorParameters::editorWidgetCreator` goes - the fifth
+  positional slot in every `*EditorParameters()` builder and in Git's
+  six factory calls, which passed `{}` since their batches.
+- **`VcsBaseEditor`** was `BaseTextEditor` with a constructor,
+  `finalizeInitialization()` (read-only for the widget) and
+  `getVcsBaseEditor()`, and a set of statics every VCS plugin calls -
+  `getEncoding()`, `getSource()`, `getTitleId()`, `editorTag()`,
+  `locateEditorByTag()`, `tagEditor()`, `gotoLineOfEditor()`,
+  `lineNumberOfCurrentEditor()`, 103 call sites between them. The
+  statics stay where the call sites find them; the class is no
+  `QObject` and cannot be constructed. A namespace would read better and
+  is a rename of nothing but the keyword; not this batch's.
+- **The two test helpers**, `testDiffFileResolving()` and
+  `testLogResolving()`, were statics of the widget class that had worked
+  on the document since entry 315 and checked the widget's combo box
+  only where a widget was built. They are `VcsBaseEditor`'s, the combo
+  check gone with the last widget; fifteen call sites in eight plugins
+  renamed.
+
+### What stays, and why
+
+`VcsBaseDescriptionEditorWidget` - the description pane the diff editor
+shows above a side-by-side diff, with change links and a context menu -
+is `new`ed by `createVcsBaseDescriptionEditorProvider()` with a
+`VcsBaseEditorParameters` of its own and `finalizeInitialization()`
+called by hand; Git's `testDiffDescriptionEditor` drives it. That is the
+diff editor's widget UI, a program of its own, and `VcsBaseEditorWidget`
+with its cursor handlers, context menu and tool bar drawing is its base
+until then. Nothing in it is reachable from a factory any more.
+
+### The six tests that drove the document through a widget
+
+`vcseditordocument.cpp` had six tests building a `VcsBaseEditorWidget`
+subclass to test document features through the widget path - the
+staging of entry 299, the output hook of 308, the config drawing of 310,
+the client handle of 313. With no widget path they drive the document:
+
+- `testTheWidgetEditorsStateIsTheDocuments` is
+  `testTheEditorsStateIsTheDocuments`: the log pattern and the revision
+  subject are the parameters' rather than a subclass's constructor and
+  virtual; the widget/document round trips of working directory, first
+  line and default line went, being set-then-get on one object now; the
+  sections and the tool bar choice that moves the caret stay, over the
+  Qt Quick editor.
+- `testACommandsOutputBecomesTheDocumentsText`: the widget upper-cased
+  the output through its `setPlainText()` and showed a spinner; the
+  output hook is `putOutput` (tested in the parameters test) and the
+  spinner is the Qt Quick view's (`testAViewSaysWhenItsDocumentIsBusy`).
+  What is left is the document's: busy from the start of the command,
+  the output its text, the default line gone to, a failure's line. The
+  gate file that held the command until the spinner had shown went with
+  the spinner: busy is set before `executeTask()` returns.
+- `testAnAnnotationIsColouredByTheDocument`: the second half, "from the
+  widget's answer where the parameters do not say", has no VCS left to
+  be about; the first half is the whole test.
+- `testAnEditorConfigListsItselfAndTheViewsDrawIt`: the config model and
+  the document's offering of it stay; the widget's combo box and line
+  edit went - the Qt Quick form's are TextEditor's tests (entries 311,
+  312).
+- `testAClientsHandleIsTheDocument`: read-only asked of the factory,
+  which the comment already said was where it came from.
+- `testTheGenericClientHoldsTheDocument`: the widget subclass was only
+  the creator; gone.
+
+Three includes went with them (the spinner, `FancyLineEdit`,
+`QComboBox`).
+
+First run, one build, in the VM: the six converted tests 3/0 each, the
+parameters test 3/0, both censuses 3/0, and one renamed helper per kind -
+Git's `testLogResolving` 3/0, Fossil's `testDiffFileResolving` 5/0 -
+every one exit 0 at the first attempt.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). A removal batch's
+controls show the tests that were rewritten still bite:
+
+- **A** - the factory says widget rather than Qt Quick (which, with no
+  creator, is `TextEditorWidget` over the VCS document): the census
+  "Compared lists have different sizes. Actual (quick) size: 13, Expected
+  40" - every VCS editor gone from the Qt Quick list at once - and
+  Fossil's test, "the log opened in the widget editor".
+- **B** - a running command leaves the document idle: the converted
+  command test, "'document->isBusy()' returned FALSE. (starting a command
+  did not make the document busy)".
+- **C** - setting a config tells the views nothing of its choices: the
+  converted config test, "Actual (toldChoices.count()): 0, Expected 1".
+- **D** - the document ignores the parameters' revision subject: the
+  converted state test, "Compared lists differ at index 0. Actual: "1",
+  Expected: "1 - first"".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     806 passed, 0 failed, 3 skipped, exit 0   x2
+                         805 passed, 1 failed, 3 skipped, exit 1   run 1
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         34 passed, 0 failed, 0 skipped, exit 0
+    -test Git            142 passed, 2 failed, 0 skipped, exit 2
+                           the baseline pair (entry 313)
+    Fossil 16, Mercurial 17, Bazaar 19, Subversion 4, Cvs 5, Perforce 10,
+    ClearCase 23 with 2 skipped, all exit 0
+
+VcsBase is 34 still: six tests rewritten, none added or dropped. Every
+VCS ran: the parameters lost a field and every builder changed.
+
+**TextEditor's first run failed** in
+`testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a line)`, the
+standing item's site: typing `a` inside the `""` the auto-completer had
+just closed, "Inserting text at 14 should have left the cursor at 15 but
+left it at 16, with the document going from 18 characters to 19" - the
+diagnostic of entry 284 reporting, as it was written to, that the
+cursor moved on its own after a one-character insertion. The
+key-by-key trace shows the sixteen keys before it landing exactly. This
+batch touches nothing in TextEditor but two census lists, and the test
+ran before any VCS test in the suite. As the standing item prescribes: the
+test alone on this binary, ten runs, 32 rows passing each time, 0
+failures; and a fourth full run, 806 passed, 0 failed, 3 skipped, exit 0.
+One sighting in four full runs, added to the item's tally; the item
+stands.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. The diff editor's description pane, and with it `VcsBaseEditorWidget`,
+   its private, the cursor handlers and `vcsbaseeditor.cpp`'s widget
+   half; `VcsBaseEditor` to a namespace once nothing else is in the way.
+   That is a piece of the diff editor's own UI, which is widget-based
+   throughout (`SideBySideDiffEditorWidget`, `UnifiedDiffEditorWidget`)
+   - the larger program this pane belongs to.
+2. The QmlDesigner-side two; the standing list (entry 298), plus the
+   double-click on a diff line and the VCS margins.

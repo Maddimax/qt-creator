@@ -1335,7 +1335,7 @@ void CvsTest::testDiffFileResolving_data()
 
 void CvsTest::testDiffFileResolving()
 {
-    VcsBaseEditorWidget::testDiffFileResolving(dd->diffEditorFactory);
+    VcsBaseEditor::testDiffFileResolving(dd->diffEditorFactory);
 }
 
 void CvsTest::testLogResolving()
@@ -1361,7 +1361,7 @@ void CvsTest::testLogResolving()
                 "added latest commentary\n"
                 "----------------------------\n"
                 );
-    VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "1.3", "1.2");
+    VcsBaseEditor::testLogResolving(dd->logEditorFactory, data, "1.3", "1.2");
 }
 
 // With no widget subclass left, the CVS editors open in the Qt Quick editor
