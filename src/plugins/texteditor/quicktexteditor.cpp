@@ -327,6 +327,10 @@ public:
         // Before anything that configures the view: viewport() looks through
         // widget(), so everything below this line would silently do nothing.
         setWidget(widget);
+        // Output that is not a file to edit is not to be typed into - the
+        // language's answer, asked of the view the way anyone asks it.
+        if (m_factory && m_factory->readOnly())
+            TextEditor::setReadOnlyOf(this, true);
 
         // A tooltip is a widget and has to be placed in screen coordinates.
         // The item is in a QQuickWidget's offscreen window, whose own position
@@ -1255,11 +1259,13 @@ private:
 
     void configureLanguageServices()
     {
-        if (m_document->filePath().isEmpty())
-            return;
-
+        // Output that is never a file - a VCS command's - has no path to find
+        // a language's factory by; the factory that built this editor is the
+        // language's answer for it.
         TextEditorFactory * const factory
-            = TextEditorFactory::preferredFactoryFor(m_document->filePath());
+            = m_document->filePath().isEmpty()
+                  ? m_factory
+                  : TextEditorFactory::preferredFactoryFor(m_document->filePath());
         // The Quick editor claims text/plain itself and is not a
         // TextEditorFactory, so this finds the language's one or the plain
         // text editor's - never this editor.
@@ -1619,8 +1625,8 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
          {"contextActions", QVariant::fromValue(contextActions)},
          {"wrapLines", displaySettings().textWrapping()},
          {"showLineNumbers", displaySettings().displayLineNumbers()},
-         // Corrected once the file - and so the language - is known, by
-         // whoever knows it: the editor does it in configureLanguageServices().
+         // Corrected once the language is known - from the factory that
+         // built the editor, or the file - in configureLanguageServices().
          {"showFoldMarkers", false},
          {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
          {"showAnnotations", displaySettings().displayAnnotations()},
@@ -6687,7 +6693,11 @@ private slots:
                              QString("QT4.FilesEditor"), QString("java.editor"),
                              QString("CompilationDatabase.CompilationDatabaseEditor"),
                              QString("Nim.NimEditor"),
-                             QString("GLSLEditor.GLSLEditor")};
+                             QString("GLSLEditor.GLSLEditor"),
+                             // Git's output editors: a VCS that supplies no widget
+                             // creator gets the Qt Quick editor from VcsEditorFactory.
+                             QString("Git SVN Log Editor"), QString("Git Log Editor"),
+                             QString("Git Reflog Editor"), QString("Git Annotation Editor")};
         expected.sort();
         QCOMPARE(quick, expected);
     }
@@ -6918,6 +6928,10 @@ private slots:
             {"Nim.NimEditor", "module.nim"},
             {"GLSLEditor.GLSLEditor", "shader.frag"},
         };
+        // Output that is never a file - a VCS log, a blame - has no name to
+        // open; it opens with contents, by id, and is checked the same way.
+        static const QSet<QString> outputNotFiles{"Git SVN Log Editor", "Git Log Editor",
+                                                  "Git Reflog Editor", "Git Annotation Editor"};
 
         Utils::TemporaryDirectory dir("quick-language-census");
         QVERIFY(dir.isValid());
@@ -6933,20 +6947,26 @@ private slots:
             const auto complain = [&wrong, &id](const QString &what) { wrong << id + ": " + what; };
 
             const QString name = sampleFor.value(id);
+            Core::IEditor *editor = nullptr;
             if (name.isEmpty()) {
-                complain("moved to the Qt Quick editor with no file here to check it with");
-                continue;
+                if (!outputNotFiles.contains(id)) {
+                    complain("moved to the Qt Quick editor with no file here to check it with");
+                    continue;
+                }
+                QString title = id;
+                editor = Core::EditorManager::openEditorWithContents(factory->id(), &title,
+                                                                     QByteArray());
+            } else {
+                const Utils::FilePath file = dir.filePath(name);
+                QVERIFY(file.writeFileContents(""));
+                if (TextEditorFactory::preferredFactoryFor(file) != factory) {
+                    complain(name + " belongs to another factory, so this row measures that one");
+                    continue;
+                }
+                editor = Core::EditorManager::openEditor(file);
             }
-            const Utils::FilePath file = dir.filePath(name);
-            QVERIFY(file.writeFileContents(""));
-            if (TextEditorFactory::preferredFactoryFor(file) != factory) {
-                complain(name + " belongs to another factory, so this row measures that one");
-                continue;
-            }
-
-            Core::IEditor * const editor = Core::EditorManager::openEditor(file);
             if (!editor) {
-                complain("nothing opened " + name);
+                complain("nothing opened " + (name.isEmpty() ? QString("with contents") : name));
                 continue;
             }
             const QScopeGuard closeIt(
@@ -7018,9 +7038,9 @@ private slots:
             }
         }
         QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join("; ")));
-        // The list above is not empty on any build this runs on, and a census
-        // of nothing passes.
-        QCOMPARE(checked, sampleFor.size());
+        // The lists above are not empty on any build this runs on, and a
+        // census of nothing passes.
+        QCOMPARE(checked, sampleFor.size() + outputNotFiles.size());
     }
 
     // A census, the way the settings pages have one: every language that has
@@ -14650,6 +14670,101 @@ private slots:
         QVERIFY2(none, "the view has no gutter to ask, or never saw the edit");
         QVERIFY2(!none->gutterShows, "the gutter was told to mark edits in a language that marks none");
         QVERIFY2(!none->barBesideEdit, "a bar beside an edited line in a view that marks none");
+    }
+
+    // Output that is not a file to edit - a VCS log, a diff - is not to be
+    // typed into, and the factory says so for every view of the language: the
+    // widget through its own setReadOnly(), the Qt Quick view through what
+    // setReadOnlyOf() asks of it.
+    void testAFactoryCanSayItsViewsAreReadOnly_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFactoryCanSayItsViewsAreReadOnly()
+    {
+        QFETCH(bool, quick);
+
+        class OutputFactory final : public TextEditorFactory
+        {
+        public:
+            OutputFactory(bool quick, bool readOnly)
+            {
+                setId("QuickEditorReadOnlyTest");
+                setDisplayName("Quick Editor Read-Only Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorReadOnlyTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+                setReadOnly(readOnly);
+            }
+        };
+
+        // Whether a keystroke changes the text, sent where the view takes keys.
+        const auto typedInto = [](Core::IEditor *editor) -> bool {
+            auto * const document = qobject_cast<TextDocument *>(editor->document());
+            if (!document)
+                return false;
+            document->setPlainText("alpha\n");
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_X, Qt::NoModifier, "x");
+            QCoreApplication::sendEvent(TextEditor::keyTargetOf(editor), &press);
+            return document->plainText() != "alpha\n";
+        };
+
+        OutputFactory output(quick, true);
+        QCOMPARE(output.readOnly(), true);
+        const std::unique_ptr<Core::IEditor> log(output.createEditor());
+        QVERIFY2(log.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(log.get()) != nullptr, quick);
+        QVERIFY2(!typedInto(log.get()), "a keystroke changed output that is not a file to edit");
+
+        OutputFactory file(quick, false);
+        QCOMPARE(file.readOnly(), false);
+        const std::unique_ptr<Core::IEditor> text(file.createEditor());
+        QVERIFY2(text.get(), "the factory built nothing");
+        QVERIFY2(typedInto(text.get()), "an ordinary editor refused a keystroke");
+    }
+
+    // Output that is never a file - a VCS command's - has no path, and the
+    // editor looked its language up by path: a log that folds drew no fold
+    // markers and was told nothing else its factory says either. The factory
+    // that built the editor is the answer where there is no file to ask about,
+    // as it is for the widget editor.
+    void testOutputThatIsNeverAFileGetsWhatItsFactoryConfigures()
+    {
+        class OutputFactory final : public TextEditorFactory
+        {
+        public:
+            OutputFactory()
+            {
+                setId("QuickEditorOutputTest");
+                setDisplayName("Quick Editor Output Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorOutputTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+                setCodeFoldingSupported(true);
+                setCommentDefinition(Utils::CommentDefinition::HashStyle);
+            }
+        };
+        OutputFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        TextViewport * const view = viewportForEditor(editor.get());
+        QVERIFY(view);
+        QVERIFY2(view->textDocument()->filePath().isEmpty(), "output was given a file");
+
+        QVERIFY2(view->commentDefinition().isValid(),
+                 "output was not told what a comment looks like in it");
+        QCOMPARE(view->commentDefinition().singleLine, QString("#"));
+
+        auto * const host = editor->widget()->findChild<QQuickWidget *>();
+        QVERIFY(host);
+        QTRY_VERIFY(host->rootObject());
+        if (!displaySettings().displayFoldingMarkers())
+            QSKIP("fold markers are off in these settings, so no language draws any");
+        QVERIFY2(host->rootObject()->property("showFoldMarkers").toBool(),
+                 "output that folds draws no fold markers");
     }
 
     // A document whose text is on its way - a VCS command's output - says so,

@@ -122,21 +122,6 @@ static Q_LOGGING_CATEGORY(status, "qtc.vcs.git.status", QtWarningMsg);
 
 using GitClientMemberFunc = void (GitClient::*)(const FilePath &);
 
-class GitReflogEditorWidget : public GitEditorWidget
-{
-public:
-    GitReflogEditorWidget()
-    {
-        setLogEntryPattern(GitReflogHighlighter::entryPattern().pattern());
-    }
-
-    QString revisionSubject(const QTextBlock &inBlock) const override
-    {
-        const QString text = inBlock.text();
-        return text.mid(text.indexOf(' ') + 1);
-    }
-};
-
 // GitPlugin
 
 class GitPluginPrivate final : public VersionControlBase
@@ -417,7 +402,7 @@ public:
         Git::Constants::GIT_SVN_LOG_EDITOR_ID,
         Tr::tr("Git SVN Log Editor"),
         "text/vnd.qtcreator.git.svnlog",
-        [] { return new GitEditorWidget; },
+        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory logEditorFactory{gitEditorParameters(
@@ -425,7 +410,7 @@ public:
         Git::Constants::GIT_LOG_EDITOR_ID,
         Tr::tr("Git Log Editor"),
         "text/vnd.qtcreator.git.log",
-        [] { return new GitEditorWidget; },
+        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory reflogEditorFactory{gitEditorParameters(
@@ -433,7 +418,7 @@ public:
         Git::Constants::GIT_REFLOG_EDITOR_ID,
         Tr::tr("Git Reflog Editor"),
         "text/vnd.qtcreator.git.reflog",
-        [] { return new GitReflogEditorWidget; },
+        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory blameEditorFactory{gitEditorParameters(
@@ -441,7 +426,7 @@ public:
         Git::Constants::GIT_BLAME_EDITOR_ID,
         Tr::tr("Git Annotation Editor"),
         "text/vnd.qtcreator.git.annotation",
-        [] { return new GitEditorWidget; },
+        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory commitTextEditorFactory{gitEditorParameters(
@@ -2402,6 +2387,7 @@ private slots:
     void testTheLogFollowsADiffLineToItsFile();
     void testABlameIsColouredThroughTheParameters();
     void testTheLogsFilterIsItsConfigsToRead();
+    void testTheLogEditorIsAQtQuickView();
     void testGitRemote_data();
     void testGitRemote();
     void testInlineDiffFile();
@@ -2750,6 +2736,34 @@ void GitTest::testTheLogsFilterIsItsConfigsToRead()
     caseSensitive->setChecked(false);
     QCOMPARE(changed.count(), 2);
     QVERIFY(config->arguments().contains("-i"));
+}
+
+// The log, the reflog, the blame and the svn log open in the Qt Quick editor:
+// Git supplies no widget for them, and everything its widget subclass used
+// to declare reaches the document through the parameters.
+void GitTest::testTheLogEditorIsAQtQuickView()
+{
+    QString title = "Git log test";
+    Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+        Git::Constants::GIT_LOG_EDITOR_ID, &title, QByteArray());
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor), "the log opened in the widget editor");
+    const QList<QWidget *> children = editor->widget()->findChildren<QWidget *>();
+    QVERIFY2(Utils::anyOf(children, [](QWidget *w) { return w->inherits("QQuickWidget"); }),
+             "the log opened in no Qt Quick view either");
+
+    auto * const document = qobject_cast<VcsBase::VcsEditorDocument *>(editor->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+    QCOMPARE(document->logEntryPattern().pattern(), QString("^commit ([0-9a-f]{8})[0-9a-f]{32}"));
+    QCOMPARE(document->annotateRevisionTextFormat(), Tr::tr("&Blame %1"));
+    document->setPlainText("commit 3587b513bafd7a83d8c816ac1deed72b5e3a27e9\n"
+                           "Author: someone\n"
+                           "\n"
+                           "    The subject\n");
+    QCOMPARE(document->sections()->entries().size(), 1);
+    QVERIFY2(document->sections()->entries().first().contains("The subject"),
+             qPrintable(document->sections()->entries().join(", ")));
 }
 
 // A line of a diff in a Git log is a link to the file it changes. Outside a

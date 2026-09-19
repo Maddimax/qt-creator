@@ -376,6 +376,23 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
     d->sections = new VcsEditorSections(this);
     setMimeType(parameters.mimeType);
     setSuspendAllowed(false);
+    // What the widget subclasses declared in their constructors, where the
+    // VCS has moved it here.
+    d->revisionSubject = parameters.revisionSubject;
+    if (!parameters.diffFilePattern.isEmpty())
+        setDiffFilePattern(parameters.diffFilePattern);
+    if (!parameters.logEntryPattern.isEmpty())
+        setLogEntryPattern(parameters.logEntryPattern);
+    if (!parameters.annotationEntryPattern.isEmpty())
+        setAnnotationEntryPattern(parameters.annotationEntryPattern);
+    if (!parameters.annotationSeparatorPattern.isEmpty())
+        setAnnotationSeparatorPattern(parameters.annotationSeparatorPattern);
+    if (!parameters.annotateRevisionTextFormat.isEmpty())
+        setAnnotateRevisionTextFormat(parameters.annotateRevisionTextFormat);
+    if (!parameters.annotatePreviousRevisionTextFormat.isEmpty())
+        setAnnotatePreviousRevisionTextFormat(parameters.annotatePreviousRevisionTextFormat);
+    if (parameters.syntaxHighlighterCreator)
+        updateHighlighter();
     // The sections follow the text. A log or a diff has them; the others
     // have nothing to find, and so nothing to offer in the tool bar either.
     if (parameters.type == LogOutput || parameters.type == DiffOutput) {
@@ -501,7 +518,9 @@ void VcsEditorDocument::setOutputHook(const OutputHook &hook)
 
 void VcsEditorDocument::setOutput(const QString &output)
 {
-    if (d->outputHook)
+    if (d->parameters.putOutput)
+        d->parameters.putOutput(this, output);
+    else if (d->outputHook)
         d->outputHook(output);
     else
         setPlainText(output);
@@ -580,6 +599,10 @@ void VcsEditorDocument::setLogEntryPattern(const QString &pattern)
 // view, so that every view of the document has it.
 void VcsEditorDocument::updateHighlighter()
 {
+    if (d->parameters.syntaxHighlighterCreator) {
+        resetSyntaxHighlighter(d->parameters.syntaxHighlighterCreator);
+        return;
+    }
     if (d->parameters.type != LogOutput && d->parameters.type != DiffOutput)
         return;
     resetSyntaxHighlighter(
@@ -645,7 +668,10 @@ void VcsEditorDocument::activateAnnotation()
         return;
     // Once: from here on the highlighter follows the text by itself.
     disconnect(this, &TextDocument::contentsChanged, this, &VcsEditorDocument::activateAnnotation);
-    if (TextEditor::SyntaxHighlighter * const highlighter = syntaxHighlighter()) {
+    // An annotation highlighter already there is told to look again; anything
+    // else - the generic one a Qt Quick editor gives a document that has none
+    // yet - is replaced.
+    if (auto * const highlighter = qobject_cast<BaseAnnotationHighlighter *>(syntaxHighlighter())) {
         highlighter->rehighlight();
         return;
     }
@@ -1687,6 +1713,71 @@ private slots:
         QVERIFY(logDocument != diffDocument);
         QVERIFY2(logDocument->editorConfig(), "the log config was not set on the document");
         QTRY_COMPARE(logDocument->plainText(), failed);
+    }
+
+    // Everything the widget subclasses declared in their constructors - the
+    // patterns, the annotate texts, a log entry's subject, a highlighter of
+    // the VCS's own, what a command's output becomes - is the parameters',
+    // for a VCS with no widget subclass left. And a factory given no widget
+    // creator builds the Qt Quick editor, read-only and folding a log.
+    void testTheParametersDeclareWhatTheWidgetConstructorsDid()
+    {
+        TextEditor::SyntaxHighlighter *made = nullptr;
+        QStringList put;
+        VcsBaseEditorParameters parameters{LogOutput,
+                                           "VcsEditorDocumentTest.Declared",
+                                           "VCS document test declared",
+                                           "text/vnd.qtcreator.vcs-document-declared-test",
+                                           {},
+                                           [](const FilePath &, const QString &) {}};
+        parameters.logEntryPattern = "^entry ([0-9]+)";
+        parameters.annotationEntryPattern = "^([0-9a-f]{8}) ";
+        parameters.annotationSeparatorPattern = "^(---)$";
+        parameters.annotateRevisionTextFormat = "Blame %1";
+        parameters.annotatePreviousRevisionTextFormat = "Blame parent %1";
+        parameters.revisionSubject = [](const QTextBlock &block) {
+            return block.next().text().trimmed();
+        };
+        parameters.syntaxHighlighterCreator = [&made] {
+            made = new TextEditor::SyntaxHighlighter;
+            return made;
+        };
+        parameters.putOutput = [&put](VcsEditorDocument *document, const QString &output) {
+            put << output;
+            document->setPlainText(output + "-- put --\n");
+        };
+
+        VcsEditorDocument document(parameters);
+        QCOMPARE(document.logEntryPattern().pattern(), QString("^entry ([0-9]+)"));
+        QCOMPARE(document.annotation().entryPattern.pattern(), QString("^([0-9a-f]{8}) "));
+        QCOMPARE(document.annotation().separatorPattern.pattern(), QString("^(---)$"));
+        QCOMPARE(document.annotateRevisionTextFormat(), QString("Blame %1"));
+        QCOMPARE(document.annotatePreviousRevisionTextFormat(), QString("Blame parent %1"));
+        QVERIFY2(made, "the VCS's own highlighter was not made");
+        QCOMPARE(document.syntaxHighlighter(), made);
+        const QString output = "entry 1\nfirst subject\nentry 2\nsecond subject\n";
+        document.setOutput(output);
+        QCOMPARE(put, QStringList{output});
+        QCOMPARE(document.plainText(), output + "-- put --\n");
+        QCOMPARE(document.sections()->entries().size(), 2);
+        QVERIFY2(document.sections()->entries().first().contains("first subject"),
+                 qPrintable(document.sections()->entries().join(", ")));
+
+        // No widget creator: the Qt Quick editor, with what the widget's
+        // factory step and its init() used to set.
+        VcsEditorFactory factory(parameters);
+        QVERIFY2(factory.usesQuickEditor(), "a VCS with no widget still gets the widget editor");
+        QVERIFY2(factory.readOnly(), "version control output is offered for typing into");
+        QVERIFY2(factory.codeFoldingSupported(), "a log's entries cannot be folded");
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor.get()),
+                 "the factory built the widget editor with no widget to build it from");
+        const QList<QWidget *> children = editor->widget()->findChildren<QWidget *>();
+        QVERIFY2(Utils::anyOf(children, [](QWidget *w) { return w->inherits("QQuickWidget"); }),
+                 "the factory built no Qt Quick view either");
+        QVERIFY2(qobject_cast<VcsEditorDocument *>(editor->document()),
+                 "the Qt Quick editor's document is not a VCS document");
     }
 
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()

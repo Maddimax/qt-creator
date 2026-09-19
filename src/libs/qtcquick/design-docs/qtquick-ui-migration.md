@@ -67748,3 +67748,194 @@ No `.qbs` edited: no file list changed.
 2. The other seven VCS, each retiring its widget subclass and its
    `createVcsEditor()` calls; the QmlDesigner-side two; the standing list
    (entry 298).
+
+## 2026-09-19 — Git's output editors open in the Qt Quick editor (batch 315)
+
+Entry 314's next item 1: the flip for Git. `VcsEditorFactory` builds the
+Qt Quick editor for a VCS that supplies no widget creator, and Git's log,
+reflog, blame and svn log supply none. The commit-message and rebase
+editors keep the widget - they edit a file, with a spell-checking
+highlighter wired to the widget's caret and key handling that rewrites a
+rebase line - and are the follow-up.
+
+### What the flip needed, found by going through the widget once more
+
+- **Read-only from birth.** `VcsBaseEditor::finalizeInitialization()` made
+  every VCS widget read-only (entry 313). `TextEditorFactory::setReadOnly()`
+  says it for the language: the widget path applies it after
+  `finalizeInitialization()` - `updateReadOnlyState()` runs when the
+  document is set, and would have undone anything earlier - and the Qt Quick
+  editor asks its view through `setReadOnlyOf()` once the widget is set.
+  `VcsEditorFactory` sets it, beside marks and revisions.
+- **Folding.** The widget's `init()` set `setCodeFoldingSupported(true)`
+  where the type has diffs; the factory sets it for a log or a diff, which
+  reaches both views.
+- **The constructor declarations** - batch 299's staging area. Six
+  strings on the parameters (`diffFilePattern`, `logEntryPattern`,
+  `annotationEntryPattern`, `annotationSeparatorPattern`,
+  `annotateRevisionTextFormat`, `annotatePreviousRevisionTextFormat`),
+  applied by the document's constructor through the setters that already
+  existed; the widget's hand-over of its staged strings is a no-op for a
+  VCS that has moved them.
+- **A log entry's subject** - `revisionSubject` on the parameters; the
+  widget installs its virtual as the hook only where the parameters are
+  silent, the annotation-highlighter shape.
+- **A highlighter of the VCS's own** - `syntaxHighlighterCreator`. The
+  reflog widget's `init()` replaced the document's `DiffAndLogHighlighter`
+  with `GitReflogHighlighter`; `updateHighlighter()` prefers the parameters'
+  creator, for any type.
+- **What a command's output becomes** - `putOutput(document, text)`,
+  consulted before batch 308's widget hook: Git colours a log from its
+  escape codes and trims a blame as the settings say. The blame sanitiser
+  no longer fills `m_originalLines`, which `originalLineUnderCursor()` read
+  and nobody called.
+
+`GitEditorWidget` keeps `restoreState()`, `init()` (commit and rebase
+highlighters), the rebase key handling, `aboutToOpen()`, and the change
+virtuals the widget's own context menu still asks; loses its constructor,
+`setPlainText()`, `originalLineUnderCursor()`, `applyDiffChunk()`,
+`addDiffActions()`, `revisionSubject()`, `fileNameForLine()`,
+`jumpToDiffTarget()` and `sourceWorkingDirectory()`. `GitReflogEditorWidget`
+goes: its pattern and subject are the reflog's parameters. Instant blame
+asked "is this a VCS editor?" of the widget; it asks the document.
+
+The two static test helpers every VCS plugin's tests call,
+`testDiffFileResolving()` and `testLogResolving()`, worked on the widget;
+they work on the document now, and check the widget's combo box only where
+the factory built a widget.
+
+### What a Qt Quick VCS view still lacks, deliberately
+
+Double-click on a diff line (the widget's `mouseDoubleClickEvent` jumped
+to the change; Ctrl+click, Follow Symbol and Return do in the Qt Quick
+view); the margin settings the widget forced off. Noted for the standing
+list.
+
+### The tests
+
+- `QuickTextEditorTest::testAFactoryCanSayItsViewsAreReadOnly` (both
+  views): a keystroke sent where the view takes keys changes nothing in an
+  editor whose factory says read-only, and changes the text in one whose
+  factory does not.
+- `VcsEditorDocumentTest::testTheParametersDeclareWhatTheWidgetConstructorsDid`:
+  parameters with the six strings, a subject, a highlighter creator and an
+  upper-casing output function; the document reports each, has the made
+  highlighter, and `setOutput()` goes through the function - the sections
+  find two entries with the upper-cased subject. A factory over the same
+  parameters says Quick, read-only and folding, and builds an editor with
+  no `TextEditorWidget`, a `QQuickWidget` child and a VCS document.
+- `GitTest::testTheLogEditorIsAQtQuickView`: the log editor through the
+  editor manager has no widget editor and a Qt Quick view; its document has
+  Git's log pattern and `&Blame %1`, and a commit with a subject gives one
+  section naming it.
+- `QuickTextEditorTest::testOutputThatIsNeverAFileGetsWhatItsFactoryConfigures`
+  (from the census's finding below): a Qt Quick factory that folds and has
+  a hash-style comment builds an editor whose document has no file; the
+  view knows the comment and the form draws fold markers.
+
+The first run found two things:
+
+- `GitTest::testABlameIsColouredThroughTheParameters` failed on the Quick
+  blame editor: "the blame arrived and no annotation highlighter was
+  installed". The Qt Quick editor's `configureLanguageServices()` gives a
+  document that has no highlighter yet a generic `Highlighter` for its mime
+  type - before any text - and batch 309's `activateAnnotation()` said "a
+  highlighter is there, tell it to look again", which was written for the
+  widget path, where nothing precedes the annotation highlighter. It now
+  rehighlights only a `BaseAnnotationHighlighter` and replaces anything
+  else; the Quick editor's own guard keeps its hands off a highlighter that
+  is not its generic one, so the two do not fight.
+- The new VcsBase test's separator pattern had no capture group, and
+  `regexpFromString()` soft-asserts `captureCount() >= 1` and keeps the old
+  pattern - a soft assert in the log, as `~/.claude/testing.md` says to read.
+  The test's pattern gained its group; the widget path's real separators
+  (Perforce's) always had one.
+- And the same test's output function upper-cased the text, after which
+  the case-sensitive entry pattern found nothing - my own input defeating
+  my own assertion. It appends a marker line instead.
+
+After those: the three new tests 4/0 (both rows), 3/0 and 3/0, exit 0; and
+the six Git tests that open a log or a blame - `testLogResolving` (log and
+reflog, on the Qt Quick editor now), `testDiffFileResolving` (five rows, the
+commit editor's widget path, its diff pattern from the parameters),
+`testABlameIsColouredThroughTheParameters`,
+`testTheLogKnowsAChangeUnderThePointer`, `testTheLogFollowsADiffLineToItsFile`
+and `testTheLogsFilterIsItsConfigsToRead` - all green, exit 0.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - the Qt Quick editor never asks its view to be read-only: the
+  TextEditor test's `quick` row fails, "'!typedInto(log.get())' returned
+  FALSE. (a keystroke changed output that is not a file to edit)"; the widget
+  row stands, its read-only being the helper's.
+- **B** - the document's constructor skips the parameters' log entry
+  pattern: the VcsBase test fails on it, actual `""` where the pattern was
+  expected.
+- **C** - `setOutput()` skips the parameters' output function: "Compared
+  lists have different sizes" - the function was never called.
+- **D** - the factory sets no folding for a log: "'factory.codeFoldingSupported()'
+  returned FALSE. (a log's entries cannot be folded)".
+- **E** - `configureLanguageServices()` returns early for a document with
+  no file, as before this batch: the new test fails first on the comment,
+  "'view->commentDefinition().isValid()' returned FALSE. (output was not
+  told what a comment looks like in it)", and the census fails as it did
+  when it found the gap, "Git Log Editor: folds, but draws no fold markers;
+  Git Reflog Editor: folds, but draws no fold markers".
+
+### Measurements
+
+The first suites run failed TextEditor three times out of three on its two
+censuses of Qt Quick languages - `testWhichFactoriesAreQuick` (17 factories
+where 13 were listed) and `testEveryQuickLanguageGetsWhatItsFactoryConfigures`
+("moved to the Qt Quick editor with no file here to check it with", four
+times) - which is what they are for: moving a language changes those lines
+in the same commit. Git's four output editors are in both lists; the
+per-factory check opens them with contents, by id, since output that is
+never a file has no name to open, and takes them through the same checks
+as a file. TextEditor ran again on that build; the other suites' binary
+differed from it in TextEditor's test code only.
+
+That second run found a gap rather than a test artefact: the Git log and
+reflog editors "fold, but draw no fold markers" - in the Qt Quick editor,
+while the widget editor draws them. `configureLanguageServices()` looks the
+language's factory up by the document's path and returned before that for a
+document with none; a VCS command's output never has one, so nothing the
+factory says - folding, a comment definition, hover handlers, an auto
+completer - reached the view. The widget path never looked anything up: it
+configures from the factory that built the editor. The Qt Quick editor does
+the same where there is no file to ask about, and still asks the file's
+factory where there is one, so a Save As to another language keeps
+re-configuring. Every factory-built Qt Quick editor now gets a pass at
+construction from its own factory and, once the file arrives, the pass from
+the file's; the completion provider is the factory's creator's already
+(set before the editor is built, and this only fills an empty one), the
+indenter and auto completer are owned by their setters, and the rest is
+overwritten. The form's initial `showFoldMarkers` stays false: the
+constructor's pass corrects it before anything is shown.
+
+On the fixed tree, one build, in the VM: the new test 3/0, the census 3/0,
+the no-factory contents route (`testTheQuickEditorShowsContentsThatWereNeverAFile`)
+3/0; then TextEditor three times 802 passed, 0 failed, 3 skipped, exit 0
+each; QuickUi 228/0, exit 0; VcsBase 32/0, exit 0; Git 140 passed, 2
+failed, exit 2 - `testInlineDiffFile` and `testConflictedFileInTextEditor`,
+the two that fail on this branch's HEAD without this batch (entry 313). On
+the build before the fold-marker fix: Bazaar 18, Mercurial 16, Subversion
+3, Cvs 4, Perforce 9, Fossil 15, ClearCase 22 passed and 2 skipped, all
+exit 0; those seven still build widget editors of their own, and the
+constructor pass the fix adds is what TextEditor's and Git's runs above
+went through.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. Git's commit-message and rebase editors: the submit highlighter's spell
+   check follows the widget's caret and the rebase key handling is a
+   `keyPressEvent` override - an `EditHandler` on the Qt Quick side and a
+   document-level spell-check position; then `GitEditorWidget` goes.
+2. The other seven VCS, each moving its constructor declarations and
+   virtuals into its parameters and dropping its widget creator; with the
+   last one, `VcsBaseEditorWidget`, `VcsBaseEditor` and the staging area go.
+3. The QmlDesigner-side two; the standing list (entry 298), plus the
+   double-click on a diff line.

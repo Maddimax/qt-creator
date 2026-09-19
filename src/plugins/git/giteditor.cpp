@@ -34,7 +34,6 @@
 #include <QSet>
 #include <QTextBlock>
 #include <QTextCursor>
-#include <QToolBar>
 
 #include <algorithm>
 
@@ -76,38 +75,10 @@ QString gitChangeUnderCursor(const QTextCursor &c)
     return {};
 }
 
-GitEditorWidget::GitEditorWidget()
-{
-    /* Diff format:
-        diff --git a/src/plugins/git/giteditor.cpp b/src/plugins/git/giteditor.cpp
-        index 40997ff..4e49337 100644
-        --- a/src/plugins/git/giteditor.cpp
-        +++ b/src/plugins/git/giteditor.cpp
-    */
-    setDiffFilePattern("^(?:diff --git a/|index |[+-]{3} (?:/dev/null|[ab]/(.+$)))");
-    setLogEntryPattern("^commit ([0-9a-f]{8})[0-9a-f]{32}");
-    setAnnotateRevisionTextFormat(Tr::tr("&Blame %1"));
-    setAnnotatePreviousRevisionTextFormat(Tr::tr("Blame &Parent Revision %1"));
-    setAnnotationEntryPattern("^(" CHANGE_PATTERN ") ");
-}
-
 QString GitEditorWidget::changeUnderCursor(const QTextCursor &c) const
 {
     return gitChangeUnderCursor(c);
 }
-
-int GitEditorWidget::originalLineUnderCursor(const QTextCursor &c) const
-{
-    const QTextBlock block = c.block();
-    const int currentLine = block.blockNumber() + 1;
-
-    if (currentLine < 1 || currentLine >= m_originalLines.size())
-        return currentLine;
-
-    const int originalLine = m_originalLines.at(currentLine);
-    return originalLine;
-};
-
 
 /**
  * Optionally remove path, author or date specification from annotation, which is tabular:
@@ -115,7 +86,7 @@ int GitEditorWidget::originalLineUnderCursor(const QTextCursor &c) const
  * 8ca887aa filepath <orig line> (author YYYY-MM-DD HH:MM:SS <offset> <line>) <content>
  * \endcode
  */
-static QString sanitizeBlameOutput(const QString &b, QVector<int> *lines)
+static QString sanitizeBlameOutput(const QString &b)
 {
     static const char pattern[] =
         R"(^(\S+)\s(.+?)(\s+\d+)\s\((.*)\s+(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\s[+-]\d{4}).*?\)(.*)$)";
@@ -127,9 +98,6 @@ static QString sanitizeBlameOutput(const QString &b, QVector<int> *lines)
     const bool omitPath = settings().omitAnnotationPath();
     const bool omitAuthor = settings().omitAnnotationAuthor();
     const bool omitDate = settings().omitAnnotationDate();
-
-    lines->clear();
-    lines->append(0); // Editor lines are starting with one, so skip line with index zero
 
     QString result;
     QRegularExpressionMatchIterator i = re.globalMatch(b);
@@ -143,29 +111,37 @@ static QString sanitizeBlameOutput(const QString &b, QVector<int> *lines)
         const QString date   = omitDate   ? QString() : match.captured(5);
         const QString code   = match.captured(6);
         result.append(hash + path + "  (" + author + date + ")  " + code + "\n");
-        lines->append(line.trimmed().toInt());
     }
     return result;
 }
 
-void GitEditorWidget::setPlainText(const QString &text)
+void gitPutOutput(VcsBase::VcsEditorDocument *document, const QString &output)
 {
-    QString modText = text;
-    // If desired, filter out the date from annotation
-    switch (contentType())
-    {
-    case LogOutput: {
-        AnsiEscapeCodeHandler::setTextInDocument(document(), text);
+    switch (document->contentType()) {
+    case LogOutput:
+        // git colours the log itself, so what arrives has escape codes in it.
+        AnsiEscapeCodeHandler::setTextInDocument(document->document(), output);
+        return;
+    case AnnotateOutput:
+        document->setPlainText(sanitizeBlameOutput(output));
+        return;
+    case DiffOutput:
+    case OtherContent:
+        document->setPlainText(output);
         return;
     }
-    case AnnotateOutput:
-        modText = sanitizeBlameOutput(text, &m_originalLines);
-        break;
-    default:
-        break;
-    }
+}
 
-    textDocument()->setPlainText(modText);
+QString gitRevisionSubject(const QTextBlock &inBlock)
+{
+    for (QTextBlock block = inBlock.next(); block.isValid(); block = block.next()) {
+        const QString line = block.text().trimmed();
+        if (line.isEmpty()) {
+            block = block.next();
+            return block.text().trimmed();
+        }
+    }
+    return {};
 }
 
 void gitApplyDiffChunk(VcsBase::VcsEditorDocument *document, const DiffChunk &chunk,
@@ -196,20 +172,13 @@ void gitApplyDiffChunk(VcsBase::VcsEditorDocument *document, const DiffChunk &ch
     }
 }
 
-void GitEditorWidget::applyDiffChunk(const DiffChunk& chunk, PatchAction patchAction)
-{
-    if (VcsBase::VcsEditorDocument * const document = vcsDocument())
-        gitApplyDiffChunk(document, chunk, patchAction);
-}
-
 void GitEditorWidget::init()
 {
     VcsBaseEditorWidget::init();
     Id editorId = textDocument()->id();
     const bool isCommitEditor = editorId == Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID;
     const bool isRebaseEditor = editorId == Git::Constants::GIT_REBASE_EDITOR_ID;
-    const bool isReflogEditor = editorId == Git::Constants::GIT_REFLOG_EDITOR_ID;
-    if (!isCommitEditor && !isRebaseEditor && !isReflogEditor)
+    if (!isCommitEditor && !isRebaseEditor)
         return;
     const QString commentMarker = gitClient().commentMarker(source());
     if (isCommitEditor) {
@@ -231,8 +200,6 @@ void GitEditorWidget::init()
     } else if (isRebaseEditor) {
         textDocument()->resetSyntaxHighlighter(
             [commentMarker] { return new GitRebaseHighlighter(commentMarker); });
-    } else if (isReflogEditor) {
-        textDocument()->resetSyntaxHighlighter([] { return new GitReflogHighlighter; });
     }
 }
 
@@ -316,12 +283,6 @@ void gitAddDiffActions(QMenu *menu, VcsBase::VcsEditorDocument *document, const 
     });
 }
 
-void GitEditorWidget::addDiffActions(QMenu *menu, const DiffChunk &chunk)
-{
-    if (VcsBase::VcsEditorDocument * const document = vcsDocument())
-        gitAddDiffActions(menu, document, chunk);
-}
-
 void GitEditorWidget::aboutToOpen(const FilePath &filePath, const FilePath &realFilePath)
 {
     Q_UNUSED(realFilePath)
@@ -400,18 +361,6 @@ void GitEditorWidget::addChangeActions(QMenu *menu, const QString &change, int l
         gitAddChangeActions(menu, document, change, line);
 }
 
-QString GitEditorWidget::revisionSubject(const QTextBlock &inBlock) const
-{
-    for (QTextBlock block = inBlock.next(); block.isValid(); block = block.next()) {
-        const QString line = block.text().trimmed();
-        if (line.isEmpty()) {
-            block = block.next();
-            return block.text().trimmed();
-        }
-    }
-    return {};
-}
-
 bool GitEditorWidget::supportChangeLinks() const
 {
     return VcsBaseEditorWidget::supportChangeLinks()
@@ -436,12 +385,6 @@ FilePath gitFileNameForLine(VcsBase::VcsEditorDocument *document, int line)
     return source;
 }
 
-FilePath GitEditorWidget::fileNameForLine(int line) const
-{
-    VcsBase::VcsEditorDocument * const document = vcsDocument();
-    return document ? gitFileNameForLine(document, line) : source();
-}
-
 VcsBase::VcsBaseEditorParameters gitEditorParameters(
     EditorContentType type, Id id, const QString &displayName, const QString &mimeType,
     const std::function<QWidget *()> &editorWidgetCreator,
@@ -462,12 +405,30 @@ VcsBase::VcsBaseEditorParameters gitEditorParameters(
     // annotation: a commit message and a rebase script name changes too.
     parameters.changeLinksInOtherContent = id == Id(Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID)
                                            || id == Id(Git::Constants::GIT_REBASE_EDITOR_ID);
+    /* Diff format:
+        diff --git a/src/plugins/git/giteditor.cpp b/src/plugins/git/giteditor.cpp
+        index 40997ff..4e49337 100644
+        --- a/src/plugins/git/giteditor.cpp
+        +++ b/src/plugins/git/giteditor.cpp
+    */
+    parameters.diffFilePattern = "^(?:diff --git a/|index |[+-]{3} (?:/dev/null|[ab]/(.+$)))";
+    parameters.logEntryPattern = "^commit ([0-9a-f]{8})[0-9a-f]{32}";
+    parameters.annotationEntryPattern = "^(" CHANGE_PATTERN ") ";
+    parameters.annotateRevisionTextFormat = Tr::tr("&Blame %1");
+    parameters.annotatePreviousRevisionTextFormat = Tr::tr("Blame &Parent Revision %1");
+    parameters.revisionSubject = gitRevisionSubject;
+    parameters.putOutput = gitPutOutput;
+    // The reflog is a log of its own shape: its entries, their subjects and
+    // its colours are its highlighter's.
+    if (id == Id(Git::Constants::GIT_REFLOG_EDITOR_ID)) {
+        parameters.logEntryPattern = GitReflogHighlighter::entryPattern().pattern();
+        parameters.revisionSubject = [](const QTextBlock &block) {
+            const QString text = block.text();
+            return text.mid(text.indexOf(' ') + 1);
+        };
+        parameters.syntaxHighlighterCreator = [] { return new GitReflogHighlighter; };
+    }
     return parameters;
-}
-
-FilePath GitEditorWidget::sourceWorkingDirectory() const
-{
-    return GitClient::fileWorkingDirectory(source());
 }
 
 void GitEditorWidget::restoreState(const QByteArray &state)
@@ -514,23 +475,5 @@ void gitResolveDiffTarget(VcsBase::VcsEditorDocument *document,
     });
 }
 
-void GitEditorWidget::jumpToDiffTarget(const FilePath &filePath,
-                                       int lineNumber,
-                                       const QTextBlock &contextBlock)
-{
-    VcsBase::VcsEditorDocument * const document = vcsDocument();
-    if (!document) {
-        VcsBaseEditorWidget::jumpToDiffTarget(filePath, lineNumber, contextBlock);
-        return;
-    }
-    VcsBase::DiffTarget target;
-    target.filePath = filePath;
-    target.line = lineNumber;
-    target.contextBlock = contextBlock;
-    gitResolveDiffTarget(document, target, Utils::Link(filePath, lineNumber),
-                         [this, contextBlock](const Utils::Link &link) {
-        VcsBaseEditorWidget::jumpToDiffTarget(link.targetFilePath, link.target.line, contextBlock);
-    });
-}
 
 } // Git::Internal

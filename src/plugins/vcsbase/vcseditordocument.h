@@ -35,7 +35,10 @@ class Storage;
 }
 QT_END_NAMESPACE
 
-namespace TextEditor { class ToolBarChoice; }
+namespace TextEditor {
+class SyntaxHighlighter;
+class ToolBarChoice;
+} // namespace TextEditor
 
 namespace VcsBase {
 
@@ -123,6 +126,25 @@ public:
     // Whether an output of neither log nor annotation type has change links
     // all the same - Git's commit and rebase editors do.
     bool changeLinksInOtherContent = false;
+    // What the widget subclasses declared in their constructors: the patterns
+    // that find a diff's files, a log's entries and an annotation's changes
+    // (and where an annotation stops), and the annotate entries' texts. Empty
+    // means none, or the "Annotate" default for the texts.
+    QString diffFilePattern;
+    QString logEntryPattern;
+    QString annotationEntryPattern;
+    QString annotationSeparatorPattern;
+    QString annotateRevisionTextFormat;
+    QString annotatePreviousRevisionTextFormat;
+    // A log entry's subject, from the block its pattern matched, for the
+    // sections the tool bar offers.
+    std::function<QString(const QTextBlock &block)> revisionSubject;
+    // A highlighter of the VCS's own for this output, where the log and diff
+    // highlighter is not what it wants - Git's reflog.
+    std::function<TextEditor::SyntaxHighlighter *()> syntaxHighlighterCreator;
+    // What a command's output becomes in the document, where not the text as
+    // it arrived - Git colours a log from its escape codes and trims a blame.
+    std::function<void(VcsEditorDocument *document, const QString &output)> putOutput;
 };
 
 class VCSBASE_EXPORT DiffChunk

@@ -10187,6 +10187,7 @@ public:
     bool m_useGenericHighlighter = false;
     bool m_duplicatedSupported = true;
     bool m_revisionsVisible = true;
+    bool m_readOnly = false;
     bool m_codeFoldingSupported = false;
     bool m_paranthesesMatchinEnabled = false;
     bool m_marksVisible = true;
@@ -11286,6 +11287,16 @@ bool TextEditorFactory::revisionsVisible() const
     return d->m_revisionsVisible;
 }
 
+void TextEditorFactory::setReadOnly(bool on)
+{
+    d->m_readOnly = on;
+}
+
+bool TextEditorFactory::readOnly() const
+{
+    return d->m_readOnly;
+}
+
 void TextEditorFactory::setCodeFoldingSupported(bool on)
 {
     d->m_codeFoldingSupported = on;
@@ -11376,6 +11387,10 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
     textEditorWidget->finalizeInitialization();
 
     editor->finalizeInitialization();
+    // Last: setting the document recomputed the widget's read-only state
+    // from the document, and this is the language's answer over that.
+    if (m_readOnly)
+        textEditorWidget->setReadOnly(true);
     return editor;
 }
 

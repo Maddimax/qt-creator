@@ -489,9 +489,9 @@ bool InstantBlame::setEditor(Core::IEditor *editor)
 {
     if (!editor)
         return false;
-    // A log or blame view is a widget editor and stays one, so asking the
-    // widget is the whole question.
-    if (qobject_cast<const VcsBaseEditorWidget *>(TextEditorWidget::fromEditor(editor))) {
+    // A log or blame view is whatever shows a VCS document, so the document
+    // is the whole question.
+    if (qobject_cast<const VcsBase::VcsEditorDocument *>(editor->document())) {
         qCDebug(log) << "Deactivating in version control editors";
         return false;
     }

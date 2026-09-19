@@ -900,6 +900,10 @@ public:
     // was saved. False for output that is not a file - a VCS log, a diff -
     // where an edit is not something to be saved back.
     bool revisionsVisible() const;
+    void setReadOnly(bool on);
+    // Whether a view of this language refuses to be typed into. True for
+    // output that is not a file to edit - a VCS log, a diff.
+    bool readOnly() const;
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
     // Whether the language has anything to fold. A view uses it to decide
