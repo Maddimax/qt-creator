@@ -3,6 +3,7 @@
 
 #include "vcseditordocument.h"
 
+#include "diffandloghighlighter.h"
 #include "vcsbaseeditorconfig.h"
 #include "vcsbaseplugin.h"
 #include "vcsbasetr.h"
@@ -11,6 +12,7 @@
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
+#include <coreplugin/icore.h>
 #include <coreplugin/vcsmanager.h>
 
 #include <cpaster/codepasterservice.h>
@@ -18,12 +20,15 @@
 #include <extensionsystem/pluginmanager.h>
 
 #include <texteditor/texteditor.h>
+#include <texteditor/textdocumentlayout.h>
 
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
 
 #include <QAction>
 #include <QDesktopServices>
+#include <QFile>
+#include <QFileInfo>
 #include <QPointer>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -265,7 +270,7 @@ public:
     QRegularExpression diffFilePattern;
     QRegularExpression logEntryPattern;
     Annotation annotation;
-    VcsEditorDocument::BlockToString fileNameForDiffHeader;
+    VcsEditorDocument::DiffFileResolver diffFileResolver;
     VcsEditorDocument::BlockToString revisionSubject;
     VcsEditorSections *sections = nullptr;
     VcsSectionsChoice *choice = nullptr;
@@ -273,6 +278,64 @@ public:
 };
 
 } // namespace Internal
+
+bool DiffChunk::isValid() const
+{
+    return !fileName.isEmpty() && !chunk.isEmpty();
+}
+
+QByteArray DiffChunk::asPatch(const FilePath &workingDirectory) const
+{
+    const FilePath relativeFile = workingDirectory.isEmpty() ?
+                fileName : fileName.relativeChildPath(workingDirectory);
+    const QByteArray fileNameBA = QFile::encodeName(relativeFile.toUrlishString());
+    QByteArray rc = "--- ";
+    rc += fileNameBA;
+    rc += "\n+++ ";
+    rc += fileNameBA;
+    rc += '\n';
+    rc += chunk;
+    return rc;
+}
+
+// Check for a chunk of
+//       - changes          :  "@@ -91,7 +95,7 @@"
+//       - merged conflicts : "@@@ -91,7 +95,7 @@@"
+// and return the modified line number (here 95).
+// Note that git appends stuff after "  @@"/" @@@" (function names, etc.).
+static inline bool checkChunkLine(const QString &line, int *modifiedLineNumber, int numberOfAts)
+{
+    const QString ats(numberOfAts, '@');
+    if (!line.startsWith(ats + ' '))
+        return false;
+    const int len = ats.size() + 1;
+    const int endPos = line.indexOf(' ' + ats, len);
+    if (endPos == -1)
+        return false;
+    // the first chunk range applies to the original file, the second one to
+    // the modified file, the one we're interested in
+    const int plusPos = line.indexOf('+', len);
+    if (plusPos == -1 || plusPos > endPos)
+        return false;
+    const int lineNumberPos = plusPos + 1;
+    const int commaPos = line.indexOf(',', lineNumberPos);
+    if (commaPos == -1 || commaPos > endPos) {
+        // Git submodule appears as "@@ -1 +1 @@"
+        *modifiedLineNumber = 1;
+        return true;
+    }
+    const QString lineNumberStr = line.mid(lineNumberPos, commaPos - lineNumberPos);
+    bool ok;
+    *modifiedLineNumber = lineNumberStr.toInt(&ok);
+    return ok;
+}
+
+static inline bool checkChunkLine(const QString &line, int *modifiedLineNumber)
+{
+    if (checkChunkLine(line, modifiedLineNumber, 2))
+        return true;
+    return checkChunkLine(line, modifiedLineNumber, 3);
+}
 
 static void regexpFromString(
         const QString &pattern,
@@ -396,6 +459,7 @@ void VcsEditorDocument::setEditorConfig(VcsBaseEditorConfig *config)
 void VcsEditorDocument::setDiffFilePattern(const QString &pattern)
 {
     regexpFromString(pattern, &d->diffFilePattern);
+    updateHighlighter();
     updateSections();
 }
 
@@ -407,7 +471,22 @@ QRegularExpression VcsEditorDocument::diffFilePattern() const
 void VcsEditorDocument::setLogEntryPattern(const QString &pattern)
 {
     regexpFromString(pattern, &d->logEntryPattern);
+    updateHighlighter();
     updateSections();
+}
+
+// A log or a diff is highlighted by its own patterns: the file headers and the
+// entries, and the folding that says where a header ends and a chunk begins,
+// which diffChunk() and diffTargetAt() read. Installed here rather than by a
+// view, so that every view of the document has it.
+void VcsEditorDocument::updateHighlighter()
+{
+    if (d->parameters.type != LogOutput && d->parameters.type != DiffOutput)
+        return;
+    resetSyntaxHighlighter(
+        [diffFilePattern = d->diffFilePattern, logEntryPattern = d->logEntryPattern] {
+            return new DiffAndLogHighlighter(diffFilePattern, logEntryPattern);
+        });
 }
 
 QRegularExpression VcsEditorDocument::logEntryPattern() const
@@ -450,10 +529,206 @@ QSet<QString> VcsEditorDocument::annotationChanges() const
     return changes;
 }
 
-void VcsEditorDocument::setSectionHooks(const BlockToString &fileNameForDiffHeader,
-                                        const BlockToString &revisionSubject)
+QString VcsEditorDocument::resolveDiffFile(const QString &fileName) const
 {
-    d->fileNameForDiffHeader = fileNameForDiffHeader;
+    // Check if file is absolute
+    const QFileInfo in(fileName);
+    if (in.isAbsolute())
+        return in.isFile() ? fileName : QString();
+
+    // 1) Try base dir
+    if (!d->workingDirectory.isEmpty()) {
+        const FilePath baseFileInfo = d->workingDirectory.pathAppended(fileName);
+        if (baseFileInfo.isFile())
+            return baseFileInfo.absoluteFilePath().toUrlishString();
+    }
+    // 2) Try in source (which can be file or directory)
+    const FilePath sourcePath = VcsBase::source(const_cast<VcsEditorDocument *>(this));
+    if (!sourcePath.isEmpty()) {
+        const FilePath sourceDir = sourcePath.isDir() ? sourcePath.absoluteFilePath()
+                                                      : sourcePath.absolutePath();
+        const FilePath sourceFileInfo = sourceDir.pathAppended(fileName);
+        if (sourceFileInfo.isFile())
+            return sourceFileInfo.absoluteFilePath().toUrlishString();
+
+        const FilePath topLevel = Core::VcsManager::findTopLevelForDirectory(sourceDir);
+        if (topLevel.isEmpty())
+            return {};
+
+        const FilePath topLevelFile = topLevel.pathAppended(fileName);
+        if (topLevelFile.isFile())
+            return topLevelFile.absoluteFilePath().toUrlishString();
+    }
+
+    // 3) Try working directory
+    if (in.isFile())
+        return in.absoluteFilePath();
+
+    // 4) remove trailing tab char and try again: At least git appends \t when the
+    //    filename contains spaces. Since the diff command does use \t all of a sudden,
+    //    too, when seeing spaces in a filename, I expect the same behavior in other
+    //    version control systems.
+    if (fileName.endsWith('\t'))
+        return resolveDiffFile(fileName.left(fileName.size() - 1));
+
+    return {};
+}
+
+void VcsEditorDocument::setDiffFileResolver(const DiffFileResolver &resolver)
+{
+    d->diffFileResolver = resolver;
+    updateSections();
+}
+
+QString VcsEditorDocument::findDiffFile(const QString &fileName) const
+{
+    return d->diffFileResolver ? d->diffFileResolver(fileName) : resolveDiffFile(fileName);
+}
+
+QString VcsEditorDocument::fileNameFromDiffSpecification(const QTextBlock &inBlock,
+                                                         QString *header) const
+{
+    // Go back chunks
+    QString fileName;
+    for (QTextBlock block = inBlock; block.isValid(); block = block.previous()) {
+        const QString line = block.text();
+        const QRegularExpressionMatch match = d->diffFilePattern.match(line);
+        if (match.hasMatch()) {
+            const QString cap = match.captured(1);
+            if (header)
+                header->prepend(line + "\n");
+            if (fileName.isEmpty() && !cap.isEmpty())
+                fileName = cap;
+        } else if (!fileName.isEmpty()) {
+            return findDiffFile(fileName);
+        } else if (header) {
+            header->clear();
+        }
+    }
+    return fileName.isEmpty() ? QString() : findDiffFile(fileName);
+}
+
+// cut out chunk and determine file name.
+DiffChunk VcsEditorDocument::diffChunk(const QTextCursor &cursor) const
+{
+    DiffChunk rc;
+    if (d->parameters.type != LogOutput && d->parameters.type != DiffOutput)
+        return rc;
+    // Search back for start of chunk.
+    QTextBlock block = cursor.block();
+    if (block.isValid() && TextEditor::TextBlockUserData::foldingIndent(block) <= 1) {
+        // We are in a diff header, not in a chunk!
+        // DiffAndLogHighlighter sets the foldingIndent for us.
+        return rc;
+    }
+
+    int chunkStart = 0;
+    for ( ; block.isValid() ; block = block.previous()) {
+        if (checkChunkLine(block.text(), &chunkStart))
+            break;
+    }
+    if (!chunkStart || !block.isValid())
+        return rc;
+    QString header;
+    rc.fileName = FilePath::fromUserInput(findDiffFile(fileNameFromDiffSpecification(block, &header)));
+    if (rc.fileName.isEmpty())
+        return rc;
+    // Concatenate chunk and convert
+    QString unicode = block.text();
+    if (!unicode.endsWith('\n')) // Missing in case of hg.
+        unicode.append('\n');
+    for (block = block.next() ; block.isValid() ; block = block.next()) {
+        const QString line = block.text();
+        if (checkChunkLine(line, &chunkStart) || d->diffFilePattern.match(line).capturedStart() == 0)
+            break;
+        unicode += line;
+        unicode += '\n';
+    }
+    const TextEncoding textEncoding = encoding();
+    if (textEncoding.isValid()) {
+        rc.chunk = textEncoding.encode(unicode);
+        rc.header = textEncoding.encode(header);
+    } else {
+        rc.chunk = unicode.toLocal8Bit();
+        rc.header = header.toLocal8Bit();
+    }
+    return rc;
+}
+
+bool VcsEditorDocument::canApplyDiffChunk(const DiffChunk &chunk) const
+{
+    if (!chunk.isValid())
+        return false;
+    // Default implementation using patch.exe relies on absolute paths.
+    return chunk.fileName.isFile() && chunk.fileName.isAbsolutePath()
+           && chunk.fileName.isWritableFile();
+}
+
+// Default implementation of revert: Apply a chunk by piping it into patch,
+// (passing '-R' for revert), assuming we got absolute paths from the version control plugins.
+bool VcsEditorDocument::applyDiffChunk(const DiffChunk &chunk, Core::PatchAction patchAction) const
+{
+    return Core::PatchTool::runPatch(chunk.asPatch(d->workingDirectory), d->workingDirectory,
+                                     0, patchAction);
+}
+
+// Asks first, saves the file's open document, applies, and says so when a
+// chunk was reverted - whoever showed the diff reloads it then.
+void VcsEditorDocument::applyChunk(const DiffChunk &chunk, Core::PatchAction patchAction)
+{
+    auto * const target = qobject_cast<TextEditor::TextDocument *>(
+        Core::DocumentModel::documentForFilePath(chunk.fileName));
+    const bool isModified = target && target->isModified();
+    if (!Core::PatchTool::confirmPatching(Core::ICore::dialogParent(), patchAction, isModified))
+        return;
+    if (target && !Core::EditorManager::saveDocument(target))
+        return;
+    if (applyDiffChunk(chunk, patchAction) && patchAction == Core::PatchAction::Revert)
+        emit diffChunkReverted();
+}
+
+DiffTarget VcsEditorDocument::diffTargetAt(const QTextCursor &cursor) const
+{
+    DiffTarget target;
+    int chunkStart = 0;
+    int lineCount = -1;
+    const QChar deletionIndicator = '-';
+    // find nearest change hunk
+    QTextBlock block = cursor.block();
+    if (TextEditor::TextBlockUserData::foldingIndent(block) <= 1) {
+        // We are in a diff header, do not jump anywhere.
+        // DiffAndLogHighlighter sets the foldingIndent for us.
+        return target;
+    }
+    for ( ; block.isValid() ; block = block.previous()) {
+        const QString line = block.text();
+        if (checkChunkLine(line, &chunkStart))
+            break;
+        if (!line.startsWith(deletionIndicator))
+            ++lineCount;
+    }
+
+    if (chunkStart == -1 || lineCount < 0 || !block.isValid())
+        return target;
+
+    // find the filename in previous line, map depot name back
+    block = block.previous();
+    if (!block.isValid())
+        return target;
+    const QString fileName = findDiffFile(fileNameFromDiffSpecification(block));
+
+    const bool exists = fileName.isEmpty() ? false : QFileInfo::exists(fileName);
+    if (!exists)
+        return target;
+
+    target.filePath = FilePath::fromUserInput(fileName);
+    target.line = chunkStart + lineCount;
+    target.contextBlock = block;
+    return target;
+}
+
+void VcsEditorDocument::setRevisionSubjectHook(const BlockToString &revisionSubject)
+{
     d->revisionSubject = revisionSubject;
     updateSections();
 }
@@ -520,10 +795,26 @@ QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor
         }
     }
 
-    // A log or a diff can be pasted, where there is somewhere to paste it to.
+    // A log or a diff can be pasted, where there is somewhere to paste it to;
+    // and the chunk the click is in can be applied or reverted, where there
+    // is a file to do it to. Queued, as the widget's were: the confirmation
+    // is a dialog, and the menu is still closing when the entry fires.
     if (type == LogOutput || type == DiffOutput) {
         if (auto * const paste = ExtensionSystem::PluginManager::getObject<CodePaster::Service>())
             add(Tr::tr("Send to CodePaster..."), [paste] { paste->postCurrentEditor(); });
+        const DiffChunk chunk = diffChunk(cursor);
+        if (canApplyDiffChunk(chunk)) {
+            add(Tr::tr("Apply Chunk..."), [this, chunk] {
+                QMetaObject::invokeMethod(this, [this, chunk] {
+                    applyChunk(chunk, Core::PatchAction::Apply);
+                }, Qt::QueuedConnection);
+            });
+            add(Tr::tr("Revert Chunk..."), [this, chunk] {
+                QMetaObject::invokeMethod(this, [this, chunk] {
+                    applyChunk(chunk, Core::PatchAction::Revert);
+                }, Qt::QueuedConnection);
+            });
+        }
     }
     return d->contextActions;
 }
@@ -560,8 +851,7 @@ void VcsEditorDocument::updateSections()
         for (QTextBlock it = text->begin(); it != end; it = it.next(), ++lineNumber) {
             if (d->diffFilePattern.match(it.text()).capturedStart() != 0)
                 continue;
-            const QString file = d->fileNameForDiffHeader ? d->fileNameForDiffHeader(it)
-                                                          : QString();
+            const QString file = fileNameFromDiffSpecification(it);
             if (file.isEmpty() || lastFileName == file)
                 continue;
             lastFileName = file;
@@ -603,6 +893,7 @@ void VcsEditorDocument::updateSections()
 #include "vcsbaseeditor.h"
 
 #include <utils/algorithm.h>
+#include <utils/temporarydirectory.h>
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -890,6 +1181,72 @@ private slots:
         onRevision.setPosition(2);
         QVERIFY2(textsOf(annotation.contextMenuActions(onRevision)).contains("Annotate \"1234abcd\""),
                  "an annotation does not offer to annotate the revision under the pointer");
+    }
+
+    // A diff's chunk, and the place in the file a line of it stands for, are
+    // the document's to work out: from its patterns, its working directory
+    // and its source, with the highlighter it installs itself saying where
+    // the headers end. The widget editor asks it; a view that is not the
+    // widget can too.
+    void testADiffsChunkAndItsTargetAreTheDocuments()
+    {
+        TemporaryDirectory dir("vcs-document-diff");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("a.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+        const VcsBaseEditorParameters parameters{DiffOutput,
+                                                 "VcsEditorDocumentTest.Diff",
+                                                 "VCS document test diff",
+                                                 "text/vnd.qtcreator.vcs-document-diff-test",
+                                                 {},
+                                                 [](const FilePath &, const QString &) {},
+                                                 {}};
+        VcsEditorDocument document(parameters);
+        document.setWorkingDirectory(file.parentDir());
+        document.setDiffFilePattern("^(?:diff --git a/|index |[+-]{3} (?:/dev/null|[ab]/(.+$)))");
+        document.setLogEntryPattern("^commit ([0-9a-f]{8})[0-9a-f]{32}");
+        const QString text = "diff --git a/a.txt b/a.txt\n"
+                             "index 1..2 100644\n"
+                             "--- a/a.txt\n"
+                             "+++ b/a.txt\n"
+                             "@@ -1,3 +1,3 @@\n"
+                             " one\n"
+                             "-two\n"
+                             "+TWO\n"
+                             " three\n";
+        document.setPlainText(text);
+        const auto cursorAt = [&document, &text](const QString &what) {
+            QTextCursor cursor(document.document());
+            cursor.setPosition(int(text.indexOf(what)) + 1);
+            return cursor;
+        };
+
+        // The headers are told from the chunk by the highlighter the document
+        // installed; the chunk waits for it to have run.
+        QTRY_VERIFY2(document.diffChunk(cursorAt("+TWO")).isValid(), "no chunk around a changed line");
+        const DiffChunk chunk = document.diffChunk(cursorAt("+TWO"));
+        QCOMPARE(chunk.fileName, file);
+        QVERIFY2(chunk.chunk.startsWith("@@ -1,3 +1,3 @@"), chunk.chunk.constData());
+        QVERIFY(chunk.chunk.contains("-two\n+TWO\n"));
+        QVERIFY(chunk.header.contains("--- a/a.txt"));
+        QVERIFY2(!document.diffChunk(cursorAt("--- a/a.txt")).isValid(), "a header line is inside a chunk");
+        QVERIFY2(document.canApplyDiffChunk(chunk), "the chunk of a file that is there cannot be applied");
+
+        const QStringList onChunk
+            = Utils::transform(document.contextMenuActions(cursorAt("+TWO")), &QAction::text);
+        QVERIFY2(onChunk.contains("Apply Chunk...") && onChunk.contains("Revert Chunk..."),
+                 qPrintable(onChunk.join(", ")));
+        const QStringList onHeader
+            = Utils::transform(document.contextMenuActions(cursorAt("--- a/a.txt")), &QAction::text);
+        QVERIFY2(!onHeader.contains("Apply Chunk..."), "a header offers to apply a chunk");
+
+        const DiffTarget onChanged = document.diffTargetAt(cursorAt("+TWO"));
+        QVERIFY2(onChanged.isValid(), "a changed line stands for no place in the file");
+        QCOMPARE(onChanged.filePath, file);
+        QCOMPARE(onChanged.line, 2);
+        QVERIFY2(!document.diffTargetAt(cursorAt("--- a/a.txt")).isValid(),
+                 "a header line stands for a place in the file");
     }
 };
 

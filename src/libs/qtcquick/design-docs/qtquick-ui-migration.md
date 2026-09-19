@@ -66311,3 +66311,138 @@ No `.qbs` edited: no file list changed.
 3. Steps 5-6 (entry 298): busy state, `firstLineNumber` on the gutter,
    `setRevisionsVisible(false)`; flip and retire one VCS at a time.
 4. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — A diff's chunk and its target on the document (batch 304)
+
+Entry 303's next item: `diffChunk()`, `canApplyDiffChunk()`,
+`applyDiffChunk()`, the Apply/Revert entries, and the file-and-line a diff
+line stands for - all of it off the widget, since all of it reads only what
+the document already keeps.
+
+### What moved
+
+- **Resolving a diff's file.** `VcsBaseEditorWidget::findDiffFile()` looked
+  under the working directory, beside the source, at the VCS top level above
+  the source and as given, then retried without a trailing tab. That is
+  `VcsEditorDocument::resolveDiffFile()` now, verbatim. The widget's virtual
+  stays - Perforce overrides it to map depot paths - and the base body
+  forwards to `resolveDiffFile()`; the widget installs its virtual as the
+  document's `DiffFileResolver`, so `findDiffFile()` on the document is the
+  VCS's answer where there is a widget and the base answer where there is
+  not. No recursion: the base widget body calls the base document body.
+- **`fileNameFromDiffSpecification(block, header)`** - the walk back through
+  the header lines to the captured file name - on the document, calling
+  `findDiffFile()`. The sections' diff loop uses it directly; the
+  `fileNameForDiffHeader` hook from batch 299 is gone, and `setSectionHooks()`
+  is `setRevisionSubjectHook()` alone.
+- **`diffChunk(cursor)`** and the two `checkChunkLine()` parsers, verbatim,
+  encoding through the document's own `encoding()`; **`canApplyDiffChunk()`**
+  and **`applyDiffChunk()`** (patch with the working directory); and
+  **`applyChunk()`**, the widget's `slotApplyDiffChunk()`: confirm (parent is
+  `ICore::dialogParent()` rather than the widget), save the file's open
+  document, apply, and on a revert emit `diffChunkReverted()` - a document
+  signal now, forwarded by the widget to its own, which
+  `VcsBaseClientImpl` and Perforce connect to.
+- **`diffTargetAt(cursor)`** - `jumpToChangeFromDiff()`'s computation:
+  chunk start plus the non-deletion lines down to the cursor, the file from
+  the header above, and the header block itself as `contextBlock`, because
+  Git's `jumpToDiffTarget()` reads the revision from it. The widget's
+  `jumpToChangeFromDiff()` is three lines: ask, and if valid, call its
+  virtual `jumpToDiffTarget()`.
+- **`DiffChunk`** itself, from `vcsbaseeditor.h` to `vcseditordocument.h` -
+  the widget's header includes the document's and not the reverse.
+- **The highlighter.** `DiffAndLogHighlighter` sets the folding indent that
+  tells a header from a chunk, and the widget's `init()` installed it. The
+  document does, in `updateHighlighter()` from its pattern setters, for a log
+  or a diff: a view that is not the widget gets it too, and `diffChunk()` on
+  a bare document works. The widget's `init()` keeps `setCodeFoldingSupported`
+  - folding is the view's.
+- The **Apply Chunk... / Revert Chunk...** entries, from
+  `contextMenuActions()` for a log or a diff when the chunk can be applied,
+  queued through `QMetaObject::invokeMethod` as the widget's were (the
+  confirmation is a dialog and the menu is still closing).
+
+### Not moved, on purpose
+
+The jump. `jumpToDiffTarget()` is a widget virtual, and Git's override asks
+`git` to resolve the line for the revision under the cursor. Registering a
+`LinkFinder` for diff lines on the document - entry 298's step 4 - would give
+Ctrl+click in **both** views the base jump, since the widget's `findLinkAt()`
+consults `linkFinderFor(document)` too, and Git's Ctrl+click would then land
+on the unresolved line while its Return and double-click still resolve. That
+is a behaviour change on the widget, so it waits for a `jumpToDiffTarget`
+function in the parameters (Git's is a `gitClient().resolveLine()` call),
+at which point the finder serves both views the same answer. Also still on
+the widget: `addDiffActions()` (Git's Stage/Unstage Chunk) and Git's own
+`applyDiffChunk()` behind them.
+
+### The test
+
+`VcsEditorDocumentTest::testADiffsChunkAndItsTargetAreTheDocuments`: a file
+in a temporary directory, a `DiffOutput` document with Git's patterns and
+that directory as working directory (no editor, no widget), a unified diff
+changing line 2. The chunk around `+TWO` - waited for, since the highlighter
+runs asynchronously - names the file, starts with the hunk header and holds
+the change; the header carries `--- a/a.txt`; a header line is in no chunk;
+the chunk can be applied; the menu at `+TWO` offers Apply and Revert and the
+menu at a header does not; the target of `+TWO` is the file at line 2 and a
+header line has none. Applying is not exercised: that is a dialog and
+`patch`.
+
+Alone: 3 passed, 0 failed, exit 0, at the first run.
+
+Git's `testDiffFileResolving` (three rows) and `testLogResolving` re-run
+alone on the same build, since both go through the moved code: 5 passed and
+3 passed, 0 failed, exit 0 - the widget's `fileNameFromDiffSpecification()` on a
+foreign `QTextDocument`'s block, resolved through the document with the source
+the test set on the widget, still finds the file.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals, distinct
+names, the tree checked clean at the end):
+
+- **A** - the document never finds a chunk: "no chunk around a changed line",
+  after the five-second wait for one.
+- **B** - the target is one line off: `line == 2` fails, "Compared values are
+  not the same" - everything about the chunk before it passed, so B is about
+  the arithmetic of the target alone.
+- **C** - the document installs no highlighter: the same first assertion as A,
+  "no chunk around a changed line" - without the folding indent the
+  highlighter sets, every line is a header and no line is in a chunk. That
+  is the assertion proving the highlighter moved, not just that it ran.
+
+### Measurements
+
+    -test TextEditor     793 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         25 passed, 0 failed, 0 skipped, exit 0
+    -test Git            135 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and
+                           InstantBlameTest::testBlameDocumentContents once more
+
+VcsBase is 25: 24 plus this test. Git: `testDiffFileResolving` and
+`testLogResolving`, the two that walk the moved code, pass in the suite as
+they did alone. The third failure is batch 300's blame test again, the one
+that runs five `git` processes and gives a mark five seconds. This batch is
+in `vcsbase`, so the argument that it is unrelated (the test holds a plain
+`TextDocument` in a `TextEditorWidget`) is not enough on its own: its object
+took **15964 ms** in this run against 303 ms in batch 303's (the same
+fifty-fold as batch 300's 16047 ms), and alone on
+this binary, five runs: 0 failures, 296-311 ms each. Two sightings in six Git suite runs, both
+straight after three TextEditor runs; never alone. The VM's load is the
+variable, not this code - and if it shows a third time the thing to do is
+what entry 298 said for the other one: bound that test's wait on a cause.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The jump as a parameter**: `jumpToDiffTarget` as a `std::function` in
+   `VcsBaseEditorParameters` (base: open the file at the line; Git's:
+   resolve through `git` first), then the diff `LinkFinder` on the document
+   for both views, and Return / double-click on the Qt Quick side.
+2. The remaining widget virtuals into the parameters: `isValidRevision`,
+   `annotationPreviousVersions`, `decorateVersion`, `addChangeActions`,
+   `addDiffActions`, `fileNameForLine` - Git first.
+3. Steps 5-6 (entry 298): busy state, `firstLineNumber` on the gutter,
+   `setRevisionsVisible(false)`; flip and retire one VCS at a time.
+4. The QmlDesigner-side two; the standing list (entry 298).

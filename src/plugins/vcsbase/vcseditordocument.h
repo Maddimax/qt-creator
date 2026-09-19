@@ -6,14 +6,18 @@
 #include "vcsbase_global.h"
 #include "baseannotationhighlighter.h"
 
+#include <coreplugin/patchtool.h>
+
 #include <texteditor/textdocument.h>
 
 #include <utils/filepath.h>
 #include <utils/id.h>
+#include <utils/link.h>
 
 #include <QAbstractListModel>
 #include <QRegularExpression>
 #include <QSet>
+#include <QTextBlock>
 
 #include <functional>
 
@@ -72,6 +76,30 @@ public:
     // What a plain click on it describes, in a view that is not the widget
     // editor; a VCS that leaves it unset offers only its URLs there.
     std::function<QString(const QTextCursor &)> changeUnderCursor;
+};
+
+class VCSBASE_EXPORT DiffChunk
+{
+public:
+    bool isValid() const;
+    QByteArray asPatch(const Utils::FilePath &workingDirectory) const;
+
+    Utils::FilePath fileName;
+    QByteArray chunk;
+    QByteArray header;
+};
+
+// The place in a file a line of a diff stands for, and the block it was
+// found from, which is what a VCS with more to say about the jump (Git
+// resolves the line for the revision) reads the revision from.
+class VCSBASE_EXPORT DiffTarget
+{
+public:
+    bool isValid() const { return !filePath.isEmpty() && line > 0; }
+
+    Utils::FilePath filePath;
+    int line = 0;
+    QTextBlock contextBlock;
 };
 
 // What the tool bar's entries browser offers: one row per file in a diff, or
@@ -150,14 +178,36 @@ public:
     // Every change an annotation names, up to its separator if it has one.
     QSet<QString> annotationChanges() const;
 
+    // The file a diff names, on disk: looked for under the working directory,
+    // beside the source, at the VCS top level above the source, and as given
+    // - what VcsBaseEditorWidget::findDiffFile() always did.
+    QString resolveDiffFile(const QString &fileName) const;
+    // The same, through the VCS where it knows better - Perforce maps depot
+    // paths - and resolveDiffFile() where it does not.
+    using DiffFileResolver = std::function<QString(const QString &)>;
+    void setDiffFileResolver(const DiffFileResolver &resolver);
+    QString findDiffFile(const QString &fileName) const;
+    // The file the diff header above \a inBlock names, resolved; \a header
+    // takes the header's lines, for a patch.
+    QString fileNameFromDiffSpecification(const QTextBlock &inBlock,
+                                          QString *header = nullptr) const;
+
+    // The chunk of a diff around \a cursor - nothing in a header - and what
+    // can be done with it: applied or reverted with patch, after asking.
+    DiffChunk diffChunk(const QTextCursor &cursor) const;
+    bool canApplyDiffChunk(const DiffChunk &chunk) const;
+    bool applyDiffChunk(const DiffChunk &chunk, Core::PatchAction patchAction) const;
+    void applyChunk(const DiffChunk &chunk, Core::PatchAction patchAction);
+    // The place in the file a line of a diff stands for, counted through the
+    // chunk header above it; invalid in a header or where the file is not
+    // there.
+    DiffTarget diffTargetAt(const QTextCursor &cursor) const;
+
     // The sections, found from the text with the patterns above whenever the
-    // text changes. Two things the document cannot know come from whoever
-    // does: the file on disk a diff header stands for, and a log entry's
-    // subject. Until they are given a diff has no sections and a log's
-    // entries have no subject.
+    // text changes. A log entry's subject is the one thing the document
+    // cannot know; until it is told, a log's entries have none.
     using BlockToString = std::function<QString(const QTextBlock &)>;
-    void setSectionHooks(const BlockToString &fileNameForDiffHeader,
-                         const BlockToString &revisionSubject);
+    void setRevisionSubjectHook(const BlockToString &revisionSubject);
     VcsEditorSections *sections() const;
     void updateSections();
 
@@ -177,9 +227,12 @@ signals:
     // for a view that is not it.
     void annotateRevisionRequested(const Utils::FilePath &workingDirectory,
                                    const QString &file, const QString &change, int line);
+    // A chunk was reverted with patch; whoever showed the diff reloads it.
+    void diffChunkReverted();
 
 private:
     void requestAnnotation(const QString &change, int line);
+    void updateHighlighter();
 
     Internal::VcsEditorDocumentPrivate *const d;
 };

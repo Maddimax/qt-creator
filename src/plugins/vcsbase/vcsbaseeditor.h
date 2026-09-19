@@ -41,17 +41,6 @@ class VcsEditorFactory;
 
 // Documentation inside
 
-class VCSBASE_EXPORT DiffChunk
-{
-public:
-    bool isValid() const;
-    QByteArray asPatch(const Utils::FilePath &workingDirectory) const;
-
-    Utils::FilePath fileName;
-    QByteArray chunk;
-    QByteArray header;
-};
-
 class VCSBASE_EXPORT VcsBaseEditor : public TextEditor::BaseTextEditor
 {
     Q_OBJECT
