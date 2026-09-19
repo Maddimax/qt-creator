@@ -62,6 +62,10 @@ Item {
     // does not keep an empty column's width.
     property bool showMarks: true
 
+    // Whether the gutter marks the lines edited since the file was saved.
+    // Off for the same text: nothing in it is saved back.
+    property bool showRevisions: true
+
     // Whether long lines are broken across rows. Off for a preview, and the
     // viewport's own default, because with it on the cost of showing a file
     // stops being what is on screen.
@@ -131,6 +135,7 @@ Item {
             showFoldMarkers: root.showFoldMarkers
             requestMarks: root.requestMarks
             showMarks: root.showMarks
+            showRevisions: root.showRevisions
             visible: root.showLineNumbers || root.showFoldMarkers
             // No width when it is not shown, so the text starts where it would
             // have without a gutter rather than indented by an invisible one.

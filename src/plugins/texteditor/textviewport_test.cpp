@@ -1350,6 +1350,72 @@ private slots:
         QCOMPARE(gutter->implicitWidth(), wide);
     }
 
+    // An annotation of part of a file numbers its lines as the file does. The
+    // document says where it starts; the gutter counts from there, and makes
+    // room for the highest number it will reach rather than for the count.
+    void testTheGutterCountsFromWhereTheDocumentSaysItStarts()
+    {
+        TemporaryDirectory dir("gutter-first-line");
+        QVERIFY(dir.isValid());
+        const FilePath file = writeLines(dir, "excerpt.txt", 40);
+
+        QQuickView view;
+        installIconProvider(view);
+        view.resize(400, 200);
+        QQmlComponent component(view.engine());
+        component.setData(QByteArray("import QtQuick\n"
+                                     "import QtCreator.TextEditor\n"
+                                     "Row {\n"
+                                     "    property alias viewport: v\n"
+                                     "    property alias gutter: g\n"
+                                     "    property string path\n"
+                                     "    EditorGutter { id: g; viewport: v; height: 200 }\n"
+                                     "    TextViewport {\n"
+                                     "        id: v; objectName: \"gutterViewport\"\n"
+                                     "        width: 300; height: 200\n"
+                                     "        document: CodeDocument { filePath: path }\n"
+                                     "    }\n"
+                                     "}"),
+                          QUrl("qrc:/test/GutterFirstLineTest.qml"));
+        std::unique_ptr<QObject> created(component.createWithInitialProperties(
+            {{"path", file.toUrlishString()}}));
+        QVERIFY2(created != nullptr, qPrintable(component.errorString()));
+
+        auto * const item = qobject_cast<QQuickItem *>(created.get());
+        QVERIFY(item);
+        item->setParentItem(view.contentItem());
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+        auto * const viewport = item->findChild<TextViewport *>("gutterViewport");
+        QVERIFY(viewport);
+        QTRY_VERIFY(viewport->visibleLineCount() > 3);
+        auto * const gutter = item->property("gutter").value<QQuickItem *>();
+        QVERIFY(gutter);
+        TextDocument * const document = viewport->textDocument();
+        QVERIFY(document);
+
+        // A file: from one, and as wide as forty-one lines need.
+        QCOMPARE(document->firstLineNumber(), 1);
+        QCOMPARE(viewport->firstLineNumber(), 1);
+        QTRY_COMPARE(gutterNumbers(gutter).first(), QString("1"));
+        const qreal forAFile = gutter->implicitWidth();
+
+        // An excerpt from deep in a file: the numbers are the file's, and the
+        // gutter is as wide as the last of them needs.
+        document->setFirstLineNumber(99961);
+        QCOMPARE(viewport->firstLineNumber(), 99961);
+        QTRY_COMPARE(gutterNumbers(gutter).first(), QString("99961"));
+        QCOMPARE(gutterNumbers(gutter).at(1), QString("99962"));
+        QTRY_VERIFY2(gutter->implicitWidth() > forAFile,
+                     "the gutter kept a file's width for an excerpt's six-digit numbers");
+
+        // And a document that says it is a file again counts from one again.
+        document->setFirstLineNumber(1);
+        QTRY_COMPARE(gutterNumbers(gutter).first(), QString("1"));
+        QTRY_COMPARE(gutter->implicitWidth(), forAFile);
+    }
+
     // Folding takes lines off the screen without taking them out of the file.
     // The rows close up over what is hidden; the numbers beside them keep
     // counting the document, so they jump.

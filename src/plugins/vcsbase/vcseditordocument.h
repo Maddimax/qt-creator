@@ -177,10 +177,6 @@ public:
     Utils::FilePath workingDirectory() const;
     void setWorkingDirectory(const Utils::FilePath &workingDirectory);
 
-    // Where the gutter starts counting: an annotation of part of a file
-    // numbers its lines as the file does.
-    int firstLineNumber() const;
-    void setFirstLineNumber(int firstLineNumber);
     // Where to go once the output has arrived.
     int defaultLineNumber() const;
     void setDefaultLineNumber(int line);

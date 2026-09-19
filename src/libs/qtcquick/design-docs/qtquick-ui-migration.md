@@ -66709,3 +66709,128 @@ No `.qbs` edited: no file list changed.
    staging goes with it.
 2. The other seven VCS, one at a time, the same way.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — The first line number and the revision bars (batch 307)
+
+Entry 306's next item, the view-side half: two things a VCS view needs
+from the Qt Quick editor before `VcsEditorFactory` can be flipped, which
+only the widget view offered. The busy state - `executeTask()`'s spinner
+over the widget - goes with `executeTask()`'s own move in the flip batch,
+since the spinner is drawn over whatever the task runs in.
+
+### The first line number
+
+An annotation of part of a file numbers its lines as the file does: Git's
+blame of lines 40 to 60 calls them 40 to 60. `VcsBaseEditorWidget` did that
+by overriding `lineNumber()` and `lineNumberDigits()` from a value batch 299
+had moved to `VcsEditorDocument` - and the Qt Quick gutter, which reads its
+numbers from the viewport's row model, knew nothing of it.
+
+The value is `TextDocument::firstLineNumber()` now, 1 unless told otherwise,
+with `firstLineNumberChanged()`. It is a fact about the text and not about a
+view, so every view of the document follows it:
+
+- `TextEditorWidget::lineNumber()` counts from it and `lineNumberDigits()`
+  sizes for `blockCount() + first - 1`; the widget re-measures its extra
+  area on the signal. `VcsBaseEditorWidget`'s two overrides go, and its
+  `firstLineNumber()`/`setFirstLineNumber()` forward to the `TextDocument`
+  (Git's `annotate()` still calls the widget's).
+- `TextViewport` reads it when the document is connected and on the signal,
+  hands `first - 1` to the row model as a number offset added to
+  `displayNumber` - the origin line's own number under relative numbering
+  included, the distances unchanged - and exposes `firstLineNumber` as a
+  property. `EditorGutter.qml`'s `widest` measures
+  `lineCount + firstLineNumber - 1`: as wide as the last number, not as the
+  count.
+
+`VcsEditorDocument`'s own `firstLineNumber` (default -1, "unset") is gone;
+the base's 1 means the same thing and `first > 0` guards with it.
+
+### The revision bars
+
+The widget's switch for the bars beside edited lines is the display
+setting's (`setDisplaySettings()` sets `m_revisionsVisible` from
+`markTextChanges`), and the VCS widget forces it off in its constructor by
+handing the base a copy of the settings with the flag cleared. A Qt Quick
+view has no subclass to do that in, so it is the factory's to say:
+`TextEditorFactory::setRevisionsVisible()`/`revisionsVisible()`, on by
+default, next to `marksVisible()`. The Qt Quick editor hands it to
+`createQuickTextView()`, which sets it as `MainEditor.qml`'s required
+`showRevisions`, through `CodeViewport` to `EditorGutter`, where the change
+bar is `visible: root.showRevisions && changeState !== 0`. The viewport
+still works the `changed` role out (the display setting gates that); only
+the bar is not drawn - as the widget only does not paint.
+
+`VcsEditorFactory` says `setRevisionsVisible(false)` beside its
+`setMarksVisible(false)`. The widget path is untouched: its switch stays
+the setting's, its VCS subclass keeps forcing it off, and both go with the
+widget.
+
+### The tests
+
+- `testTheGutterCountsFromWhereTheDocumentSaysItStarts` (viewport tests, a
+  gutter beside a viewport over a 41-line file): from one and a file's
+  width; `setFirstLineNumber(99961)` on the `TextDocument` → the viewport's
+  property, the first two numbers `99961`, `99962`, and a wider gutter; back
+  to 1 → `1` and the file's width again.
+- `testAFactoryCanSayItsLanguageMarksNoEditedLines` (Qt Quick editor tests,
+  Qt Quick only - see above for why the widget has no row): a factory with
+  the default and one with `setRevisionsVisible(false)`; each editor gets
+  `alpha\nbeta\n` through `TextDocument::setPlainText()` (which resets the
+  save revision), an `x` through `insertText()`, and is read once the row
+  model says line one `changed` - the fact the bar is bound to, so "no bar"
+  is read after the moment one could have come. Default: the gutter's
+  `showRevisions` and a visible `gutterChangeBar` with a non-zero state.
+  Without: neither.
+- `testTheWidgetEditorsStateIsTheDocuments` (VcsBase) asserts the factory
+  says `!marksVisible()` and `!revisionsVisible()`; its
+  `setFirstLineNumber(41)` round trip is the `TextDocument`'s now.
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run - after one
+compile error, the viewport's `firstLineNumber()` getter declared in the
+property and nowhere else. The two batch-306 neighbours ran alongside
+(`testTheGutterNumbersTheLinesThatAreOnScreen`,
+`testTheWidgetEditorsStateIsTheDocuments`): 3 passed, 0 failed, exit 0. No
+QML warning in any of the four logs.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - the row model's `displayNumber` ignores the offset: the gutter test
+  fails on the first number, "Compared values are not the same", actual `"1"`
+  where `"99961"` was expected.
+- **B** - `widest` measures `lineCount` alone: the gutter test fails on the
+  width, "'gutter->implicitWidth() > forAFile' returned FALSE" - the numbers
+  were right and the gutter had not grown for them.
+- **C** - the Qt Quick editor passes `showRevisions` true whatever the
+  factory says: the revisions test fails on "'!none->gutterShows' returned
+  FALSE".
+
+### Measurements
+
+    -test TextEditor     796 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         26 passed, 0 failed, 0 skipped, exit 0
+    -test Git            137 passed, 2 failed, 0 skipped, exit 2
+
+TextEditor is 796: batch 306's 794 plus the two tests here, and all three
+runs clean - no entry-247 crash and no `testFollowSymbolBigFile` flake this
+time, where batch 306 saw both. VcsBase stays 26: the two new assertions are
+inside an existing test function. Git is 137 passed with exactly the
+baseline's two failures (`testInlineDiffFile`,
+`testConflictedFileInTextEditor`, both about a file opening in the Qt Quick
+editor); batch 306's third was the load flake, absent here. QuickUi
+unchanged, as nothing of its changed.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The flip, Git first**: `VcsEditorFactory::setUsesQuickEditor(true)`,
+   with `executeTask()` (and its busy spinner) moved to the document, the
+   Qt Quick editor connecting `annotateRevisionRequested` and
+   `diffChunkReverted` where the widget forwarded them, and Git's widget
+   subclass retired - its constructor's patterns and formats into
+   `gitEditorParameters()`, which ends batch 299's staging area.
+2. The other seven VCS, one at a time, each the same way.
+3. The QmlDesigner-side two; the standing list (entry 298).

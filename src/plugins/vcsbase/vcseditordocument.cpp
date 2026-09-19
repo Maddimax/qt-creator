@@ -262,7 +262,6 @@ class VcsEditorDocumentPrivate
 public:
     VcsBaseEditorParameters parameters;
     FilePath workingDirectory;
-    int firstLineNumber = -1;
     int defaultLineNumber = -1;
     QString annotateRevisionTextFormat;
     QString annotatePreviousRevisionTextFormat;
@@ -420,16 +419,6 @@ FilePath VcsEditorDocument::workingDirectory() const
 void VcsEditorDocument::setWorkingDirectory(const FilePath &workingDirectory)
 {
     d->workingDirectory = workingDirectory;
-}
-
-int VcsEditorDocument::firstLineNumber() const
-{
-    return d->firstLineNumber;
-}
-
-void VcsEditorDocument::setFirstLineNumber(int firstLineNumber)
-{
-    d->firstLineNumber = firstLineNumber;
 }
 
 int VcsEditorDocument::defaultLineNumber() const
@@ -1034,6 +1023,10 @@ private slots:
                                                  [] { return new LogWidget; },
                                                  [](const FilePath &, const QString &) {}};
         VcsEditorFactory factory(parameters);
+        // What the widget subclass says about its gutter in its constructor,
+        // said by the factory too, for the view that has no widget.
+        QVERIFY2(!factory.marksVisible(), "a VCS view has a column for marks it cannot carry");
+        QVERIFY2(!factory.revisionsVisible(), "a VCS view marks edited lines nobody saves");
         // Through the editor manager, as a client opens one: the choice below
         // jumps in the editor the manager knows for the document.
         QString title = "VCS document test";

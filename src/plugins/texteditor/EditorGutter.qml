@@ -30,6 +30,10 @@ Item {
     // no mark says so, and its gutter is the numbers alone.
     property bool showMarks: true
 
+    // Whether the lines edited since the file was saved get a bar. Off for
+    // text that is not a file and is not saved back.
+    property bool showRevisions: true
+
     // Room for a mark and for the highest number the document can reach,
     // measured in the font the numbers are drawn in. Both are reserved whether
     // or not anything is in them: a gutter that grew when the first error
@@ -46,7 +50,9 @@ Item {
         id: widest
 
         font: root.viewport.font
-        text: String(Math.max(1, root.viewport.lineCount))
+        // The highest number the document reaches, counted from where it
+        // says it starts.
+        text: String(Math.max(1, root.viewport.lineCount + root.viewport.firstLineNumber - 1))
     }
 
     // The mark column, as something to click. Underneath what the gutter draws
@@ -215,7 +221,7 @@ Item {
             y: change.model.y - root.viewport.scrollY
             width: 2
             height: root.viewport.lineHeight
-            visible: change.changeState !== 0
+            visible: root.showRevisions && change.changeState !== 0
             color: change.changeState === TextViewport.Saved ? root.viewport.savedLineColor
                                                                 : root.viewport.changedLineColor
         }

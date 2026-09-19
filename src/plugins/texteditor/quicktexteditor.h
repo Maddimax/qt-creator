@@ -81,7 +81,8 @@ Core::IEditor *createQuickTextEditor(const TextDocumentPtr &document,
 // view that offers none.
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
                                            QtcQuick::ActionModel *contextActions,
-                                           bool showMarks = true);
+                                           bool showMarks = true,
+                                           bool showRevisions = true);
 
 // The same, over a document somebody else owns - which is what an editor has:
 // the editor manager opens the document before the editor is ever shown.

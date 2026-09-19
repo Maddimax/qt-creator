@@ -118,9 +118,6 @@ protected:
     // Enable margins for example in diff editors. default is disabled
     void setMarginsEnabled(bool enabled);
 
-    QString lineNumber(int blockNumber) const override;
-    int lineNumberDigits() const override;
-
 public:
     typedef std::function<void(const Utils::FilePath &, const QString &)> DescribeFunc;
 
@@ -166,6 +163,7 @@ public:
     Utils::FilePath workingDirectory() const;
     void setWorkingDirectory(const Utils::FilePath &wd);
 
+    // The document's: where an annotation of part of a file starts counting.
     int firstLineNumber() const;
     void setFirstLineNumber(int firstLineNumber);
 

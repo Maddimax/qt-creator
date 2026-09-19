@@ -322,7 +322,8 @@ public:
         });
 
         QtcQuick::QuickWidget * const widget = Internal::createQuickTextView(
-            m_source.get(), &m_contextActions, !m_factory || m_factory->marksVisible());
+            m_source.get(), &m_contextActions, !m_factory || m_factory->marksVisible(),
+            !m_factory || m_factory->revisionsVisible());
         // Before anything that configures the view: viewport() looks through
         // widget(), so everything below this line would silently do nothing.
         setWidget(widget);
@@ -1572,7 +1573,8 @@ QRect globalRectForBlocksIn(Core::IEditor *editor, int firstBlock, int lastBlock
 
 QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
                                            QtcQuick::ActionModel *contextActions,
-                                           bool showMarks)
+                                           bool showMarks,
+                                           bool showRevisions)
 {
     auto * const widget = new QtcQuick::QuickWidget;
     // Set before the source: the form's root property is required, and a
@@ -1588,8 +1590,10 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
          {"highlightCurrentLine", displaySettings().highlightCurrentLine()},
          {"showAnnotations", displaySettings().displayAnnotations()},
          // The language's answer, not the user's: output that is not a file
-         // has no column for marks it can never carry.
-         {"showMarks", showMarks}});
+         // has no column for marks it can never carry, and no edit in it is
+         // one to be saved back.
+         {"showMarks", showMarks},
+         {"showRevisions", showRevisions}});
     widget->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/MainEditor.qml"));
 
     // Ctrl+F reaches a view by asking its widget for an IFindSupport, so this
@@ -14303,6 +14307,100 @@ private slots:
         QVERIFY2(none, "the view has no gutter to ask");
         QVERIFY2(!none->reserved, "the gutter keeps a mark column's width for a language that has none");
         QVERIFY2(!none->answersClicks, "the mark column answers a click for a language that has no marks");
+    }
+
+    // A VCS log or a diff is text nobody saves back, so an edit in it is not
+    // a change to mark with a bar. The widget view's switch for the bars is
+    // the display setting's, which its VCS subclass overrides in its
+    // constructor; a view with no subclass needs the factory to say it, so
+    // this is the Qt Quick view's alone.
+    void testAFactoryCanSayItsLanguageMarksNoEditedLines()
+    {
+        class RevisionsFactory final : public TextEditorFactory
+        {
+        public:
+            explicit RevisionsFactory(bool revisions)
+            {
+                setId("QuickEditorRevisionsTest");
+                setDisplayName("Quick Editor Revisions Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorRevisionsTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+                setRevisionsVisible(revisions);
+            }
+        };
+
+        // A bar beside an edited line, if there is one. Walks the items: a
+        // Repeater's delegates are visual children and QObject children of
+        // somewhere else.
+        const auto hasVisibleChangeBar = [](QQuickItem *item, const auto &self) -> bool {
+            if (item->objectName() == "gutterChangeBar" && item->isVisible()
+                && item->property("changeState").toInt() != 0) {
+                return true;
+            }
+            const QList<QQuickItem *> children = item->childItems();
+            for (QQuickItem *child : children) {
+                if (self(child, self))
+                    return true;
+            }
+            return false;
+        };
+
+        // Edits the first line and waits for the row model to say it changed
+        // - the fact the bar is bound to - before reading the bar, so that a
+        // bar that is not there was read after the moment it could have come.
+        struct Revisions { bool gutterShows = false; bool barBesideEdit = false; };
+        const auto revisionsOf = [hasVisibleChangeBar](Core::IEditor *editor)
+            -> std::optional<Revisions> {
+            editor->widget()->resize(400, 300);
+            editor->widget()->show();
+            const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+            TextViewport * const view = viewportForEditor(editor);
+            if (!view || !QTest::qWaitFor([view] { return view->lineHeight() > 0; }))
+                return {};
+            TextDocument * const document = view->textDocument();
+            if (!document)
+                return {};
+            document->setPlainText("alpha\nbeta\n");
+            if (!QTest::qWaitFor([view] { return view->visibleLineCount() >= 2; }))
+                return {};
+            view->insertText("x");
+            QAbstractItemModel * const rows = view->visibleRows();
+            const int changedRole = rows ? rows->roleNames().key("changed", -1) : -1;
+            if (changedRole < 0)
+                return {};
+            if (!QTest::qWaitFor([rows, changedRole] {
+                    return rows->rowCount() > 0
+                           && rows->data(rows->index(0, 0), changedRole).toInt() != 0;
+                })) {
+                return {};
+            }
+            auto * const host = editor->widget()->findChild<QQuickWidget *>();
+            QQuickItem * const root = host ? host->rootObject() : nullptr;
+            QQuickItem * const gutter = root ? root->findChild<QQuickItem *>("codeGutter") : nullptr;
+            if (!gutter)
+                return {};
+            return Revisions{gutter->property("showRevisions").toBool(),
+                             hasVisibleChangeBar(gutter, hasVisibleChangeBar)};
+        };
+
+        RevisionsFactory withRevisions(true);
+        QCOMPARE(withRevisions.revisionsVisible(), true);
+        const std::unique_ptr<Core::IEditor> marked(withRevisions.createEditor());
+        QVERIFY2(marked.get(), "the factory built nothing");
+        const std::optional<Revisions> some = revisionsOf(marked.get());
+        QVERIFY2(some, "the view has no gutter to ask, or never saw the edit");
+        QVERIFY2(some->gutterShows, "an ordinary editor's gutter was told to mark no edits");
+        QVERIFY2(some->barBesideEdit, "an ordinary editor draws no bar beside an edited line");
+
+        RevisionsFactory withoutRevisions(false);
+        QCOMPARE(withoutRevisions.revisionsVisible(), false);
+        const std::unique_ptr<Core::IEditor> bare(withoutRevisions.createEditor());
+        QVERIFY2(bare.get(), "the factory built nothing");
+        const std::optional<Revisions> none = revisionsOf(bare.get());
+        QVERIFY2(none, "the view has no gutter to ask, or never saw the edit");
+        QVERIFY2(!none->gutterShows, "the gutter was told to mark edits in a language that marks none");
+        QVERIFY2(!none->barBesideEdit, "a bar beside an edited line in a view that marks none");
     }
 
     // The same embedded views cannot be split: the editor around them keeps

@@ -1583,6 +1583,16 @@ void TextEditorWidgetPrivate::setDocument(const QSharedPointer<TextDocument> &do
                                      this,
                                      &TextEditorWidgetPrivate::applyTabSettings);
 
+    // The numbers and the width they need follow where the document says the
+    // first line is.
+    m_documentConnections << connect(m_document.data(),
+                                     &TextDocument::firstLineNumberChanged,
+                                     this,
+                                     [this] {
+                                         slotUpdateExtraAreaWidth();
+                                         m_extraArea->update();
+                                     });
+
     m_documentConnections << connect(m_document.data(),
                                      &TextDocument::fontSettingsChanged,
                                      this,
@@ -9281,13 +9291,15 @@ void TextEditorWidget::dropEvent(QDropEvent *e)
 
 QString TextEditorWidget::lineNumber(int blockNumber) const
 {
-    return QString::number(blockNumber + 1);
+    const int first = d->m_document ? d->m_document->firstLineNumber() : 1;
+    return QString::number(blockNumber + first);
 }
 
 int TextEditorWidget::lineNumberDigits() const
 {
+    const int first = d->m_document ? d->m_document->firstLineNumber() : 1;
     int digits = 2;
-    int max = qMax(1, blockCount());
+    int max = qMax(1, blockCount() + first - 1);
     while (max >= 100) {
         max /= 10;
         ++digits;
@@ -10174,6 +10186,7 @@ public:
     bool m_usesQuickEditor = false;
     bool m_useGenericHighlighter = false;
     bool m_duplicatedSupported = true;
+    bool m_revisionsVisible = true;
     bool m_codeFoldingSupported = false;
     bool m_paranthesesMatchinEnabled = false;
     bool m_marksVisible = true;
@@ -11211,6 +11224,16 @@ void TextEditorFactory::setMarksVisible(bool on)
 bool TextEditorFactory::marksVisible() const
 {
     return d->m_marksVisible;
+}
+
+void TextEditorFactory::setRevisionsVisible(bool on)
+{
+    d->m_revisionsVisible = on;
+}
+
+bool TextEditorFactory::revisionsVisible() const
+{
+    return d->m_revisionsVisible;
 }
 
 void TextEditorFactory::setCodeFoldingSupported(bool on)

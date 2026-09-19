@@ -149,6 +149,10 @@ class TEXTEDITOR_EXPORT TextViewport : public QQuickItem, public HoverTarget
     // to be before it has drawn anything. Every line, folded or not: the
     // gutter has to fit the highest number it can ever show.
     Q_PROPERTY(int lineCount READ lineCount NOTIFY metricsChanged)
+    // What the first line is called - the document's answer, 1 unless the text
+    // is an excerpt of a larger file. The highest number the gutter can show
+    // is lineCount + firstLineNumber - 1.
+    Q_PROPERTY(int firstLineNumber READ firstLineNumber NOTIFY firstLineNumberChanged)
     // The first row on screen, counting rows and not document lines - what is
     // folded away is not a row.
     Q_PROPERTY(int firstVisibleLine READ firstVisibleLine NOTIFY metricsChanged)
@@ -551,6 +555,7 @@ public:
     QColor indentGuideColor() const;
     QFont font() const;
     int lineCount() const;
+    int firstLineNumber() const;
     int visibleLineCount() const;
     // How many columns of this view's own font fit across it. The widget
     // editor answers the same question with columnCount().
@@ -1108,6 +1113,7 @@ signals:
     void scrollYChanged();
     void scrollXChanged();
     void metricsChanged();
+    void firstLineNumberChanged();
     void mouseHiddenChanged();
     // Ctrl+Space, which is the form's cue to ask.
     void completionRequested();
@@ -1427,6 +1433,7 @@ private:
     // whichever happened to be constructed first.
     QList<EditHandler *> editHandlers() const;
     void updateRelativeOrigin();
+    void updateFirstLineNumber();
 
     QPointer<CodeSource> m_document;
     // The QTextDocument currently connected to, which is not the same one
@@ -1569,6 +1576,7 @@ private:
     bool m_tintMarginArea = false;
     QFont m_font;
     int m_lineCount = 0;
+    int m_firstLineNumber = 1;
     int m_firstVisibleLine = 0;
     QColor m_background;
 

@@ -903,7 +903,7 @@ public:
             // where every other line says how far away it is and the line
             // itself keeps its own number.
             if (m_relativeOrigin <= 0 || row.lineNumber == m_relativeOrigin)
-                return row.lineNumber;
+                return row.lineNumber + m_numberOffset;
             return qAbs(row.lineNumber - m_relativeOrigin);
         case FirstRowOfLineRole: return row.firstRowOfLine;
         case ChangedRole: return row.changed;
@@ -929,6 +929,19 @@ public:
         if (m_relativeOrigin == line)
             return;
         m_relativeOrigin = line;
+        if (!m_rows.empty()) {
+            emit dataChanged(index(0), index(int(m_rows.size()) - 1),
+                             {DisplayNumberRole});
+        }
+    }
+
+    // What the document adds to every line's number: the first line's own
+    // number less one. Kept here for the same reason as the origin.
+    void setNumberOffset(int offset)
+    {
+        if (m_numberOffset == offset)
+            return;
+        m_numberOffset = offset;
         if (!m_rows.empty()) {
             emit dataChanged(index(0), index(int(m_rows.size()) - 1),
                              {DisplayNumberRole});
@@ -1021,6 +1034,7 @@ private:
 
     QList<RowView> m_rows;
     int m_relativeOrigin = 0;
+    int m_numberOffset = 0;
 };
 
 QAbstractItemModel *TextViewport::visibleRows() const
@@ -3742,6 +3756,23 @@ void TextViewport::updateRelativeOrigin()
         m_visibleRows->setRelativeOrigin(m_relativeLineNumbers ? cursorLine() : 0);
 }
 
+int TextViewport::firstLineNumber() const
+{
+    return m_firstLineNumber;
+}
+
+void TextViewport::updateFirstLineNumber()
+{
+    const TextDocument * const doc = textDocument();
+    const int first = doc ? doc->firstLineNumber() : 1;
+    if (m_firstLineNumber == first)
+        return;
+    m_firstLineNumber = first;
+    if (m_visibleRows)
+        m_visibleRows->setNumberOffset(first - 1);
+    emit firstLineNumberChanged();
+}
+
 bool TextViewport::overwriteMode() const
 {
     return m_overwriteMode;
@@ -5830,6 +5861,9 @@ void TextViewport::documentChangedInternal()
                 polish();
                 update();
             });
+            // Where the gutter counts from is the document's to say.
+            connect(doc, &TextDocument::firstLineNumberChanged, this,
+                    &TextViewport::updateFirstLineNumber);
             // The encoding and the line endings are part of what "the document
             // changed" covers - reopening with another encoding says so here.
             connect(doc, &Core::IDocument::changed, this, &TextViewport::fileFormatChanged);
@@ -5879,6 +5913,8 @@ void TextViewport::documentChangedInternal()
             }
         }
     }
+
+    updateFirstLineNumber();
 
     // Both of these are also done by the layout pass the polish below asks
     // for, so there is nothing to do here but ask for it.

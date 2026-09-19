@@ -895,6 +895,11 @@ public:
     // bookmarks, diagnostics. False for output that is not a file and can
     // carry none, so that the gutter does not keep an empty column's width.
     bool marksVisible() const;
+    void setRevisionsVisible(bool on);
+    // Whether a view of this language marks the lines edited since the file
+    // was saved. False for output that is not a file - a VCS log, a diff -
+    // where an edit is not something to be saved back.
+    bool revisionsVisible() const;
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
     // Whether the language has anything to fold. A view uses it to decide

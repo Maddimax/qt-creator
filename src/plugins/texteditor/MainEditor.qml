@@ -26,8 +26,10 @@ Item {
     required property bool showFoldMarkers
     required property bool highlightCurrentLine
     required property bool showAnnotations
-    // The language's, not the user's: whether there is a column for marks.
+    // The language's, not the user's: whether there is a column for marks,
+    // and whether edited lines are marked as such.
     required property bool showMarks
+    required property bool showRevisions
 
     CodeViewport {
         anchors.fill: parent
@@ -47,6 +49,7 @@ Item {
         // bookmark; a preview's has no file to put one in.
         requestMarks: true
         showMarks: root.showMarks
+        showRevisions: root.showRevisions
         // What the user asked for in Preferences, and what the Wrap Lines
         // action toggles. A preview keeps its own answer; an editor follows
         // the setting like every other editor does.

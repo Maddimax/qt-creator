@@ -114,6 +114,7 @@ public:
     QList<QPointer<QAction>> m_extraToolBarActions;
     LinkFinder m_linkFinder;
     ActionLinkFinder m_actionLinkFinder;
+    int m_firstLineNumber = 1;
     Utils::Guard m_modificationChangedGuard;
 
     SyntaxHighlighter *m_highlighter = nullptr;
@@ -692,6 +693,19 @@ ActionLinkFinder TextDocument::actionLinkFinder() const
 void TextDocument::setActionLinkFinder(const ActionLinkFinder &finder)
 {
     d->m_actionLinkFinder = finder;
+}
+
+int TextDocument::firstLineNumber() const
+{
+    return d->m_firstLineNumber;
+}
+
+void TextDocument::setFirstLineNumber(int lineNumber)
+{
+    if (d->m_firstLineNumber == lineNumber)
+        return;
+    d->m_firstLineNumber = lineNumber;
+    emit firstLineNumberChanged();
 }
 
 void TextDocument::addToolBarAction(QAction *action)

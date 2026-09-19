@@ -736,38 +736,15 @@ FilePath VcsBaseEditorWidget::fileNameForLine(int line) const
 
 int VcsBaseEditorWidget::firstLineNumber() const
 {
-    const VcsEditorDocument * const document = vcsDocument();
-    return document ? document->firstLineNumber() : -1;
+    const TextDocument * const document = textDocument();
+    return document ? document->firstLineNumber() : 1;
 }
 
 void VcsBaseEditorWidget::setFirstLineNumber(int firstLineNumber)
 {
-    VcsEditorDocument * const document = vcsDocument();
+    TextDocument * const document = textDocument();
     QTC_ASSERT(document, return);
     document->setFirstLineNumber(firstLineNumber);
-}
-
-QString VcsBaseEditorWidget::lineNumber(int blockNumber) const
-{
-    const int first = firstLineNumber();
-    if (first > 0)
-        return QString::number(first + blockNumber);
-    return TextEditorWidget::lineNumber(blockNumber);
-}
-
-int VcsBaseEditorWidget::lineNumberDigits() const
-{
-    const int first = firstLineNumber();
-    if (first <= 0)
-        return TextEditorWidget::lineNumberDigits();
-
-    int digits = 2;
-    int max = qMax(1, first + blockCount());
-    while (max >= 100) {
-        max /= 10;
-        ++digits;
-    }
-    return digits;
 }
 
 void VcsBaseEditorWidget::finalizeInitialization()
@@ -1552,6 +1529,7 @@ VcsEditorFactory::VcsEditorFactory(const VcsBaseEditorParameters &parameters)
 
     setEditorCreator([] { return new VcsBaseEditor(); });
     setMarksVisible(false);
+    setRevisionsVisible(false);
 }
 
 VcsEditorFactory::~VcsEditorFactory() = default;

@@ -360,6 +360,12 @@ public:
     // link finder is.
     ActionLinkFinder actionLinkFinder() const;
     void setActionLinkFinder(const ActionLinkFinder &finder);
+    // What the gutter calls the first line. One for a file; for an excerpt of
+    // one - an annotation of lines 40 to 60 - the line the excerpt starts at,
+    // so that the numbers are the file's. A fact about the text, so every view
+    // of the document counts from it.
+    int firstLineNumber() const;
+    void setFirstLineNumber(int lineNumber);
     void addToolBarAction(QAction *action);
     void removeToolBarAction(QAction *action);
     // The choice the language offers in the toolbar, or nullptr where it
@@ -385,6 +391,7 @@ signals:
     void tabSettingsChanged();
     void fontSettingsChanged();
     void extraSelectionsChanged();
+    void firstLineNumberChanged();
 
     // This document has work it put off until a view is looking - a language's
     // outline model, its semantic highlighting. A view answers by calling
