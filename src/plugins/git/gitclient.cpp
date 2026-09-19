@@ -730,8 +730,8 @@ public:
 class GitBaseConfig : public VcsBaseEditorConfig
 {
 public:
-    GitBaseConfig(GitEditorWidget *editor)
-        : VcsBaseEditorConfig(editor->toolBar())
+    explicit GitBaseConfig(QObject *parent)
+        : VcsBaseEditorConfig(parent)
     {
         QAction *patienceAction = addToggleButton("--patience", Tr::tr("Patience"),
             Tr::tr("Use the patience algorithm for calculating the differences."));
@@ -747,20 +747,40 @@ public:
         connect(diffButton, &QAction::toggled, ignoreWSAction, &QAction::setVisible);
         patienceAction->setVisible(diffButton->isChecked());
         ignoreWSAction->setVisible(diffButton->isChecked());
-        auto filterAction = new QAction(Tr::tr("Filter"), this);
-        filterAction->setToolTip(Tr::tr("Filter commits by message or content."));
-        filterAction->setCheckable(true);
-        connect(filterAction, &QAction::toggled, editor, &GitEditorWidget::toggleFilters);
-        addAction(filterAction);
     }
 };
 
 class GitLogConfig : public GitBaseConfig
 {
 public:
-    GitLogConfig(bool fileRelated, GitEditorWidget *editor)
-        : GitBaseConfig(editor)
+    GitLogConfig(bool fileRelated, QObject *parent)
+        : GitBaseConfig(parent)
     {
+        // The filter: what the log is narrowed by, shown while the Filter
+        // toggle is on and read in arguments().
+        auto filterAction = new QAction(Tr::tr("Filter"), this);
+        filterAction->setToolTip(Tr::tr("Filter commits by message or content."));
+        filterAction->setCheckable(true);
+        addAction(filterAction);
+        m_grep = addTextField(Tr::tr("Filter by message"),
+                              Tr::tr("Filter log entries by text in the commit message."));
+        m_pickaxe = addTextField(Tr::tr("Filter by content"),
+                                 Tr::tr("Filter log entries by added or removed string."));
+        m_author = addTextField(Tr::tr("Filter by author"),
+                                Tr::tr("Filter log entries by author."));
+        m_caseSensitive = new QAction(Tr::tr("Case Sensitive"), this);
+        m_caseSensitive->setCheckable(true);
+        m_caseSensitive->setChecked(true);
+        connect(m_caseSensitive, &QAction::toggled, this, &VcsBaseEditorConfig::argumentsChanged);
+        addAction(m_caseSensitive);
+        const auto showFilter = [this](bool on) {
+            for (TextEditor::ToolBarField * const field : {m_grep, m_pickaxe, m_author})
+                field->setVisible(on);
+            m_caseSensitive->setVisible(on);
+        };
+        connect(filterAction, &QAction::toggled, this, showFilter);
+        showFilter(false);
+
         QAction *allBranchesButton = addToggleButton(
             QStringList{allBranchesOption},
             Tr::tr("All", "All branches"),
@@ -785,6 +805,13 @@ public:
         addReloadButton();
     }
 
+    QStringList arguments() const override
+    {
+        return GitBaseConfig::arguments()
+               + gitLogFilterArguments(m_author->text(), m_grep->text(), m_pickaxe->text(),
+                                       m_caseSensitive->isChecked());
+    }
+
     QStringList graphArguments() const
     {
         const ColorNames colors = GitClient::colorNames();
@@ -798,13 +825,24 @@ public:
                     ).arg(colors.hash, colors.decoration, colors.author, colors.subject, colors.date);
         return {graphOption, "--oneline", "--topo-order", formatArg};
     }
+
+private:
+    TextEditor::ToolBarField *m_grep = nullptr;
+    TextEditor::ToolBarField *m_pickaxe = nullptr;
+    TextEditor::ToolBarField *m_author = nullptr;
+    QAction *m_caseSensitive = nullptr;
 };
+
+VcsBaseEditorConfig *createGitLogConfig(bool fileRelated, QObject *parent)
+{
+    return new GitLogConfig(fileRelated, parent);
+}
 
 class GitRefLogConfig : public GitBaseConfig
 {
 public:
-    explicit GitRefLogConfig(GitEditorWidget *editor)
-        : GitBaseConfig(editor)
+    explicit GitRefLogConfig(QObject *parent)
+        : GitBaseConfig(parent)
     {
         QAction *showDateButton =
                 addToggleButton("--date=iso",
@@ -1884,21 +1922,6 @@ void GitClient::log(const FilePath &workingDirectory, const QString &fileName,
 
     if (!arguments.contains(graphOption) && !arguments.contains(patchOption))
         arguments << normalLogArguments();
-
-    const QString authorValue = editor->authorValue();
-    if (!authorValue.isEmpty())
-        arguments << "--author=" + ProcessArgs::quoteArg(authorValue);
-
-    const QString grepValue = editor->grepValue();
-    if (!grepValue.isEmpty())
-        arguments << "--grep=" + ProcessArgs::quoteArg(grepValue);
-
-    const QString pickaxeValue = editor->pickaxeValue();
-    if (!pickaxeValue.isEmpty())
-        arguments << "-S" << ProcessArgs::quoteArg(pickaxeValue);
-
-    if (!editor->caseSensitive())
-        arguments << "-i";
 
     if (!fileName.isEmpty() && !isLogForLine)
         arguments << "--" << fileName;

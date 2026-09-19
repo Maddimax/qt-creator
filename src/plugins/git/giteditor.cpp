@@ -23,6 +23,7 @@
 
 #include <utils/algorithm.h>
 #include <utils/ansiescapecodehandler.h>
+#include <utils/commandline.h>
 #include <utils/qtcassert.h>
 #include <utils/temporaryfile.h>
 
@@ -45,56 +46,20 @@ using namespace VcsBase;
 
 namespace Git::Internal {
 
-class GitLogFilterWidget : public QToolBar
+QStringList gitLogFilterArguments(const QString &author, const QString &grep,
+                                  const QString &pickaxe, bool caseSensitive)
 {
-public:
-    GitLogFilterWidget(GitEditorWidget *editor)
-    {
-        auto addLineEdit = [](const QString &placeholder,
-                              const QString &tooltip,
-                              GitEditorWidget *editor) {
-            auto lineEdit = new FancyLineEdit;
-            lineEdit->setFiltering(true);
-            lineEdit->setToolTip(tooltip);
-            lineEdit->setPlaceholderText(placeholder);
-            lineEdit->setMaximumWidth(200);
-            connect(lineEdit, &QLineEdit::returnPressed,
-                    editor, &GitEditorWidget::refresh);
-            connect(lineEdit, &FancyLineEdit::rightButtonClicked,
-                    editor, &GitEditorWidget::refresh);
-            return lineEdit;
-        };
-        grepLineEdit = addLineEdit(Tr::tr("Filter by message"),
-                                   Tr::tr("Filter log entries by text in the commit message."),
-                                   editor);
-        pickaxeLineEdit = addLineEdit(Tr::tr("Filter by content"),
-                                      Tr::tr("Filter log entries by added or removed string."),
-                                      editor);
-        authorLineEdit = addLineEdit(Tr::tr("Filter by author"),
-                                     Tr::tr("Filter log entries by author."),
-                                     editor);
-        addWidget(new QLabel(Tr::tr("Filter:")));
-        addSeparator();
-        addWidget(grepLineEdit);
-        addSeparator();
-        addWidget(pickaxeLineEdit);
-        addSeparator();
-        addWidget(authorLineEdit);
-        addSeparator();
-        caseAction = new QAction(Tr::tr("Case Sensitive"), this);
-        caseAction->setCheckable(true);
-        caseAction->setChecked(true);
-        connect(caseAction, &QAction::toggled, editor, &GitEditorWidget::refresh);
-        addAction(caseAction);
-        hide();
-        connect(editor, &GitEditorWidget::toggleFilters, this, &QWidget::setVisible);
-    }
-
-    FancyLineEdit *grepLineEdit;
-    FancyLineEdit *pickaxeLineEdit;
-    FancyLineEdit *authorLineEdit;
-    QAction *caseAction;
-};
+    QStringList arguments;
+    if (!author.isEmpty())
+        arguments << "--author=" + ProcessArgs::quoteArg(author);
+    if (!grep.isEmpty())
+        arguments << "--grep=" + ProcessArgs::quoteArg(grep);
+    if (!pickaxe.isEmpty())
+        arguments << "-S" << ProcessArgs::quoteArg(pickaxe);
+    if (!caseSensitive)
+        arguments << "-i";
+    return arguments;
+}
 
 QString gitChangeUnderCursor(const QTextCursor &c)
 {
@@ -505,51 +470,12 @@ FilePath GitEditorWidget::sourceWorkingDirectory() const
     return GitClient::fileWorkingDirectory(source());
 }
 
-void GitEditorWidget::refresh()
-{
-    if (VcsBaseEditorConfig *config = editorConfig())
-        config->handleArgumentsChanged();
-}
-
 void GitEditorWidget::restoreState(const QByteArray &state)
 {
     Q_UNUSED(state)
     // Do nothing. We always want to start at the top without any folding etc pp.
     // That the Git editors for e.g. rebases share the same name doesn't mean that
     // they should share editing state.
-}
-
-QWidget *GitEditorWidget::addFilterWidget()
-{
-    if (!m_logFilterWidget)
-        m_logFilterWidget = new GitLogFilterWidget(this);
-    return m_logFilterWidget;
-}
-
-QString GitEditorWidget::grepValue() const
-{
-    if (!m_logFilterWidget)
-        return {};
-    return m_logFilterWidget->grepLineEdit->text();
-}
-
-QString GitEditorWidget::pickaxeValue() const
-{
-    if (!m_logFilterWidget)
-        return {};
-    return m_logFilterWidget->pickaxeLineEdit->text();
-}
-
-QString GitEditorWidget::authorValue() const
-{
-    if (!m_logFilterWidget)
-        return {};
-    return m_logFilterWidget->authorLineEdit->text();
-}
-
-bool GitEditorWidget::caseSensitive() const
-{
-    return m_logFilterWidget && m_logFilterWidget->caseAction->isChecked();
 }
 
 void gitResolveDiffTarget(VcsBase::VcsEditorDocument *document,

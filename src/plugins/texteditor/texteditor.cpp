@@ -10612,6 +10612,56 @@ void contextHelpItemIn(Core::IEditor *editor, const Core::IContext::HelpCallback
     callback({});
 }
 
+ToolBarField::ToolBarField(const QString &placeholderText, const QString &toolTip,
+                           QObject *parent)
+    : QObject(parent)
+    , m_placeholderText(placeholderText)
+    , m_toolTip(toolTip)
+    , m_visible(true)
+{
+}
+
+QString ToolBarField::text() const
+{
+    return m_text;
+}
+
+void ToolBarField::setText(const QString &text)
+{
+    if (m_text == text)
+        return;
+    m_text = text;
+    emit textChanged();
+}
+
+QString ToolBarField::placeholderText() const
+{
+    return m_placeholderText;
+}
+
+QString ToolBarField::toolTip() const
+{
+    return m_toolTip;
+}
+
+bool ToolBarField::isVisible() const
+{
+    return m_visible;
+}
+
+void ToolBarField::setVisible(bool visible)
+{
+    if (m_visible == visible)
+        return;
+    m_visible = visible;
+    emit visibleChanged();
+}
+
+void ToolBarField::commit()
+{
+    emit committed();
+}
+
 void insertExtraToolBarActionIn(Core::IEditor *editor, TextEditorWidget::Side side,
                                QAction *action)
 {

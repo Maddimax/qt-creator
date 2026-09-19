@@ -748,6 +748,11 @@ QList<ToolBarChoice *> TextDocument::toolBarChoices() const
     return {};
 }
 
+QList<ToolBarField *> TextDocument::toolBarFields() const
+{
+    return {};
+}
+
 bool TextDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)
 {
     Q_UNUSED(event)

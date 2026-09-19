@@ -168,15 +168,17 @@ TextViewport *viewportIn(QWidget *host);
 // draws and nothing else - who keeps those up to date is the caller's, the
 // same split createQuickTextView() has.
 //
-// \a outline may be null and \a choices empty; a view with neither simply
-// draws neither. The list is what the form starts with; a document whose
-// list changes has its editor set the form's "choices" afterwards, with
-// toolBarChoicesForForm().
+// \a outline may be null and \a choices and \a fields empty; a view with none
+// simply draws none. The lists are what the form starts with; a document
+// whose lists change has its editor set the form's "choices" and "fields"
+// afterwards, with toolBarChoicesForForm() and toolBarFieldsForForm().
 QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
                                               QtcQuick::ActionModel *languageActions,
                                               ToolBarOutline *outline,
-                                              const QList<ToolBarChoice *> &choices);
+                                              const QList<ToolBarChoice *> &choices,
+                                              const QList<ToolBarField *> &fields = {});
 QVariantList toolBarChoicesForForm(const QList<ToolBarChoice *> &choices);
+QVariantList toolBarFieldsForForm(const QList<ToolBarField *> &fields);
 
 // The Qt Quick code editor. What a plain text file opens in; a language whose
 // factory has not said setUsesQuickEditor() still opens in the widget one.

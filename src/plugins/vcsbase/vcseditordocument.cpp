@@ -541,6 +541,7 @@ void VcsEditorDocument::setEditorConfig(VcsBaseEditorConfig *config)
     d->config = config;
     emit toolBarActionsChanged();
     emit toolBarChoicesChanged();
+    emit toolBarFieldsChanged();
 }
 
 QList<QAction *> VcsEditorDocument::ownToolBarActions() const
@@ -889,6 +890,11 @@ QList<TextEditor::ToolBarChoice *> VcsEditorDocument::toolBarChoices() const
     return choices;
 }
 
+QList<TextEditor::ToolBarField *> VcsEditorDocument::toolBarFields() const
+{
+    return d->config ? d->config->fields() : QList<TextEditor::ToolBarField *>();
+}
+
 QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor)
 {
     // The previous click's are gone with its menu; these live until the next.
@@ -1090,6 +1096,7 @@ void VcsEditorDocument::updateSections()
 #include <utils/algorithm.h>
 #include <utils/aspects.h>
 #include <utils/environment.h>
+#include <utils/fancylineedit.h>
 #include <utils/temporarydirectory.h>
 
 #include <QClipboard>
@@ -1423,6 +1430,15 @@ private slots:
         QCOMPARE(changed.count(), 4);
         QCOMPARE(moveSetting.value(), QString());
 
+        // A field: typing announces nothing, committing does. What it amounts
+        // to is the VCS's business.
+        TextEditor::ToolBarField * const grep = config.addTextField("Filter by message", "By message");
+        QCOMPARE(config.fields(), QList<TextEditor::ToolBarField *>{grep});
+        grep->setText("fix");
+        QCOMPARE(changed.count(), 4);
+        grep->commit();
+        QCOMPARE(changed.count(), 5);
+
         // On a document: the toggles are its tool bar actions, and the views
         // are told. On the widget: a combo box per choice, in step both ways.
         class ConfigWidget final : public VcsBaseEditorWidget
@@ -1451,12 +1467,16 @@ private slots:
         QVERIFY(document);
         QVERIFY(!document->toolBarActions().contains(whitespace));
         QVERIFY(document->toolBarChoices().isEmpty());
+        QVERIFY(document->toolBarFields().isEmpty());
         QSignalSpy told(document, &TextEditor::TextDocument::toolBarActionsChanged);
         QSignalSpy toldChoices(document, &TextEditor::TextDocument::toolBarChoicesChanged);
+        QSignalSpy toldFields(document, &TextEditor::TextDocument::toolBarFieldsChanged);
         widget->setEditorConfig(&config);
         QCOMPARE(told.count(), 1);
         QCOMPARE(toldChoices.count(), 1);
+        QCOMPARE(toldFields.count(), 1);
         QCOMPARE(document->toolBarChoices(), QList<TextEditor::ToolBarChoice *>{moves});
+        QCOMPARE(document->toolBarFields(), QList<TextEditor::ToolBarField *>{grep});
         const QList<QAction *> offered = document->toolBarActions();
         QVERIFY2(offered.contains(whitespace) && offered.contains(firstParent)
                      && offered.contains(reload),
@@ -1469,10 +1489,34 @@ private slots:
         QCOMPARE(combo->currentIndex(), 0);
         combo->setCurrentIndex(2);
         QCOMPARE(moves->currentIndex(), 2);
-        QCOMPARE(changed.count(), 5);
+        QCOMPARE(changed.count(), 6);
         moves->choose(1);
         QCOMPARE(combo->currentIndex(), 1);
-        QCOMPARE(changed.count(), 6);
+        QCOMPARE(changed.count(), 7);
+
+        // And a line edit per field, typing into which is typing into the
+        // field, Return committing, and shown as the field is.
+        auto * const edit = widget->toolBar()->findChild<FancyLineEdit *>();
+        QVERIFY2(edit, "the widget's tool bar has no line edit for the field");
+        QCOMPARE(edit->placeholderText(), QString("Filter by message"));
+        QCOMPARE(edit->text(), QString("fix"));
+        edit->setText("bug");
+        QCOMPARE(grep->text(), QString("bug"));
+        QCOMPARE(changed.count(), 7);
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(changed.count(), 8);
+        grep->setText("feature");
+        QCOMPARE(edit->text(), QString("feature"));
+        QAction *wrapping = nullptr;
+        const QList<QAction *> inBar = widget->toolBar()->actions();
+        for (QAction * const action : inBar) {
+            if (widget->toolBar()->widgetForAction(action) == edit)
+                wrapping = action;
+        }
+        QVERIFY2(wrapping, "the line edit is not in the tool bar as an action");
+        QVERIFY(wrapping->isVisible());
+        grep->setVisible(false);
+        QVERIFY2(!wrapping->isVisible(), "hiding the field left its line edit in the tool bar");
     }
 
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()

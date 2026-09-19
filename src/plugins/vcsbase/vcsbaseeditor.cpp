@@ -31,6 +31,8 @@
 
 #include <solutions/spinner/spinner.h>
 
+#include <utils/fancylineedit.h>
+
 
 #include <texteditor/marginsettings.h>
 #include <texteditor/displaysettings.h>
@@ -1315,6 +1317,30 @@ void VcsBaseEditorWidget::setEditorConfig(VcsBaseEditorConfig *config)
             combo->setCurrentIndex(choice->currentIndex());
         });
         insertExtraToolBarWidget(Left, combo);
+    }
+    // A field is a line edit here: the reader's typing goes to the field,
+    // Return and the clear button commit to it, and it is shown as the field
+    // is - through the action the tool bar wraps it in, which is what the
+    // tool bar lays out.
+    const QList<TextEditor::ToolBarField *> fields = config->fields();
+    for (TextEditor::ToolBarField * const field : fields) {
+        auto edit = new FancyLineEdit;
+        edit->setFiltering(true);
+        edit->setPlaceholderText(field->placeholderText());
+        edit->setToolTip(field->toolTip());
+        edit->setText(field->text());
+        connect(edit, &QLineEdit::textChanged, field, &TextEditor::ToolBarField::setText);
+        connect(edit, &QLineEdit::returnPressed, field, &TextEditor::ToolBarField::commit);
+        connect(edit, &FancyLineEdit::rightButtonClicked, field, &TextEditor::ToolBarField::commit);
+        connect(field, &TextEditor::ToolBarField::textChanged, edit, [edit, field] {
+            if (edit->text() != field->text())
+                edit->setText(field->text());
+        });
+        QAction * const inBar = insertExtraToolBarWidget(Left, edit);
+        inBar->setVisible(field->isVisible());
+        connect(field, &TextEditor::ToolBarField::visibleChanged, inBar, [inBar, field] {
+            inBar->setVisible(field->isVisible());
+        });
     }
 }
 

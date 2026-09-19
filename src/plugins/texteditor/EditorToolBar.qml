@@ -32,8 +32,45 @@ Row {
     // told. A list of ToolBarChoice objects, empty for most languages; the
     // editor sets it again when the document's list changes.
     required property var choices
+    // The texts the reader can type here: what a log is filtered by. A list
+    // of ToolBarField objects, empty for most languages; set again likewise.
+    required property var fields
 
     spacing: Spacing.GapHM
+
+    // One line edit per field, shown as the field is - a filter is shown once
+    // the reader asks to filter. The field is what decides: the reader's
+    // typing goes to it, Return commits to it, and a text it sets is shown.
+    Repeater {
+        model: root.fields
+
+        delegate: QtcLineEdit {
+            id: fieldEdit
+
+            required property var modelData
+            readonly property var field: fieldEdit.modelData
+
+            objectName: "toolBarField"
+            anchors.verticalCenter: parent ? parent.verticalCenter : undefined
+            visible: fieldEdit.field.visible
+            placeholderText: fieldEdit.field.placeholderText
+            ToolTip.text: fieldEdit.field.toolTip
+            ToolTip.visible: hovered && ToolTip.text !== ""
+            // Set rather than bound: the reader's typing writes text too, and
+            // a JavaScript assignment would end a binding.
+            Component.onCompleted: fieldEdit.text = fieldEdit.field.text
+            onTextChanged: fieldEdit.field.text = fieldEdit.text
+            onAccepted: fieldEdit.field.commit()
+
+            Connections {
+                target: fieldEdit.field
+                function onTextChanged(): void {
+                    if (fieldEdit.text !== fieldEdit.field.text)
+                        fieldEdit.text = fieldEdit.field.text
+                }
+            }
+        }
+    }
 
     // One combo box per choice, hidden while the choice has nothing to offer -
     // one project part is no choice, which is what the widget editor does

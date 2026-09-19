@@ -81,6 +81,7 @@ using ActionLinkFinder = std::function<ActionLink(TextDocument *document,
                                                   const QTextCursor &cursor)>;
 class TextMark;
 class ToolBarChoice;
+class ToolBarField;
 class TextSuggestion;
 class TypingSettingsData;
 
@@ -377,6 +378,10 @@ public:
     // VCS command is told - each drawn as a combo box. Owned by the document;
     // toolBarChoicesChanged() says when the list itself changes.
     virtual QList<ToolBarChoice *> toolBarChoices() const;
+    // The texts the reader can type into the toolbar - what a log is filtered
+    // by - each drawn as a line edit. Owned by the document;
+    // toolBarFieldsChanged() says when the list itself changes.
+    virtual QList<ToolBarField *> toolBarFields() const;
 
     void setCodeStyle(ICodeStylePreferences *preferences);
     ICodeStylePreferences *codeStyle() const;
@@ -414,6 +419,7 @@ signals:
     // Which choices it should show has changed - not a choice's rows, which
     // the choice says itself, but the list of them.
     void toolBarChoicesChanged();
+    void toolBarFieldsChanged();
     void markRemoved(TextEditor::TextMark *mark);
     // A reader clicked the gutter's mark column on \a line, in whichever view
     // is showing this document. Emitted once per click however many views

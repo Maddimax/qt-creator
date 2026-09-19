@@ -937,18 +937,31 @@ public:
         // form is handed the new one.
         const QList<ToolBarChoice *> choices = m_document->toolBarChoices();
         followCaretWith(choices, view);
-        m_toolBar = Internal::createQuickTextToolBar(view, &m_toolBarActions, outline, choices);
+        m_toolBar = Internal::createQuickTextToolBar(view, &m_toolBarActions, outline, choices,
+                                                     m_document->toolBarFields());
         connect(m_document.data(), &TextDocument::toolBarChoicesChanged, this, [this] {
             TextViewport * const current = viewport();
             if (!m_toolBar || !current)
                 return;
             const QList<ToolBarChoice *> now = m_document->toolBarChoices();
             followCaretWith(now, current);
-            auto * const quick = m_toolBar->findChild<QQuickWidget *>();
-            if (QQuickItem * const root = quick ? quick->rootObject() : nullptr)
+            if (QQuickItem * const root = toolBarForm())
                 root->setProperty("choices", Internal::toolBarChoicesForForm(now));
         });
+        connect(m_document.data(), &TextDocument::toolBarFieldsChanged, this, [this] {
+            if (QQuickItem * const root = toolBarForm())
+                root->setProperty("fields", Internal::toolBarFieldsForForm(m_document->toolBarFields()));
+        });
         return m_toolBar;
+    }
+
+    // The tool bar row's form, once there is one.
+    QQuickItem *toolBarForm() const
+    {
+        if (!m_toolBar)
+            return nullptr;
+        auto * const quick = m_toolBar->findChild<QQuickWidget *>();
+        return quick ? quick->rootObject() : nullptr;
     }
 
     // A choice whose current row follows the caret is told where it is, now
@@ -1634,17 +1647,27 @@ QVariantList toolBarChoicesForForm(const QList<ToolBarChoice *> &choices)
     return list;
 }
 
+QVariantList toolBarFieldsForForm(const QList<ToolBarField *> &fields)
+{
+    QVariantList list;
+    for (ToolBarField * const field : fields)
+        list.append(QVariant::fromValue<QObject *>(field));
+    return list;
+}
+
 QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
                                               QtcQuick::ActionModel *languageActions,
                                               ToolBarOutline *outline,
-                                              const QList<ToolBarChoice *> &choices)
+                                              const QList<ToolBarChoice *> &choices,
+                                              const QList<ToolBarField *> &fields)
 {
     auto * const bar = new QtcQuick::QuickWidget;
     bar->quickWidget()->setInitialProperties(
         {{"viewport", QVariant::fromValue(view)},
          {"languageActions", QVariant::fromValue(languageActions)},
          {"outline", QVariant::fromValue(outline)},
-         {"choices", toolBarChoicesForForm(choices)}});
+         {"choices", toolBarChoicesForForm(choices)},
+         {"fields", toolBarFieldsForForm(fields)}});
     bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
     return bar;
 }
@@ -13700,6 +13723,89 @@ private slots:
         QTRY_COMPARE(itemsNamed(quick->rootObject(), "parseContextCombo").size(), 3);
         QVERIFY2(comboFor(document->m_choices.at(2)), "no combo shows the late choice's rows");
         QCOMPARE(document->m_choices.at(2)->m_followed, 1);
+    }
+
+    // A document may offer fields - what a log is filtered by - which the
+    // form draws as line edits: shown as the field is, the reader's typing
+    // written to the field, Return committed to it, a text the document sets
+    // shown; and a field offered once the editor is up drawn too.
+    void testTheFormDrawsTheDocumentsFields()
+    {
+        class FieldsDocument final : public TextDocument
+        {
+        public:
+            FieldsDocument()
+                : TextDocument("QuickEditorFieldsTest")
+            {
+                m_fields << new ToolBarField("Filter by message", "By message", this)
+                         << new ToolBarField("Filter by author", "By author", this);
+                m_fields.at(1)->setVisible(false);
+            }
+            QList<ToolBarField *> toolBarFields() const override { return m_fields; }
+            void offerAnother()
+            {
+                m_fields << new ToolBarField("Filter by content", "By content", this);
+                emit toolBarFieldsChanged();
+            }
+            QList<ToolBarField *> m_fields;
+        };
+
+        class FieldsFactory final : public TextEditorFactory
+        {
+        public:
+            FieldsFactory()
+            {
+                setId("QuickEditorFieldsTest");
+                setDisplayName("Quick Editor Fields Test");
+                setDocumentCreator([] { return new FieldsDocument; });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        FieldsFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = static_cast<FieldsDocument *>(editor->document());
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        const auto editFor = [quick](ToolBarField *field) -> QQuickItem * {
+            const QList<QQuickItem *> edits = itemsNamed(quick->rootObject(), "toolBarField");
+            for (QQuickItem * const edit : edits) {
+                if (edit->property("placeholderText").toString() == field->placeholderText())
+                    return edit;
+            }
+            return nullptr;
+        };
+
+        QTRY_COMPARE(itemsNamed(quick->rootObject(), "toolBarField").size(), 2);
+        QQuickItem * const message = editFor(document->m_fields.at(0));
+        QVERIFY2(message, "no line edit shows the message field");
+        QQuickItem * const author = editFor(document->m_fields.at(1));
+        QVERIFY2(author, "no line edit shows the author field");
+        QVERIFY2(message->isVisible(), "a field that is shown has no line edit shown");
+        QVERIFY2(!author->isVisible(), "a field that is hidden has its line edit shown");
+
+        // Typing is typing into the field; Return commits to it.
+        QSignalSpy committed(document->m_fields.at(0), &ToolBarField::committed);
+        message->setProperty("text", "fix");
+        QCOMPARE(document->m_fields.at(0)->text(), QString("fix"));
+        QCOMPARE(committed.count(), 0);
+        QMetaObject::invokeMethod(message, "accepted");
+        QCOMPARE(committed.count(), 1);
+        // And what the field says is what the line edit shows.
+        document->m_fields.at(0)->setText("feature");
+        QCOMPARE(message->property("text").toString(), QString("feature"));
+        document->m_fields.at(1)->setVisible(true);
+        QTRY_VERIFY2(author->isVisible(), "showing the field did not show its line edit");
+
+        // One more, offered once the editor is up.
+        document->offerAnother();
+        QTRY_COMPARE(itemsNamed(quick->rootObject(), "toolBarField").size(), 3);
+        QVERIFY2(editFor(document->m_fields.at(2)), "no line edit shows the late field");
     }
 
     // The provider is on the document, and asking it is what turns that into

@@ -67369,3 +67369,154 @@ No `.qbs` edited: no file list changed.
    retired (entry 309).
 3. The other seven VCS; the QmlDesigner-side two; the standing list (entry
    298).
+
+## 2026-09-19 — The log's filter is the config's (batch 312)
+
+Entry 311's next item 1: `GitLogFilterWidget`, the last widget UI a Git log
+editor had of its own.
+
+### What it was
+
+A `QToolBar` of three `FancyLineEdit`s (message, content, author) and a
+`Case Sensitive` action, made by `GitEditorWidget::addFilterWidget()` and
+laid *above* the text by `GitLogEditorWidget`, a wrapper `QWidget` the log
+and reflog factories built around the editor widget (with an aggregate and
+a focus proxy so that the wrapper passed for the editor). Hidden until the
+config's `Filter` toggle - in `GitBaseConfig` - fired the widget's
+`toggleFilters` signal. `GitClient::log()` read the three texts and the
+toggle off the widget and appended `--author=`, `--grep=`, `-S` and `-i`
+to the command after the config's arguments; Return or the clear button
+in a line edit called `GitEditorWidget::refresh()`, which re-ran the
+config. The reflog editor had the same row and the same toggle, and
+`GitClient::reflog()` never read it.
+
+### The seam
+
+`TextEditor::ToolBarField`, beside `ToolBarChoice`: a placeholder, a tool
+tip, `text` (read-write, notifying), `visible` (notifying) and
+`Q_INVOKABLE commit()` → `committed()`. A concrete class, not a virtual
+one: a field is a value, and whoever offered it reads it on commit. And
+`TextDocument::toolBarFields()` with `toolBarFieldsChanged()`, the batch-311
+shape. Both views draw them:
+
+- `EditorToolBar.qml`: `required property var fields`, a `Repeater` of
+  `QtcLineEdit`s (`objectName: "toolBarField"`), each `visible` as its field
+  is, its text set from the field on completion and on the field's
+  `textChanged`, `onTextChanged` writing back, `onAccepted` committing.
+  `createQuickTextToolBar()` takes the list (defaulted, so the tests' calls
+  stand) and `QuickTextEditor` watches the signal as it watches the
+  choices'; the tool bar form lookup is `toolBarForm()` now, used by both.
+- `VcsBaseEditorWidget::setEditorConfig()`: a filtering `FancyLineEdit` per
+  field, `insertExtraToolBarWidget(Left, ...)`, typing → `setText()`, Return
+  and the clear button → `commit()`, the field's text → the edit, and shown
+  through the `QAction` the tool bar wraps the widget in - hiding the widget
+  itself would leave the tool bar's layout thinking it was there.
+
+### The config
+
+`VcsBaseEditorConfig::addTextField(placeholder, toolTip)` makes one,
+connects `committed` to `argumentsChanged` and lists it in `fields()`. No
+option mapping: what a filter amounts to is the VCS's, in `arguments()` -
+Git quotes and picks `-S` over `-G`, and no `%1` shape says that.
+`VcsEditorDocument::toolBarFields()` is the config's; `setEditorConfig()`
+emits the third signal.
+
+`GitLogConfig` holds the three fields, the case toggle (a plain checkable
+action through `addAction()`, `toggled` → `argumentsChanged`) and the
+`Filter` toggle, which shows and hides the four; `arguments()` is the
+base's plus `gitLogFilterArguments(author, grep, pickaxe, caseSensitive)`,
+the free function that is what `log()` used to inline. `GitBaseConfig`
+loses the `Filter` toggle and the editor pointer; `GitRefLogConfig` a
+toggle that showed a row nobody read. `createGitLogConfig()` exists so that
+a test can have one. `GitClient::log()` appends nothing of its own any
+more - the filter arguments come earlier in the command than they did,
+before `normalLogArguments()` rather than after, which `git log` does not
+mind. Gone from `GitEditorWidget`: `addFilterWidget()`, the four
+accessors, `setPickaxeLineEdit()` (declared, never defined, never called),
+`refresh()`, `toggleFilters`, the member; from `gitplugin.cpp`, the wrapper
+and its template - the log and reflog factories make the editor widget.
+
+### The tests
+
+- `QuickTextEditorTest::testTheFormDrawsTheDocumentsFields`: two fields,
+  the second hidden; two line edits, found by placeholder, the first shown
+  and the second not; setting the first's `text` writes the field and
+  commits nothing, `accepted` commits once; the field's `setText()` shows
+  in the edit; showing the second field shows its edit; a third offered
+  with the signal is drawn.
+- `testAnEditorConfigListsItselfAndTheViewsDrawIt` (VcsBase) grew a field:
+  listed, typing announces nothing, `commit()` once; on the document,
+  `toolBarFields()` empty before and the field after, told once; on the
+  widget, a `FancyLineEdit` with the placeholder and the text, typing
+  reaching the field, Return announcing, the field's text reaching the
+  edit, and hiding the field hiding the wrapping action.
+- `GitTest::testTheLogsFilterIsItsConfigsToRead`: `gitLogFilterArguments()`
+  for nothing and for all four; a log config's three fields hidden, and the
+  case toggle with them, until `Filter`; committing `fix` in the first
+  announces once and puts `--grep=fix` in the arguments; unchecking case
+  announces and adds `-i`.
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run - after one build
+failure, `VcsBaseEditorConfig` incomplete in `gitplugin.cpp`, which had
+only ever seen it through a pointer. The choices test (the form gained a
+second Repeater), Git's `testLogResolving` and
+`testTheLogKnowsAChangeUnderThePointer` (the log editor is a plain editor
+widget again, no wrapper) ran too: 3 passed, 0 failed, exit 0 each. No QML
+warning in the form tests' logs.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - the form's fields `Repeater` has an empty model: the Quick test
+  fails on the first count, actual 0 where 2 was expected.
+- **B** - `VcsEditorDocument::toolBarFields()` returns nothing: the VcsBase
+  config test fails on the list after `setEditorConfig()`, "Compared lists
+  have different sizes" - the actions and the choice were there.
+- **C** - `GitLogConfig::arguments()` is the base's alone: the Git test fails
+  on "'config->arguments().contains("--grep=fix")' returned FALSE", the
+  arguments being `--patience --ignore-space-change` - the fields were
+  there, shown and committed, and the command never heard of them.
+
+### Measurements
+
+TextEditor's third run ended with exit 255 after 44 passes: the log stops
+with `realloc(): invalid next size` right after
+`testTypingALineOfCppLeavesTheSameFileInEitherView(quick: a bracket inside a
+string)` passed - the heap corruption first seen in entry 191, at the same
+place as entries 226, 227 and 247 (0 in 10 alone, in-suite intermittent).
+This batch changed nothing that test drives, and the batch-306 and
+batch-307 runs saw it too. Two more TextEditor runs followed for three
+clean ones and a rate.
+
+    -test TextEditor     799 passed, 0 failed, 3 skipped, exit 0   x4 of 5
+                           run 3: exit 255 after 44 passes, the crash above
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         29 passed, 0 failed, 0 skipped, exit 0
+    -test Git            138 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and once:
+                           InstantBlameTest::testBlameDocumentContents
+                           'markToolTip(2).contains("-committed")'
+
+TextEditor is 799: 798 plus the fields test; four clean runs and the
+crash, 1 in 5 this batch. VcsBase stays 29 (the field is inside the config
+test). Git is 138 passed with the baseline's two failures plus the
+entry-300 load flake for the third batch in a row, and again straight after
+a Docker build: the `InstantBlameTest` object took **15980 ms** in the
+suite against 301-314 ms in five solo runs on this binary, 0 failures. The
+one Git run that did not follow a build (batch 311's re-run) was the one
+without it. QuickUi unchanged.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The clients' handle** on the document (entry 308): `VcsBaseClientImpl::
+   createVcsEditor()` and `executeInEditor()` on `VcsEditorDocument` (plus
+   the `IEditor` where one is needed), Git's client first, the others as
+   they compile.
+2. **`VcsEditorFactory` on the Qt Quick editor** for a VCS that supplies no
+   widget creator; Git's subclass retired - its constructor's patterns and
+   formats and its `setPlainText()` into `gitEditorParameters()` (an output
+   function; `m_originalLines` goes), ending batch 299's staging.
+3. The other seven VCS; the QmlDesigner-side two; the standing list (entry
+   298).

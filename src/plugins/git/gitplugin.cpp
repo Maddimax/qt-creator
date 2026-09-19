@@ -75,6 +75,7 @@
 #include <vcsbase/submitfilemodel.h>
 #include <vcsbase/vcsbaseconstants.h>
 #include <vcsbase/vcsbaseeditor.h>
+#include <vcsbase/vcsbaseeditorconfig.h>
 #include <vcsbase/vcsbaseplugin.h>
 #include <vcsbase/vcscommand.h>
 #include <vcsbase/vcsoutputwindow.h>
@@ -134,33 +135,6 @@ public:
         const QString text = inBlock.text();
         return text.mid(text.indexOf(' ') + 1);
     }
-};
-
-class GitLogEditorWidget : public QWidget
-{
-public:
-    GitLogEditorWidget(GitEditorWidget *gitEditor)
-    {
-        auto vlayout = new QVBoxLayout;
-        vlayout->setSpacing(0);
-        vlayout->setContentsMargins(0, 0, 0, 0);
-        vlayout->addWidget(gitEditor->addFilterWidget());
-        vlayout->addWidget(gitEditor);
-        setLayout(vlayout);
-
-        auto textAgg = Aggregation::Aggregate::parentAggregate(gitEditor);
-        auto agg = textAgg ? textAgg : new Aggregation::Aggregate;
-        agg->add(this);
-        agg->add(gitEditor);
-        setFocusProxy(gitEditor);
-    }
-};
-
-template<class Editor>
-class GitLogEditorWidgetT : public GitLogEditorWidget
-{
-public:
-    GitLogEditorWidgetT() : GitLogEditorWidget(new Editor) {}
 };
 
 // GitPlugin
@@ -451,7 +425,7 @@ public:
         Git::Constants::GIT_LOG_EDITOR_ID,
         Tr::tr("Git Log Editor"),
         "text/vnd.qtcreator.git.log",
-        [] { return new GitLogEditorWidgetT<GitEditorWidget>; },
+        [] { return new GitEditorWidget; },
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory reflogEditorFactory{gitEditorParameters(
@@ -459,7 +433,7 @@ public:
         Git::Constants::GIT_REFLOG_EDITOR_ID,
         Tr::tr("Git Reflog Editor"),
         "text/vnd.qtcreator.git.reflog",
-        [] { return new GitLogEditorWidgetT<GitReflogEditorWidget>; },
+        [] { return new GitReflogEditorWidget; },
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory blameEditorFactory{gitEditorParameters(
@@ -2427,6 +2401,7 @@ private slots:
     void testTheLogKnowsAChangeUnderThePointer();
     void testTheLogFollowsADiffLineToItsFile();
     void testABlameIsColouredThroughTheParameters();
+    void testTheLogsFilterIsItsConfigsToRead();
     void testGitRemote_data();
     void testGitRemote();
     void testInlineDiffFile();
@@ -2732,6 +2707,49 @@ void GitTest::testABlameIsColouredThroughTheParameters()
     QCOMPARE(document->annotationChanges().size(), 2);
     QVERIFY2(qobject_cast<VcsBase::BaseAnnotationHighlighter *>(document->syntaxHighlighter()),
              "the blame arrived and no annotation highlighter was installed");
+}
+
+// The log's filter - message, content, author, case - was a row of line edits
+// the widget kept and GitClient read. It is the log config's now: three
+// fields and a toggle, shown while Filter is on, read in arguments(), so that
+// a view of any kind draws them and the command is the same.
+void GitTest::testTheLogsFilterIsItsConfigsToRead()
+{
+    QCOMPARE(gitLogFilterArguments({}, {}, {}, true), QStringList());
+    QCOMPARE(gitLogFilterArguments("ann", "fix", "needle", false),
+             (QStringList{"--author=ann", "--grep=fix", "-S", "needle", "-i"}));
+
+    const std::unique_ptr<VcsBase::VcsBaseEditorConfig> config(createGitLogConfig(false, nullptr));
+    const QList<TextEditor::ToolBarField *> fields = config->fields();
+    QCOMPARE(fields.size(), 3);
+    QVERIFY2(!fields.first()->isVisible(), "the filter is shown before anyone asked to filter");
+    QAction *filter = nullptr;
+    QAction *caseSensitive = nullptr;
+    const QList<QAction *> actions = config->actions();
+    for (QAction * const action : actions) {
+        if (action->text() == Tr::tr("Filter"))
+            filter = action;
+        else if (action->text() == Tr::tr("Case Sensitive"))
+            caseSensitive = action;
+    }
+    QVERIFY2(filter, "the config offers no Filter toggle");
+    QVERIFY2(caseSensitive, "the config offers no case toggle");
+    QVERIFY(!caseSensitive->isVisible());
+    filter->setChecked(true);
+    QVERIFY2(fields.first()->isVisible(), "Filter did not show the fields");
+    QVERIFY(caseSensitive->isVisible());
+
+    QVERIFY(!config->arguments().contains("-i"));
+    QSignalSpy changed(config.get(), &VcsBase::VcsBaseEditorConfig::argumentsChanged);
+    fields.first()->setText("fix");
+    QCOMPARE(changed.count(), 0);
+    fields.first()->commit();
+    QCOMPARE(changed.count(), 1);
+    QVERIFY2(config->arguments().contains("--grep=fix"),
+             qPrintable(config->arguments().join(' ')));
+    caseSensitive->setChecked(false);
+    QCOMPARE(changed.count(), 2);
+    QVERIFY(config->arguments().contains("-i"));
 }
 
 // A line of a diff in a Git log is a link to the file it changes. Outside a

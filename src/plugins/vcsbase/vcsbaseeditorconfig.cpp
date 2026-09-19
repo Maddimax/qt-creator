@@ -63,6 +63,7 @@ public:
     QHash<QObject *, SettingMappingData> m_settingMapping;
     QList<QAction *> m_actions;
     QList<VcsBaseEditorChoice *> m_choices;
+    QList<TextEditor::ToolBarField *> m_fields;
 };
 
 } // namespace Internal
@@ -239,6 +240,16 @@ void VcsBaseEditorConfig::addAction(QAction *action)
     d->m_actions.append(action);
 }
 
+TextEditor::ToolBarField *VcsBaseEditorConfig::addTextField(const QString &placeholderText,
+                                                            const QString &toolTip)
+{
+    auto field = new TextEditor::ToolBarField(placeholderText, toolTip, this);
+    connect(field, &TextEditor::ToolBarField::committed,
+            this, &VcsBaseEditorConfig::argumentsChanged);
+    d->m_fields.append(field);
+    return field;
+}
+
 void VcsBaseEditorConfig::mapSetting(QAction *button, BoolAspect *setting)
 {
     if (!d->m_settingMapping.contains(button) && button) {
@@ -283,6 +294,11 @@ QList<QAction *> VcsBaseEditorConfig::actions() const
 QList<VcsBaseEditorChoice *> VcsBaseEditorConfig::choices() const
 {
     return d->m_choices;
+}
+
+QList<TextEditor::ToolBarField *> VcsBaseEditorConfig::fields() const
+{
+    return d->m_fields;
 }
 
 void VcsBaseEditorConfig::handleArgumentsChanged()

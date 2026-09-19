@@ -1049,6 +1049,43 @@ signals:
     void changed();
 };
 
+// A text the reader types into the toolbar - what a log is filtered by -
+// which the document describes and a view draws as a line edit. The view
+// writes text as the reader types and calls commit() when they are done
+// (Return, or clearing); whoever offered the field reads it then. Nothing
+// here is a view: the widget editor and the Qt Quick one draw the same field.
+class TEXTEDITOR_EXPORT ToolBarField : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QString text READ text WRITE setText NOTIFY textChanged)
+    Q_PROPERTY(QString placeholderText READ placeholderText CONSTANT)
+    Q_PROPERTY(QString toolTip READ toolTip CONSTANT)
+    Q_PROPERTY(bool visible READ isVisible NOTIFY visibleChanged)
+
+public:
+    ToolBarField(const QString &placeholderText, const QString &toolTip,
+                 QObject *parent = nullptr);
+
+    QString text() const;
+    void setText(const QString &text);
+    QString placeholderText() const;
+    QString toolTip() const;
+    bool isVisible() const;
+    void setVisible(bool visible);
+    Q_INVOKABLE void commit();
+
+signals:
+    void textChanged();
+    void visibleChanged();
+    void committed();
+
+private:
+    const QString m_placeholderText;
+    const QString m_toolTip;
+    QString m_text;
+    bool m_visible;
+};
+
 // What a language does with an edit in one view before the view does anything
 // with it - typing inside an in-place rename, where the same edit is made at
 // every use of the name at once.

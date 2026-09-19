@@ -99,6 +99,11 @@ public:
     // An action of the VCS's own beside the toggles, which says nothing about
     // the arguments.
     void addAction(QAction *action);
+    // A text the reader types - what a log is filtered by. Committing it
+    // announces a change of arguments; what it amounts to is the VCS's to say
+    // in its arguments(), since no option shape fits every filter.
+    TextEditor::ToolBarField *addTextField(const QString &placeholderText,
+                                           const QString &toolTip);
 
     void mapSetting(QAction *button, Utils::BoolAspect *setting);
     void mapSetting(VcsBaseEditorChoice *choice, Utils::StringAspect *setting);
@@ -107,6 +112,7 @@ public:
     // What a view draws, in the order it was added.
     QList<QAction *> actions() const;
     QList<VcsBaseEditorChoice *> choices() const;
+    QList<TextEditor::ToolBarField *> fields() const;
 
     // Return the effective arguments according to setting.
     virtual QStringList arguments() const;

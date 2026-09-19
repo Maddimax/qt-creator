@@ -16,7 +16,6 @@ class FilePath;
 
 namespace Git::Internal {
 
-class GitLogFilterWidget;
 
 // The change under \a cursor: any word of seven to forty hex digits. What
 // the Git editors' parameters carry, so that a view that is not the widget
@@ -56,6 +55,14 @@ VcsBase::VcsBaseEditorParameters gitEditorParameters(
     const QString &mimeType, const std::function<QWidget *()> &editorWidgetCreator,
     const std::function<void(const Utils::FilePath &, const QString &)> &describe);
 
+// What a log is narrowed by, as git log arguments: the author, the message
+// and the pickaxe where given, and -i unless case matters.
+QStringList gitLogFilterArguments(const QString &author, const QString &grep,
+                                  const QString &pickaxe, bool caseSensitive);
+// The log editor's config - its toggles, its filter fields and its reload -
+// which reads its filter in arguments().
+VcsBase::VcsBaseEditorConfig *createGitLogConfig(bool fileRelated, QObject *parent);
+
 class GitEditorWidget : public VcsBase::VcsBaseEditorWidget
 {
     Q_OBJECT
@@ -64,18 +71,8 @@ public:
     GitEditorWidget();
 
     void setPlainText(const QString &text) override;
-    QWidget *addFilterWidget();
-    void setPickaxeLineEdit(Utils::FancyLineEdit *lineEdit);
-    QString grepValue() const;
-    QString pickaxeValue() const;
-    QString authorValue() const;
-    bool caseSensitive() const;
-    void refresh();
 
     void restoreState(const QByteArray &state) override;
-
-signals:
-    void toggleFilters(bool value);
 
 private:
     void applyDiffChunk(const VcsBase::DiffChunk& chunk, Core::PatchAction patchAction);
@@ -99,7 +96,6 @@ private:
                           const QTextBlock &contextBlock) override;
     Utils::FilePath sourceWorkingDirectory() const;
 
-    GitLogFilterWidget *m_logFilterWidget = nullptr;
     QVector<int> m_originalLines;
 };
 
