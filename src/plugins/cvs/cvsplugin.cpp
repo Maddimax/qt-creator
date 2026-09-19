@@ -45,7 +45,6 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMessageBox>
-#include <QToolBar>
 
 #ifdef WITH_TESTS
 #include <QTest>
@@ -103,8 +102,8 @@ static inline bool messageBoxQuestion(const QString &title, const QString &quest
 class CvsDiffConfig : public VcsBaseEditorConfig
 {
 public:
-    CvsDiffConfig(QToolBar *toolBar)
-        : VcsBaseEditorConfig(toolBar)
+    explicit CvsDiffConfig(QObject *parent)
+        : VcsBaseEditorConfig(parent)
     {
         mapSetting(addToggleButton("-w", Tr::tr("Ignore Whitespace")),
                    &settings().diffIgnoreWhiteSpace);
@@ -124,7 +123,7 @@ class CvsClient : public VcsBaseClient
 public:
     explicit CvsClient() : VcsBaseClient(&Internal::settings())
     {
-        setDiffConfigCreator([](QToolBar *toolBar) { return new CvsDiffConfig(toolBar); });
+        setDiffConfigCreator([](QObject *parent) { return new CvsDiffConfig(parent); });
     }
 
     ExitCodeInterpreter exitCodeInterpreter(VcsCommandTag cmd) const override

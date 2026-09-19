@@ -1609,6 +1609,86 @@ private slots:
         QCOMPARE(document->plainText(), QString("filled\n"));
     }
 
+    // The generic client - what Bazaar, Fossil, Mercurial and Subversion
+    // build on - holds the document too: its diff and log configs are made
+    // with the document as parent and set on it, a chunk reverted in the
+    // document re-runs the diff through the config, and the command runs on
+    // the document. There is no VCS binary here, so every command fails at
+    // once with the document saying so; what is asserted is where things
+    // went, not what came back.
+    void testTheGenericClientHoldsTheDocument()
+    {
+        class GenericClient final : public VcsBaseClient
+        {
+        public:
+            GenericClient(VcsBaseSettings *settings, Id kind)
+                : VcsBaseClient(settings)
+                , m_kind(kind)
+            {
+                setDiffConfigCreator([this](QObject *parent) {
+                    m_diffParents << parent;
+                    return new VcsBaseEditorConfig(parent);
+                });
+                setLogConfigCreator([this](QObject *parent) {
+                    m_logParents << parent;
+                    return new VcsBaseEditorConfig(parent);
+                });
+            }
+            Id vcsEditorKind(VcsCommandTag) const final { return m_kind; }
+            const Id m_kind;
+            QList<QObject *> m_diffParents;
+            QList<QObject *> m_logParents;
+        };
+        class GenericWidget final : public VcsBaseEditorWidget
+        {
+        public:
+            GenericWidget() = default;
+
+        private:
+            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
+        };
+        const VcsBaseEditorParameters parameters{DiffOutput,
+                                                 "VcsEditorDocumentTest.Generic",
+                                                 "VCS document test generic client",
+                                                 "text/vnd.qtcreator.vcs-document-generic-test",
+                                                 [] { return new GenericWidget; },
+                                                 [](const FilePath &, const QString &) {}};
+        VcsEditorFactory factory(parameters);
+        VcsBaseSettings settings;
+        GenericClient client(&settings, parameters.id);
+        TemporaryDirectory dir("vcs-generic-client");
+        QVERIFY(dir.isValid());
+        const QString failed = Tr::tr("Failed to retrieve data.");
+
+        client.diff(dir.path(), {"a.txt"});
+        QCOMPARE(client.m_diffParents.size(), 1);
+        auto * const diffDocument = qobject_cast<VcsEditorDocument *>(client.m_diffParents.first());
+        QVERIFY2(diffDocument, "the diff config was not made with the document as parent");
+        const QScopeGuard closeDiff(
+            [diffDocument] { Core::EditorManager::closeDocuments({diffDocument}, false); });
+        QVERIFY2(diffDocument->editorConfig(), "the diff config was not set on the document");
+        QCOMPARE(diffDocument->editorConfig()->parent(), diffDocument);
+        QCOMPARE(diffDocument->workingDirectory(), dir.path());
+        QTRY_COMPARE(diffDocument->plainText(), failed);
+
+        // A chunk reverted in the document re-runs the diff through the
+        // config: the same document, the config it has, the command again.
+        diffDocument->setPlainText("reverted");
+        emit diffDocument->diffChunkReverted();
+        QCOMPARE(client.m_diffParents.size(), 1);
+        QTRY_COMPARE(diffDocument->plainText(), failed);
+
+        client.log(dir.path(), {"a.txt"});
+        QCOMPARE(client.m_logParents.size(), 1);
+        auto * const logDocument = qobject_cast<VcsEditorDocument *>(client.m_logParents.first());
+        QVERIFY2(logDocument, "the log config was not made with the document as parent");
+        const QScopeGuard closeLog(
+            [logDocument] { Core::EditorManager::closeDocuments({logDocument}, false); });
+        QVERIFY(logDocument != diffDocument);
+        QVERIFY2(logDocument->editorConfig(), "the log config was not set on the document");
+        QTRY_COMPARE(logDocument->plainText(), failed);
+    }
+
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()
     {
         FilePath describedSource;

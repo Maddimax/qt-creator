@@ -18,7 +18,6 @@
 #include <QRegularExpression>
 #include <QTextStream>
 #include <QDebug>
-#include <QToolBar>
 
 using namespace Utils;
 using namespace VcsBase;
@@ -29,8 +28,8 @@ namespace Bazaar::Internal {
 class BazaarDiffConfig : public VcsBaseEditorConfig
 {
 public:
-    explicit BazaarDiffConfig(QToolBar *toolBar)
-        : VcsBaseEditorConfig(toolBar)
+    explicit BazaarDiffConfig(QObject *parent)
+        : VcsBaseEditorConfig(parent)
     {
         mapSetting(addToggleButton("-w", Tr::tr("Ignore Whitespace")),
                    &settings().diffIgnoreWhiteSpace);
@@ -54,8 +53,8 @@ public:
 class BazaarLogConfig : public VcsBaseEditorConfig
 {
 public:
-    BazaarLogConfig(QToolBar *toolBar)
-        : VcsBaseEditorConfig(toolBar)
+    explicit BazaarLogConfig(QObject *parent)
+        : VcsBaseEditorConfig(parent)
     {
         mapSetting(addToggleButton("--verbose", Tr::tr("Verbose"),
                                    Tr::tr("Show files changed in each revision.")),
@@ -80,8 +79,8 @@ public:
 
 BazaarClient::BazaarClient() : VcsBaseClient(&Internal::settings())
 {
-    setDiffConfigCreator([](QToolBar *toolBar) { return new BazaarDiffConfig(toolBar); });
-    setLogConfigCreator([](QToolBar *toolBar) { return new BazaarLogConfig(toolBar); });
+    setDiffConfigCreator([](QObject *parent) { return new BazaarDiffConfig(parent); });
+    setLogConfigCreator([](QObject *parent) { return new BazaarLogConfig(parent); });
 }
 
 BranchInfo BazaarClient::synchronousBranchQuery(const FilePath &repositoryRoot) const

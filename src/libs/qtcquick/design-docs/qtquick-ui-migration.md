@@ -67647,3 +67647,104 @@ No `.qbs` edited: no file list changed.
    function; `m_originalLines` goes), ending batch 299's staging.
 3. The other seven VCS; the QmlDesigner-side two; the standing list (entry
    298).
+
+## 2026-09-19 — The generic client holds the document (batch 314)
+
+Entry 313's next item 1: `VcsBaseClient` - the generic client Bazaar,
+Fossil, Mercurial and Subversion build on - on the document handle, and
+the config creators and constructors it drags along.
+
+### What moved
+
+- `VcsBaseClient::annotate()`, `diff()`, `log()` and `view()` call
+  `createVcsDocument()` and hold a `VcsEditorDocument *`: the default line,
+  the working directory, the file-log-annotate flag, the config and
+  `executeInEditor()` all on it. `diff()`'s `diffChunkReverted` connection
+  is to the document's signal (the widget's was a forward of it).
+- `VcsBaseClient::ConfigCreator` is `std::function<VcsBaseEditorConfig
+  *(QObject *parent)>`, and the parent handed in is the document - which is
+  where the config is set and how long it should live. The `QToolBar`
+  forward declaration in the header goes.
+- The config constructors of Bazaar (2), CVS (1), Fossil (4), Perforce (1)
+  and Subversion (1) take `QObject *parent`; the five creator lambdas take
+  one; Fossil's three direct sites and Perforce's one pass
+  `editor->vcsDocument()` where they passed `editor->toolBar()`. The
+  `#include <QToolBar>` each of those files gained in batch 310, for a
+  pointer conversion that no longer happens, goes again - none of the five
+  mentions a tool bar now.
+
+`createVcsEditor()` (widget) has no callers left in VcsBase; Fossil, CVS,
+ClearCase, Perforce, Subversion, Mercurial and Bazaar still call it in
+their own plugins, each to be converted as it goes to the Qt Quick editor.
+
+### The test
+
+`VcsEditorDocumentTest::testTheGenericClientHoldsTheDocument`: a
+`VcsBaseClient` subclass whose `vcsEditorKind()` is the test factory's id
+and whose creators record their parent and return a bare config; no VCS
+binary, so every command fails at once and the document says `Failed to
+retrieve data.` - what is asserted is where things went. `diff()`: the
+creator was called once with the document as parent, the config is set on
+it and parented to it, the working directory is the document's, and the
+text becomes the failure line. `setPlainText("reverted")`, then the
+document's `diffChunkReverted`: no second creator call, and the failure
+line again - the diff ran again on the same document through the config it
+has. `log()`: a second document, its config made with it as parent and set
+on it, the failure line.
+
+Alone: 3 passed, 0 failed, exit 0, at the first run, on a build that took
+all seven VCS plugins through the new constructor signatures without a
+complaint. The handle test, the config test and Git's filter test ran
+alongside: 3 passed, 0 failed, exit 0 each.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - `diff()` hands the creator `nullptr` for a parent: the test fails
+  at once, "'diffDocument' returned FALSE. (the diff config was not made
+  with the document as parent)".
+- **B** - `diff()` does not connect the document's `diffChunkReverted`: the
+  test fails on the text after the revert, actual `"reverted"` where the
+  failure line was expected - nothing ran again.
+- **C** - `log()` never sets its config on the document: "'logDocument->
+  editorConfig()' returned FALSE. (the log config was not set on the
+  document)" - the config was made with the right parent and set nowhere.
+
+### Measurements
+
+    -test TextEditor     799 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         31 passed, 0 failed, 0 skipped, exit 0
+    -test Git            138 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and once:
+                           InstantBlameTest::testBlameDocumentContents
+                           'markToolTip(2).contains("-committed")'
+    -test Bazaar          18 passed, 0 failed, exit 0
+    -test Mercurial       16 passed, 0 failed, exit 0
+    -test Subversion       3 passed, 0 failed, exit 0
+    -test Cvs              4 passed, 0 failed, exit 0
+    -test Perforce         9 passed, 0 failed, exit 0
+    -test Fossil          15 passed, 0 failed, exit 0
+
+TextEditor and QuickUi unchanged, as nothing of theirs changed; three
+clean TextEditor runs. VcsBase is 31: 30 plus the generic-client test. The
+six other VCS plugins ran because their configs and creators changed
+shape: all green. Git is 138 passed with the baseline's two failures plus
+the entry-300 load flake, the fifth batch running after a Docker build:
+the `InstantBlameTest` object took **15965 ms** in the suite against
+304-311 ms in five solo runs on this binary, 0 failures. Its path does not
+touch the generic client (entry 313).
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **`VcsEditorFactory` on the Qt Quick editor** for a VCS that supplies no
+   widget creator; Git's subclass retired - its constructor's patterns and
+   formats and its `setPlainText()` into `gitEditorParameters()` (an output
+   function; `m_originalLines` goes), ending batch 299's staging. What the
+   Quick VCS editor needs from birth: read-only, as `VcsBaseEditor::
+   finalizeInitialization()` makes the widget (entry 313).
+2. The other seven VCS, each retiring its widget subclass and its
+   `createVcsEditor()` calls; the QmlDesigner-side two; the standing list
+   (entry 298).

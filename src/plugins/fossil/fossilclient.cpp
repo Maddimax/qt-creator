@@ -23,7 +23,6 @@
 #include <QTextStream>
 #include <QMap>
 #include <QRegularExpression>
-#include <QToolBar>
 
 using namespace Utils;
 using namespace VcsBase;
@@ -34,8 +33,8 @@ namespace Fossil::Internal {
 class FossilDiffConfig : public VcsBaseEditorConfig
 {
 public:
-    FossilDiffConfig(FossilClient *client, QToolBar *toolBar) :
-        VcsBaseEditorConfig(toolBar)
+    FossilDiffConfig(FossilClient *client, QObject *parent) :
+        VcsBaseEditorConfig(parent)
     {
         QTC_ASSERT(client, return);
 
@@ -55,8 +54,8 @@ public:
 class FossilAnnotateConfig : public VcsBaseEditorConfig
 {
 public:
-    FossilAnnotateConfig(FossilClient *client, QToolBar *toolBar) :
-        VcsBaseEditorConfig(toolBar)
+    FossilAnnotateConfig(FossilClient *client, QObject *parent) :
+        VcsBaseEditorConfig(parent)
     {
         QTC_ASSERT(client, return);
 
@@ -79,8 +78,8 @@ public:
 class FossilLogCurrentFileConfig : public VcsBaseEditorConfig
 {
 public:
-    FossilLogCurrentFileConfig(FossilClient *client, QToolBar *toolBar) :
-        VcsBaseEditorConfig(toolBar)
+    FossilLogCurrentFileConfig(FossilClient *client, QObject *parent) :
+        VcsBaseEditorConfig(parent)
     {
         QTC_ASSERT(client, return);
         addReloadButton();
@@ -90,8 +89,8 @@ public:
 class FossilLogConfig : public VcsBaseEditorConfig
 {
 public:
-    FossilLogConfig(QToolBar *toolBar)
-        : VcsBaseEditorConfig(toolBar)
+    explicit FossilLogConfig(QObject *parent)
+        : VcsBaseEditorConfig(parent)
     {
         addReloadButton();
         addLineageComboBox();
@@ -189,8 +188,8 @@ FossilSettings &FossilClient::settings() const
 FossilClient::FossilClient()
     : VcsBaseClient(&Internal::settings())
 {
-    setDiffConfigCreator([this](QToolBar *toolBar) {
-        return new FossilDiffConfig(this, toolBar);
+    setDiffConfigCreator([this](QObject *parent) {
+        return new FossilDiffConfig(this, parent);
     });
 }
 
@@ -1046,7 +1045,7 @@ FossilClient::StatusItem FossilClient::parseStatusLine(const QString &line) cons
 
 VcsBaseEditorConfig *FossilClient::createAnnotateEditor(VcsBaseEditorWidget *editor)
 {
-    return new FossilAnnotateConfig(this, editor->toolBar());
+    return new FossilAnnotateConfig(this, editor->vcsDocument());
 }
 
 VcsBaseEditorConfig *FossilClient::createLogCurrentFileEditor(VcsBaseEditorWidget *editor)
@@ -1056,12 +1055,12 @@ VcsBaseEditorConfig *FossilClient::createLogCurrentFileEditor(VcsBaseEditorWidge
     if (features.testFlag(TimelinePathFeature))
         return createLogEditor(editor);
 
-    return new FossilLogCurrentFileConfig(this, editor->toolBar());
+    return new FossilLogCurrentFileConfig(this, editor->vcsDocument());
 }
 
 VcsBaseEditorConfig *FossilClient::createLogEditor(VcsBaseEditorWidget *editor)
 {
-    return new FossilLogConfig(editor->toolBar());
+    return new FossilLogConfig(editor->vcsDocument());
 }
 
 FossilClient &fossilClient()

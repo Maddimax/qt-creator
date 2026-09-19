@@ -50,7 +50,6 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QRegularExpression>
-#include <QToolBar>
 
 using namespace Core;
 using namespace Utils;
@@ -1278,7 +1277,7 @@ class PerforceDiffConfig : public VcsBaseEditorConfig
 {
     Q_OBJECT
 public:
-    explicit PerforceDiffConfig(const PerforceDiffParameters &p, QToolBar *toolBar);
+    PerforceDiffConfig(const PerforceDiffParameters &p, QObject *parent);
     void triggerReRun();
 
 signals:
@@ -1288,8 +1287,8 @@ private:
     const PerforceDiffParameters m_parameters;
 };
 
-PerforceDiffConfig::PerforceDiffConfig(const PerforceDiffParameters &p, QToolBar *toolBar) :
-    VcsBaseEditorConfig(toolBar), m_parameters(p)
+PerforceDiffConfig::PerforceDiffConfig(const PerforceDiffParameters &p, QObject *parent) :
+    VcsBaseEditorConfig(parent), m_parameters(p)
 {
     setBaseArguments(p.diffArguments);
     addToggleButton(QLatin1String("w"), Tr::tr("Ignore Whitespace"));
@@ -1371,7 +1370,7 @@ void PerforcePluginPrivate::p4Diff(const PerforceDiffParameters &p)
     auto diffEditorWidget = qobject_cast<VcsBaseEditorWidget *>(editor->widget());
     // Wire up the parameter widget to trigger a re-run on
     // parameter change and 'revert' from inside the diff editor.
-    auto pw = new PerforceDiffConfig(p, diffEditorWidget->toolBar());
+    auto pw = new PerforceDiffConfig(p, diffEditorWidget->vcsDocument());
     connect(pw, &PerforceDiffConfig::reRunDiff,
             this, [this](const PerforceDiffParameters &p) { p4Diff(p); });
     connect(diffEditorWidget, &VcsBaseEditorWidget::diffChunkReverted,

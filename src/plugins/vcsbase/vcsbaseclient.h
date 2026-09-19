@@ -17,10 +17,6 @@
 
 #include <functional>
 
-QT_BEGIN_NAMESPACE
-class QToolBar;
-QT_END_NAMESPACE
-
 namespace Utils { class Process; }
 
 namespace VcsBase {
@@ -226,7 +222,9 @@ protected:
 
     virtual QStringList revisionSpec(const QString &/*revision*/) const { return {}; }
 
-    typedef std::function<VcsBaseEditorConfig *(QToolBar *)> ConfigCreator;
+    // Makes the config for a diff or a log editor, parented to \a parent -
+    // the document the editor shows, which is what the config is set on.
+    using ConfigCreator = std::function<VcsBaseEditorConfig *(QObject *parent)>;
     void setDiffConfigCreator(ConfigCreator creator);
     void setLogConfigCreator(ConfigCreator creator);
 

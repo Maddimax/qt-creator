@@ -358,11 +358,12 @@ void VcsBaseClient::annotate(const Utils::FilePath &workingDir, const QString &f
     const QString title = vcsEditorTitle(vcsCmdString, id);
     const FilePath source = VcsBaseEditor::getSource(workingDir, file);
 
-    VcsBaseEditorWidget *editor = createVcsEditor(kind, title, source,
-                                                  VcsBaseEditor::getEncoding(source),
-                                                  vcsCmdString.toLatin1().constData(), id);
-    editor->setDefaultLineNumber(lineNumber);
-    executeInEditor(workingDir, args, editor);
+    VcsEditorDocument * const document = createVcsDocument(
+        kind, title, source, VcsBaseEditor::getEncoding(source),
+        vcsCmdString.toLatin1().constData(), id);
+    QTC_ASSERT(document, return);
+    document->setDefaultLineNumber(lineNumber);
+    executeInEditor(workingDir, args, document);
 }
 
 void VcsBaseClient::diff(const FilePath &workingDir, const QStringList &files)
@@ -372,22 +373,24 @@ void VcsBaseClient::diff(const FilePath &workingDir, const QStringList &files)
     const QString id = VcsBaseEditor::getTitleId(workingDir, files);
     const QString title = vcsEditorTitle(vcsCmdString, id);
     const FilePath source = VcsBaseEditor::getSource(workingDir, files);
-    VcsBaseEditorWidget *editor = createVcsEditor(kind, title, source,
-                                                  VcsBaseEditor::getEncoding(source),
-                                                  vcsCmdString.toLatin1().constData(), id);
-    editor->setWorkingDirectory(workingDir);
+    VcsEditorDocument * const document = createVcsDocument(
+        kind, title, source, VcsBaseEditor::getEncoding(source),
+        vcsCmdString.toLatin1().constData(), id);
+    QTC_ASSERT(document, return);
+    document->setWorkingDirectory(workingDir);
 
-    VcsBaseEditorConfig *editorConfig = editor->editorConfig();
+    VcsBaseEditorConfig *editorConfig = document->editorConfig();
     if (!editorConfig) {
         if (m_diffConfigCreator)
-            editorConfig = m_diffConfigCreator(editor->toolBar());
+            editorConfig = m_diffConfigCreator(document);
         if (editorConfig) {
-            // editor has been just created, createVcsEditor() didn't set a configuration widget yet
-            connect(editor, &VcsBaseEditorWidget::diffChunkReverted,
+            // The document has just been made, and createVcsDocument() sets
+            // no config on it.
+            connect(document, &VcsEditorDocument::diffChunkReverted,
                     editorConfig, &VcsBaseEditorConfig::executeCommand);
             connect(editorConfig, &VcsBaseEditorConfig::commandExecutionRequested,
                     this, [this, workingDir, files] { diff(workingDir, files); });
-            editor->setEditorConfig(editorConfig);
+            document->setEditorConfig(editorConfig);
         }
     }
 
@@ -404,7 +407,7 @@ void VcsBaseClient::diff(const FilePath &workingDir, const QStringList &files)
          .encoding = source.isEmpty() ? TextEncoding() : VcsBaseEditor::getEncoding(source)},
         resultStorage);
 
-    editor->executeTask(task, resultStorage);
+    document->executeTask(task, resultStorage);
 }
 
 void VcsBaseClient::log(const FilePath &workingDir,
@@ -418,23 +421,25 @@ void VcsBaseClient::log(const FilePath &workingDir,
     const QString id = VcsBaseEditor::getTitleId(workingDir, files);
     const QString title = vcsEditorTitle(vcsCmdString, id);
     const FilePath source = VcsBaseEditor::getSource(workingDir, files);
-    VcsBaseEditorWidget *editor = createVcsEditor(kind, title, source,
-                                                  VcsBaseEditor::getEncoding(source),
-                                                  vcsCmdString.toLatin1().constData(), id);
-    editor->setFileLogAnnotateEnabled(enableAnnotationContextMenu);
+    VcsEditorDocument * const document = createVcsDocument(
+        kind, title, source, VcsBaseEditor::getEncoding(source),
+        vcsCmdString.toLatin1().constData(), id);
+    QTC_ASSERT(document, return);
+    document->setFileLogAnnotateEnabled(enableAnnotationContextMenu);
 
-    VcsBaseEditorConfig *editorConfig = editor->editorConfig();
+    VcsBaseEditorConfig *editorConfig = document->editorConfig();
     if (!editorConfig) {
         if (m_logConfigCreator)
-            editorConfig = m_logConfigCreator(editor->toolBar());
+            editorConfig = m_logConfigCreator(document);
         if (editorConfig) {
             editorConfig->setBaseArguments(extraOptions);
-            // editor has been just created, createVcsEditor() didn't set a configuration widget yet
+            // The document has just been made, and createVcsDocument() sets
+            // no config on it.
             connect(editorConfig, &VcsBaseEditorConfig::commandExecutionRequested, this,
                     [this, workingDir, files, extraOptions, enableAnnotationContextMenu, addAuthOptions] {
                 log(workingDir, files, extraOptions, enableAnnotationContextMenu, addAuthOptions);
             });
-            editor->setEditorConfig(editorConfig);
+            document->setEditorConfig(editorConfig);
         }
     }
 
@@ -446,7 +451,7 @@ void VcsBaseClient::log(const FilePath &workingDir,
     else
         cmd << extraOptions;
     cmd << files;
-    executeInEditor(workingDir, cmd, editor);
+    executeInEditor(workingDir, cmd, document);
 }
 
 void VcsBaseClient::revertFile(const FilePath &workingDir,
@@ -568,11 +573,12 @@ void VcsBaseClient::view(const FilePath &source,
     const Id kind = vcsEditorKind(DiffCommand);
     const QString title = vcsEditorTitle(vcsCommandString(LogCommand), id);
 
-    VcsBaseEditorWidget *editor = createVcsEditor(kind, title, source,
-                                                  VcsBaseEditor::getEncoding(source), "view", id);
+    VcsEditorDocument * const document = createVcsDocument(
+        kind, title, source, VcsBaseEditor::getEncoding(source), "view", id);
+    QTC_ASSERT(document, return);
 
     const FilePath workingDirPath = source.isFile() ? source.absolutePath() : source;
-    executeInEditor(workingDirPath, args, editor);
+    executeInEditor(workingDirPath, args, document);
 }
 
 void VcsBaseClient::update(const FilePath &repositoryRoot, const QString &revision,

@@ -23,7 +23,6 @@
 #include <QFileInfo>
 #include <QLoggingCategory>
 #include <QTextStream>
-#include <QToolBar>
 
 using namespace Core;
 using namespace DiffEditor;
@@ -37,8 +36,8 @@ static Q_LOGGING_CATEGORY(Log, "qtc.vcs.svn", QtWarningMsg);
 class SubversionLogConfig : public VcsBaseEditorConfig
 {
 public:
-    explicit SubversionLogConfig(QToolBar *toolBar)
-        : VcsBaseEditorConfig(toolBar)
+    explicit SubversionLogConfig(QObject *parent)
+        : VcsBaseEditorConfig(parent)
     {
         mapSetting(addToggleButton("--verbose", Tr::tr("Verbose"),
                                    Tr::tr("Show files changed in each revision")),
@@ -48,7 +47,7 @@ public:
 
 SubversionClient::SubversionClient() : VcsBaseClient(&Internal::settings())
 {
-    setLogConfigCreator([](QToolBar *toolBar) { return new SubversionLogConfig(toolBar); });
+    setLogConfigCreator([](QObject *parent) { return new SubversionLogConfig(parent); });
 }
 
 bool SubversionClient::doCommit(const FilePath &repositoryRoot,
