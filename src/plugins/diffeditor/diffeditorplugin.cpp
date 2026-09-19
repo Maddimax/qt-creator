@@ -2308,7 +2308,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffCollapseUnchangedFile
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffCollapseUnchangedFile.txt";
     QVERIFY(sourceFile.writeFileContents(text.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -2420,7 +2421,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffIgnoreWhitespace()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffIgnoreWhitespace.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -2559,7 +2561,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffFoldedRows()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffFoldedRows.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -2662,7 +2665,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffPatience()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffPatience.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -2754,7 +2758,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffCopyAsPatch()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffCopyAsPatch.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -2941,7 +2946,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffGoToFirstChange()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffGoToFirstChange.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -3040,7 +3046,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffChangeNavigation()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffChangeNavigation.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -3132,7 +3139,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffScrollBarMarkers()
     const FilePath sourceFile
         = FilePath::fromString(temporaryDir.path()) / "testInlineDiffScrollBarMarkers.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
@@ -3216,7 +3224,8 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffGoToSource()
     const FilePath sourceFile = FilePath::fromString(temporaryDir.path())
                                 / "testInlineDiffGoToSource.txt";
     QVERIFY(sourceFile.writeFileContents(editorText.toUtf8()));
-    IEditor *sourceEditor = EditorManager::openEditor(sourceFile);
+    IEditor *sourceEditor = EditorManager::openEditor(sourceFile,
+                                                      Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
     QVERIFY(sourceEditor);
     auto sourceTextEditor = qobject_cast<BaseTextEditor *>(sourceEditor);
     QVERIFY(sourceTextEditor);
