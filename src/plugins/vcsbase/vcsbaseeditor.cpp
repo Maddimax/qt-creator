@@ -560,23 +560,19 @@ public:
     QComboBox *entriesComboBox();
 
     TextEditorWidget *q;
+    // What a subclass declares in its constructor, before there is a document
+    // to keep it: handed over in finalizeInitialization() and read only until
+    // then. The document is the one place for all of it afterwards.
     VcsBaseEditorParameters m_parameters;
-
-    FilePath m_workingDirectory;
-
-    QRegularExpression m_diffFilePattern;
-    QRegularExpression m_logEntryPattern;
-    VcsBase::Annotation m_annotation;
-
-    QList<int> m_entrySections; // line number where this section starts
-    int m_cursorLine = -1;
-    int m_firstLineNumber = -1;
-    int m_defaultLineNumber = -1;
+    QString m_diffFilePattern;
+    QString m_logEntryPattern;
+    QString m_annotationEntryPattern;
+    QString m_annotationSeparatorPattern;
     QString m_annotateRevisionTextFormat;
     QString m_annotatePreviousRevisionTextFormat;
-    VcsBaseEditorConfig *m_config = nullptr;
+
+    int m_cursorLine = -1;
     QList<AbstractTextCursorHandler *> m_textCursorHandlers;
-    bool m_fileLogAnnotateEnabled = false;
     bool m_mouseDragging = false;
     bool m_marginsEnabled = false;
 
@@ -587,8 +583,7 @@ private:
 };
 
 VcsBaseEditorWidgetPrivate::VcsBaseEditorWidgetPrivate(VcsBaseEditorWidget *editorWidget)  :
-    q(editorWidget),
-    m_annotateRevisionTextFormat(Tr::tr("Annotate \"%1\""))
+    q(editorWidget)
 {
     m_textCursorHandlers.append(new ChangeTextCursorHandler(editorWidget));
     m_textCursorHandlers.append(new UrlTextCursorHandler(editorWidget));
@@ -738,39 +733,46 @@ void VcsBaseEditorWidget::setParameters(const VcsBaseEditorParameters &parameter
     d->m_parameters = parameters;
 }
 
-static void regexpFromString(
-        const QString &pattern,
-        QRegularExpression *regexp,
-        QRegularExpression::PatternOptions options = QRegularExpression::NoPatternOption)
+VcsEditorDocument *VcsBaseEditorWidget::vcsDocument() const
 {
-    const QRegularExpression re(pattern, options);
-    QTC_ASSERT(re.isValid() && re.captureCount() >= 1, return);
-    *regexp = re;
+    return qobject_cast<VcsEditorDocument *>(textDocument());
 }
 
 void VcsBaseEditorWidget::setDiffFilePattern(const QString &pattern)
 {
-    regexpFromString(pattern, &d->m_diffFilePattern);
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->setDiffFilePattern(pattern);
+    else
+        d->m_diffFilePattern = pattern;
 }
 
 void VcsBaseEditorWidget::setLogEntryPattern(const QString &pattern)
 {
-    regexpFromString(pattern, &d->m_logEntryPattern);
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->setLogEntryPattern(pattern);
+    else
+        d->m_logEntryPattern = pattern;
 }
 
 void VcsBaseEditorWidget::setAnnotationEntryPattern(const QString &pattern)
 {
-    regexpFromString(pattern, &d->m_annotation.entryPattern, QRegularExpression::MultilineOption);
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->setAnnotationEntryPattern(pattern);
+    else
+        d->m_annotationEntryPattern = pattern;
 }
 
 void VcsBaseEditorWidget::setAnnotationSeparatorPattern(const QString &pattern)
 {
-    regexpFromString(pattern, &d->m_annotation.separatorPattern);
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->setAnnotationSeparatorPattern(pattern);
+    else
+        d->m_annotationSeparatorPattern = pattern;
 }
 
 bool VcsBaseEditorWidget::supportChangeLinks() const
 {
-    switch (d->m_parameters.type) {
+    switch (contentType()) {
     case LogOutput:
     case AnnotateOutput:
         return true;
@@ -792,28 +794,33 @@ FilePath VcsBaseEditorWidget::fileNameForLine(int line) const
 
 int VcsBaseEditorWidget::firstLineNumber() const
 {
-    return d->m_firstLineNumber;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->firstLineNumber() : -1;
 }
 
 void VcsBaseEditorWidget::setFirstLineNumber(int firstLineNumber)
 {
-    d->m_firstLineNumber = firstLineNumber;
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    document->setFirstLineNumber(firstLineNumber);
 }
 
 QString VcsBaseEditorWidget::lineNumber(int blockNumber) const
 {
-    if (d->m_firstLineNumber > 0)
-        return QString::number(d->m_firstLineNumber + blockNumber);
+    const int first = firstLineNumber();
+    if (first > 0)
+        return QString::number(first + blockNumber);
     return TextEditorWidget::lineNumber(blockNumber);
 }
 
 int VcsBaseEditorWidget::lineNumberDigits() const
 {
-    if (d->m_firstLineNumber <= 0)
+    const int first = firstLineNumber();
+    if (first <= 0)
         return TextEditorWidget::lineNumberDigits();
 
     int digits = 2;
-    int max = qMax(1, d->m_firstLineNumber + blockCount());
+    int max = qMax(1, first + blockCount());
     while (max >= 100) {
         max /= 10;
         ++digits;
@@ -823,21 +830,48 @@ int VcsBaseEditorWidget::lineNumberDigits() const
 
 void VcsBaseEditorWidget::finalizeInitialization()
 {
-    QTC_CHECK(d->m_parameters.describeFunc);
-    connect(this, &VcsBaseEditorWidget::describeRequested, this, d->m_parameters.describeFunc);
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    // What the constructor declared before there was a document.
+    if (!d->m_diffFilePattern.isEmpty())
+        document->setDiffFilePattern(d->m_diffFilePattern);
+    if (!d->m_logEntryPattern.isEmpty())
+        document->setLogEntryPattern(d->m_logEntryPattern);
+    if (!d->m_annotationEntryPattern.isEmpty())
+        document->setAnnotationEntryPattern(d->m_annotationEntryPattern);
+    if (!d->m_annotationSeparatorPattern.isEmpty())
+        document->setAnnotationSeparatorPattern(d->m_annotationSeparatorPattern);
+    if (!d->m_annotateRevisionTextFormat.isEmpty())
+        document->setAnnotateRevisionTextFormat(d->m_annotateRevisionTextFormat);
+    if (!d->m_annotatePreviousRevisionTextFormat.isEmpty())
+        document->setAnnotatePreviousRevisionTextFormat(d->m_annotatePreviousRevisionTextFormat);
+
+    QTC_CHECK(document->parameters().describeFunc);
+    connect(this, &VcsBaseEditorWidget::describeRequested, this, document->parameters().describeFunc);
     init();
 }
 
 void VcsBaseEditorWidget::init()
 {
-    switch (d->m_parameters.type) {
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    switch (document->contentType()) {
     case OtherContent:
         break;
     case LogOutput:
+    case DiffOutput:
+        // The document finds the sections; the browser in the tool bar shows
+        // them, follows the caret through them, and jumps to the one chosen.
+        // What a diff header stands for on disk and what a log entry is about
+        // are this widget's to say, so it says them to the document.
+        document->setSectionHooks(
+            [this](const QTextBlock &block) { return fileNameFromDiffSpecification(block); },
+            [this](const QTextBlock &block) { return revisionSubject(block); });
+        connect(document->sections(), &QAbstractItemModel::modelReset,
+                this, &VcsBaseEditorWidget::refillEntriesComboBox);
+        refillEntriesComboBox();
         connect(d->entriesComboBox(), &QComboBox::activated,
                 this, &VcsBaseEditorWidget::slotJumpToEntry);
-        connect(this, &PlainTextEdit::textChanged,
-                this, &VcsBaseEditorWidget::slotPopulateLogBrowser);
         connect(this, &PlainTextEdit::cursorPositionChanged,
                 this, &VcsBaseEditorWidget::slotCursorPositionChanged);
         break;
@@ -845,20 +879,12 @@ void VcsBaseEditorWidget::init()
         // Annotation highlighting depends on contents, which is set later on
         connect(this, &PlainTextEdit::textChanged, this, &VcsBaseEditorWidget::slotActivateAnnotation);
         break;
-    case DiffOutput:
-        // Diff: set up diff file browsing
-        connect(d->entriesComboBox(), &QComboBox::activated,
-                this, &VcsBaseEditorWidget::slotJumpToEntry);
-        connect(this, &PlainTextEdit::textChanged,
-                this, &VcsBaseEditorWidget::slotPopulateDiffBrowser);
-        connect(this, &PlainTextEdit::cursorPositionChanged,
-                this, &VcsBaseEditorWidget::slotCursorPositionChanged);
-        break;
     }
     if (hasDiff()) {
         setCodeFoldingSupported(true);
         textDocument()->resetSyntaxHighlighter(
-            [diffFilePattern = d->m_diffFilePattern, logEntryPattern = d->m_logEntryPattern] {
+            [diffFilePattern = document->diffFilePattern(),
+             logEntryPattern = document->logEntryPattern()] {
                 return new DiffAndLogHighlighter(diffFilePattern, logEntryPattern);
             });
     }
@@ -889,32 +915,44 @@ void VcsBaseEditorWidget::setSource(const FilePath &source)
 
 QString VcsBaseEditorWidget::annotateRevisionTextFormat() const
 {
-    return d->m_annotateRevisionTextFormat;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->annotateRevisionTextFormat() : d->m_annotateRevisionTextFormat;
 }
 
 void VcsBaseEditorWidget::setAnnotateRevisionTextFormat(const QString &f)
 {
-    d->m_annotateRevisionTextFormat = f;
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->setAnnotateRevisionTextFormat(f);
+    else
+        d->m_annotateRevisionTextFormat = f;
 }
 
 QString VcsBaseEditorWidget::annotatePreviousRevisionTextFormat() const
 {
-    return d->m_annotatePreviousRevisionTextFormat;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->annotatePreviousRevisionTextFormat()
+                    : d->m_annotatePreviousRevisionTextFormat;
 }
 
 void VcsBaseEditorWidget::setAnnotatePreviousRevisionTextFormat(const QString &f)
 {
-    d->m_annotatePreviousRevisionTextFormat = f;
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->setAnnotatePreviousRevisionTextFormat(f);
+    else
+        d->m_annotatePreviousRevisionTextFormat = f;
 }
 
 bool VcsBaseEditorWidget::isFileLogAnnotateEnabled() const
 {
-    return d->m_fileLogAnnotateEnabled;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document && document->isFileLogAnnotateEnabled();
 }
 
 void VcsBaseEditorWidget::setFileLogAnnotateEnabled(bool e)
 {
-    d->m_fileLogAnnotateEnabled = e;
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    document->setFileLogAnnotateEnabled(e);
 }
 
 void VcsBaseEditorWidget::setHighlightingEnabled(bool e)
@@ -924,12 +962,15 @@ void VcsBaseEditorWidget::setHighlightingEnabled(bool e)
 
 FilePath VcsBaseEditorWidget::workingDirectory() const
 {
-    return d->m_workingDirectory;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->workingDirectory() : FilePath();
 }
 
 void VcsBaseEditorWidget::setWorkingDirectory(const FilePath &wd)
 {
-    d->m_workingDirectory = wd;
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    document->setWorkingDirectory(wd);
 }
 
 TextEncoding VcsBaseEditorWidget::encoding() const
@@ -947,69 +988,28 @@ void VcsBaseEditorWidget::setEncoding(const TextEncoding &encoding)
 
 EditorContentType VcsBaseEditorWidget::contentType() const
 {
-    return d->m_parameters.type;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->contentType() : d->m_parameters.type;
 }
 
-void VcsBaseEditorWidget::slotPopulateDiffBrowser()
+void VcsBaseEditorWidget::refillEntriesComboBox()
 {
-    QComboBox *entriesComboBox = d->entriesComboBox();
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    QComboBox * const entriesComboBox = d->entriesComboBox();
     entriesComboBox->clear();
-    d->m_entrySections.clear();
-    // Create a list of section line numbers (diffed files)
-    // and populate combo with filenames.
-    const QTextBlock cend = document()->end();
-    int lineNumber = 0;
-    QString lastFileName;
-    for (QTextBlock it = document()->begin(); it != cend; it = it.next(), lineNumber++) {
-        const QString text = it.text();
-        // Check for a new diff section (not repeating the last filename)
-        if (d->m_diffFilePattern.match(text).capturedStart() != 0)
-            continue;
-        const QString file = fileNameFromDiffSpecification(it);
-        if (file.isEmpty() || lastFileName == file)
-            continue;
-        lastFileName = file;
-        // ignore any headers
-        d->m_entrySections.push_back(d->m_entrySections.empty() ? 0 : lineNumber);
-        entriesComboBox->addItem(FilePath::fromString(file).fileName());
-    }
-}
-
-void VcsBaseEditorWidget::slotPopulateLogBrowser()
-{
-    QComboBox *entriesComboBox = d->entriesComboBox();
-    entriesComboBox->clear();
-    d->m_entrySections.clear();
-    // Create a list of section line numbers (log entries)
-    // and populate combo with subjects (if any).
-    const QTextBlock cend = document()->end();
-    int lineNumber = 0;
-    for (QTextBlock it = document()->begin(); it != cend; it = it.next(), lineNumber++) {
-        const QString text = it.text();
-        // Check for a new log section (not repeating the last filename)
-        const QRegularExpressionMatch match = d->m_logEntryPattern.match(text);
-        if (!match.hasMatch())
-            continue;
-        d->m_entrySections.push_back(d->m_entrySections.empty() ? 0 : lineNumber);
-        QString entry = match.captured(1);
-        QString subject = revisionSubject(it);
-        if (!subject.isEmpty()) {
-            if (subject.size() > 100) {
-                subject.truncate(97);
-                subject.append("...");
-            }
-            entry.append(" - ").append(subject);
-        }
-        entriesComboBox->addItem(entry);
-    }
+    entriesComboBox->addItems(document->sections()->entries());
 }
 
 void VcsBaseEditorWidget::slotJumpToEntry(int index)
 {
     // goto diff/log entry as indicated by index/line number
-    if (index < 0 || index >= d->m_entrySections.size())
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    const QList<int> sections = document->sections()->lines();
+    if (index < 0 || index >= sections.size())
         return;
-    const int lineNumber = d->m_entrySections.at(index) + 1; // TextEdit uses 1..n convention
+    const int lineNumber = sections.at(index) + 1; // TextEdit uses 1..n convention
     // check if we need to do something, especially to avoid messing up navigation history
     int currentLine, currentColumn;
     convertPosition(position(), &currentLine, &currentColumn);
@@ -1019,28 +1019,25 @@ void VcsBaseEditorWidget::slotJumpToEntry(int index)
     }
 }
 
-// Locate a line number in the list of diff sections.
-static int sectionOfLine(int line, const QList<int> &sections)
-{
-    const auto it = std::upper_bound(sections.cbegin(), sections.cend(), line);
-    return int(std::distance(sections.cbegin(), it)) - 1;
-}
-
 QString VcsBaseEditorWidget::revisionForLine(int line) const
 {
-    const int section = sectionOfLine(line, d->m_entrySections);
-    if (section >= 0 && section < d->m_entrySections.size()) {
-        const int sectionLine = d->m_entrySections.at(section);
+    const VcsEditorDocument * const vcsDoc = vcsDocument();
+    QTC_ASSERT(vcsDoc, return {});
+    const QRegularExpression logEntryPattern = vcsDoc->logEntryPattern();
+    const VcsEditorSections * const sections = vcsDoc->sections();
+    const int section = sections->sectionOfLine(line);
+    if (section >= 0 && section < sections->rowCount()) {
+        const int sectionLine = sections->lines().at(section);
         const QTextBlock sectionBlock = document()->findBlockByLineNumber(sectionLine);
         if (sectionBlock.isValid()) {
-            const QRegularExpressionMatch match = d->m_logEntryPattern.match(sectionBlock.text());
+            const QRegularExpressionMatch match = logEntryPattern.match(sectionBlock.text());
             if (match.hasMatch())
                 return match.captured(1);
         }
     }
 
     for (QTextBlock block = document()->findBlockByLineNumber(line); block.isValid(); block = block.previous()) {
-        const QRegularExpressionMatch match = d->m_logEntryPattern.match(block.text());
+        const QRegularExpressionMatch match = logEntryPattern.match(block.text());
         if (match.hasMatch())
             return match.captured(1);
     }
@@ -1055,7 +1052,8 @@ void VcsBaseEditorWidget::slotCursorPositionChanged()
     if (newCursorLine != d->m_cursorLine) {
         // Which section does it belong to?
         d->m_cursorLine = newCursorLine;
-        const int section = sectionOfLine(d->m_cursorLine, d->m_entrySections);
+        const VcsEditorDocument * const document = vcsDocument();
+        const int section = document ? document->sections()->sectionOfLine(d->m_cursorLine) : -1;
         if (section != -1) {
             QComboBox *entriesComboBox = d->entriesComboBox();
             if (entriesComboBox->currentIndex() != section) {
@@ -1075,14 +1073,14 @@ void VcsBaseEditorWidget::contextMenuEvent(QContextMenuEvent *e)
         const QTextCursor cursor = cursorForPosition(e->pos());
         if (Internal::AbstractTextCursorHandler *handler = d->findTextCursorHandler(cursor)) {
             menu = new QMenu;
-            handler->fillContextMenu(menu, d->m_parameters.type);
+            handler->fillContextMenu(menu, contentType());
         }
     }
     if (!menu) {
         menu = new QMenu;
         appendStandardContextMenuActions(menu);
     }
-    switch (d->m_parameters.type) {
+    switch (contentType()) {
     case LogOutput: // log might have diff
     case DiffOutput: {
         if (ExtensionSystem::PluginManager::getObject<CodePaster::Service>()) {
@@ -1208,7 +1206,7 @@ void VcsBaseEditorWidget::slotActivateAnnotation()
 {
     // The annotation highlighting depends on contents (change number
     // set with assigned colors)
-    if (d->m_parameters.type != AnnotateOutput)
+    if (contentType() != AnnotateOutput)
         return;
 
     const QSet<QString> changes = annotationChanges();
@@ -1222,7 +1220,7 @@ void VcsBaseEditorWidget::slotActivateAnnotation()
     } else {
         BaseAnnotationHighlighterCreator creator = annotationHighlighterCreator();
         textDocument()->resetSyntaxHighlighter(
-            [creator, annotation = d->m_annotation] { return creator(annotation); });
+            [creator, annotation = vcsDocument()->annotation()] { return creator(annotation); });
     }
 }
 
@@ -1314,6 +1312,8 @@ void VcsBaseEditorWidget::jumpToDiffTarget(const FilePath &filePath,
 // cut out chunk and determine file name.
 DiffChunk VcsBaseEditorWidget::diffChunk(QTextCursor cursor) const
 {
+    const QRegularExpression diffFilePattern = vcsDocument() ? vcsDocument()->diffFilePattern()
+                                                             : QRegularExpression();
     DiffChunk rc;
     QTC_ASSERT(hasDiff(), return rc);
     // Search back for start of chunk.
@@ -1341,7 +1341,7 @@ DiffChunk VcsBaseEditorWidget::diffChunk(QTextCursor cursor) const
         unicode.append('\n');
     for (block = block.next() ; block.isValid() ; block = block.next()) {
         const QString line = block.text();
-        if (checkChunkLine(line, &chunkStart) || d->m_diffFilePattern.match(line).capturedStart() == 0)
+        if (checkChunkLine(line, &chunkStart) || diffFilePattern.match(line).capturedStart() == 0)
             break;
         unicode += line;
         unicode += '\n';
@@ -1504,12 +1504,15 @@ QString VcsBaseEditor::getTitleId(const FilePath &workingDirectory,
 
 void VcsBaseEditorWidget::setEditorConfig(VcsBaseEditorConfig *config)
 {
-    d->m_config = config;
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    document->setEditorConfig(config);
 }
 
 VcsBaseEditorConfig *VcsBaseEditorWidget::editorConfig() const
 {
-    return d->m_config;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->editorConfig() : nullptr;
 }
 
 void VcsBaseEditorWidget::executeTask(const ExecutableItem &task,
@@ -1547,13 +1550,16 @@ void VcsBaseEditorWidget::executeTask(const ExecutableItem &task,
 
 void VcsBaseEditorWidget::setDefaultLineNumber(int line)
 {
-    d->m_defaultLineNumber = line;
+    VcsEditorDocument * const document = vcsDocument();
+    QTC_ASSERT(document, return);
+    document->setDefaultLineNumber(line);
 }
 
 void VcsBaseEditorWidget::gotoDefaultLine()
 {
-    if (d->m_defaultLineNumber >= 0)
-        gotoLine(d->m_defaultLineNumber);
+    const VcsEditorDocument * const document = vcsDocument();
+    if (document && document->defaultLineNumber() >= 0)
+        gotoLine(document->defaultLineNumber());
 }
 
 void VcsBaseEditorWidget::setPlainText(const QString &text)
@@ -1570,8 +1576,9 @@ QString VcsBaseEditorWidget::findDiffFile(const QString &f) const
         return in.isFile() ? f : QString();
 
     // 1) Try base dir
-    if (!d->m_workingDirectory.isEmpty()) {
-        const FilePath baseFileInfo = d->m_workingDirectory.pathAppended(f);
+    const FilePath workingDir = workingDirectory();
+    if (!workingDir.isEmpty()) {
+        const FilePath baseFileInfo = workingDir.pathAppended(f);
         if (baseFileInfo.isFile())
             return baseFileInfo.absoluteFilePath().toUrlishString();
     }
@@ -1616,9 +1623,10 @@ void VcsBaseEditorWidget::slotAnnotateRevision(const QString &change)
 {
     const int currentLine = textCursor().blockNumber() + 1;
     const FilePath fileName = fileNameForLine(currentLine).canonicalPath();
-    const FilePath workingDirectory = d->m_workingDirectory.isEmpty()
+    const FilePath ownWorkingDirectory = this->workingDirectory();
+    const FilePath workingDirectory = ownWorkingDirectory.isEmpty()
             ? VcsManager::findTopLevelForDirectory(fileName.parentDir())
-            : d->m_workingDirectory;
+            : ownWorkingDirectory;
     const FilePath relativePath = fileName.isRelativePath()
             ? fileName
             : fileName.relativeChildPath(workingDirectory);
@@ -1650,17 +1658,19 @@ bool VcsBaseEditorWidget::canApplyDiffChunk(const DiffChunk &dc) const
 // (passing '-R' for revert), assuming we got absolute paths from the version control plugins.
 bool VcsBaseEditorWidget::applyDiffChunk(const DiffChunk &dc, PatchAction patchAction) const
 {
-    return PatchTool::runPatch(dc.asPatch(d->m_workingDirectory),
-                                     d->m_workingDirectory, 0, patchAction);
+    const FilePath workingDir = workingDirectory();
+    return PatchTool::runPatch(dc.asPatch(workingDir), workingDir, 0, patchAction);
 }
 
 QString VcsBaseEditorWidget::fileNameFromDiffSpecification(const QTextBlock &inBlock, QString *header) const
 {
+    const QRegularExpression diffFilePattern = vcsDocument() ? vcsDocument()->diffFilePattern()
+                                                             : QRegularExpression();
     // Go back chunks
     QString fileName;
     for (QTextBlock block = inBlock; block.isValid(); block = block.previous()) {
         const QString line = block.text();
-        const QRegularExpressionMatch match = d->m_diffFilePattern.match(line);
+        const QRegularExpressionMatch match = diffFilePattern.match(line);
         if (match.hasMatch()) {
             const QString cap = match.captured(1);
             if (header)
@@ -1683,22 +1693,8 @@ void VcsBaseEditorWidget::addChangeActions(QMenu *, const QString &, int line)
 
 QSet<QString> VcsBaseEditorWidget::annotationChanges() const
 {
-    QSet<QString> changes;
-    const QString text = toPlainText();
-    QStringView txt = QStringView(text);
-    if (txt.isEmpty())
-        return changes;
-    if (!d->m_annotation.separatorPattern.pattern().isEmpty()) {
-        const QRegularExpressionMatch match = d->m_annotation.separatorPattern.match(txt);
-        if (match.hasMatch())
-            txt.truncate(match.capturedStart());
-    }
-    QRegularExpressionMatchIterator i = d->m_annotation.entryPattern.globalMatch(txt);
-    while (i.hasNext()) {
-        const QRegularExpressionMatch match = i.next();
-        changes.insert(match.captured(1));
-    }
-    return changes;
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->annotationChanges() : QSet<QString>();
 }
 
 QString VcsBaseEditorWidget::decorateVersion(const QString &revision) const
@@ -1720,7 +1716,7 @@ QString VcsBaseEditorWidget::revisionSubject(const QTextBlock &inBlock) const
 
 bool VcsBaseEditorWidget::hasDiff() const
 {
-    switch (d->m_parameters.type) {
+    switch (contentType()) {
     case DiffOutput:
     case LogOutput:
         return true;
@@ -1801,12 +1797,7 @@ VcsEditorFactory::VcsEditorFactory(const VcsBaseEditorParameters &parameters)
     setOptionalActionMask(OptionalActions::None);
     setDuplicatedSupported(false);
 
-    setDocumentCreator([parameters] {
-        auto document = new TextDocument(parameters.id);
-        document->setMimeType(parameters.mimeType);
-        document->setSuspendAllowed(false);
-        return document;
-    });
+    setDocumentCreator([parameters] { return new VcsEditorDocument(parameters); });
 
     setEditorWidgetCreator([parameters] {
         auto widget = parameters.editorWidgetCreator();
@@ -1853,6 +1844,12 @@ void VcsBaseEditorWidget::testLogResolving(const VcsEditorFactory &factory,
     auto widget = qobject_cast<VcsBaseEditorWidget *>(editor->editorWidget());
 
     widget->textDocument()->setPlainText(QLatin1String(data));
+    // The document finds the entries, and the browser in the tool bar shows
+    // what it found.
+    VcsEditorDocument * const document = widget->vcsDocument();
+    QVERIFY(document);
+    QCOMPARE(document->sections()->entries().value(0), QString::fromLatin1(entry1));
+    QCOMPARE(document->sections()->entries().value(1), QString::fromLatin1(entry2));
     QCOMPARE(widget->d->entriesComboBox()->itemText(0), QString::fromLatin1(entry1));
     QCOMPARE(widget->d->entriesComboBox()->itemText(1), QString::fromLatin1(entry2));
 

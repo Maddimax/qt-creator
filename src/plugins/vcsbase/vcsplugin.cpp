@@ -9,6 +9,7 @@
 #include "vcsbaseconstants.h"
 #include "vcsbasetr.h"
 #include "vcschangesview.h"
+#include "vcseditordocument.h"
 #include "vcsoutputwindow.h"
 #include "wizard/vcscommandpage.h"
 #include "wizard/vcsconfigurationpage.h"
@@ -100,6 +101,7 @@ void VcsPlugin::initialize()
     addTestCreator(createVcsOutputViewTest);
     addTestCreator(createNickNameDialogTest);
     addTestCreator(createCleanDialogTest);
+    addTestCreator(createVcsEditorDocumentTest);
 #endif
     d = new VcsPluginPrivate(this);
 

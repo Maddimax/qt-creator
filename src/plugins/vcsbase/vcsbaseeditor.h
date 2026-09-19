@@ -4,6 +4,7 @@
 #pragma once
 
 #include "vcsbase_global.h"
+#include "vcseditordocument.h"
 
 #include <coreplugin/patchtool.h>
 
@@ -39,24 +40,6 @@ class VcsBaseEditorWidget;
 class VcsEditorFactory;
 
 // Documentation inside
-enum EditorContentType
-{
-    LogOutput,
-    AnnotateOutput,
-    DiffOutput,
-    OtherContent
-};
-
-class VCSBASE_EXPORT VcsBaseEditorParameters
-{
-public:
-    EditorContentType type;
-    Utils::Id id;
-    QString displayName;
-    QString mimeType;
-    std::function<QWidget *()> editorWidgetCreator;
-    std::function<void (const Utils::FilePath &, const QString &)> describeFunc;
-};
 
 class VCSBASE_EXPORT DiffChunk
 {
@@ -157,6 +140,8 @@ public:
     virtual void init();
     //
     void setParameters(const VcsBaseEditorParameters &parameters);
+    // The document, which is where everything below lives once there is one.
+    VcsEditorDocument *vcsDocument() const;
 
     ~VcsBaseEditorWidget() override;
 
@@ -266,8 +251,7 @@ protected:
 
 private:
     void slotActivateAnnotation();
-    void slotPopulateDiffBrowser();
-    void slotPopulateLogBrowser();
+    void refillEntriesComboBox();
     void slotJumpToEntry(int);
     void slotCursorPositionChanged() override;
     void slotAnnotateRevision(const QString &change);

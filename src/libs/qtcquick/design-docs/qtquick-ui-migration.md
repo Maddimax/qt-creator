@@ -65721,3 +65721,141 @@ No `.qbs` edited this batch: no file list changed.
    Windows, the two Debugger tests failing on HEAD (entry 293), the PNG hang
    (entry 294), the widget editor's read-only hazard (entry 293, deliberately
    last).
+
+## 2026-09-19 — The VCS editor's state moves to its document (batch 299)
+
+Entry 298's step 1: everything a VCS editor is configured with leaves the
+widget for a document, with no behaviour change, so that every later step
+has something view-agnostic to hang on.
+
+### What moved, and what did not
+
+`VcsEditorDocument`, a `TextDocument` the factory makes per editor (it made a
+plain `TextDocument` before), in `vcseditordocument.h/.cpp`, exported:
+
+- the parameters (content type, id, display name, mime type, the describe
+  function); `workingDirectory`; `firstLineNumber`; `defaultLineNumber`; the
+  two annotate text formats; `fileLogAnnotateEnabled`; the `editorConfig`
+  (held in a `QPointer` now - it was a raw pointer to a QObject owned by the
+  tool bar);
+- the four patterns (diff file, log entry, annotation entry and separator),
+  compiled with the same `regexpFromString()` check, and `annotationChanges()`,
+  which only needs the patterns and the text;
+- **the sections** - `VcsEditorSections`, a `QAbstractListModel` with the
+  entry text and the line it starts on, plus `sectionOfLine()`. The two
+  populate loops moved into `VcsEditorDocument::updateSections()`, run on
+  `contentsChanged` for a log or a diff. Two things the loops need that the
+  document cannot know - the file on disk a diff header stands for
+  (`fileNameFromDiffSpecification()`, which resolves through the working
+  directory, the source and the VCS top level, and is overridden by
+  Perforce's `findDiffFile()`), and a log entry's subject (Git's
+  `revisionSubject()`) - are hooks the widget installs in `init()`. Until
+  the hooks are there a diff has no sections and a log's entries have no
+  subject; both are set before any text arrives.
+
+Stayed on the widget, because they are the view's: the caret's line, the
+three text-cursor handlers, the mouse-drag flag, `marginsEnabled`, the task
+runner, and the combo box - which is now *filled from* the model on
+`modelReset` rather than by the loops. `setSource()` was already on the
+document (`VcsBase::setSource(IDocument *)` in `vcsbaseplugin.h`), and
+`encoding()` always was.
+
+### The staging area, and why it is there
+
+Every one of the eight widget subclasses sets its patterns - and six of them
+their annotate formats - **in their constructors**, and the factory builds
+the widget before it attaches the document (`createEditorHelper()`:
+`setTextDocument()` comes after the widget creator, `finalizeInitialization()`
+after that). So a setter called from a constructor has no document to forward
+to. The widget keeps those six strings until `finalizeInitialization()`,
+hands them over, and from then on every setter writes through and every
+getter reads the document. `contentType()` and the formats fall back to the
+staged copy when asked before a document exists - Git reads `contentType()`
+in five places, and I did not want a constructor-time read to become an
+assert. This is a shape for the transition: when the declarations move from
+the widget subclasses into the parameters (one VCS at a time, entry 298's
+step 6), the staging goes.
+
+### Outside `vcsbase`: nothing
+
+The 22 files that hold a `VcsBaseEditorWidget *` compile unchanged: every
+accessor they call is still on the widget and forwards. `EditorContentType`
+and `VcsBaseEditorParameters` moved to the new header, which
+`vcsbaseeditor.h` includes.
+
+### The tests
+
+- `testLogResolving()` (run by Git for its log and reflog factories) now
+  asserts the document's `sections()->entries()` first and the combo box's
+  items after - the model is what moved, the combo is what shows it.
+  `testDiffFileResolving()` is unchanged: it calls the widget's
+  `fileNameFromDiffSpecification()`, which now reads the pattern from the
+  document.
+- `VcsEditorDocumentTest::testTheWidgetEditorsStateIsTheDocuments` (new, in
+  `vcseditordocument.cpp`, registered in `vcsplugin.cpp`): a factory over a
+  minimal log widget whose constructor declares a log pattern and whose
+  `revisionSubject()` is the next line; the editor's document is a
+  `VcsEditorDocument` of type log; the working directory set on the widget is
+  read from the document, the first line number set on the document from the
+  widget, the default line likewise; the constructor's pattern reached the
+  document; two entries in the text give two sections with the subjects the
+  widget supplied, at lines 0 and 3, `sectionOfLine()` answers for lines in
+  each, and `LineRole` answers for the model. Alone: 3 passed, 0 failed, exit 0.
+  Git's `testLogResolving` and `testDiffFileResolving` alone, on the same
+  build: 3 passed and 5 passed (three diff rows), 0 failed, exit 0.
+
+Controls, each the pre-fix shape of one assertion (`set -e`):
+
+- **A** - the document does not connect `contentsChanged` to
+  `updateSections()`: the VcsBase test fails, "Compared lists have different
+  sizes" (no sections), and Git's `testLogResolving` fails on both entries.
+- **B** - the widget's `setWorkingDirectory()` keeps the value to itself, i.e.
+  nowhere: the VcsBase test fails on the working directory read from the
+  document, "Compared values are not the same".
+
+The first control run measured A and then stopped with A **still in the
+tree**: the script's `run()` helper assigned a log directory to `D`, the same
+global the outer script used for the file to patch, so the restore step read
+a directory, the assert fired and `set -e` ended the run. The suites script
+that followed built that source and announced "this batch, not a control" -
+TextEditor 791/0/3 on it, which says nothing about the VCS sections and
+everything about how a wrong build passes for a right one. That job was then
+killed by the host for memory. The source was restored by hand, control B
+ran from a script with `local`s and distinct names, and the suites script
+now refuses to build while a control marker is in the tree.
+(`~/.claude/testing.md`, "A control runner's restore step is the one that
+must not fail".)
+
+### Measurements
+
+Baselines on HEAD (entry 298): VcsBase 19/0; Git 135 passed, 2 failed
+(`testInlineDiffFile`, `testConflictedFileInTextEditor`, both pre-existing).
+
+    -test TextEditor     791 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         22 passed, 0 failed, 0 skipped, exit 0
+    -test Git            135 passed, 2 failed, 0 skipped, exit 2
+
+VcsBase is 22: the baseline nineteen plus this test object's three. Git is
+exactly the baseline - the same two failures, `testInlineDiffFile` and
+`testConflictedFileInTextEditor`, both about a file opening in the Qt Quick
+editor and nothing to do with the VCS editors; the four resolving rows pass.
+TextEditor and QuickUi unchanged, as nothing of theirs changed. No entry-247
+crash in three TextEditor runs.
+
+qbs: `vcsbase.qbs` resolved (scratch profile `qt6now`): with `"doesnotexist.cpp"`
+added the resolve names `VcsBase` and the file; as edited, no line names
+`plugins/vcsbase/` (19 errors overall, the vendored qbs products' usual ones).
+
+### What is next
+
+1. **VCS step 2** - the tool bar's choice for the sections model on the
+   Qt Quick tool bar (the shape `ToolBarChoice` already has for the outline),
+   wired to the caret and to `gotoLine()`. With the model on the document,
+   this is the first piece the Qt Quick view can show of a VCS editor.
+2. Steps 3-6 from entry 298: links that are actions; diff navigation as a
+   link finder; busy state, `firstLineNumber` on the gutter,
+   `setRevisionsVisible(false)`; flip and retire one VCS at a time - and with
+   each VCS, its constructor declarations into the parameters, so the staging
+   area can go.
+3. The QmlDesigner-side two; the standing list (entry 298).

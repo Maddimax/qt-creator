@@ -52,6 +52,8 @@ QtcPlugin {
         "vcsbaseeditor.h",
         "vcsbaseeditorconfig.cpp",
         "vcsbaseeditorconfig.h",
+        "vcseditordocument.cpp",
+        "vcseditordocument.h",
         "vcsbaseplugin.cpp",
         "vcsbaseplugin.h",
         "vcsbasesubmiteditor.cpp",
