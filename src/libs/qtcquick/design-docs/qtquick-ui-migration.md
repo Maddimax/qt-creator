@@ -68711,3 +68711,105 @@ No `.qbs` edited: no file list changed.
    - the larger program this pane belongs to.
 2. The QmlDesigner-side two; the standing list (entry 298), plus the
    double-click on a diff line and the VCS margins.
+
+## 2026-09-19 — The Qbs editor is the Qt Quick editor (batch 322)
+
+Entry 321's next items were the diff editor's description pane - a piece
+of the diff editor's own widget UI - and the QmlDesigner-side two, which
+the standing suites do not load. Before either, a census of what still
+calls `setEditorWidgetCreator()` without `setUsesQuickEditor(true)`, as
+entry 296 did:
+
+    effectcomposer/effectcodeeditorwidget.cpp   QmlDesigner-side
+    qmldesigner/.../bindingeditorwidget.cpp     QmlDesigner-side
+    qbsprojectmanager/qbseditor.cpp             <- this batch
+    texteditor/plaintexteditorfactory.cpp       the Plain Text Editor
+
+Qbs was not in entry 296's list, and not in the censuses' lists either,
+because it is not a factory of its own: `QbsEditorFactory` derives from
+`QmlJSEditorFactory`, whose id constructor sets everything QML has - the
+document creator, the widget creator, the editor decorator, the hover
+handlers, the link finder, the completion, the action mask - and whose
+default constructor alone says `setUsesQuickEditor(true)`, "only the
+language's own factory: the factories deriving from this one build widget
+subclasses of their own and keep them". QmlDesigner's does. Qbs's was
+
+    class QbsEditorWidget : public QmlJSEditorWidget {};
+
+### The gap closed: none in the Qt Quick editor
+
+Everything a .qbs file needs is QML's and already reaches the Qt Quick
+view: the document is a `QmlJSEditorDocument` with the Qbs id, made by
+the base's creator from `id()`; the assist interface is the document's
+(`QmlJSEditorDocument::createAssistInterface()`, which is what lets
+Qbs's `MergedCompletionAssistProcessor` `static_cast` its interface to
+QML's in either view); the decorator, hover handlers and action mask are
+the base's. Qbs's own two - the merged completion provider and the link
+finder that asks the qbs language server where QML does not know - are
+factory settings the Qt Quick editor reads through
+`configureLanguageServices()` like any language's. So the batch is one
+line: the Qbs factory says Quick, and the empty subclass goes. The QML
+factory's comment now names QmlDesigner's alone.
+
+### The tests
+
+- `QbsEditorTest::testAQbsFileOpensInTheQtQuickEditorWithQbssCompletion`,
+  Qbs's first editor test (the plugin had three, all on settings): a
+  `project.qbs` is claimed by the Qbs factory, which says Quick; opened
+  through the editor manager it has no widget editor and a Qt Quick
+  view; its document is a `QmlJSEditorDocument` with the Qbs id; its
+  completion provider is Qbs's merged one - the assertion that tells the
+  Qbs editor from QML's over the same file - and it answers Follow Symbol.
+- The two censuses list `QbsEditor.QbsEditor`, with `project.qbs` as its
+  file, which takes it through the per-factory checks: indenting,
+  completion, auto completer, comment definition, links, fold markers.
+  `testEveryConvertedLanguageRegistersALinkFinder` (the entry "A census
+  for five conversions with no tests between them") already named
+  `project.qbs`, being about factories rather than views.
+
+First run, one build, in the VM: the Qbs test 3/0, both censuses 3/0,
+exit 0 each, at the first attempt.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Two, for a one-line
+change with two things to get wrong:
+
+- **A** - the Qbs factory says widget, as it did: the Qbs test,
+  "'factory->usesQuickEditor()' returned FALSE. (the Qbs editor is the
+  widget editor)", and the census, "Compared lists have different sizes.
+  Actual (quick) size: 40, Expected 41".
+- **B** - the Qbs factory sets no completion of its own, leaving QML's
+  from the base: "'dynamic_cast<QbsCompletionAssistProvider *>(document->
+  completionAssistProvider())' returned FALSE. (the .qbs file completes
+  without the qbs language server's answers)" - the assertion that tells
+  the two editors apart over one file.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor         806 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi            228 passed, 0 failed, 0 skipped, exit 0
+    -test QbsProjectManager   17 passed, 0 failed, 1 skipped, exit 0
+    -test QmlJSEditor         44 passed, 0 failed, 0 skipped, exit 0
+
+QbsProjectManager is 17: 16 plus the editor test (the skip is an old
+settings test's, not this batch's). QmlJSEditor ran because Qbs is its
+factory with two settings changed; unchanged. No memory kill, no typing
+flake in these three.
+
+No `.qbs` edited: no file list changed. `qbseditor.cpp` gained a
+`Q_OBJECT` test class and so a `.moc` include; AUTOMOC handles it.
+
+### What is next
+
+1. The Plain Text Editor factory - `Core::Constants::K_DEFAULT_TEXT_EDITOR_ID`,
+   `PlainTextEditorWidget`, `createPlainTextEditor()`: the editor "Open
+   With" offers for anything, and what a few callers open contents in by
+   id. The Qt Quick editor claims text/plain through a factory of its own
+   (`QUICK_TEXT_EDITOR_ID`), so this is two editors for the same file; which
+   one goes, and who calls `createPlainTextEditor()`, is the first
+   question.
+2. The diff editor's description pane and the rest of `VcsBaseEditorWidget`
+   with it; the QmlDesigner-side two; the standing list (entry 298), plus
+   the double-click on a diff line and the VCS margins.

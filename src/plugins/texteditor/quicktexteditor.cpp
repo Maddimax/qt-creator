@@ -6728,7 +6728,10 @@ private slots:
                              QString("Perforce.DiffEditor"),
                              QString("Fossil File Log Editor"),
                              QString("Fossil Annotation Editor"),
-                             QString("Fossil Diff Editor")};
+                             QString("Fossil Diff Editor"),
+                             // QML's document and factory with Qbs's completion
+                             // and links on top; nothing of a widget's own.
+                             QString("QbsEditor.QbsEditor")};
         expected.sort();
         QCOMPARE(quick, expected);
     }
@@ -6960,6 +6963,7 @@ private slots:
             {"GLSLEditor.GLSLEditor", "shader.frag"},
             {"Git Commit Editor", "COMMIT_EDITMSG"},
             {"Git Rebase Editor", "git-rebase-todo"},
+            {"QbsEditor.QbsEditor", "project.qbs"},
         };
         // Output that is never a file - a VCS log, a blame - has no name to
         // open; it opens with contents, by id, and is checked the same way.

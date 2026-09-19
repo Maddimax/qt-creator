@@ -20,16 +20,24 @@
 #include <memory>
 #include <optional>
 
+#ifdef WITH_TESTS
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+#include <qmljseditor/qmljseditordocument.h>
+#include <texteditor/texteditor.h>
+#include <utils/algorithm.h>
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 using namespace LanguageClient;
 using namespace QmlJSEditor;
 using namespace TextEditor;
 using namespace Utils;
 
 namespace QbsProjectManager::Internal {
-
-class QbsEditorWidget : public QmlJSEditorWidget
-{
-};
 
 class QbsCompletionAssistProcessor : public LanguageClientCompletionAssistProcessor
 {
@@ -122,7 +130,9 @@ QbsEditorFactory::QbsEditorFactory() : QmlJSEditorFactory("QbsEditor.QbsEditor")
 {
     setDisplayName(Tr::tr("Qbs Editor"));
     setMimeTypes({Utils::Constants::QBS_MIMETYPE});
-    setEditorWidgetCreator([] { return new QbsEditorWidget; });
+    // QML's document and editor, with the two things below of Qbs's own; the
+    // widget subclass this had added nothing to QML's.
+    setUsesQuickEditor(true);
     setCompletionAssistProvider(new QbsCompletionAssistProvider);
     setLinkFinder(&findQbsLinkAt);
 }
@@ -219,4 +229,51 @@ QIcon QbsCompletionItem::icon() const
     return CodeModelIcon::iconForType(CodeModelIcon::Property);
 }
 
+#ifdef WITH_TESTS
+
+class QbsEditorTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    // A .qbs file is QML with a language server on top. It opened in a widget
+    // subclass with nothing in it, over the document and factory QML uses; it
+    // opens in the Qt Quick editor, with Qbs's merged completion where QML's
+    // alone would be.
+    void testAQbsFileOpensInTheQtQuickEditorWithQbssCompletion()
+    {
+        Utils::TemporaryDirectory dir("qbs-editor");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("project.qbs");
+        QVERIFY(file.writeFileContents("import qbs\n\nProduct {\n    name: \"thing\"\n}\n"));
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no text editor claims a .qbs file");
+        QCOMPARE(factory->id(), Utils::Id("QbsEditor.QbsEditor"));
+        QVERIFY2(factory->usesQuickEditor(), "the Qbs editor is the widget editor");
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(!TextEditorWidget::fromEditor(editor), "the .qbs file opened in the widget editor");
+        const QList<QWidget *> children = editor->widget()->findChildren<QWidget *>();
+        QVERIFY2(Utils::anyOf(children, [](QWidget *w) { return w->inherits("QQuickWidget"); }),
+                 "the .qbs file opened in no Qt Quick view either");
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY2(document, "a .qbs file's document is not a QML document");
+        QCOMPARE(document->id(), Utils::Id("QbsEditor.QbsEditor"));
+        QVERIFY2(dynamic_cast<QbsCompletionAssistProvider *>(document->completionAssistProvider()),
+                 "the .qbs file completes without the qbs language server's answers");
+        QVERIFY2(TextEditorFactory::linkFinderFor(document), "the .qbs file answers no Follow Symbol");
+    }
+};
+
+QObject *createQbsEditorTest()
+{
+    return new QbsEditorTest;
+}
+
+#endif // WITH_TESTS
+
 } // namespace QbsProjectManager::Internal
+
+#include "qbseditor.moc"

@@ -13,4 +13,8 @@ public:
     QbsEditorFactory();
 };
 
+#ifdef WITH_TESTS
+QObject *createQbsEditorTest();
+#endif
+
 } // namespace QbsProjectManager::Internal

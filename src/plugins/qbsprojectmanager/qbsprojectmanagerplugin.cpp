@@ -116,6 +116,7 @@ void QbsProjectManagerPlugin::initialize()
     addTestCreator(createQbsProfilesSettingsTest);
     addTestCreator(createCustomQbsPropertiesTest);
     addTestCreator(createQbsArchitecturesTest);
+    addTestCreator(createQbsEditorTest);
 #endif
 
     Core::IOptionsPage::registerCategory(
