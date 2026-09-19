@@ -7,6 +7,7 @@
 #include "commonvcssettings.h"
 #include "nicknamedialog.h"
 #include "vcsbaseconstants.h"
+#include "vcsbasediffeditorcontroller.h"
 #include "vcsbasetr.h"
 #include "vcschangesview.h"
 #include "vcseditordocument.h"
@@ -104,6 +105,7 @@ void VcsPlugin::initialize()
     addTestCreator(createVcsEditorDocumentTest);
 #endif
     d = new VcsPluginPrivate(this);
+    setupVcsBaseDescriptionEditorFactory();
 
     IOptionsPage::registerCategory(
         Constants::VCS_SETTINGS_CATEGORY,

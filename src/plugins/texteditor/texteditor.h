@@ -261,6 +261,11 @@ public:
 
     void setLineNumbersVisible(bool b);
     bool lineNumbersVisible() const;
+    // What the language withholds from the display settings: a pane of prose
+    // has no line numbers and does not wrap whatever the settings say, and
+    // stays so through every push of them. The factory says it.
+    void setLineNumbersAllowed(bool allowed);
+    void setWrappingAllowed(bool allowed);
 
     void setAlwaysOpenLinksInNextSplit(bool b);
     bool alwaysOpenLinksInNextSplit() const;
@@ -910,6 +915,15 @@ public:
     // a file that is new text under the same old name each time: Git's
     // commit message and rebase script start at the top.
     bool restoresState() const;
+    void setLineNumbersVisible(bool on);
+    // Whether a view of this language has a line number column when the
+    // settings say so. False for a pane of a few lines of prose - a change's
+    // description above a diff.
+    bool lineNumbersVisible() const;
+    void setWrapsLines(bool on);
+    // Whether a view of this language wraps long lines when the settings say
+    // so. False for the same pane, where a line is what it is.
+    bool wrapsLines() const;
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
     // Whether the language has anything to fold. A view uses it to decide
@@ -1192,6 +1206,11 @@ TEXTEDITOR_EXPORT void clearSuggestionIn(Core::IEditor *editor);
 // its own font across. Zero where \a editor is not a text editor at all.
 TEXTEDITOR_EXPORT int visibleRowCountOf(Core::IEditor *editor);
 TEXTEDITOR_EXPORT int visibleColumnCountOf(Core::IEditor *editor);
+// How tall a line of \a editor's view is, in pixels: the widget's font
+// metrics, or the line spacing the Qt Quick view lays out at. What a host
+// that sizes the editor in lines - the diff editor's description pane -
+// asks, and before the view has been laid out.
+TEXTEDITOR_EXPORT int lineSpacingOf(Core::IEditor *editor);
 
 // An editor showing \a document, where one is open - the current editor when
 // that is one of them, so that a caller meaning "where the user can see this"

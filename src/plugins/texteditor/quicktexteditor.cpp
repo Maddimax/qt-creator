@@ -399,12 +399,15 @@ public:
             QQuickItem * const form = widget->quickWidget()->rootObject();
             if (!form)
                 return;
-            form->setProperty("wrapLines", displaySettings().textWrapping());
-            form->setProperty("showLineNumbers", displaySettings().displayLineNumbers());
+            form->setProperty("wrapLines", self->wrapWanted());
+            form->setProperty("showLineNumbers", self->lineNumbersWanted());
             form->setProperty("showFoldMarkers", self->foldMarkersWanted());
             form->setProperty("highlightCurrentLine", displaySettings().highlightCurrentLine());
             form->setProperty("showAnnotations", displaySettings().displayAnnotations());
         };
+        // Once now: the form was created from the settings alone, and what the
+        // language withholds has to be gone before the first paint.
+        pushDisplaySettings();
         connect(&displaySettings(), &Utils::AspectContainer::changed, this,
                 [this, pushDisplaySettings] {
                     pushDisplaySettings();
@@ -1236,6 +1239,19 @@ private:
     bool foldMarkersWanted() const
     {
         return m_codeFoldingSupported && displaySettings().displayFoldingMarkers();
+    }
+
+    // The settings, less what the language withholds: a pane of prose has
+    // no line numbers and does not wrap.
+    bool lineNumbersWanted() const
+    {
+        return (!m_factory || m_factory->lineNumbersVisible())
+               && displaySettings().displayLineNumbers();
+    }
+
+    bool wrapWanted() const
+    {
+        return (!m_factory || m_factory->wrapsLines()) && displaySettings().textWrapping();
     }
 
     QQuickItem *quickForm() const
@@ -6731,7 +6747,11 @@ private slots:
                              QString("Fossil Diff Editor"),
                              // QML's document and factory with Qbs's completion
                              // and links on top; nothing of a widget's own.
-                             QString("QbsEditor.QbsEditor")};
+                             QString("QbsEditor.QbsEditor"),
+                             // The diff editor's description pane, plain and
+                             // with a VCS's links.
+                             QString("DiffEditor.DescriptionEditor"),
+                             QString("VcsBase.DescriptionEditor")};
         expected.sort();
         QCOMPARE(quick, expected);
     }
@@ -6976,7 +6996,7 @@ private slots:
             "CVS Diff Editor", "ClearCase File Log Editor", "ClearCase Annotation Editor",
             "ClearCase Diff Editor", "Perforce.LogEditor", "Perforce.AnnotationEditor",
             "Perforce.DiffEditor", "Fossil File Log Editor", "Fossil Annotation Editor",
-            "Fossil Diff Editor"};
+            "Fossil Diff Editor", "DiffEditor.DescriptionEditor", "VcsBase.DescriptionEditor"};
 
         Utils::TemporaryDirectory dir("quick-language-census");
         QVERIFY(dir.isValid());
@@ -14934,6 +14954,75 @@ private slots:
         cursor.setPosition(9);
         TextEditor::setTextCursorOf(editor.get(), cursor);
         QCOMPARE(replacement->spellCheckCursorPosition(), 9);
+    }
+
+    // A pane of a few lines of prose - a change's description above a diff -
+    // has no line numbers and does not wrap, whatever the settings say; the
+    // widget subclasses said so by overriding the settings push. The factory
+    // says it for either view, a push of the settings leaves it standing, and
+    // the pane's host can ask how tall a line is to size the pane in lines.
+    void testAFactoryCanSayItsViewsAreProse_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFactoryCanSayItsViewsAreProse()
+    {
+        QFETCH(bool, quick);
+
+        class ProseFactory final : public TextEditorFactory
+        {
+        public:
+            ProseFactory(bool quick, bool prose)
+            {
+                setId("QuickEditorProseTest");
+                setDisplayName("Quick Editor Prose Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorProseTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+                if (prose) {
+                    setLineNumbersVisible(false);
+                    setWrapsLines(false);
+                }
+            }
+        };
+        const auto form = [](Core::IEditor *editor) -> QQuickItem * {
+            auto * const host = editor->widget()->findChild<QQuickWidget *>();
+            return host ? host->rootObject() : nullptr;
+        };
+        const auto lineNumbersShown = [form](Core::IEditor *editor) -> bool {
+            if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+                return widget->lineNumbersVisible();
+            QQuickItem * const root = form(editor);
+            return root && root->property("showLineNumbers").toBool();
+        };
+        const auto wraps = [form](Core::IEditor *editor) -> bool {
+            if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+                return widget->lineWrapMode() != Utils::PlainTextEdit::NoWrap;
+            QQuickItem * const root = form(editor);
+            return root && root->property("wrapLines").toBool();
+        };
+
+        ProseFactory prose(quick, true);
+        QCOMPARE(prose.lineNumbersVisible(), false);
+        QCOMPARE(prose.wrapsLines(), false);
+        const std::unique_ptr<Core::IEditor> pane(prose.createEditor());
+        QVERIFY2(pane.get(), "the factory built nothing");
+        QVERIFY2(!lineNumbersShown(pane.get()), "the pane has a line number column");
+        QVERIFY2(!wraps(pane.get()), "the pane wraps its lines");
+        emit displaySettings().changed();
+        QVERIFY2(!lineNumbersShown(pane.get()), "a settings push brought the line numbers back");
+        QVERIFY2(!wraps(pane.get()), "a settings push brought wrapping back");
+        QVERIFY2(lineSpacingOf(pane.get()) > 0, "the pane's host cannot tell how tall a line is");
+
+        // And a language that withholds nothing follows the settings.
+        ProseFactory code(quick, false);
+        const std::unique_ptr<Core::IEditor> file(code.createEditor());
+        QVERIFY2(file.get(), "the factory built nothing");
+        QCOMPARE(lineNumbersShown(file.get()), displaySettings().displayLineNumbers());
+        QCOMPARE(wraps(file.get()), displaySettings().textWrapping());
     }
 
     // A document whose text is on its way - a VCS command's output - says so,

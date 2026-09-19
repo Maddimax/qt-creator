@@ -456,6 +456,24 @@ const VcsBaseEditorParameters &VcsEditorDocument::parameters() const
     return d->parameters;
 }
 
+void VcsEditorDocument::setDescriptionParameters(
+    const VcsBaseDescriptionEditorParameters &parameters)
+{
+    d->parameters.changeUnderCursor = parameters.changeUnderCursor;
+    d->parameters.isValidRevision = parameters.isValidRevision;
+    d->parameters.describeFunc = parameters.describe;
+    if (parameters.addChangeActions) {
+        d->parameters.addChangeActions
+            = [add = parameters.addChangeActions](QMenu *menu, VcsEditorDocument *,
+                                                  const QString &change, int line) {
+                  add(menu, change, line);
+              };
+    } else {
+        d->parameters.addChangeActions = {};
+    }
+    VcsBase::setSource(this, parameters.source);
+}
+
 EditorContentType VcsEditorDocument::contentType() const
 {
     return d->parameters.type;

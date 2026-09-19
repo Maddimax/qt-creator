@@ -3,7 +3,7 @@ import qbs 1.0
 QtcPlugin {
     name: "Git"
 
-    Depends { name: "Qt"; submodules: ["widgets", "network"] }
+    Depends { name: "Qt"; submodules: ["widgets", "network", "quick", "quickwidgets"] }
     Depends { name: "Utils" }
 
     Depends { name: "Core" }

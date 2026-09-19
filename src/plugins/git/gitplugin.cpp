@@ -54,6 +54,7 @@
 #include <texteditor/mergeconflict.h>
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
+#include <texteditor/textviewport.h>
 
 #include <utils/aggregate.h>
 #include <utils/action.h>
@@ -103,6 +104,7 @@
 #include <QVBoxLayout>
 
 #ifdef WITH_TESTS
+#include <QQuickWidget>
 #include <QSignalSpy>
 #include <QTest>
 #endif
@@ -3325,25 +3327,48 @@ void GitTest::testDiffDescriptionEditor()
         settings->endGroup();
     });
 
+    // The description pane is the diff editor's first splitter widget: a Qt
+    // Quick editor, whose view is in the QQuickWidget's root item rather than
+    // among the widget's children.
+    const auto paneView = [](QSplitter *splitter) -> TextEditor::TextViewport * {
+        QWidget *pane = splitter->widget(0);
+        auto *quickWidget = pane ? pane->findChild<QQuickWidget *>() : nullptr;
+        if (!quickWidget || !quickWidget->rootObject())
+            return nullptr;
+        return quickWidget->rootObject()->findChild<TextEditor::TextViewport *>();
+    };
+    // The pane Git's controller brings replaces the diff editor's own once
+    // the controller is there: the one to wait for is a VCS editor's.
+    const auto paneDocument = [paneView](QSplitter *splitter) -> VcsEditorDocument * {
+        TextEditor::TextViewport *view = paneView(splitter);
+        return view ? qobject_cast<VcsEditorDocument *>(view->textDocument()) : nullptr;
+    };
+    const auto currentSplitter = [] {
+        IEditor *editor = EditorManager::currentEditor();
+        return editor ? qobject_cast<QSplitter *>(editor->widget()) : nullptr;
+    };
+
     gitClient().show(firstRepo, "HEAD");
-    QTRY_VERIFY(EditorManager::currentEditor() && EditorManager::currentEditor()->widget()
-                && EditorManager::currentEditor()->widget()
-                       ->findChild<VcsBaseDescriptionEditorWidget *>());
+    QTRY_VERIFY(currentSplitter() && paneDocument(currentSplitter()));
     IEditor *editor = EditorManager::currentEditor();
-    auto *splitter = qobject_cast<QSplitter *>(editor->widget());
-    QVERIFY(splitter);
-    auto *firstDescription = splitter->findChild<VcsBaseDescriptionEditorWidget *>();
-    QVERIFY(firstDescription->isReadOnly());
-    QTRY_VERIFY(firstDescription->toPlainText().contains("https://example.com/first"));
-    QCOMPARE(firstDescription->source(), firstRepo);
-    QVERIFY(firstDescription->isHidden());
+    QSplitter *splitter = currentSplitter();
+    QWidget *firstPane = splitter->widget(0);
+    TextEditor::TextViewport *firstView = paneView(splitter);
+    VcsEditorDocument *firstDescription = paneDocument(splitter);
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+             "the description opened in the widget editor");
+    QVERIFY(firstView->isReadOnly());
+    QTRY_VERIFY(firstDescription->plainText().contains("https://example.com/first"));
+    QCOMPARE(VcsBase::source(firstDescription), firstRepo);
+    QVERIFY(firstPane->isHidden());
     QAction *toggleDescriptionAction
         = editor->toolBar()->findChild<QAction *>("DiffEditorToggleDescriptionAction");
     QVERIFY(toggleDescriptionAction);
     toggleDescriptionAction->trigger();
-    QTRY_VERIFY(!firstDescription->isHidden());
-    const int descriptionHeight
-        = firstDescription->fontMetrics().lineSpacing() * descriptionLineCount;
+    QTRY_VERIFY(!firstPane->isHidden());
+    // The view knows how tall its lines are once it has laid them out.
+    QTRY_VERIFY(firstView->lineHeight() > 0);
+    const int descriptionHeight = qRound(firstView->lineHeight()) * descriptionLineCount;
     QTRY_COMPARE(splitter->sizes().at(0), descriptionHeight);
 
     QList<int> enlargedSizes = splitter->sizes();
@@ -3356,11 +3381,10 @@ void GitTest::testDiffDescriptionEditor()
     QTRY_COMPARE(splitter->sizes().at(0), enlargedHeight);
 
     gitClient().show(secondRepo, "HEAD");
-    QTRY_VERIFY(splitter->findChild<VcsBaseDescriptionEditorWidget *>() != firstDescription);
-    auto *secondDescription = splitter->findChild<VcsBaseDescriptionEditorWidget *>();
-    QVERIFY(secondDescription);
-    QTRY_VERIFY(secondDescription->toPlainText().contains("https://example.com/second"));
-    QCOMPARE(secondDescription->source(), secondRepo);
+    QTRY_VERIFY(splitter->widget(0) != firstPane && paneDocument(splitter));
+    VcsEditorDocument *secondDescription = paneDocument(splitter);
+    QTRY_VERIFY(secondDescription->plainText().contains("https://example.com/second"));
+    QCOMPARE(VcsBase::source(secondDescription), secondRepo);
     QTRY_COMPARE(splitter->sizes().at(0), descriptionHeight);
 
     QVERIFY(EditorManager::closeDocuments({EditorManager::currentDocument()}, false));

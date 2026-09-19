@@ -258,36 +258,6 @@ private:
     Internal::VcsBaseEditorWidgetPrivate *const d;
 };
 
-struct VcsBaseDescriptionEditorParameters
-{
-    Utils::FilePath source;
-    std::function<QString(const QTextCursor &)> changeUnderCursor;
-    std::function<void(QMenu *, const QString &, int)> addChangeActions;
-    std::function<bool(const QString &)> isValidRevision;
-    std::function<void(const Utils::FilePath &, const QString &)> describe;
-};
-
-class VCSBASE_EXPORT VcsBaseDescriptionEditorWidget final : public VcsBaseEditorWidget
-{
-    Q_OBJECT
-
-public:
-    explicit VcsBaseDescriptionEditorWidget(
-        const VcsBaseDescriptionEditorParameters &parameters, QWidget *parent = nullptr);
-
-    QSize sizeHint() const final;
-    void setDescription(const QString &text, bool ansiEnabled);
-
-protected:
-    bool supportChangeLinks() const final;
-    QString changeUnderCursor(const QTextCursor &cursor) const final;
-    void addChangeActions(QMenu *menu, const QString &change, int line) final;
-    bool isValidRevision(const QString &revision) const final;
-
-private:
-    VcsBaseDescriptionEditorParameters m_parameters;
-};
-
 class VCSBASE_EXPORT VcsEditorFactory : public TextEditor::TextEditorFactory
 {
 public:

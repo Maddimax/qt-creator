@@ -164,6 +164,18 @@ public:
     std::function<void(Core::IEditor *editor)> decorateEditor;
 };
 
+// What the description pane above a VCS's diff knows that the diff editor
+// does not: whose repository it is, what a change under the cursor looks
+// like, what a right click on one offers, and what a click on one shows.
+struct VcsBaseDescriptionEditorParameters
+{
+    Utils::FilePath source;
+    std::function<QString(const QTextCursor &)> changeUnderCursor;
+    std::function<void(QMenu *, const QString &, int)> addChangeActions;
+    std::function<bool(const QString &)> isValidRevision;
+    std::function<void(const Utils::FilePath &, const QString &)> describe;
+};
+
 class VCSBASE_EXPORT DiffChunk
 {
 public:
@@ -229,6 +241,10 @@ public:
 
     const VcsBaseEditorParameters &parameters() const;
     EditorContentType contentType() const;
+    // For a description pane: what the diff's controller knows, over what
+    // the factory's parameters said - the source, the change under a cursor,
+    // the actions for it, whether a revision is one, and what describes it.
+    void setDescriptionParameters(const VcsBaseDescriptionEditorParameters &parameters);
 
     Utils::FilePath workingDirectory() const;
     void setWorkingDirectory(const Utils::FilePath &workingDirectory);

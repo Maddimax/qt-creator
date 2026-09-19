@@ -21,6 +21,8 @@ VCSBASE_EXPORT DiffEditor::DescriptionEditorProvider
 createVcsBaseDescriptionEditorProvider(
     const VcsBaseDescriptionEditorParameters &parameters);
 
+void setupVcsBaseDescriptionEditorFactory();
+
 class VCSBASE_EXPORT VcsBaseDiffEditorController : public DiffEditor::DiffEditorController
 {
 public:

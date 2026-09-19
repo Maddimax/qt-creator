@@ -1,5 +1,5 @@
 add_qtc_plugin(Git
-  DEPENDS McpServerLib
+  DEPENDS McpServerLib Qt::Quick Qt::QuickWidgets
   PLUGIN_DEPENDS Core DiffEditor TextEditor VcsBase
   SOURCES
     annotationhighlighter.cpp annotationhighlighter.h

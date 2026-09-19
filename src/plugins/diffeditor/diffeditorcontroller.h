@@ -18,7 +18,10 @@ class QMenu;
 class QWidget;
 QT_END_NAMESPACE
 
-namespace Core { class IDocument; }
+namespace Core {
+class IDocument;
+class IEditor;
+}
 namespace Utils { class FilePath; }
 
 namespace DiffEditor {
@@ -30,10 +33,14 @@ class DiffEditorWidgetController;
 
 class ChunkSelection;
 
+// The pane above a diff that shows the change's description: an editor of
+// the provider's making - a VCS's has change links and a menu - whose widget
+// the diff editor puts in its splitter and sizes in lines. The editor owns
+// its widget; the diff editor owns the editor.
 struct DescriptionEditorProvider
 {
-    std::function<QWidget *(QWidget *parent)> create;
-    std::function<void(QWidget *editor, const QString &text, bool ansiEnabled)> setText;
+    std::function<Core::IEditor *()> create;
+    std::function<void(Core::IEditor *editor, const QString &text, bool ansiEnabled)> setText;
 
     bool isValid() const { return create && setText; }
 };

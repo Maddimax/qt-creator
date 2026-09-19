@@ -780,6 +780,10 @@ public:
     QAction *m_fileLineEndingAction = nullptr;
 
     uint m_optionalActionMask = OptionalActions::None;
+    // What the language withholds from the display settings, kept across
+    // every push of them.
+    bool m_lineNumbersAllowed = true;
+    bool m_wrappingAllowed = true;
     bool m_contentsChanged = false;
     bool m_lastCursorChangeWasInteresting = false;
     std::shared_ptr<void> m_suggestionBlocker;
@@ -3627,6 +3631,18 @@ void TextEditorWidget::setHighlightCurrentLine(bool b)
 bool TextEditorWidget::highlightCurrentLine() const
 {
     return d->m_highlightCurrentLine;
+}
+
+void TextEditorWidget::setLineNumbersAllowed(bool allowed)
+{
+    d->m_lineNumbersAllowed = allowed;
+    setDisplaySettings(displaySettings());
+}
+
+void TextEditorWidget::setWrappingAllowed(bool allowed)
+{
+    d->m_wrappingAllowed = allowed;
+    setDisplaySettings(displaySettings());
 }
 
 void TextEditorWidget::setLineNumbersVisible(bool b)
@@ -8879,8 +8895,13 @@ void TextEditorWidget::applyFontSettings()
     d->updateHighlights();
 }
 
-void TextEditorWidget::setDisplaySettings(const DisplaySettingsData &ds)
+void TextEditorWidget::setDisplaySettings(const DisplaySettingsData &settings)
 {
+    // What the language withholds, whatever the settings say.
+    DisplaySettingsData ds = settings;
+    ds.m_displayLineNumbers = ds.m_displayLineNumbers && d->m_lineNumbersAllowed;
+    ds.m_textWrapping = ds.m_textWrapping && d->m_wrappingAllowed;
+
     const TextEditor::FontSettingsData fs = globalFontSettings().data();
     if (fs.relativeLineSpacing() == 100)
         setLineWrapMode(ds.m_textWrapping ? PlainTextEdit::WidgetWidth : PlainTextEdit::NoWrap);
@@ -10205,6 +10226,8 @@ public:
     bool m_revisionsVisible = true;
     bool m_readOnly = false;
     bool m_restoresState = true;
+    bool m_lineNumbersVisible = true;
+    bool m_wrapsLines = true;
     bool m_codeFoldingSupported = false;
     bool m_paranthesesMatchinEnabled = false;
     bool m_marksVisible = true;
@@ -11149,6 +11172,22 @@ void setReadOnlyOf(Core::IEditor *editor, bool readOnly)
         view->setReadOnlyAsked(readOnly);
 }
 
+int lineSpacingOf(Core::IEditor *editor)
+{
+    if (!editor)
+        return 0;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->fontMetrics().lineSpacing();
+    // The Qt Quick view lays every line out at its document's font settings'
+    // line spacing, which is known before the view has had a size to lay
+    // anything out in - and a host sizing a pane in lines asks before that.
+    if (Internal::viewportForEditor(editor)) {
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        return document ? qMax(1, qRound(document->fontSettings().lineSpacing())) : 0;
+    }
+    return 0;
+}
+
 void invokeAssistIn(Core::IEditor *editor, AssistKind kind, IAssistProvider *provider)
 {
     if (!editor)
@@ -11329,6 +11368,26 @@ bool TextEditorFactory::restoresState() const
     return d->m_restoresState;
 }
 
+void TextEditorFactory::setLineNumbersVisible(bool on)
+{
+    d->m_lineNumbersVisible = on;
+}
+
+bool TextEditorFactory::lineNumbersVisible() const
+{
+    return d->m_lineNumbersVisible;
+}
+
+void TextEditorFactory::setWrapsLines(bool on)
+{
+    d->m_wrapsLines = on;
+}
+
+bool TextEditorFactory::wrapsLines() const
+{
+    return d->m_wrapsLines;
+}
+
 void TextEditorFactory::setCodeFoldingSupported(bool on)
 {
     d->m_codeFoldingSupported = on;
@@ -11423,6 +11482,11 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
     // from the document, and this is the language's answer over that.
     if (m_readOnly)
         textEditorWidget->setReadOnly(true);
+    // And over the display settings, which are pushed into every widget.
+    if (!m_lineNumbersVisible)
+        textEditorWidget->setLineNumbersAllowed(false);
+    if (!m_wrapsLines)
+        textEditorWidget->setWrappingAllowed(false);
     return editor;
 }
 

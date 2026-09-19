@@ -68813,3 +68813,198 @@ No `.qbs` edited: no file list changed. `qbseditor.cpp` gained a
 2. The diff editor's description pane and the rest of `VcsBaseEditorWidget`
    with it; the QmlDesigner-side two; the standing list (entry 298), plus
    the double-click on a diff line and the VCS margins.
+
+## 2026-09-19 — The change description pane is the Qt Quick editor (batch 323)
+
+Entry 322's first item was the Plain Text Editor factory - two editors
+claiming text/plain. Looked at before this batch: every opener of
+`K_DEFAULT_TEXT_EDITOR_ID` is a test, and each is the widget row of a
+two-view test, the control side that shows the Qt Quick row differs
+(or does not) from the widget editor on purpose. `ieditorfactory.cpp`
+offers the Qt Quick factory first when nothing else claims a file, so
+the plain factory wins nothing outside the tests. It is not a gap in the
+Qt Quick editor; it is the two-view tests' other half, and goes when
+they do. Which leaves the second item: the diff editor's description
+pane.
+
+### What the pane was
+
+`DiffEditor` shows a change's description above the diff, in a
+`QSplitter` whose first widget a `DescriptionEditorProvider` builds:
+DiffEditor's own `DescriptionEditorWidget`, or - for a VCS's controller,
+Git's above all - VcsBase's `VcsBaseDescriptionEditorWidget`, whose
+clicks on a hash describe it and whose right click offers the change
+actions. Both were `TextEditorWidget` subclasses (the VCS one through
+`VcsBaseEditorWidget`, the last subclass of it after batch 321) that
+overrode the settings pushes to keep line numbers and wrapping off
+whatever the settings said, dropped the margin, and told the diff
+editor to resize when the font changed. The provider handed over a
+`QWidget`, and the diff editor sized it in lines with the widget's
+`fontMetrics().lineSpacing()`.
+
+### The gap closed: what a pane withholds from the settings
+
+Everything else the two subclasses did was already a factory setting -
+read-only, no marks, no revisions, no tool bar, the description context,
+the optional-action mask, plain text with the base highlighter. Two
+things were not: a language cannot say "no line numbers, no wrapping,
+whatever the user set". Now a factory can:
+
+- `TextEditorFactory::setLineNumbersVisible(bool)` and
+  `setWrapsLines(bool)`, both true by default. The Qt Quick view reads
+  them where it pushes the display settings to the form
+  (`lineNumbersWanted()`, `wrapWanted()`), so a settings change leaves
+  them standing. The widget masks the settings it is given in
+  `setDisplaySettings()` through `setLineNumbersAllowed()` and
+  `setWrappingAllowed()`, which `createEditorHelper()` sets from the
+  factory - so the subclasses' overrides of the push have a place.
+- `TextEditor::lineSpacingOf(IEditor *)`: the widget's font metrics, or
+  for the Qt Quick view the line spacing of its document's font settings
+  - which is what the view sets its `lineHeight()` to when it lays out,
+  and the view lays out only once it has a document and a height. The
+  first build answered with `lineHeight()` and the prose test's quick row
+  said "the pane's host cannot tell how tall a line is": a pane just
+  built has no height yet, and the diff editor asks then.
+
+With those, both providers build a Qt Quick editor from a factory and
+hand the diff editor an `IEditor`, which the diff editor owns: its
+widget goes into the splitter, its text goes through the document
+(`AnsiEscapeCodeHandler::setTextInDocument()` or `setPlainText()`), its
+height through `lineSpacingOf()`, and the resize on a font change is the
+diff editor's own connection to `globalFontSettings().changed` rather
+than a signal of the widget's. The VCS pane is a `VcsEditorFactory` over
+other content with `changeLinksInOtherContent`, and what the controller
+knows per pane - the source, the change under a cursor, the actions,
+whether a revision is one, what describes it - goes to the document
+through `VcsEditorDocument::setDescriptionParameters()`, which fills the
+parameters the widget subclass answered through its virtuals.
+`VcsBaseDescriptionEditorWidget` is gone; `VcsBaseDescriptionEditorParameters`
+moved to `vcseditordocument.h`. `VcsBaseEditorWidget` now has no
+subclass at all and no instance anywhere - batch 324's.
+
+Two things to know about the pane as an editor:
+
+- It is not in the editor manager. What the editor manager does for an
+  editor - activating its contexts while it is current - does not
+  happen for it; what the Qt Quick editor does for itself - a context
+  object on its widget carrying the per-editor context every one of its
+  commands is registered in - does, so copy and the rest work in the
+  pane on focus, as they did in the widget. `C_DIFF_EDITOR_DESCRIPTION`
+  is on both factories as it was on both widgets; nothing binds a
+  command to it, and for an editor that is not current it is inert
+  either way.
+- Both description factories are function-local statics made when
+  their plugin initializes (`setupDiffEditorFactory()`,
+  `setupVcsBaseDescriptionEditorFactory()`), not at the first diff, so
+  the censuses see them: `DiffEditor.DescriptionEditor` and
+  `VcsBase.DescriptionEditor` join the expected list and the
+  output-not-file set. `VcsEditorFactory` adds no mime type for an
+  empty one.
+
+The Git test that reached into the pane as a `VcsBaseDescriptionEditorWidget`
+now reaches the Qt Quick view through the pane's `QQuickWidget`, which
+is why Git links `Qt::Quick` and `Qt::QuickWidgets` (CMake and qbs; the
+qbs re-resolve named `git.qbs` with a bogus submodule and not as
+edited).
+
+### The tests
+
+- `QuickTextEditorTest::testAFactoryCanSayItsViewsAreProse`, two rows:
+  a factory with the two knobs off builds a view with no line number
+  column that does not wrap, in either view; a settings push
+  (`displaySettings().changed()`) leaves both off; `lineSpacingOf()`
+  answers; and a factory that withholds nothing follows the settings.
+- `GitTest::testDiffDescriptionEditor`, rewritten: the description pane
+  of `git show` is a Qt Quick view (no `TextEditorWidget` in the
+  editor), read-only, over a `VcsEditorDocument` whose text has the
+  commit's URL and whose source is the repository; hidden until toggled;
+  sized to the saved line count times the view's line height once the
+  view has one; a second repository's show replaces the pane. The first
+  build's version waited for any Qt Quick pane and got the diff editor's
+  own, which is there before Git's controller replaces it - "the
+  description pane is no VCS editor". The old test waited for the VCS
+  widget by type; this one waits for a pane whose document is a VCS
+  document, which is the same wait.
+- The censuses, with the two description ids.
+
+First build, in the VM: the prose test's quick row and the Git test
+failed as told above; the censuses 3/0 and DiffEditor's `testOpenPatch`
+6/0. Second build, both fixed: prose 4/0, Git 3/0, the censuses 3/0
+each, `testOpenPatch` 6/0, exit 0 each. The runs' only warning is
+`qtversionmanager.cpp`'s `isLoaded()` soft assert, which every VM run
+has.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Four, one per
+thing the batch could have got wrong on its own:
+
+- **A** - the Qt Quick view's `lineNumbersWanted()` reads the settings
+  alone, as it did: the prose test's quick row, "'!lineNumbersShown(
+  pane.get())' returned FALSE. (the pane has a line number column)"; the
+  widget row passes.
+- **B** - the widget's `setDisplaySettings()` applies what it is given,
+  as it did: the widget row, the same message; the quick row passes.
+- **C** - the VCS provider builds the pane and tells its document
+  nothing: the Git test, "Compared values are not the same. Actual
+  (VcsBase::source(firstDescription)): "" Expected (firstRepo):
+  "/tmp/QtCreator-ezdmPG"".
+- **D** - `VcsPlugin::initialize()` does not make the description
+  factory, leaving it to the first diff: the census, "Compared lists
+  have different sizes. Actual (quick) size: 42, Expected 43"; the Git
+  test passes, since a diff makes the factory - which is what the census
+  pins: the factory is there before anyone asks.
+
+And the first build's `lineSpacingOf()` over the view's `lineHeight()`
+was the control for the prose test's last assertion, above.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     808 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         34 passed, 0 failed, 0 skipped, exit 0
+    -test Git            142 passed, 2 failed, 0 skipped, exit 2
+                           testInlineDiffFile and
+                           testConflictedFileInTextEditor, this
+                           branch's baseline pair (entry 313)
+    -test DiffEditor      53 passed, 9 failed, 0 skipped, exit 9
+
+TextEditor is 808: 806 plus the prose test's two rows. Git is the same
+144 as entry 322's, the description test rewritten rather than added.
+No memory kill, no typing flake in the three TextEditor runs.
+
+DiffEditor's nine are all one line: `'sourceTextEditor' returned FALSE`,
+the cast of a `.txt` file's editor to `BaseTextEditor` in the nine
+inline-diff tests that came in with the rebase (`testInlineDiff
+CollapseUnchangedFile` through `testInlineDiffGoToSource`). They open the
+file without naming an editor, and a `.txt` opens in the Qt Quick editor;
+this branch's `5320136a8a6` ("Open the widget editor by name in the
+inline diff tests") did for the older three exactly what these nine
+need. Not this batch's: `diffeditorplugin.cpp` is untouched by it and
+neither description factory claims a mime type. Measured rather than
+argued: the nine ask for `K_DEFAULT_TEXT_EDITOR_ID` in a commit of
+their own after this one, on this batch's tree, and then
+
+    -test DiffEditor      62 passed, 0 failed, 0 skipped, exit 0
+
+The tree as committed differs from the one the suites ran on by two
+comments and three includes `vcsbaseeditor.cpp` no longer needed; that
+tree was built once more (the same build as the DiffEditor run above)
+and the prose test (4/0) and the Git description test (3/0) run on it,
+exit 0 each.
+
+`git.qbs` edited: Git depends on the quick and quickwidgets submodules.
+Re-resolved on the host with the usual pair: a bogus submodule named
+`git.qbs` ("Dependency 'Qt.doesnotexist' not found for product 'Git'"),
+the edited file was named by nothing.
+
+### What is next
+
+1. Batch 324: `VcsBaseEditorWidget` itself - the class, its private,
+   the cursor handlers, the widget half of `vcsbaseeditor.cpp`, and
+   `VcsBaseEditor` as a namespace of statics rather than a class with a
+   deleted constructor. Nothing instantiates any of it now.
+2. The QmlDesigner-side two (Effect Composer, binding editor), which the
+   standing suites do not load; the standing list (entry 298); the
+   double-click on a diff line and the VCS margins.
