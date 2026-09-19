@@ -123,6 +123,10 @@ public:
     std::function<void(QMenu *menu, VcsEditorDocument *document, const DiffChunk &chunk)>
         addDiffActions;
     std::function<Utils::FilePath(VcsEditorDocument *document, int line)> fileNameForLine;
+    // The file a diff names, on disk, where the VCS knows better than looking
+    // for it under the working directory - Perforce maps depot paths. Unset,
+    // the document's own resolveDiffFile().
+    std::function<QString(VcsEditorDocument *document, const QString &fileName)> findDiffFile;
     // What colours an annotation: a highlighter over its changes, the VCS's own.
     BaseAnnotationHighlighterCreator annotationHighlighterCreator;
     // Whether an output of neither log nor annotation type has change links

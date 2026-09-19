@@ -8,66 +8,63 @@
 #include "perforcetr.h"
 
 #include <utils/qtcassert.h>
-#include <vcsbase/diffandloghighlighter.h>
 
-#include <QAction>
-#include <QDebug>
-#include <QFileInfo>
-#include <QKeyEvent>
-#include <QMenu>
-#include <QSet>
-#include <QTextBlock>
+#include <vcsbase/vcsbaseeditor.h>
+
+#include <QRegularExpression>
 #include <QTextCursor>
-#include <QTextEdit>
-#include <QTextStream>
 
 namespace Perforce::Internal {
 
-// ------------ PerforceEditor
-PerforceEditorWidget::PerforceEditorWidget() :
-    m_changeNumberPattern("^\\d+$")
+QString perforceChangeUnderCursor(const QTextCursor &c)
 {
-    QTC_CHECK(m_changeNumberPattern.isValid());
-    // Diff format:
-    // 1) "==== //depot/.../mainwindow.cpp#2 - /depot/.../mainwindow.cpp ====" (created by p4 diff)
-    // 2) "==== //depot/.../mainwindow.cpp#15 (text) ====" (created by p4 describe)
-    // 3) --- //depot/XXX/closingkit/trunk/source/cui/src/cui_core.cpp<tab>2012-02-08 13:54:01.000000000 0100
-    //    +++ P:/XXX\closingkit\trunk\source\cui\src\cui_core.cpp<tab>2012-02-08 13:54:01.000000000 0100
-    setDiffFilePattern("^(?:={4}|\\+{3}) (.+)(?:\\t|#\\d)");
-    setLogEntryPattern("^... #\\d change (\\d+) ");
-    setAnnotateRevisionTextFormat(Tr::tr("Annotate change list \"%1\""));
-    setAnnotationEntryPattern("^(\\d+):");
-    setMarginsEnabled(true);
-}
-
-QString PerforceEditorWidget::changeUnderCursor(const QTextCursor &c) const
-{
+    static const QRegularExpression changeNumberPattern("^\\d+$");
+    QTC_CHECK(changeNumberPattern.isValid());
     QTextCursor cursor = c;
     // Any number is regarded as change number.
     cursor.select(QTextCursor::WordUnderCursor);
     if (!cursor.hasSelection())
         return {};
     const QString change = cursor.selectedText();
-    return m_changeNumberPattern.match(change).hasMatch() ? change : QString();
+    return changeNumberPattern.match(change).hasMatch() ? change : QString();
 }
 
-VcsBase::BaseAnnotationHighlighterCreator PerforceEditorWidget::annotationHighlighterCreator() const
-{
-    return VcsBase::getAnnotationHighlighterCreator<PerforceAnnotationHighlighter>();
-}
-
-QString PerforceEditorWidget::findDiffFile(const QString &f) const
+static QString perforceFindDiffFile(VcsBase::VcsEditorDocument *, const QString &f)
 {
     return fileNameFromPerforceName(f.trimmed(), false);
 }
 
-QStringList PerforceEditorWidget::annotationPreviousVersions(const QString &v) const
+static QStringList perforceAnnotationPreviousVersions(VcsBase::VcsEditorDocument *,
+                                                      const QString &v)
 {
     bool ok;
     const int changeList = v.toInt(&ok);
     if (!ok || changeList < 2)
         return {};
     return QStringList(QString::number(changeList - 1));
+}
+
+VcsBase::VcsBaseEditorParameters perforceEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe)
+{
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, {}, describe,
+                                                perforceChangeUnderCursor};
+    parameters.annotationPreviousVersions = perforceAnnotationPreviousVersions;
+    parameters.findDiffFile = perforceFindDiffFile;
+    parameters.annotationHighlighterCreator
+        = VcsBase::getAnnotationHighlighterCreator<PerforceAnnotationHighlighter>();
+    // Diff format:
+    // 1) "==== //depot/.../mainwindow.cpp#2 - /depot/.../mainwindow.cpp ====" (created by p4 diff)
+    // 2) "==== //depot/.../mainwindow.cpp#15 (text) ====" (created by p4 describe)
+    // 3) --- //depot/XXX/closingkit/trunk/source/cui/src/cui_core.cpp<tab>2012-02-08 13:54:01.000000000 0100
+    //    +++ P:/XXX\closingkit\trunk\source\cui\src\cui_core.cpp<tab>2012-02-08 13:54:01.000000000 0100
+    parameters.diffFilePattern = "^(?:={4}|\\+{3}) (.+)(?:\\t|#\\d)";
+    parameters.logEntryPattern = "^... #\\d change (\\d+) ";
+    parameters.annotateRevisionTextFormat = Tr::tr("Annotate change list \"%1\"");
+    parameters.annotationEntryPattern = "^(\\d+):";
+    return parameters;
 }
 
 } // Perforce::Internal

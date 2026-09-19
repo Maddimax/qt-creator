@@ -804,7 +804,10 @@ void VcsBaseEditorWidget::init()
         // them, follows the caret through them, and jumps to the one chosen.
         // What a diff header stands for on disk and what a log entry is about
         // are this widget's to say, so it says them to the document.
-        document->setDiffFileResolver([this](const QString &fileName) { return findDiffFile(fileName); });
+        if (!document->parameters().findDiffFile) {
+            document->setDiffFileResolver(
+                [this](const QString &fileName) { return findDiffFile(fileName); });
+        }
         if (!document->parameters().revisionSubject) {
             document->setRevisionSubjectHook(
                 [this](const QTextBlock &block) { return revisionSubject(block); });

@@ -68320,3 +68320,128 @@ No `.qbs` edited: the six editor files keep their names. No header has a
    `VcsBaseEditorWidget`, `VcsBaseEditor` and the staging area go.
 2. The QmlDesigner-side two; the standing list (entry 298), plus the
    double-click on a diff line.
+
+## 2026-09-19 — Perforce's editors open in the Qt Quick editor (batch 319)
+
+Entry 318's next item 1. `PerforceEditorWidget` goes; one VCS widget
+subclass remains, Fossil's.
+
+### The one thing the parameters lacked
+
+Perforce's widget overrode `findDiffFile()`: the file a diff header names
+is a depot path (`//depot/.../mainwindow.cpp`), and `p4 where` says which
+file on disk that is. The document has had a resolver seat since entry
+304 - `setDiffFileResolver()`, which `VcsBaseEditorWidget::init()` filled
+with its own virtual - but the parameters had no way to say it. They do:
+`findDiffFile(document, fileName)`. The document's constructor installs
+it as the resolver where set, and the widget's `init()` installs its
+virtual only where the parameters are silent - the same shape as
+`revisionSubject` (entry 315) and the annotation highlighter creator.
+
+### What else the subclass had, and where it went
+
+The usual: diff, log and annotation patterns and the annotate text into
+the parameters; `changeUnderCursor()` (any word that is a number), the
+previous change list and the annotation highlighter into free functions.
+And `setMarginsEnabled(true)`, which no other VCS widget called:
+`VcsBaseEditorWidget::setMarginSettings()` forces the margin settings off
+unless a subclass enabled them, so Perforce output alone showed the right
+margin. The Qt Quick view has no such switch - it shows margins as the
+settings say, for every VCS - so Perforce's request is the default there,
+and the other VCS gained a margin they used not to have when they moved.
+Noted for the standing list rather than re-created: a VCS output line is
+as long as it is.
+
+The plugin held the widget in three more places. `showOutputInEditor()`
+is the document's now, as in entry 318. `filelog()` set
+`setFileLogAnnotateEnabled` through `getVcsBaseEditor()`; the document
+holds the flag. And `p4Diff()` built a `PerforceDiffConfig` - the
+"Ignore Whitespace" toggle that re-runs the diff - parented it to the
+widget's document, connected the widget's `diffChunkReverted` to its
+re-run and called the widget's `setEditorConfig()`, which drew combo
+boxes for the config's choices in the widget tool bar and forwarded to
+the document. The config is parented to the document, the signal is the
+document's (entry 304), and `document->setEditorConfig()` is what the
+document lists in `ownToolBarActions()` - the Qt Quick tool bar draws
+those (entry 311). Perforce's config has a toggle and no choice, so
+nothing the widget drew is missing.
+
+### The tests
+
+- `VcsEditorDocumentTest::testTheParametersMapADiffsFileWhereTheVcsKnowsBetter`:
+  parameters with a recording `findDiffFile`; `document.findDiffFile()`
+  answers the mapping and recorded the name, and
+  `fileNameFromDiffSpecification()` from a chunk below a `+++ //depot/...`
+  header answers the mapped name; a document made from the same
+  parameters without the hook answers what `resolveDiffFile()` does.
+- `PerforcePlugin::testTheEditorsAreQtQuickViewsWithPerforcesParameters`:
+  a log opened by id with `... #4 change 12345 edit on ...` is a Qt
+  Quick view over a VCS document with Perforce's log pattern, annotate
+  text and a `findDiffFile`, finding one section; `12345` is offered as a
+  change over its five digits, `edit` is not; a blame with two
+  `12345: ` lines finds two changes and installs a
+  `BaseAnnotationHighlighter`. What `findDiffFile` answers is not asked
+  here - it runs `p4 where` - which is why the VcsBase test carries the
+  mechanism and this one asserts the hook is there.
+- The two censuses list the three editors; Perforce's `testLogResolving`
+  runs over the Qt Quick editor.
+
+First run, one build, in the VM: the VcsBase test 3/0 and the earlier
+parameters test 3/0, the Perforce test 3/0 and its `testLogResolving`
+3/0, Fossil's `testDiffFileResolving` 5/0 and `testLogResolving` 3/0 -
+the widget path with its resolver now behind the guard - Git's
+`testDiffFileResolving` 5/0, both censuses 3/0; every one exit 0 at the
+first attempt.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - Perforce's parameters carry no `findDiffFile`:
+  "'document->parameters().findDiffFile' returned FALSE. (Perforce's
+  parameters map no depot path to a file)".
+- **B** - the document never installs the parameters' `findDiffFile` as
+  its resolver: the VcsBase test, "Actual
+  (document.findDiffFile("//depot/a.cpp")): "", Expected
+  "mapped://depot/a.cpp"" - the empty string being what looking for a
+  depot path on disk finds.
+- **C** - Perforce's parameters carry no `changeUnderCursor`:
+  "'onTheChange.isValid()' returned FALSE. (the change list under the
+  pointer is not offered as a change)".
+- **D** - Perforce's parameters name no annotation highlighter:
+  "'annotation->parameters().annotationHighlighterCreator' returned FALSE".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     806 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         34 passed, 0 failed, 0 skipped, exit 0
+    -test Git            142 passed, 2 failed, 0 skipped, exit 2
+                           testInlineDiffFile and
+                           testConflictedFileInTextEditor, this
+                           branch's baseline pair (entry 313)
+    -test Perforce        10 passed, 0 failed, 0 skipped, exit 0
+    Fossil 15, Mercurial 17, Bazaar 19, Subversion 4, Cvs 5,
+    ClearCase 23 with 2 skipped, all exit 0
+
+VcsBase is 34: 33 plus the mapping test. Perforce is 10: 9 plus the new
+test. Every VCS ran, VcsBase's parameters and the widget's `init()`
+having changed; Fossil, the one widget subclass left, is the run that
+shows the resolver guard does it no harm. No memory kill.
+
+No `.qbs` edited: the two editor files keep their names. `perforceeditor.h`
+has no `Q_OBJECT` class left; AUTOMOC handles it.
+
+### What is next
+
+1. Fossil, the last VCS widget subclass: its client holds four widgets
+   from `createVcsEditor()` and sets a config on each, and its editor
+   file is a `createFossilEditorWidget()` factory function over a
+   subclass with virtuals of its own. With it `createVcsEditor()`, the
+   widget `executeInEditor()` overloads, `VcsBaseEditorWidget`,
+   `VcsBaseEditor` and the staging area go - or as much of them as one
+   batch carries, the widget class's removal being its own if the client
+   fills one.
+2. The QmlDesigner-side two; the standing list (entry 298), plus the
+   double-click on a diff line and the VCS margins.

@@ -6723,7 +6723,9 @@ private slots:
                              QString("CVS Annotation Editor"), QString("CVS Diff Editor"),
                              QString("ClearCase File Log Editor"),
                              QString("ClearCase Annotation Editor"),
-                             QString("ClearCase Diff Editor")};
+                             QString("ClearCase Diff Editor"),
+                             QString("Perforce.LogEditor"), QString("Perforce.AnnotationEditor"),
+                             QString("Perforce.DiffEditor")};
         expected.sort();
         QCOMPARE(quick, expected);
     }
@@ -6965,7 +6967,8 @@ private slots:
             "Subversion File Log Editor", "Subversion Annotation Editor",
             "CVS Command Log Editor", "CVS File Log Editor", "CVS Annotation Editor",
             "CVS Diff Editor", "ClearCase File Log Editor", "ClearCase Annotation Editor",
-            "ClearCase Diff Editor"};
+            "ClearCase Diff Editor", "Perforce.LogEditor", "Perforce.AnnotationEditor",
+            "Perforce.DiffEditor"};
 
         Utils::TemporaryDirectory dir("quick-language-census");
         QVERIFY(dir.isValid());

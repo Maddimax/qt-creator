@@ -3,26 +3,24 @@
 
 #pragma once
 
-#include <vcsbase/vcsbaseeditor.h>
+#include <vcsbase/vcseditordocument.h>
 
-#include <QRegularExpression>
+#include <functional>
+
+namespace Utils { class FilePath; }
 
 namespace Perforce::Internal {
 
-class PerforceEditorWidget : public VcsBase::VcsBaseEditorWidget
-{
-    Q_OBJECT
+// The change under \a cursor: any word that is a number.
+QString perforceChangeUnderCursor(const QTextCursor &cursor);
 
-public:
-    PerforceEditorWidget();
-
-private:
-    QString changeUnderCursor(const QTextCursor &) const override;
-    VcsBase::BaseAnnotationHighlighterCreator annotationHighlighterCreator() const override;
-    QString findDiffFile(const QString &f) const override;
-    QStringList annotationPreviousVersions(const QString &v) const override;
-
-    const QRegularExpression m_changeNumberPattern;
-};
+// The parameters of a Perforce editor of \a type: the patterns and texts the
+// widget subclass declared, its annotation highlighter, the change under the
+// cursor, a change list's predecessor, and the depot path a diff names mapped
+// to the file on disk, with the describe function the caller supplies.
+VcsBase::VcsBaseEditorParameters perforceEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe);
 
 } // Perforce::Internal

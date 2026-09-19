@@ -391,6 +391,10 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
         setAnnotateRevisionTextFormat(parameters.annotateRevisionTextFormat);
     if (!parameters.annotatePreviousRevisionTextFormat.isEmpty())
         setAnnotatePreviousRevisionTextFormat(parameters.annotatePreviousRevisionTextFormat);
+    if (parameters.findDiffFile) {
+        setDiffFileResolver(
+            [this](const QString &fileName) { return d->parameters.findDiffFile(this, fileName); });
+    }
     if (parameters.syntaxHighlighterCreator)
         updateHighlighter();
     // A file the VCS hands over: what it wants known about it as it opens -
@@ -1832,6 +1836,40 @@ private slots:
         QCOMPARE(opened, QList<FilePath>{file});
         QCOMPARE(textWhenOpened, QStringList{QString()});
         QCOMPARE(document->plainText(), QString("first line\n"));
+    }
+
+    // The file a diff header names is looked for on disk, unless the VCS knows
+    // better - Perforce maps depot paths - in which case its parameters say
+    // so, and the document asks them where the widget subclass overrode
+    // findDiffFile().
+    void testTheParametersMapADiffsFileWhereTheVcsKnowsBetter()
+    {
+        QStringList asked;
+        VcsBaseEditorParameters parameters{DiffOutput,
+                                           "VcsEditorDocumentTest.Mapped",
+                                           "VCS document test mapped",
+                                           "text/vnd.qtcreator.vcs-document-mapped-test",
+                                           {},
+                                           [](const FilePath &, const QString &) {}};
+        parameters.diffFilePattern = "^\\+{3} (.+)\\t";
+        parameters.findDiffFile = [&asked](VcsEditorDocument *, const QString &fileName) {
+            asked << fileName;
+            return "mapped:" + fileName;
+        };
+
+        VcsEditorDocument document(parameters);
+        QCOMPARE(document.findDiffFile("//depot/a.cpp"), QString("mapped://depot/a.cpp"));
+        QCOMPARE(asked, QStringList{"//depot/a.cpp"});
+        // And through the header above a chunk, which is how a diff reaches it.
+        document.setPlainText("+++ //depot/b.cpp\t2013-01-29\n@@ -1 +1 @@\n-one\n+two\n");
+        const QTextBlock chunk = document.document()->findBlockByNumber(2);
+        QCOMPARE(document.fileNameFromDiffSpecification(chunk), QString("mapped://depot/b.cpp"));
+
+        // Without the hook the document looks for the file itself.
+        VcsBaseEditorParameters plain = parameters;
+        plain.findDiffFile = {};
+        VcsEditorDocument unmapped(plain);
+        QCOMPARE(unmapped.findDiffFile("//depot/a.cpp"), unmapped.resolveDiffFile("//depot/a.cpp"));
     }
 
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()

@@ -25,6 +25,7 @@
 #include <extensionsystem/iplugin.h>
 
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
 
 #include <utils/filedialogs.h>
 #include <utils/action.h>
@@ -39,6 +40,7 @@
 #include <vcsbase/vcsbaseeditorconfig.h>
 #include <vcsbase/vcsbaseeditor.h>
 #include <vcsbase/vcsbaseplugin.h>
+#include <vcsbase/vcseditordocument.h>
 #include <vcsbase/vcsoutputwindow.h>
 
 #include <QAction>
@@ -50,6 +52,12 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QRegularExpression>
+#include <QScopeGuard>
+#include <QTextCursor>
+
+#ifdef WITH_TESTS
+#include <QTest>
+#endif
 
 using namespace Core;
 using namespace Utils;
@@ -300,29 +308,26 @@ public:
 
     ManagedDirectoryCache m_managedDirectoryCache;
 
-    VcsEditorFactory logEditorFactory{
-        {LogOutput,
-         PERFORCE_LOG_EDITOR_ID,
-         Tr::tr("Perforce Log Editor"),
-         "text/vnd.qtcreator.p4.log",
-         [] { return new PerforceEditorWidget; },
-         std::bind(&PerforcePluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory logEditorFactory{perforceEditorParameters(
+        LogOutput,
+        PERFORCE_LOG_EDITOR_ID,
+        Tr::tr("Perforce Log Editor"),
+        "text/vnd.qtcreator.p4.log",
+        std::bind(&PerforcePluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory annotateEditorFactory{
-        {AnnotateOutput,
-         PERFORCE_ANNOTATION_EDITOR_ID,
-         Tr::tr("Perforce Annotation Editor"),
-         "text/vnd.qtcreator.p4.annotation",
-         [] { return new PerforceEditorWidget; },
-         std::bind(&PerforcePluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory annotateEditorFactory{perforceEditorParameters(
+        AnnotateOutput,
+        PERFORCE_ANNOTATION_EDITOR_ID,
+        Tr::tr("Perforce Annotation Editor"),
+        "text/vnd.qtcreator.p4.annotation",
+        std::bind(&PerforcePluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory diffEditorFactory{
-        {DiffOutput,
-         PERFORCE_DIFF_EDITOR_ID,
-         Tr::tr("Perforce Diff Editor"),
-         "text/x-patch",
-         [] { return new PerforceEditorWidget; },
-         std::bind(&PerforcePluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory diffEditorFactory{perforceEditorParameters(
+        DiffOutput,
+        PERFORCE_DIFF_EDITOR_ID,
+        Tr::tr("Perforce Diff Editor"),
+        "text/x-patch",
+        std::bind(&PerforcePluginPrivate::vcsDescribe, this, _1, _2))};
 };
 
 static PerforcePluginPrivate *dd = nullptr;
@@ -866,8 +871,10 @@ void PerforcePluginPrivate::filelog(const FilePath &workingDir, const QString &f
         const FilePath source = VcsBaseEditor::getSource(workingDir, fileName);
         IEditor *editor = showOutputInEditor(Tr::tr("p4 filelog %1").arg(id), result.stdOut,
                                              PERFORCE_LOG_EDITOR_ID, source, encoding);
-        if (enableAnnotationContextMenu)
-            VcsBaseEditor::getVcsBaseEditor(editor)->setFileLogAnnotateEnabled(true);
+        if (enableAnnotationContextMenu && editor) {
+            if (auto * const document = qobject_cast<VcsEditorDocument *>(editor->document()))
+                document->setFileLogAnnotateEnabled(true);
+        }
     }
 }
 
@@ -1254,16 +1261,19 @@ IEditor *PerforcePluginPrivate::showOutputInEditor(const QString &title,
     }
     IEditor *editor = EditorManager::openEditorWithContents(id, &s, content.toUtf8());
     QTC_ASSERT(editor, return nullptr);
-    auto e = qobject_cast<PerforceEditorWidget*>(editor->widget());
-    if (!e)
+    auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+    if (!document)
         return nullptr;
-    connect(e, &VcsBaseEditorWidget::annotateRevisionRequested, this, &PerforcePluginPrivate::annotate);
-    e->setForceReadOnly(true);
-    e->setSource(source);
+    connect(document, &VcsEditorDocument::annotateRevisionRequested,
+            this, &PerforcePluginPrivate::annotate);
+    // Output, not a file: read-only is the factory's; this keeps it from
+    // being offered for saving.
+    document->setTemporary(true);
+    VcsBase::setSource(document, source);
     s.replace(QLatin1Char(' '), QLatin1Char('_'));
-    e->textDocument()->setFallbackSaveAsFileName(s);
+    document->setFallbackSaveAsFileName(s);
     if (encoding.isValid())
-        e->setEncoding(encoding);
+        document->setEncoding(encoding);
     return editor;
 }
 
@@ -1366,16 +1376,19 @@ void PerforcePluginPrivate::p4Diff(const PerforceDiffParameters &p)
                                          PERFORCE_DIFF_EDITOR_ID,
                                          VcsBaseEditor::getSource(p.workingDir, p.files),
                                          encoding);
+    QTC_ASSERT(editor, return);
     VcsBaseEditor::tagEditor(editor, tag);
-    auto diffEditorWidget = qobject_cast<VcsBaseEditorWidget *>(editor->widget());
-    // Wire up the parameter widget to trigger a re-run on
-    // parameter change and 'revert' from inside the diff editor.
-    auto pw = new PerforceDiffConfig(p, diffEditorWidget->vcsDocument());
+    auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+    QTC_ASSERT(document, return);
+    // Wire up the config to trigger a re-run on parameter change and
+    // 'revert' from inside the diff editor. The document lists it, and
+    // whichever view shows the document draws it.
+    auto pw = new PerforceDiffConfig(p, document);
     connect(pw, &PerforceDiffConfig::reRunDiff,
             this, [this](const PerforceDiffParameters &p) { p4Diff(p); });
-    connect(diffEditorWidget, &VcsBaseEditorWidget::diffChunkReverted,
+    connect(document, &VcsEditorDocument::diffChunkReverted,
             pw, &PerforceDiffConfig::triggerReRun);
-    diffEditorWidget->setEditorConfig(pw);
+    document->setEditorConfig(pw);
 }
 
 void PerforcePluginPrivate::vcsDescribe(const FilePath &source, const QString &n)
@@ -1561,6 +1574,7 @@ class PerforcePlugin final : public ExtensionSystem::IPlugin
 #ifdef WITH_TESTS
 private slots:
     void testLogResolving();
+    void testTheEditorsAreQtQuickViewsWithPerforcesParameters();
 #endif
 };
 
@@ -1577,6 +1591,55 @@ void PerforcePlugin::testLogResolving()
                 "        Comment\n"
                 );
     VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "12345", "12344");
+}
+
+// With no widget subclass left, the Perforce editors open in the Qt Quick
+// editor over a document that carries what the subclass declared: the log
+// knows its entries and the change list under the pointer - a number, not
+// the word beside it - a diff maps the depot paths it names through
+// Perforce, and a blame is coloured by Perforce's own highlighter.
+void PerforcePlugin::testTheEditorsAreQtQuickViewsWithPerforcesParameters()
+{
+    QString title = "Perforce log test";
+    IEditor * const log = EditorManager::openEditorWithContents(
+        PERFORCE_LOG_EDITOR_ID, &title,
+        "... #4 change 12345 edit on 2013/01/28 by User at Workspace(text)\n");
+    QVERIFY(log);
+    const QScopeGuard closeLog([log] { EditorManager::closeEditors({log}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(log), "the log opened in the widget editor");
+    auto * const document = qobject_cast<VcsEditorDocument *>(log->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+    QCOMPARE(document->logEntryPattern().pattern(), QString("^... #\\d change (\\d+) "));
+    QCOMPARE(document->annotateRevisionTextFormat(), Tr::tr("Annotate change list \"%1\""));
+    QCOMPARE(document->sections()->entries().size(), 1);
+    QVERIFY2(document->parameters().findDiffFile,
+             "Perforce's parameters map no depot path to a file");
+
+    const TextEditor::ActionLinkFinder finder
+        = TextEditor::TextEditorFactory::actionLinkFinderFor(document);
+    QVERIFY2(finder, "the log offers nothing to do under the pointer");
+    QTextCursor cursor(document->document());
+    cursor.setPosition(16);
+    const TextEditor::ActionLink onTheChange = finder(document, cursor);
+    QVERIFY2(onTheChange.isValid(), "the change list under the pointer is not offered as a change");
+    QCOMPARE(onTheChange.linkTextStart, 14);
+    QCOMPARE(onTheChange.linkTextEnd, 19);
+    cursor.setPosition(21);
+    QVERIFY2(!finder(document, cursor).isValid(), "the word \"edit\" is offered as a change");
+
+    QString blameTitle = "Perforce blame test";
+    IEditor * const blame = EditorManager::openEditorWithContents(
+        PERFORCE_ANNOTATION_EDITOR_ID, &blameTitle, QByteArray());
+    QVERIFY(blame);
+    const QScopeGuard closeBlame([blame] { EditorManager::closeEditors({blame}, false); });
+    auto * const annotation = qobject_cast<VcsEditorDocument *>(blame->document());
+    QVERIFY2(annotation, "the blame editor's document is not a VCS document");
+    QVERIFY2(annotation->parameters().annotationHighlighterCreator,
+             "Perforce's parameters name no annotation highlighter");
+    annotation->setPlainText("12345: one\n12344: two\n");
+    QCOMPARE(annotation->annotationChanges().size(), 2);
+    QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(annotation->syntaxHighlighter()),
+             "the blame arrived and no annotation highlighter was installed");
 }
 #endif
 
