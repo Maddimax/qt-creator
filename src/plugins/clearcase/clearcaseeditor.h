@@ -3,24 +3,24 @@
 
 #pragma once
 
-#include <vcsbase/vcsbaseeditor.h>
+#include <vcsbase/vcseditordocument.h>
 
-#include <QRegularExpression>
+#include <functional>
+
+namespace Utils { class FilePath; }
 
 namespace ClearCase::Internal {
 
-class ClearCaseEditorWidget : public VcsBase::VcsBaseEditorWidget
-{
-    Q_OBJECT
+// The change under \a cursor: a version path ("/main/branch/3") anywhere on
+// its line, in a log's "create version" lines and a blame's entries alike.
+QString clearCaseChangeUnderCursor(const QTextCursor &cursor);
 
-public:
-    ClearCaseEditorWidget();
-
-private:
-    QString changeUnderCursor(const QTextCursor &) const override;
-    VcsBase::BaseAnnotationHighlighterCreator annotationHighlighterCreator() const override;
-
-    const QRegularExpression m_versionNumberPattern;
-};
+// The parameters of a ClearCase editor of \a type: the patterns and texts
+// the widget subclass declared, its annotation highlighter and the change
+// under the cursor, with the describe function the caller supplies.
+VcsBase::VcsBaseEditorParameters clearCaseEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe);
 
 } // ClearCase::Internal

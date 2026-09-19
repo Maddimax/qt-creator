@@ -9,11 +9,11 @@
 #include <utils/qtcassert.h>
 
 #include <vcsbase/baseannotationhighlighter.h>
-#include <vcsbase/diffandloghighlighter.h>
+#include <vcsbase/vcsbaseeditor.h>
 
-#include <QDebug>
-#include <QTextCursor>
+#include <QRegularExpression>
 #include <QTextBlock>
+#include <QTextCursor>
 
 namespace Cvs::Internal {
 
@@ -37,35 +37,19 @@ private:
     }
 };
 
-CvsEditorWidget::CvsEditorWidget() :
-    m_revisionAnnotationPattern(CVS_REVISION_AT_START_PATTERN),
-    m_revisionLogPattern("^revision  *(" CVS_REVISION_PATTERN ")$")
+QString cvsChangeUnderCursor(VcsBase::EditorContentType type, const QTextCursor &c)
 {
-    QTC_ASSERT(m_revisionAnnotationPattern.isValid(), return);
-    QTC_ASSERT(m_revisionLogPattern.isValid(), return);
-    /* Diff format:
-    \code
-    cvs diff -d -u -r1.1 -r1.2:
-    --- mainwindow.cpp<\t>13 Jul 2009 13:50:15 -0000<tab>1.1
-    +++ mainwindow.cpp<\t>14 Jul 2009 07:09:24 -0000<tab>1.2
-    @@ -6,6 +6,5 @@
-    \endcode
-    */
-    setDiffFilePattern("^[-+]{3} ([^\\t]+)");
-    setLogEntryPattern("^revision (.+)$");
-    setAnnotateRevisionTextFormat(Tr::tr("Annotate revision \"%1\""));
-    setAnnotationEntryPattern("^(" CVS_REVISION_PATTERN ") ");
-}
-
-QString CvsEditorWidget::changeUnderCursor(const QTextCursor &c) const
-{
+    static const QRegularExpression revisionAnnotationPattern(CVS_REVISION_AT_START_PATTERN);
+    static const QRegularExpression revisionLogPattern("^revision  *(" CVS_REVISION_PATTERN ")$");
+    QTC_ASSERT(revisionAnnotationPattern.isValid(), return {});
+    QTC_ASSERT(revisionLogPattern.isValid(), return {});
     // Try to match "1.1" strictly:
     // 1) Annotation: Check for a revision number at the beginning of the line.
     //    Note that "cursor.select(QTextCursor::WordUnderCursor)" will
     //    only select the part up until the dot.
     //    Check if we are at the beginning of a line within a reasonable offset.
     // 2) Log: check for lines like "revision 1.1", cursor past "revision"
-    switch (contentType()) {
+    switch (type) {
     case VcsBase::OtherContent:
     case VcsBase::DiffOutput:
         break;
@@ -73,7 +57,7 @@ QString CvsEditorWidget::changeUnderCursor(const QTextCursor &c) const
             const QTextBlock block = c.block();
             if (c.atBlockStart() || (c.position() - block.position() < 3)) {
                 const QString line = block.text();
-                const QRegularExpressionMatch match = m_revisionAnnotationPattern.match(line);
+                const QRegularExpressionMatch match = revisionAnnotationPattern.match(line);
                 if (match.hasMatch())
                     return match.captured(1);
             }
@@ -82,7 +66,7 @@ QString CvsEditorWidget::changeUnderCursor(const QTextCursor &c) const
     case VcsBase::LogOutput: {
             const QTextBlock block = c.block();
             if (c.position() - block.position() > 8) {
-                const QRegularExpressionMatch match = m_revisionLogPattern.match(block.text());
+                const QRegularExpressionMatch match = revisionLogPattern.match(block.text());
                 if (match.hasMatch())
                     return match.captured(1);
             }
@@ -92,16 +76,38 @@ QString CvsEditorWidget::changeUnderCursor(const QTextCursor &c) const
     return {};
 }
 
-VcsBase::BaseAnnotationHighlighterCreator CvsEditorWidget::annotationHighlighterCreator() const
-{
-    return VcsBase::getAnnotationHighlighterCreator<CvsAnnotationHighlighter>();
-}
-
-QStringList CvsEditorWidget::annotationPreviousVersions(const QString &revision) const
+static QStringList cvsAnnotationPreviousVersions(VcsBase::VcsEditorDocument *,
+                                                 const QString &revision)
 {
     if (isFirstRevision(revision))
         return {};
     return QStringList(previousRevision(revision));
+}
+
+VcsBase::VcsBaseEditorParameters cvsEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe)
+{
+    VcsBase::VcsBaseEditorParameters parameters{
+        type, id, displayName, mimeType, {}, describe,
+        [type](const QTextCursor &cursor) { return cvsChangeUnderCursor(type, cursor); }};
+    parameters.annotationPreviousVersions = cvsAnnotationPreviousVersions;
+    parameters.annotationHighlighterCreator
+        = VcsBase::getAnnotationHighlighterCreator<CvsAnnotationHighlighter>();
+    /* Diff format:
+    \code
+    cvs diff -d -u -r1.1 -r1.2:
+    --- mainwindow.cpp<\t>13 Jul 2009 13:50:15 -0000<tab>1.1
+    +++ mainwindow.cpp<\t>14 Jul 2009 07:09:24 -0000<tab>1.2
+    @@ -6,6 +6,5 @@
+    \endcode
+    */
+    parameters.diffFilePattern = "^[-+]{3} ([^\\t]+)";
+    parameters.logEntryPattern = "^revision (.+)$";
+    parameters.annotateRevisionTextFormat = Tr::tr("Annotate revision \"%1\"");
+    parameters.annotationEntryPattern = "^(" CVS_REVISION_PATTERN ") ";
+    return parameters;
 }
 
 } // Cvs::Internal

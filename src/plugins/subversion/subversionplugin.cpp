@@ -32,11 +32,14 @@
 #include <utils/qtcassert.h>
 #include <utils/stringutils.h>
 
+#include <texteditor/texteditor.h>
+
 #include <vcsbase/commonvcssettings.h>
 #include <vcsbase/vcsbaseeditor.h>
 #include <vcsbase/vcsbaseconstants.h>
 #include <vcsbase/vcsbaseplugin.h>
 #include <vcsbase/vcscommand.h>
+#include <vcsbase/vcseditordocument.h>
 #include <vcsbase/vcsoutputwindow.h>
 
 #include <QApplication>
@@ -49,6 +52,8 @@
 #include <QMessageBox>
 #include <QProcessEnvironment>
 #include <QQueue>
+#include <QScopeGuard>
+#include <QTextCursor>
 #include <QTimer>
 #include <QUrl>
 #include <QXmlStreamReader>
@@ -139,25 +144,23 @@ using SubversionExternalsMap = QMap<Utils::FilePath, SubversionExternals>;
 class SubversionPluginPrivate final : public VcsBase::VersionControlBase
 {
 public:
-    VcsEditorFactory logEditorFactory{
-        {LogOutput,
-         Constants::SUBVERSION_LOG_EDITOR_ID,
-         Tr::tr("Subversion File Log Editor"),
-         Constants::SUBVERSION_LOG_MIMETYPE,
-         [] { return new SubversionEditorWidget; },
-         [this](const FilePath &source, const QString &changeNumber) {
-             vcsDescribe(source, changeNumber);
-         }}};
+    VcsEditorFactory logEditorFactory{subversionEditorParameters(
+        LogOutput,
+        Constants::SUBVERSION_LOG_EDITOR_ID,
+        Tr::tr("Subversion File Log Editor"),
+        Constants::SUBVERSION_LOG_MIMETYPE,
+        [this](const FilePath &source, const QString &changeNumber) {
+            vcsDescribe(source, changeNumber);
+        })};
 
-    VcsEditorFactory blameEditorFactory{
-        {AnnotateOutput,
-         Constants::SUBVERSION_BLAME_EDITOR_ID,
-         Tr::tr("Subversion Annotation Editor"),
-         Constants::SUBVERSION_BLAME_MIMETYPE,
-         [] { return new SubversionEditorWidget; },
-         [this](const FilePath &source, const QString &changeNumber) {
-             vcsDescribe(source, changeNumber);
-         }}};
+    VcsEditorFactory blameEditorFactory{subversionEditorParameters(
+        AnnotateOutput,
+        Constants::SUBVERSION_BLAME_EDITOR_ID,
+        Tr::tr("Subversion Annotation Editor"),
+        Constants::SUBVERSION_BLAME_MIMETYPE,
+        [this](const FilePath &source, const QString &changeNumber) {
+            vcsDescribe(source, changeNumber);
+        })};
 
     SubversionPluginPrivate();
     ~SubversionPluginPrivate() final;
@@ -923,18 +926,20 @@ IEditor *SubversionPluginPrivate::showOutputInEditor(const QString &title, const
                  << "Size =" << output.size() << " Type =" << id << encoding.name();
     QString s = title;
     IEditor *editor = EditorManager::openEditorWithContents(id, &s, output.toUtf8());
-    auto e = qobject_cast<SubversionEditorWidget *>(editor->widget());
-    if (!e)
+    auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+    if (!document)
         return nullptr;
-    connect(e, &VcsBaseEditorWidget::annotateRevisionRequested,
+    connect(document, &VcsEditorDocument::annotateRevisionRequested,
             this, &SubversionPluginPrivate::vcsAnnotateHelper);
-    e->setForceReadOnly(true);
+    // Output, not a file: read-only is the factory's; this keeps it from
+    // being offered for saving.
+    document->setTemporary(true);
     s.replace(' ', '_');
-    e->textDocument()->setFallbackSaveAsFileName(s);
+    document->setFallbackSaveAsFileName(s);
     if (!source.isEmpty())
-        e->setSource(source);
+        VcsBase::setSource(document, source);
     if (encoding.isValid())
-        e->setEncoding(encoding);
+        document->setEncoding(encoding);
     return editor;
 }
 
@@ -1304,6 +1309,7 @@ class SubversionTest final : public QObject
 
 private slots:
     void testLogResolving();
+    void testTheEditorsAreQtQuickViewsWithSubversionsParameters();
 };
 
 void SubversionTest::testLogResolving()
@@ -1325,6 +1331,54 @@ void SubversionTest::testLogResolving()
                 "\n"
                 );
     VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "r1439551", "r1439540");
+}
+
+// With no widget subclass left, the Subversion editors open in the Qt Quick
+// editor over a document that carries what the subclass declared: the log
+// knows its entries and the revision under the pointer - the number of an
+// "r1439551", not a word beside it - and a blame is coloured by Subversion's
+// own highlighter.
+void SubversionTest::testTheEditorsAreQtQuickViewsWithSubversionsParameters()
+{
+    QString title = "Subversion log test";
+    IEditor * const log = EditorManager::openEditorWithContents(
+        Constants::SUBVERSION_LOG_EDITOR_ID, &title,
+        "r1439551 | someone | 2013-01-29 12:00:00 +0000 | 1 line\n");
+    QVERIFY(log);
+    const QScopeGuard closeLog([log] { EditorManager::closeEditors({log}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(log), "the log opened in the widget editor");
+    auto * const document = qobject_cast<VcsEditorDocument *>(log->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+    QCOMPARE(document->logEntryPattern().pattern(), QString("^(r\\d+) \\|"));
+    QCOMPARE(document->annotateRevisionTextFormat(), Tr::tr("Annotate revision \"%1\""));
+    QCOMPARE(document->sections()->entries().size(), 1);
+
+    const TextEditor::ActionLinkFinder finder
+        = TextEditor::TextEditorFactory::actionLinkFinderFor(document);
+    QVERIFY2(finder, "the log offers nothing to do under the pointer");
+    QTextCursor cursor(document->document());
+    cursor.setPosition(3);
+    const TextEditor::ActionLink onTheChange = finder(document, cursor);
+    QVERIFY2(onTheChange.isValid(), "the revision under the pointer is not offered as a change");
+    QCOMPARE(onTheChange.linkTextStart, 0);
+    QCOMPARE(onTheChange.linkTextEnd, 8);
+    QCOMPARE(subversionChangeUnderCursor(cursor), QString("1439551"));
+    cursor.setPosition(12);
+    QVERIFY2(!finder(document, cursor).isValid(), "the author is offered as a change");
+
+    QString blameTitle = "Subversion blame test";
+    IEditor * const blame = EditorManager::openEditorWithContents(
+        Constants::SUBVERSION_BLAME_EDITOR_ID, &blameTitle, QByteArray());
+    QVERIFY(blame);
+    const QScopeGuard closeBlame([blame] { EditorManager::closeEditors({blame}, false); });
+    auto * const annotation = qobject_cast<VcsEditorDocument *>(blame->document());
+    QVERIFY2(annotation, "the blame editor's document is not a VCS document");
+    QVERIFY2(annotation->parameters().annotationHighlighterCreator,
+             "Subversion's parameters name no annotation highlighter");
+    annotation->setPlainText("1439551: someone one\n1439540: someone two\n");
+    QCOMPARE(annotation->annotationChanges().size(), 2);
+    QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(annotation->syntaxHighlighter()),
+             "the blame arrived and no annotation highlighter was installed");
 }
 
 #endif

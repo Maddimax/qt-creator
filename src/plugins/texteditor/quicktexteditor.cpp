@@ -6716,7 +6716,14 @@ private slots:
                              QString("Mercurial Diff Editor"),
                              QString("Bazaar File Log Editor"),
                              QString("Bazaar Annotation Editor"),
-                             QString("Bazaar Diff Editor")};
+                             QString("Bazaar Diff Editor"),
+                             QString("Subversion File Log Editor"),
+                             QString("Subversion Annotation Editor"),
+                             QString("CVS Command Log Editor"), QString("CVS File Log Editor"),
+                             QString("CVS Annotation Editor"), QString("CVS Diff Editor"),
+                             QString("ClearCase File Log Editor"),
+                             QString("ClearCase Annotation Editor"),
+                             QString("ClearCase Diff Editor")};
         expected.sort();
         QCOMPARE(quick, expected);
     }
@@ -6954,7 +6961,11 @@ private slots:
         static const QSet<QString> outputNotFiles{
             "Git SVN Log Editor", "Git Log Editor", "Git Reflog Editor", "Git Annotation Editor",
             "Mercurial File Log Editor", "Mercurial Annotation Editor", "Mercurial Diff Editor",
-            "Bazaar File Log Editor", "Bazaar Annotation Editor", "Bazaar Diff Editor"};
+            "Bazaar File Log Editor", "Bazaar Annotation Editor", "Bazaar Diff Editor",
+            "Subversion File Log Editor", "Subversion Annotation Editor",
+            "CVS Command Log Editor", "CVS File Log Editor", "CVS Annotation Editor",
+            "CVS Diff Editor", "ClearCase File Log Editor", "ClearCase Annotation Editor",
+            "ClearCase Diff Editor"};
 
         Utils::TemporaryDirectory dir("quick-language-census");
         QVERIFY(dir.isValid());

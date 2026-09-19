@@ -3,27 +3,25 @@
 
 #pragma once
 
-#include <vcsbase/vcsbaseeditor.h>
+#include <vcsbase/vcseditordocument.h>
 
-#include <QRegularExpression>
+#include <functional>
+
+namespace Utils { class FilePath; }
 
 namespace Cvs::Internal {
 
-class CvsEditorWidget : public VcsBase::VcsBaseEditorWidget
-{
-    Q_OBJECT
+// The change under \a cursor in output of \a type: a revision ("1.1") at the
+// start of an annotation line, or past "revision" in a log; nothing elsewhere.
+QString cvsChangeUnderCursor(VcsBase::EditorContentType type, const QTextCursor &cursor);
 
-public:
-    CvsEditorWidget();
-
-private:
-    QString changeUnderCursor(const QTextCursor &) const override;
-    VcsBase::BaseAnnotationHighlighterCreator annotationHighlighterCreator() const override;
-    QStringList annotationPreviousVersions(const QString &revision) const override;
-
-    const QRegularExpression m_revisionAnnotationPattern;
-    const QRegularExpression m_revisionLogPattern;
-    QString m_diffBaseDir;
-};
+// The parameters of a CVS editor of \a type: the patterns and texts the
+// widget subclass declared, its annotation highlighter, the change under the
+// cursor and a revision's predecessor, with the describe function the caller
+// supplies.
+VcsBase::VcsBaseEditorParameters cvsEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe);
 
 } // Cvs::Internal

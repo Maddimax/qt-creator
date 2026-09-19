@@ -13,9 +13,11 @@
 #include <vcsbase/vcsbaseeditorconfig.h>
 #include <vcsbase/vcsbaseplugin.h>
 #include <vcsbase/vcscommand.h>
+#include <vcsbase/vcseditordocument.h>
 #include <vcsbase/vcsoutputwindow.h>
 
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
 
 #include <coreplugin/icore.h>
 #include <coreplugin/coreconstants.h>
@@ -45,6 +47,8 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMessageBox>
+#include <QScopeGuard>
+#include <QTextCursor>
 
 #ifdef WITH_TESTS
 #include <QTest>
@@ -151,37 +155,33 @@ public:
 class CvsPluginPrivate final : public VersionControlBase
 {
 public:
-    VcsEditorFactory commandLogEditorFactory{
-        {OtherContent,
-         CVS_COMMANDLOG_EDITOR_ID,
-         Tr::tr("CVS Command Log Editor"), // display name
-         "text/vnd.qtcreator.cvs.commandlog",
-         [] { return new CvsEditorWidget; },
-         std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory commandLogEditorFactory{cvsEditorParameters(
+        OtherContent,
+        CVS_COMMANDLOG_EDITOR_ID,
+        Tr::tr("CVS Command Log Editor"), // display name
+        "text/vnd.qtcreator.cvs.commandlog",
+        std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory logEditorFactory{
-        {LogOutput,
-         CVS_FILELOG_EDITOR_ID,
-         Tr::tr("CVS File Log Editor"), // display name
-         "text/vnd.qtcreator.cvs.log",
-         [] { return new CvsEditorWidget; },
-         std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory logEditorFactory{cvsEditorParameters(
+        LogOutput,
+        CVS_FILELOG_EDITOR_ID,
+        Tr::tr("CVS File Log Editor"), // display name
+        "text/vnd.qtcreator.cvs.log",
+        std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory annotateEditorFactory{
-        {AnnotateOutput,
-         CVS_ANNOTATION_EDITOR_ID,
-         Tr::tr("CVS Annotation Editor"), // display name
-         "text/vnd.qtcreator.cvs.annotation",
-         [] { return new CvsEditorWidget; },
-         std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory annotateEditorFactory{cvsEditorParameters(
+        AnnotateOutput,
+        CVS_ANNOTATION_EDITOR_ID,
+        Tr::tr("CVS Annotation Editor"), // display name
+        "text/vnd.qtcreator.cvs.annotation",
+        std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory diffEditorFactory{
-        {DiffOutput,
-         CVS_DIFF_EDITOR_ID,
-         Tr::tr("CVS Diff Editor"), // display name
-         "text/x-patch",
-         [] { return new CvsEditorWidget; },
-         std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory diffEditorFactory{cvsEditorParameters(
+        DiffOutput,
+        CVS_DIFF_EDITOR_ID,
+        Tr::tr("CVS Diff Editor"), // display name
+        "text/x-patch",
+        std::bind(&CvsPluginPrivate::vcsDescribe, this, _1, _2))};
 
     CvsPluginPrivate();
     ~CvsPluginPrivate() final;
@@ -590,8 +590,8 @@ void CvsPluginPrivate::diffCommitFiles(const QStringList &files)
 
 static void setDiffBaseDirectory(IEditor *editor, const FilePath &db)
 {
-    if (auto ve = qobject_cast<VcsBaseEditorWidget*>(editor->widget()))
-        ve->setWorkingDirectory(db);
+    if (auto * const document = qobject_cast<VcsEditorDocument *>(editor->document()))
+        document->setWorkingDirectory(db);
 }
 
 CvsSubmitEditor *CvsPluginPrivate::openCVSSubmitEditor(const FilePath &fileName)
@@ -883,8 +883,10 @@ void CvsPluginPrivate::filelog(const FilePath &workingDir,
         IEditor *newEditor = showOutputInEditor(title, response.cleanedStdOut(),
                                                 CVS_FILELOG_EDITOR_ID, source, encoding);
         VcsBaseEditor::tagEditor(newEditor, tag);
-        if (enableAnnotationContextMenu)
-            VcsBaseEditor::getVcsBaseEditor(newEditor)->setFileLogAnnotateEnabled(true);
+        if (enableAnnotationContextMenu) {
+            if (auto * const document = qobject_cast<VcsEditorDocument *>(newEditor->document()))
+                document->setFileLogAnnotateEnabled(true);
+        }
     }
 }
 
@@ -1230,17 +1232,20 @@ IEditor *CvsPluginPrivate::showOutputInEditor(const QString& title, const QStrin
 {
     QString s = title;
     IEditor *editor = EditorManager::openEditorWithContents(id, &s, output.toUtf8());
-    auto e = qobject_cast<CvsEditorWidget*>(editor->widget());
-    if (!e)
+    auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+    if (!document)
         return nullptr;
-    connect(e, &VcsBaseEditorWidget::annotateRevisionRequested, this, &CvsPluginPrivate::annotate);
+    connect(document, &VcsEditorDocument::annotateRevisionRequested,
+            this, &CvsPluginPrivate::annotate);
     s.replace(QLatin1Char(' '), QLatin1Char('_'));
-    e->textDocument()->setFallbackSaveAsFileName(s);
-    e->setForceReadOnly(true);
+    document->setFallbackSaveAsFileName(s);
+    // Output, not a file: read-only is the factory's; this keeps it from
+    // being offered for saving.
+    document->setTemporary(true);
     if (!source.isEmpty())
-        e->setSource(source);
+        VcsBase::setSource(document, source);
     if (encoding.isValid())
-        e->setEncoding(encoding);
+        document->setEncoding(encoding);
     return editor;
 }
 
@@ -1311,6 +1316,7 @@ private slots:
     void testDiffFileResolving_data();
     void testDiffFileResolving();
     void testLogResolving();
+    void testTheEditorsAreQtQuickViewsWithCvssParameters();
 };
 
 void CvsTest::testDiffFileResolving_data()
@@ -1356,6 +1362,57 @@ void CvsTest::testLogResolving()
                 "----------------------------\n"
                 );
     VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "1.3", "1.2");
+}
+
+// With no widget subclass left, the CVS editors open in the Qt Quick editor
+// over a document that carries what the subclass declared: the log knows its
+// entries and the revision under the pointer - past "revision", not on it -
+// and a blame knows the revision at the start of a line and is coloured by
+// CVS's own highlighter. Which of the two the change is read as is the
+// editor's type, which the parameters close over.
+void CvsTest::testTheEditorsAreQtQuickViewsWithCvssParameters()
+{
+    QString title = "CVS log test";
+    IEditor * const log = EditorManager::openEditorWithContents(
+        CVS_FILELOG_EDITOR_ID, &title, "revision 1.3\ndate: 2013-01-29 12:00:00 +0000\n");
+    QVERIFY(log);
+    const QScopeGuard closeLog([log] { EditorManager::closeEditors({log}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(log), "the log opened in the widget editor");
+    auto * const document = qobject_cast<VcsEditorDocument *>(log->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+    QCOMPARE(document->logEntryPattern().pattern(), QString("^revision (.+)$"));
+    QCOMPARE(document->annotateRevisionTextFormat(), Tr::tr("Annotate revision \"%1\""));
+    QCOMPARE(document->sections()->entries().size(), 1);
+
+    const TextEditor::ActionLinkFinder finder
+        = TextEditor::TextEditorFactory::actionLinkFinderFor(document);
+    QVERIFY2(finder, "the log offers nothing to do under the pointer");
+    QTextCursor cursor(document->document());
+    cursor.setPosition(10);
+    QVERIFY2(finder(document, cursor).isValid(),
+             "the revision under the pointer is not offered as a change");
+    QCOMPARE(cvsChangeUnderCursor(LogOutput, cursor), QString("1.3"));
+    cursor.setPosition(2);
+    QVERIFY2(!finder(document, cursor).isValid(), "the word \"revision\" is offered as a change");
+
+    QString blameTitle = "CVS blame test";
+    IEditor * const blame = EditorManager::openEditorWithContents(
+        CVS_ANNOTATION_EDITOR_ID, &blameTitle, QByteArray());
+    QVERIFY(blame);
+    const QScopeGuard closeBlame([blame] { EditorManager::closeEditors({blame}, false); });
+    auto * const annotation = qobject_cast<VcsEditorDocument *>(blame->document());
+    QVERIFY2(annotation, "the blame editor's document is not a VCS document");
+    QVERIFY2(annotation->parameters().annotationHighlighterCreator,
+             "CVS's parameters name no annotation highlighter");
+    annotation->setPlainText("1.3 (someone 29-Jan-13): one\n1.2 (someone 28-Jan-13): two\n");
+    QCOMPARE(annotation->annotationChanges().size(), 2);
+    QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(annotation->syntaxHighlighter()),
+             "the blame arrived and no annotation highlighter was installed");
+    // At the start of a blame line the revision is the change; the same
+    // position in a log would be the word "revision".
+    QTextCursor blameCursor(annotation->document());
+    blameCursor.setPosition(1);
+    QCOMPARE(annotation->parameters().changeUnderCursor(blameCursor), QString("1.3"));
 }
 #endif
 

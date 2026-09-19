@@ -68203,3 +68203,120 @@ has a `Q_OBJECT` class left; AUTOMOC handles it.
    `VcsBaseEditor` and the staging area go.
 2. The QmlDesigner-side two; the standing list (entry 298), plus the
    double-click on a diff line.
+
+## 2026-09-19 — Subversion's, CVS's and ClearCase's editors open in the Qt Quick editor (batch 318)
+
+Entry 317's next item 1, the three that needed nothing new in the
+parameters. `SubversionEditorWidget`, `CvsEditorWidget` and
+`ClearCaseEditorWidget` go; two VCS widget subclasses remain (Perforce,
+Fossil).
+
+### What each subclass had, and where it went
+
+The same shape as entry 317: constructor declarations into the parameters
+- Subversion and CVS their diff, log and annotation patterns and the
+annotate text; ClearCase those and the annotation separator - and the
+virtuals into free functions on the document: `changeUnderCursor()` for
+all three, `annotationPreviousVersions()` for Subversion (the number
+before) and CVS (`previousRevision()` from cvsutils), and each VCS's
+annotation highlighter. CVS's highlighter class was defined in the
+widget's .cpp and stays in the file, which keeps its name.
+
+Two of the three `changeUnderCursor()`s are more than a word match.
+Subversion's finds the number at the start of an annotation line or an
+`r123` / `revision 123` in a log, and answers only if the cursor is inside
+that span. CVS's reads a *log* line as `revision 1.1` with the cursor past
+the word, and an *annotation* line as a revision at its start with the
+cursor within three columns of it - and asked `contentType()` to know
+which. A free function has no widget to ask; `cvsEditorParameters()`
+closes over the type it is building parameters for, which is the same
+answer without the object.
+
+The three plugins open output by id themselves - `showOutputInEditor()`
+in each - and then did to the widget what Git's client does through
+`createVcsDocument()`: connect `annotateRevisionRequested`, set force
+read-only, the fallback save-as name, the source, the encoding. Each does
+it to the `VcsEditorDocument` now: the signal is the document's (entry
+313), the source through `VcsBase::setSource()`, the encoding the
+document's own, and read-only the factory's from birth with
+`setTemporary(true)` for the rest of what `setForceReadOnly()` meant. Two
+static helpers that set a diff's working directory through the widget
+(CVS's `setDiffBaseDirectory()`, ClearCase's `setWorkingDirectory()`) set
+the document's; two `getVcsBaseEditor(newEditor)->setFileLogAnnotateEnabled(true)`
+ask the document, which has held the flag since entry 303. ClearCase's
+diff asserted that the editor had its widget; it asserts that there is an
+editor.
+
+### The tests
+
+- `SubversionTest::testTheEditorsAreQtQuickViewsWithSubversionsParameters`:
+  a log opened by id with `r1439551 | someone | ...` is a Qt Quick view
+  over a VCS document with Subversion's log pattern and annotate text,
+  finding one section; the revision under the pointer is offered as a
+  change over `r1439551` and reads as `1439551`, the author is not; a
+  blame with two `1439551: ` lines finds two changes and installs a
+  `BaseAnnotationHighlighter`.
+- `CvsTest::testTheEditorsAreQtQuickViewsWithCvssParameters`: the same
+  over `revision 1.3`: offered past the word, not on it; and in a blame
+  opened by id, the revision at the start of a line is the change - the
+  type closed over, which a log would read as the word "revision".
+- `ClearCaseTest::testTheEditorsAreQtQuickViewsWithClearCasesParameters`:
+  the same over a `create version "file.h@@/main/branch1/9"` line -
+  offered anywhere on it, reading `/main/branch1/9` - and a line naming no
+  version offers nothing; a blame with two `/main/N | user | line`
+  entries is coloured.
+- The two censuses list the nine editors.
+- `testLogResolving` of all three and `testDiffFileResolving` of CVS and
+  ClearCase, the VcsBase helpers on the document, now run over the Qt
+  Quick editor.
+
+First run, one build, in the VM: the three new tests 3/0 each, the
+five `testLogResolving` / `testDiffFileResolving` runs 3/0 each, both
+censuses 3/0 - every one exit 0 at the first attempt.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - Subversion's parameters carry no `changeUnderCursor`:
+  "'onTheChange.isValid()' returned FALSE. (the revision under the
+  pointer is not offered as a change)".
+- **B** - every CVS editor reads changes as a log, the type not closed
+  over: the log half passes and the blame line fails, "Actual
+  (annotation->parameters().changeUnderCursor(blameCursor)): "", Expected
+  "1.3"" - the one assertion that tells the closure from a constant.
+- **C** - ClearCase's parameters name no annotation highlighter:
+  "'annotation->parameters().annotationHighlighterCreator' returned FALSE".
+- **D** - every ClearCase line has a version: "'!finder(document,
+  cursor).isValid()' returned FALSE. (a line naming no version offers a
+  change)" - and only that; the line with one still answers.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     806 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         33 passed, 0 failed, 0 skipped, exit 0
+    -test Subversion       4 passed, 0 failed, 0 skipped, exit 0
+    -test Cvs              5 passed, 0 failed, 0 skipped, exit 0
+    -test ClearCase       23 passed, 0 failed, 2 skipped, exit 0
+
+Subversion, Cvs and ClearCase are 3, 4 and 22 plus the new test each;
+TextEditor and VcsBase unchanged. Git, Mercurial, Bazaar, Perforce and
+Fossil are untouched by this batch and were not re-run. No memory kill
+this time.
+
+No `.qbs` edited: the six editor files keep their names. No header has a
+`Q_OBJECT` class left; AUTOMOC handles it.
+
+### What is next
+
+1. Perforce: its subclass adds `findDiffFile()` - a diff file resolver of
+   the VCS's own, which the document has a setter for
+   (`setDiffFileResolver()`, entry 304) and the parameters do not yet -
+   and the annotation separator. Then Fossil, whose client still holds
+   four widgets from `createVcsEditor()` and sets a config on them, and
+   with it `createVcsEditor()` goes. With the last one,
+   `VcsBaseEditorWidget`, `VcsBaseEditor` and the staging area go.
+2. The QmlDesigner-side two; the standing list (entry 298), plus the
+   double-click on a diff line.

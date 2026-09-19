@@ -41,11 +41,14 @@
 #include <utils/qtcassert.h>
 #include <utils/temporarydirectory.h>
 
+#include <texteditor/texteditor.h>
+
 #include <vcsbase/vcsbaseeditor.h>
 #include <vcsbase/vcsoutputwindow.h>
 #include <vcsbase/vcsbasesubmiteditor.h>
 #include <vcsbase/vcsbaseplugin.h>
 #include <vcsbase/vcscommand.h>
+#include <vcsbase/vcseditordocument.h>
 
 #include <QAbstractButton>
 #include <QAction>
@@ -65,6 +68,8 @@
 #include <QMetaObject>
 #include <QMutex>
 #include <QRegularExpression>
+#include <QScopeGuard>
+#include <QTextCursor>
 #include <QUuid>
 #include <QVBoxLayout>
 
@@ -301,29 +306,26 @@ public:
 
     ClearCaseSettingsPage m_settingsPage;
 
-    VcsEditorFactory logEditorFactory{
-        {LogOutput,
-         LOG_EDITOR_ID,
-         Tr::tr("ClearCase File Log Editor"), // display_name
-         "text/vnd.qtcreator.clearcase.log",
-         [] { return new ClearCaseEditorWidget; },
-         std::bind(&ClearCasePluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory logEditorFactory{clearCaseEditorParameters(
+        LogOutput,
+        LOG_EDITOR_ID,
+        Tr::tr("ClearCase File Log Editor"), // display_name
+        "text/vnd.qtcreator.clearcase.log",
+        std::bind(&ClearCasePluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory annotateEditorFactory{
-        {AnnotateOutput,
-         ANNOTATION_EDITOR_ID,
-         Tr::tr("ClearCase Annotation Editor"), // display_name
-         "text/vnd.qtcreator.clearcase.annotation",
-         [] { return new ClearCaseEditorWidget; },
-         std::bind(&ClearCasePluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory annotateEditorFactory{clearCaseEditorParameters(
+        AnnotateOutput,
+        ANNOTATION_EDITOR_ID,
+        Tr::tr("ClearCase Annotation Editor"), // display_name
+        "text/vnd.qtcreator.clearcase.annotation",
+        std::bind(&ClearCasePluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory diffEditorFactory{
-        {DiffOutput,
-         DIFF_EDITOR_ID,
-         Tr::tr("ClearCase Diff Editor"), // display_name
-         "text/x-patch",
-         [] { return new ClearCaseEditorWidget; },
-         std::bind(&ClearCasePluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory diffEditorFactory{clearCaseEditorParameters(
+        DiffOutput,
+        DIFF_EDITOR_ID,
+        Tr::tr("ClearCase Diff Editor"), // display_name
+        "text/x-patch",
+        std::bind(&ClearCasePluginPrivate::vcsDescribe, this, _1, _2))};
 
 #ifdef WITH_TESTS
     bool m_fakeClearTool = false;
@@ -787,8 +789,10 @@ void ClearCasePluginPrivate::diffCheckInFiles(const QStringList &files)
 
 static void setWorkingDirectory(IEditor *editor, const FilePath &wd)
 {
-    if (auto ve = qobject_cast<VcsBaseEditorWidget*>(editor->widget()))
-        ve->setWorkingDirectory(wd);
+    if (!editor)
+        return;
+    if (auto * const document = qobject_cast<VcsEditorDocument *>(editor->document()))
+        document->setWorkingDirectory(wd);
 }
 
 //! retrieve full location of predecessor of \a version
@@ -1288,10 +1292,9 @@ void ClearCasePluginPrivate::ccDiffWithPred(const FilePath &workingDir, const QS
     }
     const QString title = QString::fromLatin1("cc diff %1").arg(diffname);
     IEditor *editor = showOutputInEditor(title, result, DIFF_EDITOR_ID, source, encoding);
+    QTC_ASSERT(editor, return);
     setWorkingDirectory(editor, workingDir);
     VcsBaseEditor::tagEditor(editor, tag);
-    auto diffEditorWidget = qobject_cast<ClearCaseEditorWidget *>(editor->widget());
-    QTC_ASSERT(diffEditorWidget, return);
     if (files.count() == 1)
         editor->setProperty("originalFileName", diffname);
 }
@@ -1533,8 +1536,10 @@ void ClearCasePluginPrivate::history(const FilePath &workingDir,
     IEditor *newEditor = showOutputInEditor(title, result.cleanedStdOut(),
                                             LOG_EDITOR_ID, source, encoding);
     VcsBaseEditor::tagEditor(newEditor, tag);
-    if (enableAnnotationContextMenu)
-        VcsBaseEditor::getVcsBaseEditor(newEditor)->setFileLogAnnotateEnabled(true);
+    if (enableAnnotationContextMenu) {
+        if (auto * const document = qobject_cast<VcsEditorDocument *>(newEditor->document()))
+            document->setFileLogAnnotateEnabled(true);
+    }
 }
 
 void ClearCasePluginPrivate::viewStatus()
@@ -1715,18 +1720,20 @@ IEditor *ClearCasePluginPrivate::showOutputInEditor(const QString& title, const 
                  <<  "Size= " << output.size() << encoding.name();
     QString s = title;
     IEditor *editor = EditorManager::openEditorWithContents(id, &s, output.toUtf8());
-    auto e = qobject_cast<ClearCaseEditorWidget*>(editor->widget());
-    if (!e)
+    auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+    if (!document)
         return nullptr;
-    connect(e, &VcsBaseEditorWidget::annotateRevisionRequested,
+    connect(document, &VcsEditorDocument::annotateRevisionRequested,
             this, &ClearCasePluginPrivate::vcsAnnotateHelper);
-    e->setForceReadOnly(true);
+    // Output, not a file: read-only is the factory's; this keeps it from
+    // being offered for saving.
+    document->setTemporary(true);
     s.replace(QLatin1Char(' '), QLatin1Char('_'));
-    e->textDocument()->setFallbackSaveAsFileName(s);
+    document->setFallbackSaveAsFileName(s);
     if (!source.isEmpty())
-        e->setSource(source);
+        VcsBase::setSource(document, source);
     if (encoding.isValid())
-        e->setEncoding(encoding);
+        document->setEncoding(encoding);
     return editor;
 }
 
@@ -2544,6 +2551,7 @@ private slots:
     void testDiffFileResolving_data();
     void testDiffFileResolving();
     void testLogResolving();
+    void testTheEditorsAreQtQuickViewsWithClearCasesParameters();
     void testFileStatusParsing_data();
     void testFileStatusParsing();
     void testFileNotManaged();
@@ -2582,6 +2590,53 @@ void ClearCaseTest::testLogResolving()
     VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data,
                             "src/plugins/clearcase/clearcaseeditor.h@@/main/branch1/branch2/9",
                             "src/plugins/clearcase/clearcaseeditor.h@@/main/branch1/branch2/8");
+}
+
+// With no widget subclass left, the ClearCase editors open in the Qt Quick
+// editor over a document that carries what the subclass declared: the log
+// knows its entries and the version under the pointer - anywhere on a line
+// that names one, nowhere on a line that does not - and a blame is coloured
+// by ClearCase's own highlighter.
+void ClearCaseTest::testTheEditorsAreQtQuickViewsWithClearCasesParameters()
+{
+    QString title = "ClearCase log test";
+    IEditor * const log = EditorManager::openEditorWithContents(
+        LOG_EDITOR_ID, &title,
+        "13-Sep.17:41   user1      create version \"file.h@@/main/branch1/9\" (baseline1)\n"
+        "13-Sep.17:40   user1      did nothing\n");
+    QVERIFY(log);
+    const QScopeGuard closeLog([log] { EditorManager::closeEditors({log}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(log), "the log opened in the widget editor");
+    auto * const document = qobject_cast<VcsEditorDocument *>(log->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+    QCOMPARE(document->logEntryPattern().pattern(), QString("version \"([^\"]+)\""));
+    QCOMPARE(document->annotateRevisionTextFormat(), Tr::tr("Annotate version \"%1\""));
+    QCOMPARE(document->sections()->entries().size(), 1);
+
+    const TextEditor::ActionLinkFinder finder
+        = TextEditor::TextEditorFactory::actionLinkFinderFor(document);
+    QVERIFY2(finder, "the log offers nothing to do under the pointer");
+    QTextCursor cursor(document->document());
+    cursor.setPosition(20);
+    QVERIFY2(finder(document, cursor).isValid(),
+             "the version on the line under the pointer is not offered as a change");
+    QCOMPARE(clearCaseChangeUnderCursor(cursor), QString("/main/branch1/9"));
+    cursor.setPosition(document->document()->findBlockByNumber(1).position() + 20);
+    QVERIFY2(!finder(document, cursor).isValid(), "a line naming no version offers a change");
+
+    QString blameTitle = "ClearCase blame test";
+    IEditor * const blame = EditorManager::openEditorWithContents(
+        ANNOTATION_EDITOR_ID, &blameTitle, QByteArray());
+    QVERIFY(blame);
+    const QScopeGuard closeBlame([blame] { EditorManager::closeEditors({blame}, false); });
+    auto * const annotation = qobject_cast<VcsEditorDocument *>(blame->document());
+    QVERIFY2(annotation, "the blame editor's document is not a VCS document");
+    QVERIFY2(annotation->parameters().annotationHighlighterCreator,
+             "ClearCase's parameters name no annotation highlighter");
+    annotation->setPlainText("/main/3 | user1 | one\n/main/2 | user1 | two\n");
+    QCOMPARE(annotation->annotationChanges().size(), 2);
+    QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(annotation->syntaxHighlighter()),
+             "the blame arrived and no annotation highlighter was installed");
 }
 
 void ClearCaseTest::initTestCase()
