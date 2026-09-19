@@ -93,9 +93,9 @@ private:
     Utils::Id vcsEditorKind(VcsCommandTag cmd) const final;
     QStringList revisionSpec(const QString &revision) const final;
     StatusItem parseStatusLine(const QString &line) const final;
-    VcsBase::VcsBaseEditorConfig *createAnnotateEditor(VcsBase::VcsBaseEditorWidget *editor);
-    VcsBase::VcsBaseEditorConfig *createLogCurrentFileEditor(VcsBase::VcsBaseEditorWidget *editor);
-    VcsBase::VcsBaseEditorConfig *createLogEditor(VcsBase::VcsBaseEditorWidget *editor);
+    VcsBase::VcsBaseEditorConfig *createAnnotateEditor(VcsBase::VcsEditorDocument *document);
+    VcsBase::VcsBaseEditorConfig *createLogCurrentFileEditor(VcsBase::VcsEditorDocument *document);
+    VcsBase::VcsBaseEditorConfig *createLogEditor(VcsBase::VcsEditorDocument *document);
 
     friend class FossilPluginPrivate;
 };

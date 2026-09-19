@@ -36,11 +36,14 @@
 #include <utils/aspects.h>
 #include <utils/qtcassert.h>
 
+#include <texteditor/texteditor.h>
+
 #include <vcsbase/vcsbaseclient.h>
 #include <vcsbase/vcsbaseeditor.h>
 #include <vcsbase/vcsbaseplugin.h>
 #include <vcsbase/vcsbasesubmiteditor.h>
 #include <vcsbase/vcscommand.h>
+#include <vcsbase/vcseditordocument.h>
 #include <vcsbase/vcsoutputwindow.h>
 
 #include <QAction>
@@ -52,6 +55,8 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QRegularExpression>
+#include <QScopeGuard>
+#include <QTextCursor>
 
 #ifdef WITH_TESTS
 #include <QTest>
@@ -188,29 +193,26 @@ public:
     void pullOrPush(FossilCommand command);
 
     // Variables
-    VcsEditorFactory fileLogFactory{
-        {LogOutput,
-         Constants::FILELOG_ID,
-         Tr::tr("Fossil File Log Editor"),
-         Constants::LOGAPP,
-         &createFossilEditorWidget,
-         std::bind(&FossilPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory fileLogFactory{fossilEditorParameters(
+        LogOutput,
+        Constants::FILELOG_ID,
+        Tr::tr("Fossil File Log Editor"),
+        Constants::LOGAPP,
+        std::bind(&FossilPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory annotateLogFactory{
-        {AnnotateOutput,
-         Constants::ANNOTATELOG_ID,
-         Tr::tr("Fossil Annotation Editor"),
-         Constants::ANNOTATEAPP,
-         &createFossilEditorWidget,
-         std::bind(&FossilPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory annotateLogFactory{fossilEditorParameters(
+        AnnotateOutput,
+        Constants::ANNOTATELOG_ID,
+        Tr::tr("Fossil Annotation Editor"),
+        Constants::ANNOTATEAPP,
+        std::bind(&FossilPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory diffFactory{
-        {DiffOutput,
-         Constants::DIFFLOG_ID,
-         Tr::tr("Fossil Diff Editor"),
-         Constants::DIFFAPP,
-         &createFossilEditorWidget,
-         std::bind(&FossilPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory diffFactory{fossilEditorParameters(
+        DiffOutput,
+        Constants::DIFFLOG_ID,
+        Tr::tr("Fossil Diff Editor"),
+        Constants::DIFFAPP,
+        std::bind(&FossilPluginPrivate::vcsDescribe, this, _1, _2))};
 
     CommandLocator *m_commandLocator = nullptr;
     ActionContainer *m_fossilContainer = nullptr;
@@ -1138,6 +1140,7 @@ private slots:
     void testDiffFileResolving_data();
     void testDiffFileResolving();
     void testLogResolving();
+    void testTheEditorsAreQtQuickViewsWithFossilsParameters();
 };
 
 void FossilTests::testDiffFileResolving_data()
@@ -1189,6 +1192,56 @@ void FossilTests::testLogResolving()
         "   EDITED src/core/scaler.h\n"
     );
     VcsBaseEditorWidget::testLogResolving(dd->fileLogFactory, data, "ac6d1129b8", "56d6917c3b");
+}
+
+// With no widget subclass left, the Fossil editors open in the Qt Quick
+// editor over a document that carries what the subclass declared: the log
+// knows its entries and the changeset under the pointer - five to forty hex
+// digits, which a time or a word is not - and a blame is coloured by Fossil's
+// own highlighter.
+void FossilTests::testTheEditorsAreQtQuickViewsWithFossilsParameters()
+{
+    QString title = "Fossil log test";
+    IEditor * const log = EditorManager::openEditorWithContents(
+        Constants::FILELOG_ID, &title,
+        "=== 2013-01-29 ===\n"
+        "12:00:00 [ac6d1129b8] *CURRENT* a comment (user: someone tags: trunk)\n");
+    QVERIFY(log);
+    const QScopeGuard closeLog([log] { EditorManager::closeEditors({log}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(log), "the log opened in the widget editor");
+    auto * const document = qobject_cast<VcsEditorDocument *>(log->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+    QCOMPARE(document->logEntryPattern().pattern(), QString("^.*\\[([0-9a-f]{5,40})\\]"));
+    QCOMPARE(document->annotateRevisionTextFormat(), Tr::tr("&Annotate %1"));
+    QCOMPARE(document->sections()->entries().size(), 1);
+
+    const TextEditor::ActionLinkFinder finder
+        = TextEditor::TextEditorFactory::actionLinkFinderFor(document);
+    QVERIFY2(finder, "the log offers nothing to do under the pointer");
+    const int secondLine = document->document()->findBlockByNumber(1).position();
+    QTextCursor cursor(document->document());
+    cursor.setPosition(secondLine + 13);
+    const TextEditor::ActionLink onTheChange = finder(document, cursor);
+    QVERIFY2(onTheChange.isValid(), "the changeset under the pointer is not offered as a change");
+    QCOMPARE(onTheChange.linkTextStart, secondLine + 10);
+    QCOMPARE(onTheChange.linkTextEnd, secondLine + 20);
+    cursor.setPosition(secondLine + 1);
+    QVERIFY2(!finder(document, cursor).isValid(), "the time is offered as a change");
+
+    QString blameTitle = "Fossil blame test";
+    IEditor * const blame = EditorManager::openEditorWithContents(
+        Constants::ANNOTATELOG_ID, &blameTitle, QByteArray());
+    QVERIFY(blame);
+    const QScopeGuard closeBlame([blame] { EditorManager::closeEditors({blame}, false); });
+    auto * const annotation = qobject_cast<VcsEditorDocument *>(blame->document());
+    QVERIFY2(annotation, "the blame editor's document is not a VCS document");
+    QVERIFY2(annotation->parameters().annotationHighlighterCreator,
+             "Fossil's parameters name no annotation highlighter");
+    annotation->setPlainText("ac6d1129b8 2013-01-29 someone: one\n"
+                             "56d6917c3b 2013-01-28 someone: two\n");
+    QCOMPARE(annotation->annotationChanges().size(), 2);
+    QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(annotation->syntaxHighlighter()),
+             "the blame arrived and no annotation highlighter was installed");
 }
 #endif
 

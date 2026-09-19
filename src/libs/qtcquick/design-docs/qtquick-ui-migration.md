@@ -68445,3 +68445,124 @@ has no `Q_OBJECT` class left; AUTOMOC handles it.
    fills one.
 2. The QmlDesigner-side two; the standing list (entry 298), plus the
    double-click on a diff line and the VCS margins.
+
+## 2026-09-19 — Fossil's editors open in the Qt Quick editor (batch 320)
+
+Entry 319's next item 1, and the end of the VCS widget subclasses: every
+`VcsEditorFactory` in Creator builds the Qt Quick editor now - Git's six
+(four output, two files), three each for Mercurial, Bazaar, ClearCase,
+Perforce and Fossil, CVS's four and Subversion's two; twenty-seven in
+the censuses' lists.
+
+### What the subclass had, and where it went
+
+`FossilEditorWidget` was a file-local class behind
+`createFossilEditorWidget()`, with the usual constructor declarations and
+four virtuals: the changeset under the cursor (five to forty hex digits),
+`decorateVersion()` (Fossil's committer and comment for a revision, from
+`synchronousRevisionQuery()`), `annotationPreviousVersions()` (the parent
+and merge parents from the same query) and the annotation highlighter.
+Free functions on `VcsBase::source(document).parentDir()` where the widget
+had `source().parentDir()`, and `fossilEditorParameters()` for the three
+factories.
+
+### The client, and what went with it
+
+`FossilClient` overrides the generic `annotate()`, `log()`,
+`logCurrentFile()` and `view()` and held the widget in each - the last
+four `createVcsEditor()` calls anywhere, each followed by "if the editor
+has no config yet, make one, connect its re-run to this function again,
+and set it on the widget", then the effective arguments read from the
+config, then `executeInEditor()` on the widget. Each holds the document
+now: `createVcsDocument()`, `document->editorConfig()` /
+`setEditorConfig()` (the config parented to the document, listed for
+whichever view draws it - entry 311), `setFileLogAnnotateEnabled()`,
+`setDefaultLineNumber()`, `setWorkingDirectory()`, and
+`executeInEditor()` on the document. The `FossilLogHighlighter` the log
+functions install is a plain `QSyntaxHighlighter` on the document's
+`QTextDocument`, beside the document's own; it was that on the widget's
+document too, and the `@TODO` above it stays.
+
+With no caller left, `VcsBaseClientImpl::createVcsEditor()` and the two
+widget overloads of `executeInEditor()` go, and `vcsbaseclient.h` no
+longer names `VcsBaseEditorWidget`.
+
+### The tests
+
+- `FossilTests::testTheEditorsAreQtQuickViewsWithFossilsParameters`: a
+  log opened by id with a `=== date ===` line and a
+  `12:00:00 [ac6d1129b8] ...` line is a Qt Quick view over a VCS document
+  with Fossil's log pattern and `&Annotate %1`, finding one section; the
+  changeset is offered as a change over its ten digits, the time is not;
+  a blame with two `ac6d1129b8 ` lines finds two changes and installs a
+  `BaseAnnotationHighlighter`.
+- The two censuses list the three editors; Fossil's `testDiffFileResolving`
+  and `testLogResolving` run over the Qt Quick editor.
+
+First run, one build, in the VM: the Fossil test 3/0, its
+`testDiffFileResolving` 5/0 and `testLogResolving` 3/0 over the Qt Quick
+editor, VcsBase's `testAClientsHandleIsTheDocument` 3/0 (the document
+overload of `executeInEditor()`, the only one left), both censuses 3/0 -
+every one exit 0 at the first attempt.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Three rather than
+four: what the client does with the document - the config, the default
+line, the working directory - needs `fossil` to observe, and the VM has
+none.
+
+- **A** - Fossil's parameters carry no `changeUnderCursor`:
+  "'onTheChange.isValid()' returned FALSE. (the changeset under the
+  pointer is not offered as a change)".
+- **B** - Fossil's parameters name no annotation highlighter:
+  "'annotation->parameters().annotationHighlighterCreator' returned FALSE".
+- **C** - Fossil's parameters carry no log entry pattern: the existing
+  `testLogResolving` fails first, "Actual (document->sections()->
+  entries().value(0)): "", Expected "ac6d1129b8"", and the new test on
+  the pattern itself.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     806 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         34 passed, 0 failed, 0 skipped, exit 0
+    -test Git            141 passed, 3 failed, 0 skipped, exit 3
+                           the baseline pair (entry 313), and once:
+                           InstantBlameTest::testBlameDocumentContents
+    -test Fossil          16 passed, 0 failed, 0 skipped, exit 0
+    Mercurial 17, Bazaar 19, Subversion 4, Cvs 5, Perforce 10,
+    ClearCase 23 with 2 skipped, all exit 0
+
+Fossil is 16: 15 plus the new test. Git's third failure is the entry-300
+load flake in its usual shape - the `InstantBlameTest` object took
+**15999 ms** in the suite, against a few hundred alone - and this batch
+is nowhere near instant blame, which runs `git blame` through
+`commandTask()`. Solo on the same binary, five runs: 3 passed, 0 failed,
+exit 0 each, the object at 299-311 ms - the same fifty-fold gap between
+loaded and alone as every time before.
+
+The suites run was killed by the host for memory after TextEditor's
+first run, with the second orphaned in the VM; killed, and the rest
+re-run on the same binary.
+
+No `.qbs` edited: the two editor files keep their names. `fossileditor.h`
+never had a `Q_OBJECT` class.
+
+### What is next
+
+1. **The widget VCS editor goes.** No factory builds it: `VcsEditorFactory`'s
+   `editorWidgetCreator` branch, `VcsBaseEditor`, `VcsBaseEditorWidget` and
+   its private (the cursor handlers, the tool bar drawing of configs, the
+   spinner, the staging of entry 299) have no user. What stays and needs a
+   home: the static helpers every plugin calls (`getSource()`,
+   `getEncoding()`, `getTitleId()`, `editorTag()`, `locateEditorByTag()`,
+   `tagEditor()`, `gotoLineOfEditor()`, `lineNumberOfCurrentEditor()`) and
+   the two test helpers (`testDiffFileResolving()`, `testLogResolving()`),
+   which are on the document already and only declared on the widget.
+   `VcsBaseEditorParameters::editorWidgetCreator` goes with the branch;
+   `VcsEditorDocument`'s annotation-highlighter fallback to a widget's
+   creator with it.
+2. The QmlDesigner-side two; the standing list (entry 298), plus the
+   double-click on a diff line and the VCS margins.

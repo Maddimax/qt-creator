@@ -155,21 +155,6 @@ void VcsBaseClientImpl::executeInEditor(const Utils::FilePath &workingDirectory,
     executeInEditor(workingDirectory, {vcsBinary(workingDirectory), arguments}, document);
 }
 
-void VcsBaseClientImpl::executeInEditor(const FilePath &workingDirectory,
-                                        const CommandLine &command,
-                                        VcsBaseEditorWidget *editor) const
-{
-    QTC_ASSERT(editor, return);
-    executeInEditor(workingDirectory, command, editor->vcsDocument());
-}
-
-void VcsBaseClientImpl::executeInEditor(const Utils::FilePath &workingDirectory,
-                                        const QStringList &arguments,
-                                        VcsBaseEditorWidget *editor) const
-{
-    executeInEditor(workingDirectory, {vcsBinary(workingDirectory), arguments}, editor);
-}
-
 void VcsBaseClientImpl::enqueueTask(const ExecutableItem &task)
 {
     m_taskTreeRunner.enqueue({task});
@@ -248,19 +233,6 @@ VcsEditorDocument *VcsBaseClientImpl::createVcsDocument(Id kind, QString title,
     // be typed into either is the editor's from its factory.
     document->setTemporary(true);
     return document;
-}
-
-VcsBaseEditorWidget *VcsBaseClientImpl::createVcsEditor(Id kind, QString title,
-                                                        const FilePath &source,
-                                                        const TextEncoding &encoding,
-                                                        const char *registerDynamicProperty,
-                                                        const QString &dynamicPropertyValue) const
-{
-    VcsEditorDocument * const document = createVcsDocument(
-        kind, title, source, encoding, registerDynamicProperty, dynamicPropertyValue);
-    if (!document)
-        return nullptr;
-    return VcsBaseEditor::getVcsBaseEditor(DocumentModel::editorsForDocument(document).value(0));
 }
 
 void VcsBaseClientImpl::saveSettings()

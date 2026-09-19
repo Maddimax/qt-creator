@@ -22,7 +22,6 @@ namespace Utils { class Process; }
 namespace VcsBase {
 
 class VcsBaseEditorConfig;
-class VcsBaseEditorWidget;
 class VcsEditorDocument;
 class VcsBaseSettings;
 
@@ -60,13 +59,6 @@ public:
                                          const Utils::TextEncoding &encoding,
                                          const char *registerDynamicProperty,
                                          const QString &dynamicPropertyValue) const;
-    // The same, as the widget editor showing it - for the clients that still
-    // hold one.
-    VcsBaseEditorWidget *createVcsEditor(Utils::Id kind, QString title,
-                                         const Utils::FilePath &source,
-                                         const Utils::TextEncoding &encoding,
-                                         const char *registerDynamicProperty,
-                                         const QString &dynamicPropertyValue) const;
 
     void setupCommand(Utils::Process &process,
                       const Utils::FilePath &workingDirectory,
@@ -99,12 +91,6 @@ public:
     void executeInEditor(const Utils::FilePath &workingDirectory,
                          const Utils::CommandLine &command,
                          VcsEditorDocument *document) const;
-    void executeInEditor(const Utils::FilePath &workingDirectory,
-                         const QStringList &arguments,
-                         VcsBaseEditorWidget *editor) const;
-    void executeInEditor(const Utils::FilePath &workingDirectory,
-                         const Utils::CommandLine &command,
-                         VcsBaseEditorWidget *editor) const;
     void enqueueTask(const QtTaskTree::ExecutableItem &task);
     QtTaskTree::ExecutableItem commandTask(const VcsCommandData &data) const;
     void enqueueCommand(const VcsCommandData &data);
