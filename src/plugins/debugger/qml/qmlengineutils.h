@@ -14,4 +14,8 @@ void appendDebugOutput(QtMsgType type, const QString &message, const QmlDebug::Q
 void clearExceptionSelection();
 QStringList highlightExceptionCode(int lineNumber, const Utils::FilePath &filePath, const QString &errorMessage);
 
+#ifdef WITH_TESTS
+QObject *createQmlExceptionHighlightTest();
+#endif
+
 } // Debugger::Internal

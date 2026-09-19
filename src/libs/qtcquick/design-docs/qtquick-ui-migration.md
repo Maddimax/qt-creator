@@ -69599,3 +69599,129 @@ already lints.
    QmlJSEditor into the standing suites, ASan, the typing flake,
    Windows, the two Debugger tests failing on HEAD, the PNG hang, the
    widget editor's read-only hazard.
+
+## 2026-09-20 — The QML debugger's exception mark reaches the Qt Quick view (batch 329)
+
+Entry 328 left the QmlDesigner-side two and the standing list. Before
+picking, two measurements this tick:
+
+- **QmlDesigner loads in the VM.** The runner's `-noload QmlDesigner`
+  works around a stale `libQmlDesigner.dylib` on the *host* (the entry
+  "Every ported plugin's tests, run once"); the VM's build is fresh
+  from the container, and QmlDesigner and EffectComposer are in it
+  (batch 323's rebuild compiled both). Run with `-test EffectComposer
+  -load all -noload UpdateInfo` in the VM: exit 0, no loader error, one
+  QML warning from `CodeEditorFooter.qml` about a `StudioTheme.ControlStyle`
+  assignment, the usual `isLoaded()` soft assert. Neither plugin has a
+  test object yet, so nothing ran - but the QmlDesigner-side two are
+  verifiable here once one exists, with a run that drops the `-noload`.
+- **A census of `TextEditorWidget::fromEditor()` outside TextEditor**,
+  by a read-only agent over all 112 call sites (excluding `_test.cpp`).
+  94 are in-file test fixtures asserting which view was built; of the 18
+  in production code, 9 have a Qt Quick branch or fallback, 4 are about
+  widgets by construction, and **5 are "the widget editor or nothing"**:
+  FakeVim's `editorOpened()` (some 25 handler callbacks that bail
+  without a widget: `=`, `:set` options, electric characters, Ctrl-V
+  block selection, Ctrl-N completion, the tab settings) and its
+  `g:syntax_on` in `enterBuffer()`; the debugger's `configureMimeType()`
+  in the disassembler agent; and the QML debugger's exception mark,
+  set and cleared (`highlightExceptionCode()`,
+  `clearExceptionSelection()`). CppEditor, LanguageClient,
+  ProjectExplorer, Git, Lua and VcsBase have none.
+
+The two debugger sites are this batch; FakeVim's is the next one, and
+the biggest left for a C++ file's reader.
+
+### The gap closed: the exception line is marked where the file is shown
+
+`highlightExceptionCode()` set the red line, with the message as its
+tooltip, as `DebuggerExceptionSelection` extra selections on each widget
+editor of the file, and returned one console message per widget;
+`clearExceptionSelection()` cleared them on every widget. A QML file in
+the Qt Quick editor got no mark and the console got no message. The
+mark is a fact about the document - "a warning is on the line whoever
+is looking", as `textdocument.h` puts it - and both views draw every
+kind of `TextDocument::setExtraSelections()` (the widget through
+`readSelectionsFromDocument()`, the Qt Quick view through its
+highlights), so both go to the document now: once per document rather
+than once per editor, which also stops a split view being told twice,
+and nothing for a line the document has not got.
+
+### A finding: the disassembler's re-highlighting was dead, not missing
+
+The census flagged `DisassemblerAgentPrivate::configureMimeType()`: it
+asked every widget editor of the disassembly to `configureGenericHighlighter()`
+after setting the mime type, and the disassembly opens in the Qt Quick
+editor by id (entry 293), so no widget was ever found - and the agent
+concluded the disassembly is unhighlighted. It is not: the Qt Quick
+editor connects `IDocument::mimeTypeChanged` to its highlighter
+configuration precisely for this ("that is how a disassembly gets its
+own"), and `testADocumentWithNoFileIsHighlightedByTheTypeItIsGiven`
+opens an empty document by id, sets `text/x-qtcreator-generic-asm` and
+checks the definition follows. The loop was dead; it goes, with the
+`DocumentModel` include, and the mime-type warning stays. A claim from
+reading alone, corrected by reading further - it is in the entry so the
+next census does not make it again.
+
+### The tests
+
+- `QmlExceptionHighlightTest::testTheExceptionLineIsMarkedInEitherView`
+  (new test object in `qmlengineutils.cpp`, registered in the plugin),
+  two rows: a `main.qml` opened by editor id in the widget or the Qt
+  Quick editor; `highlightExceptionCode(2, ...)` returns one message
+  with the error, the document holds one selection from the line's
+  first non-blank to its end with the error as tooltip, and the view
+  draws it - the widget's `extraSelections()`, the Qt Quick view's
+  `highlights()`, found through the `QQuickWidget`'s root item as
+  ProjectExplorer's test does; `clearExceptionSelection()` empties all
+  three. Debugger links QtcQuick, which brings Qt Quick and
+  QuickWidgets, so no dependency was added.
+- `testADocumentWithNoFileIsHighlightedByTheTypeItIsGiven` ran as the
+  disassembler's cover: unchanged.
+
+First build, in the VM: the exception test 4/0 (both rows), the
+disassembler's cover 3/0, exit 0 each, at the first attempt; the runs'
+only warnings are the usual `raise()` and `isLoaded()` ones.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Two, for the two
+functions; the disassembler lost dead code and has none:
+
+- **A** - `highlightExceptionCode()` marks only where the document's
+  editor is a widget, as before: the quick row, "Actual (messages.size()):
+  0, Expected 1" - no mark and, as before, nothing for the console.
+- **B** - `clearExceptionSelection()` clears only where the editor is a
+  widget: the quick row, "'document->extraSelections(kind).isEmpty()'
+  returned FALSE. (the mark stayed after the program moved on)".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     814 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Debugger       163 passed, 2 failed, 0 skipped, exit 2
+                           testStateMachine and
+                           testGdbDapEngineRunsASession, the VM's
+                           project-open pair, "the same 159 / 2 on HEAD"
+                           where the doc last recorded them
+
+Debugger is 163: 159 plus the new test object's two rows and its
+init/cleanup. TextEditor and QuickUi are what entry 328 recorded. No
+memory kill, no typing flake in the three TextEditor runs. No `.qbs`
+edited; `qmlengineutils.cpp` gained a `Q_OBJECT` test class and so a
+`.moc` include, which AUTOMOC handles.
+
+### What is next
+
+1. FakeVim's `editorOpened()`: the handler callbacks that bail without
+   a `TextEditorWidget`, for a file in the Qt Quick editor - `=` and
+   auto-indent, the tab settings, `:set` document/margin/display
+   options, electric characters, Ctrl-V block selection, `syntaxNames`,
+   Ctrl-N completion - and `g:syntax_on`. The largest remaining gap for
+   a C++ file's reader who uses FakeVim; several batches, each a group
+   of callbacks with a two-view test.
+2. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor): verifiable in the VM now (above), given a test object in
+   their plugins and a run without `-noload QmlDesigner`.
+3. The standing list (entry 298).

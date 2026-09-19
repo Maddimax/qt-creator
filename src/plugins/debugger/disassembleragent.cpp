@@ -12,7 +12,6 @@
 #include "sourceutils.h"
 
 #include <coreplugin/coreconstants.h>
-#include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 
 #include <texteditor/textmark.h>
@@ -239,17 +238,12 @@ void DisassemblerAgentPrivate::configureMimeType()
 {
     QTC_ASSERT(document, return);
 
+    // The Qt Quick editor showing the document chooses its highlighter by the
+    // type on its own once the type changes; the widget editor had to be told
+    // to, and the disassembly has not opened in one since it opened by id.
     document->setMimeType(mimeType);
-
-    Utils::MimeType mtype = Utils::mimeTypeForName(mimeType);
-    if (mtype.isValid()) {
-        const QList<IEditor *> editors = DocumentModel::editorsForDocument(document);
-        for (IEditor *editor : editors)
-            if (auto widget = TextEditorWidget::fromEditor(editor))
-                widget->configureGenericHighlighter();
-    } else {
+    if (!Utils::mimeTypeForName(mimeType).isValid())
         qWarning("Assembler mimetype '%s' not found.", qPrintable(mimeType));
-    }
 }
 
 QString DisassemblerAgent::mimeType() const

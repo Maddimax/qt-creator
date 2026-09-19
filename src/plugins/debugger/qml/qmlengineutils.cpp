@@ -208,52 +208,142 @@ void appendDebugOutput(QtMsgType type, const QString &message, const QDebugConte
     debuggerConsole()->printItem(new ConsoleItem(itemType, message, info.file, info.line));
 }
 
+// The mark is a fact about the document - the exception was thrown on that
+// line whoever is looking - and both views draw what the document holds.
+// Both of these went to the widget editor alone, so a file in the Qt Quick
+// editor showed nothing.
 void clearExceptionSelection()
 {
-    QList<QTextEdit::ExtraSelection> selections;
-
-    const QList<IEditor *> editors = DocumentModel::editorsForOpenedDocuments();
-    for (IEditor *editor : editors) {
-        if (auto ed = TextEditorWidget::fromEditor(editor))
-            ed->setExtraSelections(TextEditorWidget::DebuggerExceptionSelection, selections);
+    const QList<IDocument *> documents = DocumentModel::openedDocuments();
+    for (IDocument *document : documents) {
+        if (auto * const textDocument = qobject_cast<TextDocument *>(document))
+            textDocument->setExtraSelections(TextEditorWidget::DebuggerExceptionSelection, {});
     }
 }
 
 QStringList highlightExceptionCode(int lineNumber, const FilePath &filePath, const QString &errorMessage)
 {
     QStringList messages;
-    const QList<IEditor *> editors = DocumentModel::editorsForFilePath(filePath);
+    auto * const document
+        = qobject_cast<TextDocument *>(DocumentModel::documentForFilePath(filePath));
+    if (!document)
+        return messages;
+    const QTextBlock block = document->document()->findBlockByNumber(lineNumber - 1);
+    if (!block.isValid())
+        return messages;
 
     const TextEditor::FontSettingsData fontSettings = TextEditor::globalFontSettings().data();
     QTextCharFormat errorFormat = fontSettings.toTextCharFormat(TextEditor::C_ERROR);
+    errorFormat.setToolTip(errorMessage);
 
-    for (IEditor *editor : editors) {
-        auto ed = TextEditorWidget::fromEditor(editor);
-        if (!ed)
-            continue;
-
-        QList<QTextEdit::ExtraSelection> selections;
-        QTextEdit::ExtraSelection sel;
-        sel.format = errorFormat;
-        QTextCursor c(ed->document()->findBlockByNumber(lineNumber - 1));
-        const QString text = c.block().text();
-        for (int i = 0; i < text.size(); ++i) {
-            if (!text.at(i).isSpace()) {
-                c.setPosition(c.position() + i);
-                break;
-            }
+    // From the first non-blank of the line to its end.
+    QTextCursor c(block);
+    const QString text = block.text();
+    for (int i = 0; i < text.size(); ++i) {
+        if (!text.at(i).isSpace()) {
+            c.setPosition(c.position() + i);
+            break;
         }
-        c.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-        sel.cursor = c;
-
-        sel.format.setToolTip(errorMessage);
-
-        selections.append(sel);
-        ed->setExtraSelections(TextEditorWidget::DebuggerExceptionSelection, selections);
-
-        messages.append(QString::fromLatin1("%1: %2: %3").arg(filePath.toUserOutput()).arg(lineNumber).arg(errorMessage));
     }
+    c.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    document->setExtraSelections(TextEditorWidget::DebuggerExceptionSelection, {{c, errorFormat}});
+
+    messages.append(QString::fromLatin1("%1: %2: %3").arg(filePath.toUserOutput()).arg(lineNumber).arg(errorMessage));
     return messages;
 }
 
 } // Debugger::Internal
+
+#ifdef WITH_TESTS
+
+#include <coreplugin/coreconstants.h>
+#include <coreplugin/editormanager/editormanager.h>
+#include <texteditor/textviewport.h>
+#include <utils/temporarydirectory.h>
+
+#include <QQuickItem>
+#include <QQuickWidget>
+#include <QScopeGuard>
+#include <QTest>
+
+namespace Debugger::Internal {
+
+// The QML debugger marks the line an exception was thrown on - red, the
+// message as its tooltip - and clears the mark when the program moves on,
+// and tells the console. All of it went to the widget editor alone, so a
+// QML file in the Qt Quick editor showed nothing and the console was told
+// nothing. The mark is the document's now, and either view draws it.
+class QmlExceptionHighlightTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheExceptionLineIsMarkedInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheExceptionLineIsMarkedInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        TemporaryDirectory dir("debugger-qml-exception");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("main.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\n    Item { x: y }\n"));
+        const Id editorId = quick ? Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                  : Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        IEditor * const editor = EditorManager::openEditor(file, editorId);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor);
+        QCOMPARE(widget == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        TextViewport *view = nullptr;
+        if (quick) {
+            auto * const host = editor->widget()->findChild<QQuickWidget *>();
+            QVERIFY(host && host->rootObject());
+            view = host->rootObject()->findChild<TextViewport *>();
+            QVERIFY(view);
+        }
+        const Id kind = TextEditorWidget::DebuggerExceptionSelection;
+        const QString error = "ReferenceError: y is not defined";
+
+        const QStringList messages = highlightExceptionCode(2, file, error);
+        QCOMPARE(messages.size(), 1);
+        QVERIFY2(messages.first().contains(error), qPrintable(messages.first()));
+        const QList<TextDocument::ExtraSelection> marked = document->extraSelections(kind);
+        QCOMPARE(marked.size(), 1);
+        const QTextBlock line = document->document()->findBlockByNumber(1);
+        QCOMPARE(marked.first().cursor.selectionStart(), line.position() + 4);
+        QCOMPARE(marked.first().cursor.selectionEnd(), line.position() + line.length() - 1);
+        QCOMPARE(marked.first().format.toolTip(), error);
+        // And whichever view shows the file draws it.
+        if (widget)
+            QTRY_COMPARE(widget->extraSelections(kind).size(), 1);
+        else
+            QTRY_COMPARE(view->highlights(kind).size(), 1);
+
+        clearExceptionSelection();
+        QVERIFY2(document->extraSelections(kind).isEmpty(),
+                 "the mark stayed after the program moved on");
+        if (widget)
+            QTRY_VERIFY(widget->extraSelections(kind).isEmpty());
+        else
+            QTRY_VERIFY(view->highlights(kind).isEmpty());
+    }
+};
+
+QObject *createQmlExceptionHighlightTest()
+{
+    return new QmlExceptionHighlightTest;
+}
+
+} // Debugger::Internal
+
+#include "qmlengineutils.moc"
+
+#endif // WITH_TESTS

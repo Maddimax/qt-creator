@@ -16,6 +16,7 @@
 #include "debuggerruncontrol.h"
 #include "debuggertest.h"
 #include "watchhandler.h"
+#include "qml/qmlengineutils.h"
 #include "cdbpaths_test.h"
 #include "shared/cdbsymbolpathlisteditor.h"
 #include "shared/symbolpathsdialog.h"
@@ -2161,6 +2162,7 @@ Result<> DebuggerPlugin::initialize(const QStringList &arguments)
     addTestCreator(createDebuggerRunSettingsTest);
     addTestCreator(createDebuggerTest);
     addTestCreator(createValueAnnotationTest);
+    addTestCreator(createQmlExceptionHighlightTest);
     addTestCreator(createLogWindowTest);
     addTestCreator(createConsoleItemModelTest);
     addTestCreator(createSourcePathMapTest);
