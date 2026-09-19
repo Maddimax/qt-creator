@@ -3,22 +3,19 @@
 
 #pragma once
 
+namespace Core { class IEditor; }
 namespace SharedTools { class WidgetHost; }
 
-namespace Designer {
-    class FormWindowEditor;
-
-namespace Internal {
+namespace Designer::Internal {
 
 // Associates the XML editor implementing the IEditor and its form widget host
 class EditorData
 {
 public:
-    explicit operator bool() const { return formWindowEditor != nullptr; }
+    explicit operator bool() const { return xmlEditor != nullptr; }
 
-    FormWindowEditor *formWindowEditor = nullptr;
+    Core::IEditor *xmlEditor = nullptr;
     SharedTools::WidgetHost *widgetHost = nullptr;
 };
 
-} // namespace Internal
-} // namespace Designer
+} // namespace Designer::Internal

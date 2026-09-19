@@ -19,9 +19,6 @@ class IOptionsPage;
 namespace SharedTools { class WidgetHost; }
 
 namespace Designer {
-
-class FormWindowEditor;
-
 namespace Internal {
 
 /** This is an interface to the Designer CoreInterface to
@@ -58,13 +55,14 @@ QDesignerFormEditorInterface *designerEditor();
 QWidget * const *designerSubWindows();
 
 SharedTools::WidgetHost *activeWidgetHost();
-FormWindowEditor *activeEditor();
+Core::IEditor *activeEditor();
 QList<Core::IOptionsPage *> optionsPages();
 
 void setQtPluginPath(const QString &qtPluginPath);
 void addPluginPath(const QString &pluginPath);
 
 QObject *createGoToSlotTest();
+QObject *createXmlEditorTest();
 
 } // namespace Internal
 } // namespace Designer

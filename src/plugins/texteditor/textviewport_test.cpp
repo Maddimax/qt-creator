@@ -1214,6 +1214,45 @@ private slots:
         QCOMPARE(text->toPlainText(), QString("Z%{Id}\nbeta\n"));
     }
 
+    // Read-only asked for from outside - an editor that shows a file it does
+    // not want edited here, like Designer's form XML - has to refuse an edit,
+    // not only report itself read-only. Entry 293's seam set the flag that
+    // isReadOnly() reports and left every editing guard testing the view's
+    // own reason alone; Designer's view took a keystroke.
+    void testAViewAskedToBeReadOnlyRefusesAnEdit()
+    {
+        TemporaryDirectory dir("textviewport-readonly-asked");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+
+        TextViewport * const viewport = fixture.viewport;
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        QVERIFY(text);
+        // The view's own reason cleared first, so that what follows is the
+        // request and not the default.
+        viewport->setReadOnly(false);
+        QVERIFY2(viewport->canEdit(), "the view is read-only before anyone asked");
+
+        viewport->setReadOnlyAsked(true);
+        QVERIFY(viewport->isReadOnly());
+        QVERIFY2(!viewport->canEdit(), "asked to be read-only, the view still says it can edit");
+        viewport->setCursorPosition(0);
+        QTest::keyClick(&fixture.view, 'X');
+        QVERIFY2(text->toPlainText() == "alpha\n", "asked to be read-only, the view took a key");
+        viewport->insertText("no");
+        QVERIFY2(text->toPlainText() == "alpha\n", "asked to be read-only, the view took text handed to it");
+
+        viewport->setReadOnlyAsked(false);
+        QTest::keyClick(&fixture.view, 'X');
+        QCOMPARE(text->toPlainText(), QString("Xalpha\n"));
+    }
+
     // The gutter is the first thing that makes a viewport look like an editor
     // rather than a text box, and the only thing holding its rows against the
     // text's is that both work the line's position out the same way.

@@ -7,7 +7,6 @@
 #include "designersettings.h"
 #include "designertr.h"
 #include "formeditor.h"
-#include "formwindoweditor.h"
 
 #include <widgethost.h>
 #include <designer/cpp/formclasswizardpage.h>

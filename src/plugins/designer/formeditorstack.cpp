@@ -4,13 +4,13 @@
 #include "formeditorstack.h"
 
 #include "designerconstants.h"
-#include "formwindoweditor.h"
 #include "formeditor.h"
 #include "formwindowfile.h"
 
 #include <widgethost.h>
 
 #include <coreplugin/coreconstants.h>
+#include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/modemanager.h>
 
 #include <utils/qtcassert.h>
@@ -65,14 +65,14 @@ void FormEditorStack::add(const EditorData &data)
     }
 
     if (Designer::Constants::Internal::debug)
-        qDebug() << "FormEditorStack::add"  << data.formWindowEditor << data.widgetHost;
+        qDebug() << "FormEditorStack::add"  << data.xmlEditor << data.widgetHost;
 
     m_formEditors.append(data);
     addWidget(data.widgetHost);
     // Editors are normally removed by listening to EditorManager::editorsClosed.
     // However, in the case opening a file fails, EditorManager just deletes the editor, which
     // is caught by the destroyed() signal.
-    connect(data.formWindowEditor, &FormWindowEditor::destroyed,
+    connect(data.xmlEditor, &QObject::destroyed,
             this, &FormEditorStack::removeFormWindowEditor);
 
     connect(data.widgetHost, &SharedTools::WidgetHost::formWindowSizeChanged, this,
@@ -100,7 +100,7 @@ int FormEditorStack::indexOfFormEditor(const QObject *xmlEditor) const
 {
     const int count = m_formEditors.size();
     for (int i = 0; i < count; ++i)
-        if (m_formEditors[i].formWindowEditor == xmlEditor)
+        if (m_formEditors[i].xmlEditor == xmlEditor)
             return i;
     return -1;
 }
@@ -180,9 +180,12 @@ void FormEditorStack::modeAboutToChange(Utils::Id mode)
         qDebug() << "FormEditorStack::modeAboutToChange"  << mode.toString();
 
     // Sync the editor when entering edit mode
-    if (mode == Core::Constants::MODE_EDIT)
-        for (const EditorData &data : std::as_const(m_formEditors))
-            data.formWindowEditor->formWindowFile()->syncXmlFromFormWindow();
+    if (mode == Core::Constants::MODE_EDIT) {
+        for (const EditorData &data : std::as_const(m_formEditors)) {
+            if (auto * const file = qobject_cast<FormWindowFile *>(data.xmlEditor->document()))
+                file->syncXmlFromFormWindow();
+        }
+    }
 }
 
 } // Designer::Internal

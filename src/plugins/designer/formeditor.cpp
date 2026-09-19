@@ -5,7 +5,6 @@
 #include "editordata.h"
 #include "editorwidget.h"
 #include "formeditor.h"
-#include "formwindoweditor.h"
 #include "formwindowfile.h"
 #include "qtcreatorintegration.h"
 #include "settingsmanager.h"
@@ -24,6 +23,8 @@
 #include <coreplugin/minisplitter.h>
 #include <coreplugin/modemanager.h>
 #include <coreplugin/outputpane.h>
+
+#include <texteditor/texteditor.h>
 
 #include <utils/infobar.h>
 #include <utils/mimeconstants.h>
@@ -89,24 +90,10 @@ using namespace Utils;
 
 namespace Designer::Internal {
 
-/* A stub-like, read-only text editor which displays UI files as text. Could be used as a
-  * read/write editor too, but due to lack of XML editor, highlighting and other such
-  * functionality, editing is disabled.
-  * Provides an informational title bar containing a button triggering a
-  * switch to design mode.
-  * Internally manages a FormWindowEditor and uses the plain text
-  * editable embedded in it.  */
-class DesignerXmlEditorWidget : public TextEditor::TextEditorWidget
-{
-public:
-    using TextEditorWidget::TextEditorWidget;
-
-    void finalizeInitialization() override
-    {
-        setReadOnly(true);
-    }
-};
-
+/* A read-only text view of a UI file, shown in Edit mode. The file is edited
+  * in Design mode, and an info bar on the view says so, with a button that
+  * switches. Read-only is asked of whichever view draws the text, so nothing
+  * here names one. */
 class FormWindowEditorFactory : public TextEditor::TextEditorFactory
 {
 public:
@@ -114,18 +101,20 @@ public:
     {
         setId(K_DESIGNER_XML_EDITOR_ID);
         addEditorContext(Designer::Constants::C_DESIGNER_XML_EDITOR);
-        setEditorCreator([]() { return new FormWindowEditor; });
-        setEditorWidgetCreator([]() { return new Internal::DesignerXmlEditorWidget; });
+        setUsesQuickEditor(true);
         setUseGenericHighlighter(true);
         setDuplicatedSupported(false);
         setMarksVisible(false);
         setToolBarVisible(false);
     }
 
-    FormWindowEditor *create(QDesignerFormWindowInterface *form)
+    Core::IEditor *create(QDesignerFormWindowInterface *form)
     {
         setDocumentCreator([form]() { return new FormWindowFile(form); });
-        return qobject_cast<FormWindowEditor *>(createEditor());
+        Core::IEditor * const editor = createEditor();
+        if (editor)
+            TextEditor::setReadOnlyOf(editor, true);
+        return editor;
     }
 };
 
@@ -255,12 +244,10 @@ FormEditorData::FormEditorData()
             qDebug() << Q_FUNC_INFO << editor << " of " << m_fwm->formWindowCount();
 
         if (editor && editor->document()->id() == Constants::K_DESIGNER_XML_EDITOR_ID) {
-            FormWindowEditor *xmlEditor = qobject_cast<FormWindowEditor *>(editor);
-            QTC_ASSERT(xmlEditor, return);
             ensureInitStage(FullyInitialized);
-            SharedTools::WidgetHost *fw = m_editorWidget->formWindowEditorForXmlEditor(xmlEditor);
+            SharedTools::WidgetHost *fw = m_editorWidget->formWindowEditorForXmlEditor(editor);
             QTC_ASSERT(fw, return);
-            m_editorWidget->setVisibleEditor(xmlEditor);
+            m_editorWidget->setVisibleEditor(editor);
             m_fwm->setActiveFormWindow(fw->formWindow());
         }
     });
@@ -791,7 +778,10 @@ IEditor *FormEditorData::createEditor()
     });
 
     auto widgetHost = new SharedTools::WidgetHost( /* parent */ nullptr, form);
-    FormWindowEditor *formWindowEditor = m_xmlEditorFactory->create(form);
+    IEditor * const xmlEditor = m_xmlEditorFactory->create(form);
+    QTC_ASSERT(xmlEditor, return nullptr);
+    auto * const file = qobject_cast<FormWindowFile *>(xmlEditor->document());
+    QTC_ASSERT(file, return xmlEditor);
 
     // Defer embedding the form into Qt Creator's own widget hierarchy until
     // its contents have actually been parsed and built (open()/setContents(),
@@ -803,18 +793,16 @@ IEditor *FormEditorData::createEditor()
     // Creator's own top-level window can clobber the real menu bar's
     // global-menu registration, permanently blanking it.
     // See QTBUG-148580
-    connect(formWindowEditor->formWindowFile(), &FormWindowFile::formWindowContentsSet,
-            this, [this, widgetHost, formWindowEditor] {
-                m_editorWidget->add(widgetHost, formWindowEditor);
+    connect(file, &FormWindowFile::formWindowContentsSet,
+            this, [this, widgetHost, xmlEditor] {
+                m_editorWidget->add(widgetHost, xmlEditor);
             }, Qt::SingleShotConnection);
 
-    if (formWindowEditor) {
-        Utils::InfoBarEntry info(Id(Constants::INFO_READ_ONLY),
-                                 Tr::tr("This file can only be edited in <b>Design</b> mode."));
-        info.addCustomButton(Tr::tr("Switch Mode"), []() { ModeManager::activateMode(Core::Constants::MODE_DESIGN); });
-        formWindowEditor->document()->infoBar()->addInfo(info);
-    }
-    return formWindowEditor;
+    Utils::InfoBarEntry info(Id(Constants::INFO_READ_ONLY),
+                             Tr::tr("This file can only be edited in <b>Design</b> mode."));
+    info.addCustomButton(Tr::tr("Switch Mode"), []() { ModeManager::activateMode(Core::Constants::MODE_DESIGN); });
+    file->infoBar()->addInfo(info);
+    return xmlEditor;
 }
 
 QDesignerFormEditorInterface *designerEditor()
@@ -837,11 +825,11 @@ SharedTools::WidgetHost *activeWidgetHost()
     return nullptr;
 }
 
-FormWindowEditor *activeEditor()
+IEditor *activeEditor()
 {
     ensureInitStage(FullyInitialized);
     if (d->m_editorWidget)
-        return d->m_editorWidget->activeEditor().formWindowEditor;
+        return d->m_editorWidget->activeEditor().xmlEditor;
     return nullptr;
 }
 

@@ -5,7 +5,6 @@
 
 #include "formeditor.h"
 #include "formeditorstack.h"
-#include "formwindoweditor.h"
 
 #include <utils/layoutbuilder.h>
 
@@ -83,13 +82,13 @@ QDockWidget* const* EditorWidget::designerDockWidgets() const
     return m_designerDockWidgets;
 }
 
-void EditorWidget::add(SharedTools::WidgetHost *widgetHost, FormWindowEditor *formWindowEditor)
+void EditorWidget::add(SharedTools::WidgetHost *widgetHost, Core::IEditor *xmlEditor)
 {
     EditorData data;
-    data.formWindowEditor = formWindowEditor;
+    data.xmlEditor = xmlEditor;
     data.widgetHost = widgetHost;
     m_stack->add(data);
-    m_toolBar->addEditor(formWindowEditor);
+    m_toolBar->addEditor(xmlEditor);
 }
 
 void EditorWidget::removeFormWindowEditor(Core::IEditor *xmlEditor)

@@ -49,7 +49,6 @@ add_qtc_plugin(Designer
     formeditorstack.cpp formeditorstack.h
     formeditor.cpp formeditor.h
     formtemplatewizardpage.cpp formtemplatewizardpage.h
-    formwindoweditor.cpp formwindoweditor.h
     formwindowfile.cpp formwindowfile.h
     qtcreatorintegration.cpp qtcreatorintegration.h
     qtdesignerformclasscodegenerator.cpp qtdesignerformclasscodegenerator.h
@@ -60,7 +59,7 @@ add_qtc_plugin(Designer
 
 extend_qtc_plugin(Designer
   CONDITION WITH_TESTS
-  SOURCES gotoslot_test.cpp
+  SOURCES gotoslot_test.cpp xmleditor_test.cpp
 )
 
 if (QTC_STATIC_BUILD AND TARGET Designer)

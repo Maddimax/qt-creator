@@ -11177,6 +11177,11 @@ void TextEditorFactory::setDuplicatedSupported(bool on)
     d->m_duplicatedSupported = on;
 }
 
+bool TextEditorFactory::duplicatedSupported() const
+{
+    return d->m_duplicatedSupported;
+}
+
 void TextEditorFactory::setMarksVisible(bool on)
 {
     d->m_marksVisible = on;

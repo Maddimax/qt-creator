@@ -56,7 +56,6 @@ QtcPlugin {
             "formeditorstack.cpp", "formeditorstack.h",
             "formeditor.cpp", "formeditor.h",
             "formtemplatewizardpage.cpp", "formtemplatewizardpage.h",
-            "formwindoweditor.cpp", "formwindoweditor.h",
             "formwindowfile.cpp", "formwindowfile.h",
             "qtcreatorintegration.cpp", "qtcreatorintegration.h",
             "qtdesignerformclasscodegenerator.cpp", "qtdesignerformclasscodegenerator.h",
@@ -98,7 +97,7 @@ QtcPlugin {
     }
 
     QtcTestFiles {
-        files: [ "gotoslot_test.cpp" ]
+        files: [ "gotoslot_test.cpp", "xmleditor_test.cpp" ]
 
         cpp.defines: outer.concat(['SRCDIR="' + FileInfo.path(filePath) + '"'])
     }

@@ -619,7 +619,7 @@ void TextViewport::applyCompletion(const QString &completion)
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     CompletionAssistProvider * const provider = doc ? doc->completionAssistProvider() : nullptr;
     QTextCursor cursor = textCursor();
-    if (!provider || cursor.isNull() || completion.isEmpty() || m_readOnly)
+    if (!provider || cursor.isNull() || completion.isEmpty() || isReadOnly())
         return;
 
     // The item first, where the offer it came from is still to hand: an item
@@ -2644,7 +2644,7 @@ void TextViewport::refreshAutoCompletedHighlight()
     // The setting is asked here rather than where the range is set, because
     // the range is what steps over a closing bracket the reader types and has
     // to be kept whether or not it is drawn.
-    if (m_autoCompleted.hasSelection() && !m_readOnly
+    if (m_autoCompleted.hasSelection() && !isReadOnly()
         && globalCompletionSettings().highlightAutoComplete()) {
         marks.append({m_autoCompleted.selectionStart(),
                       m_autoCompleted.selectionEnd(),
@@ -2804,7 +2804,7 @@ void TextViewport::offerCompletionsIfAsked(const QTextCursor &cursor)
 
 void TextViewport::inputMethodEvent(QInputMethodEvent *event)
 {
-    if (m_readOnly) {
+    if (isReadOnly()) {
         event->ignore();
         return;
     }
@@ -2849,7 +2849,7 @@ QVariant TextViewport::inputMethodQuery(Qt::InputMethodQuery query) const
     const QTextCursor cursor = textCursor();
     switch (query) {
     case Qt::ImEnabled:
-        return !m_readOnly;
+        return !isReadOnly();
     case Qt::ImHints:
         return int(Qt::ImhMultiLine);
     case Qt::ImCursorRectangle:
@@ -3992,7 +3992,7 @@ void TextViewport::showContextMenu()
 bool TextViewport::canEdit() const
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
-    return !m_readOnly && !(doc && doc->isFileReadOnly());
+    return !isReadOnly() && !(doc && doc->isFileReadOnly());
 }
 
 void TextViewport::joinLines()
@@ -4745,7 +4745,7 @@ void TextViewport::removeSelectedText()
     QTextDocument * const document = doc ? doc->document() : nullptr;
     const int from = qMin(m_selectionStart, m_selectionEnd);
     const int to = qMax(m_selectionStart, m_selectionEnd);
-    if (!document || m_readOnly || doc->isFileReadOnly() || from < 0 || to <= from)
+    if (!document || isReadOnly() || doc->isFileReadOnly() || from < 0 || to <= from)
         return;
 
     QTextCursor cursor(document);
@@ -4761,7 +4761,7 @@ void TextViewport::dropText(const QString &text, qreal x, qreal y, bool moveFrom
 {
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     QTextDocument * const document = doc ? doc->document() : nullptr;
-    if (!document || text.isEmpty() || m_readOnly || doc->isFileReadOnly())
+    if (!document || text.isEmpty() || isReadOnly() || doc->isFileReadOnly())
         return;
 
     const int at = positionAt(x, y);
@@ -4926,7 +4926,7 @@ QString TextViewport::tabSettingsLabel() const
     // Hidden for a read-only file for the same reason as the line ending
     // beside it: there is nothing to be done about the indentation of a file
     // that cannot be written.
-    if (!doc || !displaySettings().displayTabSettings() || m_readOnly
+    if (!doc || !displaySettings().displayTabSettings() || isReadOnly()
         || doc->isFileReadOnly()) {
         return {};
     }
@@ -4978,7 +4978,7 @@ QString TextViewport::fileLineEnding() const
     TextDocument * const doc = m_document ? m_document->textDocument() : nullptr;
     // The widget editor hides this for a read-only file too: there is nothing
     // to be done about the line endings of a file that cannot be written.
-    if (!doc || !displaySettings().displayFileLineEnding() || m_readOnly
+    if (!doc || !displaySettings().displayFileLineEnding() || isReadOnly()
         || doc->isFileReadOnly()) {
         return {};
     }

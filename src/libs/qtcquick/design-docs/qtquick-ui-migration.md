@@ -65216,3 +65216,164 @@ the first thing to check, before reading either. Noted in `qt-creator.md`.
 5. Then entries 288-293's standing list: the two-view tests' widget rows, the
    five specialised editors, QmlJSEditor into the standing suites, ASan, the
    typing flake, Windows.
+
+## 2026-09-19 — Designer's form XML off the widget editor (batch 296)
+
+Entry 295 put the widget editor's own read-only hazard first. Skipped, on
+purpose: making the widget editor more correct is not the direction, and the
+user's widened goal is to have no QWidget left. Instead, a census of what
+still calls `setEditorWidgetCreator()` without `setUsesQuickEditor(true)`:
+
+    vcsbase/vcsbaseeditor.cpp:1811             VCS log/diff/annotate - 1866 lines, 26 files use it
+    designer/formeditor.cpp:118                a form's XML, read-only         <- this batch
+    scxmleditor/scxmleditor.cpp:125            an SCXML's XML, read-only       <- same shape, next
+    effectcomposer/effectcodeeditorwidget.cpp  QmlDesigner-side (not loaded in the suites)
+    qmldesigner/.../bindingeditorwidget.cpp    QmlDesigner-side (not loaded in the suites)
+
+The four that also set `setUsesQuickEditor(true)` - CppEditor, QmlJS, CMake,
+qmake - keep their widget creator for the two-view tests' control side, which
+is entry 290's finding and not a gap. **CppEditor is on the Quick editor
+already**: a C++ file opens in it on this branch, which is the goal the
+standing instruction states. What is left is the widened one.
+
+### What the Designer view was
+
+`FormWindowEditorFactory`: `setEditorCreator(FormWindowEditor)`,
+`setEditorWidgetCreator(DesignerXmlEditorWidget)`, generic highlighter, no
+duplicate, no marks, no tool bar. `DesignerXmlEditorWidget` was a
+`TextEditorWidget` whose entire body was `finalizeInitialization() {
+setReadOnly(true); }`. `FormWindowEditor` was a `DESIGNER_EXPORT BaseTextEditor`
+with a `contents` property "for uic code model support" that **nothing reads**
+- no `->contents()`, no `property("contents")` anywhere in `src/` - and a
+`formWindowFile()` convenience that is `qobject_cast<FormWindowFile *>(textDocument())`.
+The form stack keyed its `EditorData` on the `FormWindowEditor *`, compared it
+against the `IEditor *` the editor manager hands out, and connected to
+`&FormWindowEditor::destroyed`, which is `QObject::destroyed`.
+
+### The change
+
+The factory sets `setUsesQuickEditor(true)` and drops both creators; its
+`create(form)` returns the `Core::IEditor *` and asks
+`TextEditor::setReadOnlyOf(editor, true)` - entry 293's seam, which lands on
+`TextViewport::setReadOnlyAsked()` and outlives the view's own recompute.
+`EditorData::xmlEditor`, `EditorWidget::add()`, `activeEditor()` and the
+stack hold a `Core::IEditor *`; the two places that wanted the `FormWindowFile`
+cast the editor's document. `formwindoweditor.h/.cpp` are deleted, from both
+build files. `qtcreatorintegration.cpp` included the header and used nothing
+from it beyond `activeEditor()->document()`.
+
+Design mode still opens for a `.ui`: `IEditor::isDesignModePreferred()` asks
+the *document*, and `FormWindowFile` says yes. No editor type in that path.
+
+### The gap this closed on the Quick side: the duplicate flag
+
+The factory said `setDuplicatedSupported(false)` and the widget path passed
+it to the editor (`createEditorHelper()`); the Qt Quick editor's constructor
+said `setDuplicateSupported(true)` for everyone, with a comment explaining why
+"yes" matters for an ordinary editor (the editor manager *moves* an editor it
+thinks cannot be split, and loses its tab). For the form view "yes" is wrong:
+Designer keeps one form beside each XML view, `indexOfFormEditor()` would not
+find a split's second view, and activating it trips `QTC_ASSERT(fw, return)`.
+`TextEditorFactory::duplicatedSupported()` exists now, and the Quick editor
+answers `!m_factory || m_factory->duplicatedSupported()`.
+
+Not closed, noted: `setMarksVisible(false)` has no getter and the Quick editor
+does not read it. The form view has no marks to show, so nothing is visibly
+wrong; the next embedded view that gets marks it should not show will need
+the same treatment as the tool bar and duplicate flags got.
+
+### What the Designer test found: 293's seam reported and did not enforce
+
+First run of the new Designer test, alone: every assertion passed but the
+last - "the XML view took a keystroke". Read before guessing:
+`TextViewport::isReadOnly()` is `m_readOnly || m_readOnlyAsked`, as entry 293
+wrote it; `canEdit()` is `!m_readOnly && ...`, and so are the key handler's
+guard, the input-method `ImEnabled` answer, `dropText()`, `removeSelectedText()`,
+`applyCompletion()`, the auto-complete highlight and the two status-bar
+"can this file be written" checks - **nine reads of `m_readOnly`**, none of
+`isReadOnly()`. `setReadOnlyAsked(true)` set a flag one getter reported and no
+editing path consulted. Entry 293's test asserted `isReadOnly()` after each
+step and never typed; its controls bit on the getter. A flag is not the
+behaviour it is supposed to gate - the assertion has to be the refused edit.
+(`~/.claude/testing.md`, "Asserting the flag is not asserting the refusal".)
+
+All nine guards ask `isReadOnly()` now; the getter and setter keep the member.
+`testAViewAskedToBeReadOnlyRefusesAnEdit` in `textviewport_test.cpp` clears
+the view's own reason, asks, and expects `canEdit()` false, a key refused and
+`insertText()` refused; then takes the ask back and expects the key to land.
+Alone: 3 passed, 0 failed, exit 0. Entry 293's own test, re-run: 3 passed, exit 0 -
+the getter's contract is unchanged, only enforced.
+
+### The tests
+
+`Designer::Internal::XmlEditorTest::testTheXmlViewIsTheQuickEditorAndTakesNoKey`
+(new file `xmleditor_test.cpp`, registered beside the go-to-slot test): a
+minimal `.ui` written to a temporary directory and opened; the editor's
+document id is the XML editor's; it is not a `BaseTextEditor`; its widget
+hosts a `QQuickWidget` (asked by name, Designer links no Qt Quick); it says
+it cannot be split; its document is the `FormWindowFile`, non-empty and
+highlighted; and a key sent to `TextEditor::keyTargetOf(editor)` leaves the
+text as it was. The key goes to the view's key target directly, as the
+CppEditor tests do, so the assertion is about read-only and not about focus.
+Alone, after the guard fix: 3 passed, 0 failed, exit 0 (one QWARN, "QOpenGLWidget
+is not supported on this platform" - the offscreen platform, not this view).
+
+`QuickTextEditorTest::testAFactoryCanSayItsEditorsAreNotToBeDuplicated`
+(widget and quick rows): a factory with the default builds an editor that
+can be split; one with `setDuplicatedSupported(false)` builds one that says it
+cannot. Alone: 4 passed, 0 failed, exit 0 (both rows).
+
+Baseline before the change, `-test Designer` on HEAD: 8 passed, 0 failed, exit 0
+(the six go-to-slot rows and their fixture).
+
+Controls, each the pre-fix shape of one assertion (`set -e`; a refused patch
+ends the run, entry 295's lesson):
+
+- **A** - `setReadOnlyOf()` not called: 2 passed, 1 failed, "the XML view took a
+  keystroke".
+- **B** - `setUsesQuickEditor(true)` removed, so the factory builds the widget
+  editor as before: 2 passed, 1 failed, "the XML view is still the widget editor".
+- **C** - the Quick editor back to `setDuplicateSupported(true)`: the TextEditor
+  test's quick row fails, "the editor says it can be split although its language
+  said it cannot" (3 passed, 1 failed - the widget row still passes, as it
+  should); the Designer test fails on "the XML view could be split".
+- **D** - the nine guards back on `m_readOnly` (the saved diff applied in
+  reverse), so the ask is reported and not enforced, as 293 left it: the
+  viewport test fails first on "asked to be read-only, the view still says it
+  can edit"; the Designer test on "took a keystroke". Both bite on the
+  enforcement, and 293's own test would still pass under D - which is the
+  point of the section above.
+
+### Measurements
+
+    -test TextEditor     789 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Designer        11 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor is 789: 786 plus the duplicate test's two rows and the viewport
+test. Designer is 11: the go-to-slot eight plus this test object's three.
+No entry-247 crash in three TextEditor runs.
+
+qbs: `designer.qbs` resolved with the scratch profile from `qt-creator.md`
+(now on `qt6now`, the Qt that is installed): with `"doesnotexist.cpp"` added
+the resolve names `Designer` and the file; as edited, no line names
+`plugins/designer/`. The grep is on the path, not the word - `QmlDesigner`'s
+products would match "designer".
+
+### What is next
+
+1. **SCXML's text view** (`scxmleditor.cpp:106-137`): the same shape exactly -
+   a `TextEditorWidget` whose body is `setReadOnly(true)`, behind a
+   `ScxmlTextEditor` that the stack and the tool bar name. Its
+   `finalizeInitialization()` connects the document's `reloadRequested` to an
+   `open()` that loads through the design widget; that belongs to the
+   document or to `createEditor()`, not to an editor subclass.
+2. **The Quick editor and `setMarksVisible(false)`** (above), when a view
+   needs it.
+3. **VCS editors** - the big one. 1866 lines, 26 files; a census first.
+4. The QmlDesigner-side two (Effect Composer, binding editor) - not loaded in
+   the standing suites, so a run of their own is the first question.
+5. Then the standing list: the two-view tests' widget rows, QmlJSEditor into
+   the standing suites, ASan, the typing flake, Windows, the two Debugger
+   tests failing on HEAD (entry 293), the PNG hang (entry 294), the widget
+   editor's read-only hazard (entry 293, deliberately last).

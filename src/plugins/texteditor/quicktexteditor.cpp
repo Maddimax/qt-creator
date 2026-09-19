@@ -283,8 +283,9 @@ public:
         // duplicate() answers, so say so: the editor manager asks this rather
         // than trying, and an editor it thinks cannot be duplicated is moved
         // between split views instead of copied - which loses the tab the
-        // first view was keeping for it.
-        setDuplicateSupported(true);
+        // first view was keeping for it. Unless the language says no: a view
+        // another editor keeps a form beside cannot be a second view.
+        setDuplicateSupported(!m_factory || m_factory->duplicatedSupported());
 
         // What a right click offers. Taken from the same place the widget
         // editor takes it, and asked again each time the menu opens, because
@@ -14193,6 +14194,52 @@ private slots:
             for (QAction * const action : offered)
                 QCOMPARE(timesDrawnIn(toolBar, action), 1);
         }
+    }
+
+    // The same embedded views cannot be split: the editor around them keeps
+    // one form per text view, and a second view would have no form. The
+    // widget path hands the factory's answer to the editor; the Qt Quick one
+    // said yes for everyone.
+    void testAFactoryCanSayItsEditorsAreNotToBeDuplicated_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFactoryCanSayItsEditorsAreNotToBeDuplicated()
+    {
+        QFETCH(bool, quick);
+
+        class SplitFactory final : public TextEditorFactory
+        {
+        public:
+            SplitFactory(bool quick, bool splittable)
+            {
+                setId("QuickEditorDuplicateTest");
+                setDisplayName("Quick Editor Duplicate Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorDuplicateTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+                setDuplicatedSupported(splittable);
+            }
+        };
+
+        // The default first, so that what follows is about the setting and
+        // not about this view never being splittable.
+        SplitFactory splittable(quick, true);
+        QCOMPARE(splittable.duplicatedSupported(), true);
+        const std::unique_ptr<Core::IEditor> two(splittable.createEditor());
+        QVERIFY2(two.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(two.get()) != nullptr, quick);
+        QVERIFY2(two->duplicateSupported(), "an ordinary editor cannot be split");
+
+        SplitFactory single(quick, false);
+        QCOMPARE(single.duplicatedSupported(), false);
+        const std::unique_ptr<Core::IEditor> one(single.createEditor());
+        QVERIFY2(one.get(), "the factory built nothing");
+        QVERIFY2(!one->duplicateSupported(),
+                 "the editor says it can be split although its language said it cannot");
     }
 
     // A text view embedded in another editor's UI - Designer's form source,

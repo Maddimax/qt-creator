@@ -876,6 +876,10 @@ public:
     // there is none - has nowhere else to ask.
     Utils::CommentDefinition commentDefinition() const;
     void setDuplicatedSupported(bool on);
+    // Whether an editor of this language may be split into a second view of
+    // the same document. False for a text view another editor keeps a form
+    // beside, one to one; a second view would have no form.
+    bool duplicatedSupported() const;
     void setMarksVisible(bool on);
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
