@@ -66189,3 +66189,125 @@ No `.qbs` edited: no file list changed.
    `firstLineNumber` on the gutter, `setRevisionsVisible(false)`; flip and
    retire one VCS at a time, constructor declarations into the parameters.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — The handlers' menu entries from the document (batch 303)
+
+Entry 302's next item: what the widget editor's cursor handlers put in a
+right-click menu, offered by the document, so that the Qt Quick view's menu
+has them.
+
+### The seam was already there
+
+`TextDocument::contextMenuActions(const QTextCursor &)` - "what a right click
+at this cursor should offer for *this* document, asked each time the menu
+opens" - exists for the quick fixes, QmlJS implements it, and the Qt Quick
+editor's `m_contextActions` provider appends what it returns between the
+language's ActionManager container and the standard entries. Nothing on the
+TextEditor side had to change. `VcsEditorDocument` overrides it.
+
+### What the entries are, and what they do
+
+In the handlers' order, as batch 302's finder asks, for a log or an
+annotation:
+
+- **a change** - `Copy "%1"` (clipboard and selection, as
+  `Utils::setClipboardAndSelection()` does), `&Describe Change %1` (the
+  parameters' `describeFunc` with the document's source), and the annotate
+  entry in the document's `annotateRevisionTextFormat` - in an annotation
+  always, in a log only where the VCS has said its log can
+  (`fileLogAnnotateEnabled`), which is the widget's `fillContextMenu()` for
+  `AnnotateOutput` and the default case respectively;
+- **a URL or a Jira key or a Change-Id** - `Open URL in Browser...`, `Copy URL
+  Location`; the key copies as the URL it stands for, as the handler's
+  `m_urlData.url` did;
+- **an address** - `Send Email To...` (`mailto:`), `Copy Email Address`.
+
+And for a log or a diff, `Send to CodePaster...` when the paste service is
+loaded, after those.
+
+The strings are the handlers' own, so the translations are.
+
+**Annotating needs somewhere to ask.** The widget's entry ran
+`slotAnnotateRevision()`, which worked out the working directory (the widget's
+own, else the VCS top level above the file) and the file relative to it, and
+emitted `annotateRevisionRequested(workingDirectory, file, change, line)` -
+the widget's signal every VCS client connects to when it creates an editor.
+The document has the same signal now, `requestAnnotation()` works the same
+way from the document's source and working directory, and the widget forwards
+the document's signal to its own in `finalizeInitialization()`: a client
+connected to the widget hears an annotation asked for from either menu. In a
+Qt Quick view there is no widget to forward through yet - that is what step 6
+(retire one VCS at a time) will connect directly.
+
+**Ownership.** The actions are parented to the document and rebuilt on each
+call; the previous click's are deleted then, when the menu that showed them
+has long closed. QmlJS keeps one persistent action; either is fine for a menu
+that is asked afresh each time.
+
+### Left on the widget, deliberately
+
+- annotating a **previous** revision (`annotationPreviousVersions()`,
+  `decorateVersion()`) and the `isValidRevision()` gate - widget virtuals
+  Git and the others override, to become parameters as `changeUnderCursor`
+  did;
+- the per-VCS `addChangeActions()` and `addDiffActions()`;
+- `Apply Chunk...` / `Revert Chunk...` - `diffChunk(cursor)` lives on the
+  widget and `applyDiffChunk()` runs `patch` with the working directory; both
+  can move to the document with the hooks it already has, as their own batch;
+- `fileNameForLine()` in `requestAnnotation()` - the source stands in; only
+  Git's blame with `--show-name` answers differently.
+
+The widget's own `contextMenuEvent()` still builds its menu from the handlers,
+so the entries exist twice for now. The handlers go with the widget.
+
+### The test
+
+`VcsEditorDocumentTest::testALogsRightClickOffersWhatTheWidgetsHandlersDid`:
+the same log as batch 302's test, with a source under a working directory.
+At the change: the first two entries are copy and describe and no annotate
+entry yet; describe called with source and change; copy put the change on the
+clipboard. With `setFileLogAnnotateEnabled(true)`: the annotate entry, and
+triggering it emits the signal with `/repo`, `sub/file.cpp`, the change and
+line 1. At the URL: open and copy, copy giving the URL; at the Jira key, copy
+giving `<QT_JIRA_URL>/browse/QTCREATORBUG-123`; at the address, send and copy,
+copy giving the address. At `commit`: nothing that copies, describes or opens.
+An `AnnotateOutput` document offers the annotate entry without being told.
+
+Alone: 3 passed, 0 failed, exit 0 - after one compile error, an unqualified
+`UrlUnderCursor` in a function outside `Internal`.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals, distinct
+names, the tree checked clean at the end):
+
+- **A** - a right click offers nothing: "Compared lists have different sizes" on
+  the first two entries at the change.
+- **B** - nothing offers to describe the change: "Compared lists differ at
+  index 1" - copy is there, describe is not.
+- **C** - annotating asks nobody: the signal spy's count, "Compared values are
+  not the same" - the entry was there and triggered, and nothing heard it.
+
+### Measurements
+
+    -test TextEditor     793 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         24 passed, 0 failed, 0 skipped, exit 0
+    -test Git            136 passed, 2 failed, 0 skipped, exit 2
+
+VcsBase is 24: 23 plus this test. Git is exactly batch 302's - the two
+pre-existing failures, nothing new. TextEditor and QuickUi unchanged, as
+nothing of theirs changed; no flake and no entry-247 crash this time.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The diff chunk**: `diffChunk(cursor)`, `canApplyDiffChunk()`,
+   `applyDiffChunk()` and the Apply/Revert entries to the document, with
+   `jumpToChangeFromDiff()` as a `LinkFinder` for diff lines (entry 298's
+   step 4) - the two are the same code walking the same chunk headers.
+2. The remaining widget virtuals into the parameters: `isValidRevision`,
+   `annotationPreviousVersions`, `decorateVersion`, `addChangeActions`,
+   `addDiffActions`, `fileNameForLine` - each as a `std::function`, Git first.
+3. Steps 5-6 (entry 298): busy state, `firstLineNumber` on the gutter,
+   `setRevisionsVisible(false)`; flip and retire one VCS at a time.
+4. The QmlDesigner-side two; the standing list (entry 298).

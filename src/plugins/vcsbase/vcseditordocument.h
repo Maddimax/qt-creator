@@ -18,6 +18,7 @@
 #include <functional>
 
 QT_BEGIN_NAMESPACE
+class QAction;
 class QTextBlock;
 class QTextCursor;
 class QWidget;
@@ -164,7 +165,22 @@ public:
     // and a jump to any other. A log or a diff has one; the others none.
     TextEditor::ToolBarChoice *toolBarChoice() const override;
 
+    // What a right click at \a cursor offers, as the widget editor's handlers
+    // offered it: for a change, to copy, describe and annotate it; for a URL
+    // or an address, to open and to copy; and for a log or a diff, to paste
+    // it. Built for the click and kept until the next.
+    QList<QAction *> contextMenuActions(const QTextCursor &cursor) override;
+
+signals:
+    // An annotation of \a file at \a change was asked for, from \a line of
+    // this output. What the widget editor's signal of the same name says,
+    // for a view that is not it.
+    void annotateRevisionRequested(const Utils::FilePath &workingDirectory,
+                                   const QString &file, const QString &change, int line);
+
 private:
+    void requestAnnotation(const QString &change, int line);
+
     Internal::VcsEditorDocumentPrivate *const d;
 };
 

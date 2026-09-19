@@ -816,6 +816,10 @@ void VcsBaseEditorWidget::finalizeInitialization()
 
     QTC_CHECK(document->parameters().describeFunc);
     connect(this, &VcsBaseEditorWidget::describeRequested, this, document->parameters().describeFunc);
+    // What the document's own menu entries ask for reaches whoever listens
+    // to this widget, as the widget's entries' requests do.
+    connect(document, &VcsEditorDocument::annotateRevisionRequested,
+            this, &VcsBaseEditorWidget::annotateRevisionRequested);
     init();
 }
 

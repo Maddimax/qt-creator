@@ -11,11 +11,18 @@
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
+#include <coreplugin/vcsmanager.h>
+
+#include <cpaster/codepasterservice.h>
+
+#include <extensionsystem/pluginmanager.h>
 
 #include <texteditor/texteditor.h>
 
 #include <utils/qtcassert.h>
+#include <utils/stringutils.h>
 
+#include <QAction>
 #include <QDesktopServices>
 #include <QPointer>
 #include <QTextBlock>
@@ -262,6 +269,7 @@ public:
     VcsEditorDocument::BlockToString revisionSubject;
     VcsEditorSections *sections = nullptr;
     VcsSectionsChoice *choice = nullptr;
+    QList<QAction *> contextActions;
 };
 
 } // namespace Internal
@@ -460,6 +468,83 @@ TextEditor::ToolBarChoice *VcsEditorDocument::toolBarChoice() const
     return d->choice;
 }
 
+QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor)
+{
+    // The previous click's are gone with its menu; these live until the next.
+    qDeleteAll(d->contextActions);
+    d->contextActions.clear();
+    if (cursor.isNull())
+        return {};
+
+    const auto add = [this](const QString &text, const std::function<void()> &act) {
+        auto * const action = new QAction(text, this);
+        connect(action, &QAction::triggered, this, act);
+        d->contextActions.append(action);
+    };
+    const EditorContentType type = d->parameters.type;
+
+    // What is under the pointer, in the order the widget's handlers are asked.
+    if (type == LogOutput || type == AnnotateOutput) {
+        const QString change = d->parameters.changeUnderCursor
+                                   ? d->parameters.changeUnderCursor(cursor) : QString();
+        Internal::UrlUnderCursor url;
+        Internal::UrlUnderCursor mail;
+        if (change.isEmpty())
+            url = Internal::urlUnderCursor(cursor);
+        if (change.isEmpty() && !url.isValid())
+            mail = Internal::emailUnderCursor(cursor);
+        if (!change.isEmpty()) {
+            add(Tr::tr("Copy \"%1\"").arg(change), [change] { Utils::setClipboardAndSelection(change); });
+            add(Tr::tr("&Describe Change %1").arg(change), [this, change] {
+                if (d->parameters.describeFunc)
+                    d->parameters.describeFunc(VcsBase::source(this), change);
+            });
+            // An annotation offers the revision itself; a log offers the file
+            // annotated at it, where the VCS has said its log can.
+            if (type == AnnotateOutput || d->fileLogAnnotateEnabled) {
+                const int line = cursor.blockNumber() + 1;
+                add(d->annotateRevisionTextFormat.arg(change),
+                    [this, change, line] { requestAnnotation(change, line); });
+            }
+        } else if (url.isValid()) {
+            add(Tr::tr("Open URL in Browser..."),
+                [address = url.url] { QDesktopServices::openUrl(QUrl(address)); });
+            add(Tr::tr("Copy URL Location"),
+                [address = url.url] { Utils::setClipboardAndSelection(address); });
+        } else if (mail.isValid()) {
+            add(Tr::tr("Send Email To..."), [address = mail.url] {
+                QDesktopServices::openUrl(QUrl("mailto:" + address));
+            });
+            add(Tr::tr("Copy Email Address"),
+                [address = mail.url] { Utils::setClipboardAndSelection(address); });
+        }
+    }
+
+    // A log or a diff can be pasted, where there is somewhere to paste it to.
+    if (type == LogOutput || type == DiffOutput) {
+        if (auto * const paste = ExtensionSystem::PluginManager::getObject<CodePaster::Service>())
+            add(Tr::tr("Send to CodePaster..."), [paste] { paste->postCurrentEditor(); });
+    }
+    return d->contextActions;
+}
+
+// What the widget's slotAnnotateRevision() works out: the working directory
+// from this document or the VCS above the source, and the file relative to
+// it. The source stands in for the widget's fileNameForLine(), which only Git
+// answers differently.
+void VcsEditorDocument::requestAnnotation(const QString &change, int line)
+{
+    const FilePath fileName = VcsBase::source(this).canonicalPath();
+    const FilePath ownWorkingDirectory = d->workingDirectory;
+    const FilePath workingDirectory = ownWorkingDirectory.isEmpty()
+            ? Core::VcsManager::findTopLevelForDirectory(fileName.parentDir())
+            : ownWorkingDirectory;
+    const FilePath relativePath = fileName.isRelativePath()
+            ? fileName
+            : fileName.relativeChildPath(workingDirectory);
+    emit annotateRevisionRequested(workingDirectory, relativePath.toUrlishString(), change, line);
+}
+
 void VcsEditorDocument::updateSections()
 {
     QStringList entries;
@@ -517,7 +602,12 @@ void VcsEditorDocument::updateSections()
 
 #include "vcsbaseeditor.h"
 
+#include <utils/algorithm.h>
+
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QScopeGuard>
+#include <QSignalSpy>
 #include <QTest>
 
 namespace VcsBase {
@@ -689,6 +779,117 @@ private slots:
         VcsEditorDocument diff(diffParameters);
         QVERIFY2(!TextEditor::TextEditorFactory::actionLinkFinderFor(&diff),
                  "a diff offers something to do under the pointer");
+    }
+
+    // A right click in a log offers what the widget editor's handlers put in
+    // its menu: for a change, to copy it, describe it and - where the VCS says
+    // its log can - annotate the file at it; for a URL or an address, to open
+    // and to copy. Each entry is tried, not only counted.
+    void testALogsRightClickOffersWhatTheWidgetsHandlersDid()
+    {
+        FilePath describedSource;
+        QString describedChange;
+        const VcsBaseEditorParameters parameters{
+            LogOutput,
+            "VcsEditorDocumentTest.Menu",
+            "VCS document test menu",
+            "text/vnd.qtcreator.vcs-document-menu-test",
+            {},
+            [&describedSource, &describedChange](const FilePath &source, const QString &change) {
+                describedSource = source;
+                describedChange = change;
+            },
+            [](const QTextCursor &cursor) {
+                static const QRegularExpression eightHex(
+                    QRegularExpression::anchoredPattern("[0-9a-f]{8}"));
+                QTextCursor word = cursor;
+                word.select(QTextCursor::WordUnderCursor);
+                const QString text = word.selectedText();
+                return eightHex.match(text).hasMatch() ? text : QString();
+            }};
+        VcsEditorDocument document(parameters);
+        VcsBase::setSource(&document, FilePath::fromString("/repo/sub/file.cpp"));
+        document.setWorkingDirectory(FilePath::fromString("/repo"));
+        const QString text = "commit 1234abcd\n"
+                             "see https://example.org/x?a=1 now\n"
+                             "Task-number: QTCREATORBUG-123\n"
+                             "mail me@example.com\n";
+        document.setPlainText(text);
+
+        const auto cursorAt = [&document, &text](const QString &what) {
+            QTextCursor cursor(document.document());
+            cursor.setPosition(int(text.indexOf(what)) + 1);
+            return cursor;
+        };
+        const auto textsOf = [](const QList<QAction *> &actions) {
+            return Utils::transform(actions, &QAction::text);
+        };
+        const auto trigger = [](const QList<QAction *> &actions, const QString &text) {
+            for (QAction * const action : actions) {
+                if (action->text() == text) {
+                    action->trigger();
+                    return true;
+                }
+            }
+            return false;
+        };
+        QClipboard * const clipboard = QGuiApplication::clipboard();
+
+        // The change: copy, describe - and no annotation from a log that has
+        // not said it can.
+        QList<QAction *> onChange = document.contextMenuActions(cursorAt("1234abcd"));
+        QStringList texts = textsOf(onChange);
+        QCOMPARE(texts.mid(0, 2), QStringList({"Copy \"1234abcd\"", "&Describe Change 1234abcd"}));
+        QVERIFY2(!texts.contains("Annotate \"1234abcd\""), "a log offered to annotate before it said it could");
+        QVERIFY(trigger(onChange, "&Describe Change 1234abcd"));
+        QCOMPARE(describedChange, QString("1234abcd"));
+        QCOMPARE(describedSource, FilePath::fromString("/repo/sub/file.cpp"));
+        clipboard->clear();
+        QVERIFY(trigger(onChange, "Copy \"1234abcd\""));
+        QCOMPARE(clipboard->text(), QString("1234abcd"));
+
+        // Once it has: the annotation, asked for with the file relative to the
+        // working directory and the line the click was on.
+        document.setFileLogAnnotateEnabled(true);
+        QSignalSpy annotated(&document, &VcsEditorDocument::annotateRevisionRequested);
+        onChange = document.contextMenuActions(cursorAt("1234abcd"));
+        QVERIFY(trigger(onChange, "Annotate \"1234abcd\""));
+        QCOMPARE(annotated.count(), 1);
+        QCOMPARE(annotated.first().at(0).value<FilePath>(), FilePath::fromString("/repo"));
+        QCOMPARE(annotated.first().at(1).toString(), QString("sub/file.cpp"));
+        QCOMPARE(annotated.first().at(2).toString(), QString("1234abcd"));
+        QCOMPARE(annotated.first().at(3).toInt(), 1);
+
+        // A URL and a Jira key: open and copy, the key copied as the URL it
+        // stands for. An address: send and copy.
+        QList<QAction *> onUrl = document.contextMenuActions(cursorAt("https://example.org"));
+        QCOMPARE(textsOf(onUrl).mid(0, 2), QStringList({"Open URL in Browser...", "Copy URL Location"}));
+        QVERIFY(trigger(onUrl, "Copy URL Location"));
+        QCOMPARE(clipboard->text(), QString("https://example.org/x?a=1"));
+        QList<QAction *> onKey = document.contextMenuActions(cursorAt("QTCREATORBUG-123"));
+        QVERIFY(trigger(onKey, "Copy URL Location"));
+        QCOMPARE(clipboard->text(), QString(Core::Constants::QT_JIRA_URL) + "/browse/QTCREATORBUG-123");
+        QList<QAction *> onMail = document.contextMenuActions(cursorAt("me@example.com"));
+        QCOMPARE(textsOf(onMail).mid(0, 2), QStringList({"Send Email To...", "Copy Email Address"}));
+        QVERIFY(trigger(onMail, "Copy Email Address"));
+        QCOMPARE(clipboard->text(), QString("me@example.com"));
+
+        // Plain text: none of those.
+        const QStringList onPlain = textsOf(document.contextMenuActions(cursorAt("commit")));
+        for (const QString &entry : onPlain)
+            QVERIFY2(!entry.startsWith("Copy") && !entry.startsWith("&Describe") && !entry.startsWith("Open"),
+                     qPrintable("plain text offered: " + entry));
+
+        // An annotation offers to annotate its revision without being told.
+        VcsBaseEditorParameters annotateParameters = parameters;
+        annotateParameters.type = AnnotateOutput;
+        annotateParameters.id = "VcsEditorDocumentTest.AnnotateMenu";
+        VcsEditorDocument annotation(annotateParameters);
+        annotation.setPlainText("1234abcd (someone) line\n");
+        QTextCursor onRevision(annotation.document());
+        onRevision.setPosition(2);
+        QVERIFY2(textsOf(annotation.contextMenuActions(onRevision)).contains("Annotate \"1234abcd\""),
+                 "an annotation does not offer to annotate the revision under the pointer");
     }
 };
 
