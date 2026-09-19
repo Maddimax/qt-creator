@@ -931,8 +931,17 @@ public:
         // it can arrive after this row does, which childEvent() below answers.
         ToolBarOutline * const outline = findChild<ToolBarOutline *>();
 
-        m_toolBar = Internal::createQuickTextToolBar(view, &m_toolBarActions, outline,
-                                                     m_document->toolBarChoice());
+        // A choice whose current row follows the caret is told where it is,
+        // now and as it moves. The view's signal, so that the connection goes
+        // with the view.
+        ToolBarChoice * const choice = m_document->toolBarChoice();
+        if (choice) {
+            choice->followCaret(view->cursorLine());
+            connect(view, &TextViewport::cursorPositionChanged, choice,
+                    [choice, view] { choice->followCaret(view->cursorLine()); });
+        }
+
+        m_toolBar = Internal::createQuickTextToolBar(view, &m_toolBarActions, outline, choice);
         return m_toolBar;
     }
 
@@ -13460,11 +13469,13 @@ private slots:
                 emit changed();
             }
             void offer(bool available) { m_available = available; emit changed(); }
+            void followCaret(int line) override { m_followed = line; }
 
             QStandardItemModel m_model;
             int m_current = 0;
             int m_chosen = -1;
             int m_clears = 0;
+            int m_followed = -1;
             bool m_available = false;
         };
 
@@ -13530,6 +13541,18 @@ private slots:
         QMetaObject::invokeMethod(clear, "clicked");
         QTRY_COMPARE(document->m_choice->m_clears, 1);
         QTRY_VERIFY2(!clear->isVisible(), "the way back stayed after the pick was undone");
+
+        // And a choice that follows the caret is told where it is: once when
+        // the row is built, and again as the caret moves. One-based, the line
+        // the editor reports.
+        QVERIFY2(document->m_choice->m_followed == 1,
+                 qPrintable(QString("the choice was told the caret is on line %1 when the row was built")
+                                .arg(document->m_choice->m_followed)));
+        document->setPlainText("one\ntwo\nthree\n");
+        TextViewport * const view = viewportForEditor(editor.get());
+        QVERIFY(view);
+        view->setCursorPosition(document->document()->findBlockByNumber(2).position());
+        QTRY_COMPARE(document->m_choice->m_followed, 3);
     }
 
     // The provider is on the document, and asking it is what turns that into

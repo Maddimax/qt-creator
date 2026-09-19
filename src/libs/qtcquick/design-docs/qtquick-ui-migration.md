@@ -65859,3 +65859,121 @@ added the resolve names `VcsBase` and the file; as edited, no line names
    each VCS, its constructor declarations into the parameters, so the staging
    area can go.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — The VCS sections in the Quick tool bar (batch 300)
+
+Entry 299's step 2: the entries browser - the widget editor's combo box that
+names each file of a diff or each entry of a log, follows the caret and jumps
+- as something the Qt Quick tool bar shows. The first piece of a VCS editor
+the Qt Quick view can draw.
+
+### The seam already existed
+
+The Qt Quick tool bar draws a language's `ToolBarChoice` (which of several
+ways a C++ file is parsed): `TextDocument::toolBarChoice()` hands it over,
+`EditorToolBar.qml` shows its `model` in a combo, keeps `currentIndex` in
+step through `changed()`, and calls `choose(index)` when a row is picked. The
+sections are a model on the document since batch 299. So
+`VcsEditorDocument::toolBarChoice()` returns a `VcsSectionsChoice` over
+`sections()` for a log or a diff, and nothing for the other two types, which
+never had the combo.
+
+One thing did not fit: a `ToolBarChoice` is a fact about the *file* - "only
+the row the caret is in follows a view", the class's own comment says - and
+the sections' current row is exactly the row the caret is in. So the protocol
+grows one call, `followCaret(int line)`, one-based, a no-op by default; the Qt
+Quick editor calls it when it builds its tool bar row and on the view's
+`cursorPositionChanged`, connected on the view so the connection goes with it.
+`VcsSectionsChoice::currentIndex()` is `sectionOfLine(caret - 1)`, clamped to
+the first row before the first section, and `changed()` is emitted only when
+the row changes or the model resets.
+
+`choose(index)` goes to the section's first line **in the editor showing the
+document** - the current editor if its document is this one, else whichever
+the editor manager has for it - through `IEditor::gotoLine()`, after
+`addCurrentPositionToNavigationHistory()`, and not at all if the caret is
+already on that line: the widget's `slotJumpToEntry()`, line for line.
+`isChosen()` is false and `clearChoice()` nothing: a jump is not a pick the
+language would have made differently, so the view offers no way back.
+
+With two Qt Quick views of one log, the last caret to move wins the current
+row. The widget editor has one combo per view; a per-view current row on a
+document-level choice would need the tool bar to know which view it is for.
+Noted, not done: a split VCS editor is not a thing yet (batch 296's
+`setDuplicatedSupported(false)` reaches the Qt Quick editor now).
+
+### The widget editor
+
+Unchanged in behaviour: it keeps its own combo box, filled from the same
+model since batch 299, and does not draw `toolBarChoice()` (the widget's
+parse-context combo is CppEditor's own code). It will go with the widget.
+
+### The tests
+
+- `testTheFormDrawsTheLanguagesChoice` (TextEditor) grew a tail: the test
+  choice records `followCaret()`; it was told line 1 when the row was built,
+  and after text is set and the caret moved to the third line, line 3.
+- `testTheWidgetEditorsStateIsTheDocuments` (VcsBase) grew a tail too: the
+  document's choice is over its sections, available with two of them, not a
+  pick; `followCaret(5)` makes the second row current and `followCaret(2)` the
+  first; `choose(1)` puts the editor's caret on line 4. For that last one the
+  editor has to be one the editor manager knows, so the test now opens it as a
+  client does - `openEditorWithContents()` with the factory's id - rather than
+  through `factory.createEditor()`.
+
+Alone: the TextEditor test 3 passed, 0 failed, exit 0 at the first run. The
+VcsBase test failed first on its own precondition, `currentLine() == 1`
+before the jump: `setPlainText()` leaves the widget editor's caret at the
+*end* of the text, line 6 here. The test asserts only that the caret does not
+start where the jump lands, jumps to the second entry and then back to the
+first - a move in each direction. After that: 3 passed, 0 failed, exit 0.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals, distinct
+names, the tree checked clean at the end - entry 299's lesson):
+
+- **A** - the Qt Quick editor never calls `followCaret()`: the TextEditor test
+  fails, "the choice was told the caret is on line -1 when the row was built".
+- **B** - `choose()` goes nowhere: the VcsBase test fails, "choosing the second
+  entry left the caret on line 6".
+- **C** - `currentIndex()` ignores the caret: the VcsBase test fails on
+  `currentIndex() == 1` after `followCaret(5)`.
+
+### Measurements
+
+    -test TextEditor     791 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         22 passed, 0 failed, 0 skipped, exit 0
+    -test Git            134 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and once:
+                           InstantBlameTest::testBlameDocumentContents
+                           'markToolTip(2).contains("-committed")'
+
+**The third Git failure is new to this run and not to this change.** The
+test builds a repository with five synchronous `git` runs, runs a blame,
+and gives a `BlameMark`'s tooltip five seconds to say `-committed`; it holds
+a `TextEditorWidget` of its own and never opens an editor, so neither the Qt
+Quick tool bar nor a `ToolBarChoice` is anywhere near it. Its test object
+took **16047 ms** in this run against 470 ms in the baseline and 353 ms in
+batch 299 - the `git` processes themselves were forty times slower, which is
+the VM under load straight after three TextEditor runs, and a five-second
+wait for a blame that took that long to arrive. Alone on this binary, five
+runs: 0 failures, 304-322 ms each. Two load-sensitive waits in two batches
+(`testFollowSymbolBigFile` in 298) - the VM's timing is the variable, and a
+suite order that puts a `git`-heavy test after the heavy suites finds it.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **VCS step 3** - links that are actions. A `Utils::Link` names a place; a
+   change under the cursor names something to *do* (describe it), and so do a
+   URL and an e-mail address. Either `Link` grows a callback or the factory
+   grows a second finder the viewport asks beside the link finder, for hover
+   and click alike; then the three cursor handlers become finders on the VCS
+   factory, and their context-menu entries the dynamic actions the Quick
+   editor's `contextActions` provider can already supply in principle.
+2. Steps 4-6 (entry 298): diff navigation as a link finder; busy state,
+   `firstLineNumber` on the gutter, `setRevisionsVisible(false)`; flip and
+   retire one VCS at a time, moving each one's constructor declarations into
+   the parameters so batch 299's staging area can go.
+3. The QmlDesigner-side two; the standing list (entry 298).

@@ -22,6 +22,8 @@ class QTextBlock;
 class QWidget;
 QT_END_NAMESPACE
 
+namespace TextEditor { class ToolBarChoice; }
+
 namespace VcsBase {
 
 class VcsBaseEditorConfig;
@@ -133,6 +135,10 @@ public:
                          const BlockToString &revisionSubject);
     VcsEditorSections *sections() const;
     void updateSections();
+
+    // The sections as what the tool bar offers: the entry the caret is in,
+    // and a jump to any other. A log or a diff has one; the others none.
+    TextEditor::ToolBarChoice *toolBarChoice() const override;
 
 private:
     Internal::VcsEditorDocumentPrivate *const d;

@@ -1024,6 +1024,11 @@ public:
     Q_INVOKABLE virtual void choose(int index) = 0;
     // Forget the choice and go back to what the code model would pick.
     Q_INVOKABLE virtual void clearChoice() = 0;
+    // Where the caret is, one-based, in the view whose toolbar shows this -
+    // for a choice whose current row follows the caret, like which entry of
+    // a log the reader is in, rather than stating a fact about the file.
+    // Nothing to most choices.
+    virtual void followCaret(int line) { Q_UNUSED(line) }
 
 signals:
     void changed();

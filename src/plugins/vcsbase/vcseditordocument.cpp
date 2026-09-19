@@ -6,6 +6,12 @@
 #include "vcsbaseeditorconfig.h"
 #include "vcsbasetr.h"
 
+#include <coreplugin/editormanager/documentmodel.h>
+#include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/editormanager/ieditor.h>
+
+#include <texteditor/texteditor.h>
+
 #include <utils/qtcassert.h>
 
 #include <QPointer>
@@ -67,6 +73,67 @@ void VcsEditorSections::reset(const QStringList &entries, const QList<int> &line
 
 namespace Internal {
 
+// The sections as the choice the tool bar shows: the row the caret is in is
+// current, choosing a row goes to its first line. Nothing here is a pick the
+// language would otherwise have made differently, so there is nothing to
+// clear and the view offers no way back.
+class VcsSectionsChoice final : public TextEditor::ToolBarChoice
+{
+public:
+    VcsSectionsChoice(VcsEditorDocument *document, VcsEditorSections *sections)
+        : ToolBarChoice(document)
+        , m_document(document)
+        , m_sections(sections)
+    {
+        connect(sections, &QAbstractItemModel::modelReset, this, &ToolBarChoice::changed);
+    }
+
+    QAbstractItemModel *model() const override { return m_sections; }
+    int currentIndex() const override
+    {
+        return qMax(0, m_sections->sectionOfLine(m_caretLine - 1));
+    }
+    QString toolTip() const override { return Tr::tr("Go to an entry"); }
+    bool isAvailable() const override { return m_sections->rowCount() > 0; }
+    bool isChosen() const override { return false; }
+    void clearChoice() override {}
+
+    // In the view showing the document - the current editor where that is
+    // the one, else whichever the editor manager has - with a way back, as
+    // the widget editor's combo box does it.
+    void choose(int index) override
+    {
+        const QList<int> lines = m_sections->lines();
+        if (index < 0 || index >= lines.size())
+            return;
+        Core::IEditor *editor = Core::EditorManager::currentEditor();
+        if (!editor || editor->document() != m_document)
+            editor = Core::DocumentModel::editorsForDocument(m_document).value(0);
+        if (!editor)
+            return;
+        const int lineNumber = lines.at(index) + 1;
+        if (lineNumber == editor->currentLine())
+            return;
+        Core::EditorManager::addCurrentPositionToNavigationHistory();
+        editor->gotoLine(lineNumber, 0);
+    }
+
+    void followCaret(int line) override
+    {
+        if (m_caretLine == line)
+            return;
+        const int was = currentIndex();
+        m_caretLine = line;
+        if (currentIndex() != was)
+            emit changed();
+    }
+
+private:
+    VcsEditorDocument * const m_document;
+    VcsEditorSections * const m_sections;
+    int m_caretLine = 1;
+};
+
 class VcsEditorDocumentPrivate
 {
 public:
@@ -84,6 +151,7 @@ public:
     VcsEditorDocument::BlockToString fileNameForDiffHeader;
     VcsEditorDocument::BlockToString revisionSubject;
     VcsEditorSections *sections = nullptr;
+    VcsSectionsChoice *choice = nullptr;
 };
 
 } // namespace Internal
@@ -108,9 +176,11 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
     setMimeType(parameters.mimeType);
     setSuspendAllowed(false);
     // The sections follow the text. A log or a diff has them; the others
-    // have nothing to find.
-    if (parameters.type == LogOutput || parameters.type == DiffOutput)
+    // have nothing to find, and so nothing to offer in the tool bar either.
+    if (parameters.type == LogOutput || parameters.type == DiffOutput) {
         connect(this, &TextDocument::contentsChanged, this, &VcsEditorDocument::updateSections);
+        d->choice = new Internal::VcsSectionsChoice(this, d->sections);
+    }
 }
 
 VcsEditorDocument::~VcsEditorDocument()
@@ -268,6 +338,11 @@ VcsEditorSections *VcsEditorDocument::sections() const
     return d->sections;
 }
 
+TextEditor::ToolBarChoice *VcsEditorDocument::toolBarChoice() const
+{
+    return d->choice;
+}
+
 void VcsEditorDocument::updateSections()
 {
     QStringList entries;
@@ -325,8 +400,7 @@ void VcsEditorDocument::updateSections()
 
 #include "vcsbaseeditor.h"
 
-#include <coreplugin/editormanager/ieditor.h>
-
+#include <QScopeGuard>
 #include <QTest>
 
 namespace VcsBase {
@@ -367,9 +441,14 @@ private slots:
                                                  [] { return new LogWidget; },
                                                  [](const FilePath &, const QString &) {}};
         VcsEditorFactory factory(parameters);
-        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        // Through the editor manager, as a client opens one: the choice below
+        // jumps in the editor the manager knows for the document.
+        QString title = "VCS document test";
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditorWithContents(parameters.id, &title, QByteArray());
         QVERIFY(editor);
-        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor.get());
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
         QVERIFY2(widget, "the factory did not build a VCS editor");
         VcsEditorDocument * const document = widget->vcsDocument();
         QVERIFY2(document, "the VCS editor's document is not a VCS document");
@@ -392,6 +471,29 @@ private slots:
         QCOMPARE(document->sections()->sectionOfLine(2), 0);
         QCOMPARE(document->sections()->sectionOfLine(4), 1);
         QCOMPARE(document->sections()->data(document->sections()->index(1), VcsEditorSections::LineRole).toInt(), 3);
+
+        // And the sections are what the tool bar offers: the row the caret is
+        // in is current, and choosing a row goes there. Not a pick to undo.
+        TextEditor::ToolBarChoice * const choice = document->toolBarChoice();
+        QVERIFY2(choice, "a log document offers the tool bar no choice");
+        QCOMPARE(choice->model(), document->sections());
+        QVERIFY2(choice->isAvailable(), "two sections, and nothing to choose between");
+        QVERIFY2(!choice->isChosen(), "a jump is offered as a pick to undo");
+        choice->followCaret(5);
+        QCOMPARE(choice->currentIndex(), 1);
+        choice->followCaret(2);
+        QCOMPARE(choice->currentIndex(), 0);
+        // Setting the text left the widget editor's caret at the end; what
+        // matters is that a choice moves it, in both directions.
+        QVERIFY2(editor->currentLine() != 4, "the caret starts where the jump would land");
+        choice->choose(1);
+        QVERIFY2(editor->currentLine() == 4,
+                 qPrintable(QString("choosing the second entry left the caret on line %1")
+                                .arg(editor->currentLine())));
+        choice->choose(0);
+        QVERIFY2(editor->currentLine() == 1,
+                 qPrintable(QString("choosing the first entry left the caret on line %1")
+                                .arg(editor->currentLine())));
     }
 };
 
