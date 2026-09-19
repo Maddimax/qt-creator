@@ -58,6 +58,9 @@ inline constexpr char C_GLOBAL_CUTOFF[]       = "Global Cutoff";
 // Default editor kind
 inline constexpr char K_DEFAULT_TEXT_EDITOR_ID[] = "Core.PlainTextEditor";
 inline constexpr char K_DEFAULT_BINARY_EDITOR_ID[] = "Core.BinaryEditor";
+// The Qt Quick text editor. The factory lives in TextEditor; Core names it
+// because the fallback for a file nobody claims has to be able to ask for it.
+inline constexpr char K_QUICK_TEXT_EDITOR_ID[] = "TextEditor.QuickTextEditor";
 
 //actions
 inline constexpr char UNDO[]                  = "QtCreator.Undo";

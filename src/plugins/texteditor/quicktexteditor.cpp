@@ -6718,6 +6718,40 @@ private slots:
                  "the highlighter was built with no definition behind it");
     }
 
+    // A file no text editor claims - an archive - and what the editor manager
+    // offers for it anyway. Nothing claims application/zip directly; it
+    // inherits application/octet-stream, which the Bin Editor claims, so that
+    // is what opens. After that the editor manager appends a text editor by
+    // hand, so that a type the mime database got wrong can still be opened as
+    // text: that used to be the widget plain text editor alone, and is this
+    // one first now, with the widget one still offered after it. Measured
+    // before it was written: an empty unknown file is text/plain and reaches
+    // this editor by claim, not by fallback, and text/plain inherits
+    // octet-stream too - so with the Bin Editor loaded no file type reaches
+    // the fallback *first*. What the order decides is Open With, and the
+    // default in a Creator without the Bin Editor.
+    void testAFileNoTextEditorClaimsIsOfferedThisOneFirst()
+    {
+        const Utils::MimeType zip = Utils::mimeTypeForName("application/zip");
+        if (!zip.isValid())
+            QSKIP("no zip mime type registered on this system");
+        QVERIFY2(!zip.inherits(QLatin1String(Constants::C_TEXTEDITOR_MIMETYPE_TEXT)),
+                 "an archive is a text file here, so this measures a claim and not the fallback");
+
+        const Core::EditorFactories factories = Core::IEditorFactory::defaultEditorFactories(zip);
+        QStringList ids;
+        for (Core::IEditorFactory * const factory : factories)
+            ids << factory->id().toString();
+        qDebug().noquote() << "offered for" << zip.name() << ":" << ids.join(", ");
+
+        const int quick = ids.indexOf(QLatin1String(QUICK_TEXT_EDITOR_ID));
+        const int plain = ids.indexOf(QLatin1String(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID));
+        QVERIFY2(quick >= 0, "this editor is not offered at all for a file no text editor claims");
+        QVERIFY2(plain >= 0, "Open With lost the plain text editor for a file no text editor claims");
+        QVERIFY2(quick < plain, qPrintable(QString("the fallback offers the widget editor before "
+                                                    "this one: %1").arg(ids.join(", "))));
+    }
+
     void testWhichLanguagesOpenInTheQuickEditor()
     {
         Utils::TemporaryDirectory dir("quick-editor-census");

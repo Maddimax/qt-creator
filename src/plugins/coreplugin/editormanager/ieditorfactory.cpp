@@ -37,14 +37,18 @@ static void mimeTypeFactoryLookup(const Utils::MimeType &mimeType,
         }
         return true; // continue
     });
-    // Always offer the plain text editor as a fallback for the case that the mime type
-    // is not detected correctly.
-    if (auto plainTextEditorFactory = Utils::findOrDefault(
-            allFactories,
-            Utils::equal(&IEditorFactory::id, Utils::Id(Constants::K_DEFAULT_TEXT_EDITOR_ID)))) {
-        if (!matches.contains(plainTextEditorFactory))
-            list->append(plainTextEditorFactory);
-    }
+    // Always offer a text editor as a fallback for the case that the mime type
+    // is not detected correctly: the Qt Quick one first, which is what every
+    // recognised text file opens in, and the plain one after it so that Open
+    // With still reaches both.
+    const auto offer = [&](Utils::Id id) {
+        if (auto factory = Utils::findOrDefault(allFactories, Utils::equal(&IEditorFactory::id, id))) {
+            if (!matches.contains(factory))
+                list->append(factory);
+        }
+    };
+    offer(Utils::Id(Constants::K_QUICK_TEXT_EDITOR_ID));
+    offer(Utils::Id(Constants::K_DEFAULT_TEXT_EDITOR_ID));
 }
 
 /*!

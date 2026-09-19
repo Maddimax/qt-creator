@@ -5,6 +5,8 @@
 
 #include "texteditor_global.h"
 
+#include <coreplugin/coreconstants.h>
+
 #include <QLoggingCategory>
 
 namespace TextEditor {
@@ -212,7 +214,9 @@ inline constexpr char C_TEXTEDITOR_MIMETYPE_TEXT[] = "text/plain";
 // The Qt Quick editor, for code that wants a file shown as text and says so:
 // opening one without naming an editor goes by mime type and would hand a
 // .cpp to the C++ editor, which is the opposite of what such a caller means.
-inline constexpr char QUICK_TEXT_EDITOR_ID[] = "TextEditor.QuickTextEditor";
+// A reference to Core's array rather than a pointer to it: Utils::Id takes
+// the array by reference to know its length, and a pointer would not do.
+inline constexpr auto &QUICK_TEXT_EDITOR_ID = Core::Constants::K_QUICK_TEXT_EDITOR_ID;
 inline constexpr char INFO_MISSING_SYNTAX_DEFINITION[] = "TextEditor.InfoSyntaxDefinition";
 inline constexpr char INFO_MULTIPLE_SYNTAX_DEFINITIONS[] = "TextEditor.InfoMultipleSyntaxDefinitions";
 inline constexpr char TASK_OPEN_FILE[]        = "TextEditor.Task.OpenFile";

@@ -64941,3 +64941,113 @@ TextEditor's count is 784: 782 plus the two tests of this batch.
 5. Then entries 288-292's standing list: the two-view tests' widget rows, the
    five specialised editors, QmlJSEditor into the standing suites, ASan, the
    typing flake, Windows.
+
+## 2026-09-17 — The fallback for a file nobody claims (batch 294)
+
+Entry 291's remaining item that was "not a caller": `ieditorfactory.cpp:44`,
+where the editor manager appends the plain text editor when no factory claims
+a file's mime type. Ported, after measuring what it actually serves.
+
+### What reaches the fallback, measured
+
+The obvious guess - "an unrecognised binary file" - is wrong, and the probe
+said so before the test's expectations were written: `application/octet-stream`
+is **claimed**, by the Bin Editor internally and the system editor externally,
+so a NUL blob opens in the Bin Editor and never touches the fallback. What does
+reach it is a mime type with no internal factory at all that is not a
+`text/plain` descendant either:
+
+    archive.zip   application/zip   Core.BinaryEditor, Core.PlainTextEditor, SystemEditor(ext)
+    paper.pdf     application/pdf   Core.BinaryEditor, Core.PlainTextEditor, SystemEditor(ext)
+
+Both opened in the **Bin Editor**: `visitMimeParents()` walks the database's
+declared parents, zip and pdf declare `application/octet-stream`, and the Bin
+Editor claims that. The plain text fallback is *second* for them - in Open With,
+not what opens. The probe then tried a PNG and **hung for the full 300-second
+test timeout**: opening an image in the offscreen suite blocks (the image
+viewer, presumably; not chased). So no media in the real test. The next guess - an empty file with an unknown
+extension, `application/x-zerosize`, declaring no parents - was also measured
+and also wrong:
+
+    nothing.qtcunknown (empty)   text/plain   TextEditor.QuickTextEditor, Core.PlainTextEditor,
+                                              Core.BinaryEditor, SystemEditor(ext)
+
+An empty file is `text/plain` to the mime database, so it reaches this editor
+by **claim**, not by fallback - and `text/plain` inherits `octet-stream` too,
+which is why the Bin Editor is third. The conclusion, three probes in: **every
+ordinary type inherits `application/octet-stream`, and with the Bin Editor
+loaded no file reaches the fallback first.** The fallback's order decides two
+things and no more: where the two text editors sit in Open With for an
+unrecognised binary, and what such a file opens in for a Creator without the
+Bin Editor. Smaller than the change looked from the code; said so in the
+commit message, which had to be rewritten after it was drafted.
+
+Every one of those opened in a `TextEditorWidget` while every recognised text
+file opened in the Qt Quick one. The `.mp3` opening as text is odd but it is
+what Creator did before too; what changed is only which text editor.
+
+### The change
+
+`mimeTypeFactoryLookup()` now appends the Qt Quick text editor first and the
+plain one after it. For an unrecognised binary that moves the two in Open With;
+what *opens* changes only where the Bin Editor is absent.
+Core cannot include TextEditor's constants, so the id lives in
+`coreconstants.h` as `K_QUICK_TEXT_EDITOR_ID`, next to the two default editors
+Core already names; `TextEditor::Constants::QUICK_TEXT_EDITOR_ID` is now a
+`constexpr auto &` to that array rather than a second copy of the string.
+
+Not a `const char *`, which is what I wrote first and what the compiler
+refused: `Utils::Id` has no pointer constructor, only `const char (&)[N]`, so
+that it knows the name's length at compile time. I had read every use of the
+constant beforehand - `QLatin1String`, `QString`, `Core::Context`, a `using` -
+and concluded "all take a `const char *`", having checked the Qt types and not
+the one type that mattered. A reference to the array keeps `N` deducible and
+every use compiles unchanged; the fallback itself uses two explicit
+`Utils::Id(...)` lookups instead of a pointer loop for the same reason.
+
+### The test
+
+`testAFileNoTextEditorClaimsIsOfferedThisOneFirst`, a sibling of
+`testItIsWhatATextFileOpensIn`: for `application/zip` - checked not to inherit
+`text/plain`, so that this measures the fallback and not a claim -
+`defaultEditorFactories()` must offer both text editors, this one before the
+widget one. Nothing is opened; opening is not what the fallback's order decides
+here. Alone: 3 passed, 0 failed, and the list it printed is the intended
+shape - `Core.BinaryEditor, TextEditor.QuickTextEditor, Core.PlainTextEditor,
+SystemEditor` - the Bin Editor by claim, then the two text editors the
+fallback appends, this one first.
+
+Control: the two `offer()` calls swapped, so the plain editor is appended first
+as before - 2 passed, 1 failed, "the fallback offers the widget editor before
+this one: Core.BinaryEditor, Core.PlainTextEditor, TextEditor.QuickTextEditor,
+...". The one assertion the order decides, and the one that goes red.
+
+### Measurements
+
+    -test TextEditor     785 passed, 0 failed, 3 skipped, exit 0   x2
+                         and one run exit 255 that the summary printed as
+                         "0 passed, 0 failed": its log has 76 PASS lines, no
+                         FAIL, and ends in testTheCaretLandsWhereTheWidgetEditorsDoes
+                         - entry 247's crash. QuickTextEditorTest ran first in that
+                         order, and Totals: prints per object at its end, so the
+                         crash came before any Totals line and the sum saw nothing.
+                         "0 passed" on exit 255 means the crash hit the first
+                         object, not that nothing ran; the log is what counts.
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Core           293 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor's count is 785: 784 plus this test.
+
+### What is next
+
+1. **`languageclientsettings.cpp`** - `createPlainTextEditor()` for a widget
+   embedded in a settings box: a port of that box, not a change of id.
+2. **The widget editor's own read-only hazard** (entry 293).
+3. **Two Debugger tests failing on HEAD** (entry 293) - a `.pro` will not open
+   in the test VM.
+4. **An image opened in the offscreen suite hangs** until the test timeout.
+   Found by a probe, not chased; anyone writing a test that opens a .png
+   there should know.
+5. Then entries 288-293's standing list: the two-view tests' widget rows, the
+   five specialised editors, QmlJSEditor into the standing suites, ASan, the
+   typing flake, Windows.
