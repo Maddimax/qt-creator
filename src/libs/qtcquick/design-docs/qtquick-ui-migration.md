@@ -69134,3 +69134,144 @@ changed, `vcsbaseeditor.cpp` and `.h` stay.
    manager, CppEditor's code model inspector, and AutoTest. Each is a
    candidate for the `IEditor` helpers; which of them a C++ file's
    reader reaches is the question.
+
+## 2026-09-20 — The last "the widget editor or nothing" lookups outside TextEditor (batch 325)
+
+Entry 324 counted six callers of `BaseTextEditor::currentTextEditor()`
+outside TextEditor, each a `qobject_cast` that answers nothing for the
+Qt Quick editor - which is where a C++ file is. One of the six was a
+comment (AutoTest's, saying its own had been fixed); the other five are
+this batch. Each did nothing from a Qt Quick editor, and each now asks
+`Core::EditorManager::currentEditor()` and the `IEditor`'s own answers -
+`currentLine()`, `currentColumn()`, `document()`, `widget()`,
+`gotoLine()` - which both views give.
+
+### The gap closed: five things a C++ file's reader could not do from the Qt Quick editor
+
+- **Lua's "Run Current Script"** (`luaplugin.cpp`) read the current
+  editor's path through the cast. The path is all it needs; it asks the
+  current editor's document.
+- **Lua's Run button** on a script's editor went on the widget editor's
+  tool bar (`toolBar()->addAction()`), which a script open in the Qt
+  Quick editor has not got - so no button, and the code said so in a
+  comment. It is a `QAction` on the editor now, placed with
+  `TextEditor::insertExtraToolBarActionIn()`: the widget editor puts it
+  in its tool bar, the Qt Quick one draws it from the document's
+  `toolBarActions()`.
+- **FakeVim's tag stack** (`currentEditorLink()`, what CTRL-] records
+  so that CTRL-T can come back) recorded an empty link from a Qt Quick
+  editor, so CTRL-T went nowhere. The `IEditor`'s line and column are
+  what it asks now, 1-based column to 0-based as before.
+- **The debugger's disassembly view** is opened *as* the Qt Quick
+  editor (`QUICK_TEXT_EDITOR_ID`, entry 293) and its "center cursor"
+  on the current instruction asked for a `BaseTextEditor` - so it never
+  centred at all since the view became Quick. The disassembly editor's
+  `gotoLine()` now. And a **debugger tooltip** losing the pointer
+  handed the window back to `editor->editorWidget()`; it hands it to
+  `editor->widget()`, whichever view.
+- **CppEditor's code model inspector** found "the file in the current
+  editor" - what its snapshot and working-copy views select - through
+  the cast; it asks the current document.
+
+### The tests
+
+- `LuaTextEditorTest::testAScriptIsRunFromTheEditorItIsOpenInInEitherView`,
+  four rows (widget/quick x menu/tool bar): a script under the user's
+  scripts directory that writes a file when run, opened by editor id;
+  "Run Current Script" from the action manager, or the Run action found
+  in the widget's tool bar or the document's tool bar actions; the file
+  appears with "ran" in it. The script is removed after.
+- `FakeVimTagStackTest::testATagJumpRecordsTheCaretInEitherView`, two
+  rows: a plain file opened by id, the caret on line 3 column 6,
+  `currentEditorLink()` says so; a tag jump puts it on the stack, and
+  `tagStackMove(-1)` after moving away brings the caret back (line 3,
+  column 7 as the 1-based `currentColumn()` counts). `FakeVimPlugin`'s
+  members are public, so the test reaches them through `dd` as the
+  suggestions test does.
+- `CppCodeModelInspectorTest::testTheInspectorSeesTheCurrentEditor`
+  gains one line in both rows: `fileInCurrentEditor()` is the file.
+- The debugger's two have no test: the disassembler needs an engine and
+  a tooltip a debug session. They are the same one-line substitution as
+  the other three, and the Debugger suite ran.
+
+First build, in the VM: Lua 6/0 (four rows), FakeVim 4/0, CppEditor
+4/0, exit 0 each, at the first attempt.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Four, for the four
+tested changes; the debugger's two have none, said above:
+
+- **A** - Run Current Script asks `BaseTextEditor::currentTextEditor()`,
+  as it did: the "quick, menu" row, "'marker.exists()' returned FALSE.
+  (the script was not run)"; the other three rows pass.
+- **B** - `currentEditorLink()` asks it, as it did: the quick row,
+  "Actual (from.targetFilePath): "" Expected (file): "/tmp/.../plain.txt"".
+- **C** - `fileInCurrentEditor()` asks it, as it did: the quick row,
+  "Actual (fileInCurrentEditor()): "" Expected (testDocument.filePath())".
+- **D** - the Run button goes on the widget's tool bar alone, as it did:
+  the "quick, tool bar" row, "'run' returned FALSE. (the script's
+  editor offers no Run in its tool bar)"; the widget rows pass.
+
+### A finding on the way: run scripts outlived the settings
+
+The first run of the Lua test ended with four soft asserts after
+"Finished testing": `"theUserSettings" in qtcsettings.cpp:94`, at
+shutdown. `runScript(const FilePath &)` kept every run script's
+`LuaState` in a function-local static map, destroyed after `main()`
+returns - after the settings a state's teardown may still ask for are
+gone. Not this batch's: the map was upstream's, and any script run from
+the Run button and then quitting did the same; the test is merely the
+first thing in the suite to run one. The states are the plugin's
+members now (`m_scriptStates`, `runScript()` a member, the three
+callers capturing `this`), so they go with the plugin, before the
+settings. Measured on the Lua suite's log below: the four asserts of
+the first run against the run on the fixed tree.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     808 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Lua             17 passed, 0 failed, 0 skipped, exit 0
+    -test CppEditor     1658 passed, 0 failed, 58 skipped, exit 0
+    -test Debugger       159 passed, 2 failed, 0 skipped, exit 2
+                           testStateMachine and
+                           testGdbDapEngineRunsASession, the VM's
+                           project-open pair, "the same 159 / 2 on HEAD"
+                           where the doc last recorded them
+    -test FakeVim        603 passed, 1 failed, 14 skipped, exit 1
+
+Lua is 17: 13 plus the four rows; its log has no `theUserSettings`
+assert, against the first run's four. CppEditor and Debugger are what
+the doc last recorded. No memory kill, no typing flake in the three
+TextEditor runs. No `.qbs` edited.
+
+FakeVim's one failure was this batch's, and a lesson about a shared
+fixture: `FakeVimTester::test_vim_command_accepted_batch` asserts that
+`:ppop` on an empty tag stack says E73, and the handler answers that by
+asking the plugin's stack. The test objects run in reverse registration
+order, so the new tag-stack test ran first and left its one jump on the
+plugin's stack. It clears the stack for its own determinism, and now
+puts back what it found (`QScopeGuard`). Measured after that change,
+one more build:
+
+    -test FakeVim        604 passed, 0 failed, 14 skipped, exit 0
+    -test FakeVim,testATagJumpRecordsTheCaretInEitherView   4/0, exit 0
+
+604 is 603 plus the `:ppop` assertion's test passing again; the two
+new rows are in both counts. That build is the tree as committed.
+
+### What is next
+
+1. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor), the last `setEditorWidgetCreator()` callers besides the
+   Plain Text Editor's test-side factory; the standing suites do not
+   load QmlDesigner, so the verification has to be its own.
+2. The standing list (entry 298); the double-click on a diff line; the
+   VCS margins.
+3. `BaseTextEditor::currentTextEditor()` has no caller outside
+   TextEditor now, and two inside it: `texteditorplugin.cpp:314` and
+   `textdocument.cpp:1080`. Those two, then the function itself and
+   `TextEditorWidget::currentTextEditorWidget()` can go, and with them
+   the last "or nothing" answer for the Qt Quick editor.

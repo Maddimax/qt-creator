@@ -364,8 +364,10 @@ public:
     void leaveEvent(QEvent *) override
     {
         DEBUG("LEAVE DEBUGGERTOOLTIP WIDGET");
-        if (BaseTextEditor *editor = BaseTextEditor::currentTextEditor())
-            editor->editorWidget()->activateWindow();
+        // Back to the editor's window, whichever view it is.
+        if (IEditor *editor = EditorManager::currentEditor())
+            if (QWidget *editorWidget = editor->widget())
+                editorWidget->activateWindow();
     }
 
     void pin()

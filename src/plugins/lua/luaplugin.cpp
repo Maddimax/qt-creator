@@ -6,6 +6,7 @@
 #include "luatr.h"
 
 #include <coreplugin/actionmanager/actionmanager.h>
+#include <coreplugin/coreconstants.h>
 #include <coreplugin/dialogs/ioptionspage.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/icore.h>
@@ -17,8 +18,10 @@
 #include <extensionsystem/iplugin.h>
 #include <extensionsystem/pluginmanager.h>
 
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <utils/algorithm.h>
 #include <utils/environment.h>
 #include <utils/historycompleter.h>
 #include <utils/layoutbuilder.h>
@@ -27,6 +30,7 @@
 #include <utils/theme/theme.h>
 #include <utils/utilsicons.h>
 
+#include <QAction>
 #include <QScrollBar>
 #include <QDebug>
 #include <QKeyEvent>
@@ -383,6 +387,7 @@ class LuaPlugin : public IPlugin
 private:
     LuaPane *m_pane = nullptr;
     std::unique_ptr<FilePathWatcher> m_userScriptsWatcher;
+    std::map<FilePath, std::unique_ptr<Utils::LuaState>> m_scriptStates;
 
 public:
     LuaPlugin() {}
@@ -500,9 +505,10 @@ public:
 
         ActionBuilder(this, Id(ACTION_SCRIPTS_BASE).withSuffix("current"))
             .setText(Tr::tr("Run Current Script"))
-            .addOnTriggered([]() {
-                if (auto textEditor = TextEditor::BaseTextEditor::currentTextEditor()) {
-                    const FilePath path = textEditor->document()->filePath();
+            .addOnTriggered([this] {
+                // Whichever view the script is open in: only its path matters.
+                if (Core::IEditor *editor = Core::EditorManager::currentEditor()) {
+                    const FilePath path = editor->document()->filePath();
                     if (path.isChildOf(Core::ICore::userResourcePath("scripts")))
                         runScript(path);
                 }
@@ -589,8 +595,8 @@ public:
                 ActionBuilder(this, base)
                     .setText(script.baseName())
                     .setToolTip(Tr::tr("Run script \"%1\"").arg(script.toUserOutput()))
-                    .addOnTriggered([script]() { runScript(script); });
-                connect(menu->addAction(Tr::tr("Run")), &QAction::triggered, this, [script]() {
+                    .addOnTriggered([this, script] { runScript(script); });
+                connect(menu->addAction(Tr::tr("Run")), &QAction::triggered, this, [this, script] {
                     runScript(script);
                 });
                 connect(menu->addAction(Tr::tr("Edit")), &QAction::triggered, this, [script]() {
@@ -605,31 +611,26 @@ public:
         const FilePath path = editor->document()->filePath();
         if (path.isChildOf(Core::ICore::userResourcePath("scripts"))
             || path.isChildOf(Core::ICore::resourcePath("lua/scripts"))) {
-            // The button goes on a text editor widget's tool bar, and a script
-            // open in a view that has no widget has nowhere to put it. Every
-            // text file used to open in one, so the cast could not fail and
-            // was not checked; now it can, and an unchecked one is a crash on
-            // opening a script.
-            auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-            if (!textEditor || !textEditor->editorWidget())
-                return;
-            TextEditor::TextEditorWidget *editorWidget = textEditor->editorWidget();
-            editorWidget->toolBar()
-                ->addAction(Utils::Icons::RUN_SMALL_TOOLBAR.icon(), Tr::tr("Run"), [path]() {
-                    runScript(path);
-                });
+            // The button goes on the editor's tool bar, whichever view draws
+            // it: the widget editor places it, the Qt Quick one draws what
+            // the document carries.
+            auto *run = new QAction(Utils::Icons::RUN_SMALL_TOOLBAR.icon(), Tr::tr("Run"), editor);
+            connect(run, &QAction::triggered, this, [this, path] { runScript(path); });
+            TextEditor::insertExtraToolBarActionIn(editor, TextEditor::TextEditorWidget::Right, run);
         }
     }
 
-    static void runScript(const FilePath &script)
+    // A script's state stays while the plugin does - the script may have left
+    // callbacks behind - and goes with the plugin, while what a state may
+    // still ask for on its way out, the settings, is there.
+    void runScript(const FilePath &script)
     {
-        static std::map<FilePath, std::unique_ptr<Utils::LuaState>> scriptStates;
-        scriptStates.erase(script);
+        m_scriptStates.erase(script);
 
         Result<QByteArray> content = script.fileContents();
         if (content) {
             auto state = Lua::runScript(QString::fromUtf8(*content), script.fileName());
-            scriptStates[script] = std::move(state);
+            m_scriptStates[script] = std::move(state);
             return;
         }
 
@@ -707,6 +708,75 @@ private slots:
         QVERIFY2(hasEditor, "a script asking for the current editor was handed nil");
         // And it is this editor, at the caret the fixture put there.
         QCOMPARE(blockNumber, 1);
+    }
+
+    // A script under the user's scripts directory can be run from the editor
+    // it is open in: "Run Current Script" from the menu, and a Run button on
+    // the editor's tool bar. Both asked for the widget editor - the button
+    // had nowhere else to go, the action no reason - so a script open in the
+    // Qt Quick editor could be run from neither. The script says it ran by
+    // writing a file.
+    void testAScriptIsRunFromTheEditorItIsOpenInInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::addColumn<bool>("fromToolBar");
+        QTest::newRow("widget, menu") << false << false;
+        QTest::newRow("quick, menu") << true << false;
+        QTest::newRow("widget, tool bar") << false << true;
+        QTest::newRow("quick, tool bar") << true << true;
+    }
+
+    void testAScriptIsRunFromTheEditorItIsOpenInInEitherView()
+    {
+        QFETCH(bool, quick);
+        QFETCH(bool, fromToolBar);
+
+        Utils::TemporaryDirectory dir("lua-run-current-script");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath marker = dir.filePath("ran.txt");
+        const Utils::FilePath scripts = Core::ICore::userResourcePath("scripts");
+        QVERIFY(scripts.ensureWritableDir());
+        const Utils::FilePath script = scripts / "lua-run-current-script-test.lua";
+        const QScopeGuard dropScript([script] { script.removeFile(); });
+        QVERIFY(script.writeFileContents(QString("local f = io.open([[%1]], \"w\")\n"
+                                                 "f:write(\"ran\")\n"
+                                                 "f:close()\n")
+                                             .arg(marker.path())
+                                             .toUtf8()));
+
+        const Utils::Id editorId = quick ? Utils::Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                         : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        Core::IEditor * const editor = Core::EditorManager::openEditor(script, editorId);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+        QVERIFY(!marker.exists());
+
+        if (fromToolBar) {
+            // Where each view keeps the actions it draws in its tool bar.
+            QList<QAction *> actions;
+            if (TextEditor::TextEditorWidget * const widget
+                = TextEditor::TextEditorWidget::fromEditor(editor)) {
+                actions = widget->toolBar()->actions();
+            } else if (auto * const document
+                       = qobject_cast<TextEditor::TextDocument *>(editor->document())) {
+                actions = document->toolBarActions();
+            }
+            QAction * const run = Utils::findOrDefault(actions, [](QAction *action) {
+                return action->text() == Tr::tr("Run");
+            });
+            QVERIFY2(run, "the script's editor offers no Run in its tool bar");
+            run->trigger();
+        } else {
+            Core::Command * const command = Core::ActionManager::command(
+                Utils::Id(ACTION_SCRIPTS_BASE).withSuffix("current"));
+            QVERIFY(command && command->action());
+            command->action()->trigger();
+        }
+        QTRY_VERIFY2(marker.exists(), "the script was not run");
+        QCOMPARE(marker.fileContents().value_or(QByteArray()), QByteArray("ran"));
     }
 };
 

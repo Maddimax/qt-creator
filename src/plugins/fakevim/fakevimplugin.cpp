@@ -1225,6 +1225,76 @@ QObject *createFakeVimSuggestionsTest()
     return new FakeVimSuggestionsTest;
 }
 
+static Link currentEditorLink();
+
+// CTRL-] records where it left from, so that CTRL-T can come back. Where it
+// left from was asked of the widget editor, so from a file in the Qt Quick
+// editor the stack recorded nothing and CTRL-T went nowhere.
+class FakeVimTagStackTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testATagJumpRecordsTheCaretInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testATagJumpRecordsTheCaretInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("fakevim-tag-stack");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree four\nfive\n"));
+
+        const Id editorId = quick ? Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                  : Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        IEditor * const editor = EditorManager::openEditor(file, editorId);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        QCOMPARE(EditorManager::currentEditor(), editor);
+        FakeVimHandler * const handler = dd->m_editorToHandler.value(editor).handler;
+        QVERIFY2(handler, "no handler was made, so this proves nothing");
+
+        editor->gotoLine(3, 6);
+        const Link from = currentEditorLink();
+        QCOMPARE(from.targetFilePath, file);
+        QCOMPARE(from.target.line, 3);
+        QCOMPARE(from.target.column, 6);
+
+        // And the stack: a jump records it, and going back lands on it. The
+        // stack is the plugin's, shared with every other test - ":ppop" on an
+        // empty one is asserted elsewhere - so what this leaves on it is
+        // taken off again.
+        const QList<FakeVimPlugin::TagJump> stackBefore = dd->m_tagStack;
+        const int indexBefore = dd->m_tagIndex;
+        const QScopeGuard restoreStack([stackBefore, indexBefore] {
+            dd->m_tagStack = stackBefore;
+            dd->m_tagIndex = indexBefore;
+        });
+        dd->m_tagStack.clear();
+        dd->m_tagIndex = 0;
+        dd->tagJump(handler, "four");
+        QCOMPARE(dd->m_tagStack.size(), 1);
+        QCOMPARE(dd->m_tagStack.constLast().from.target.line, 3);
+        editor->gotoLine(1, 0);
+        dd->tagStackMove(handler, -1);
+        QCOMPARE(EditorManager::currentEditor(), editor);
+        QCOMPARE(editor->currentLine(), 3);
+        QCOMPARE(editor->currentColumn(), 7);
+    }
+};
+
+QObject *createFakeVimTagStackTest()
+{
+    return new FakeVimTagStackTest;
+}
+
 #endif // WITH_TESTS
 
 class FakeVimUserCommandsPage : public IOptionsPage
@@ -1516,6 +1586,7 @@ FakeVimPlugin::FakeVimPlugin()
     addTestCreator(createFakeVimUserCommandsTest);
     addTestCreator(createFakeVimExCommandsTest);
     addTestCreator(createFakeVimSuggestionsTest);
+    addTestCreator(createFakeVimTagStackTest);
 #endif
 
     m_defaultExCommandMap[CppEditor::Constants::SWITCH_HEADER_SOURCE] = "^A$";
@@ -3876,12 +3947,13 @@ void FakeVimPlugin::handleExCommand(FakeVimHandler *handler, bool *handled, cons
 
 static Link currentEditorLink()
 {
-    if (BaseTextEditor *editor = BaseTextEditor::currentTextEditor()) {
-        // currentColumn() is 1-based; gotoLine()/Link expect a 0-based column.
-        return Link(editor->document()->filePath(),
-                    editor->currentLine(), editor->currentColumn() - 1);
-    }
-    return {};
+    // Whichever view is current, the widget editor or the Qt Quick one: both
+    // answer for their caret as an IEditor.
+    IEditor *editor = EditorManager::currentEditor();
+    if (!editor || !editor->document())
+        return {};
+    // currentColumn() is 1-based; gotoLine()/Link expect a 0-based column.
+    return Link(editor->document()->filePath(), editor->currentLine(), editor->currentColumn() - 1);
 }
 
 void FakeVimPlugin::tagJump(FakeVimHandler *handler, const QString &tag)

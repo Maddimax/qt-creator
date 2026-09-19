@@ -64,10 +64,12 @@ template <class T> void resizeColumns(QTreeView *view)
         view->resizeColumnToContents(column);
 }
 
+// The file being looked at, in whichever view: what the per-editor views
+// select. It used to be asked of the widget editor alone.
 FilePath fileInCurrentEditor()
 {
-    if (auto editor = TextEditor::BaseTextEditor::currentTextEditor())
-        return editor->document()->filePath();
+    if (Core::IDocument *document = Core::EditorManager::currentDocument())
+        return document->filePath();
     return {};
 }
 
@@ -2056,6 +2058,8 @@ private slots:
             [editor] { Core::EditorManager::closeEditors({editor}, false); });
         QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
         QCOMPARE(Core::EditorManager::currentEditor(), editor);
+        // What the snapshot and working-copy views select: this file.
+        QCOMPARE(fileInCurrentEditor(), testDocument.filePath());
 
         auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
         QVERIFY(document);

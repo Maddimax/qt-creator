@@ -366,10 +366,11 @@ void DisassemblerAgent::updateLocationMarker()
 
     d->locationMark.updateIcon();
 
-    // Center cursor.
+    // Center cursor - in the editor showing the disassembly, which is the Qt
+    // Quick one and so never was the widget editor this used to ask for.
     if (EditorManager::currentDocument() == d->document)
-        if (auto textEditor = BaseTextEditor::currentTextEditor())
-            textEditor->gotoLine(lineNumber);
+        if (IEditor *editor = EditorManager::currentEditor())
+            editor->gotoLine(lineNumber);
 }
 
 void DisassemblerAgent::removeBreakpointMarker(const Breakpoint &bp)
