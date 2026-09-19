@@ -505,6 +505,34 @@ public:
     }
 };
 
+// A language whose actions are eight hex digits - the shape of a change in a
+// log. Counts how often one was done, and which.
+static ActionLinkFinder eightHexDigits(int *activated, QString *lastDone = nullptr)
+{
+    return [activated, lastDone](TextDocument *, const QTextCursor &cursor) {
+        ActionLink action;
+        static const QRegularExpression change("[0-9a-f]{8}");
+        const QTextBlock block = cursor.block();
+        const int column = cursor.positionInBlock();
+        QRegularExpressionMatchIterator it = change.globalMatch(block.text());
+        while (it.hasNext()) {
+            const QRegularExpressionMatch match = it.next();
+            if (column < match.capturedStart() || column >= match.capturedEnd())
+                continue;
+            action.linkTextStart = block.position() + match.capturedStart();
+            action.linkTextEnd = block.position() + match.capturedEnd();
+            const QString found = match.captured();
+            action.activate = [activated, lastDone, found] {
+                ++*activated;
+                if (lastDone)
+                    *lastDone = found;
+            };
+            break;
+        }
+        return action;
+    };
+}
+
 class TextViewportTest final : public QObject
 {
     Q_OBJECT
@@ -1759,6 +1787,102 @@ private slots:
 
     // A link under the pointer is underlined in the scheme's link colour and
     // turns the cursor into a hand, which is how the widget editor says a
+    // Something the language offers to *do* at a place in the text - a change
+    // in a log to describe, a URL to open - is shown the way a link is, but
+    // with no key held: it is not a place to go, so Control means nothing
+    // here. The finder is the document's own, as a language server's would be.
+    void testAnActionUnderThePointerShowsAsALinkWithNoKeyHeld()
+    {
+        TemporaryDirectory dir("qtc-viewport-action-link");
+        const FilePath file = dir.filePath("log.txt");
+        QVERIFY(file.writeFileContents("see 1234abcd here\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        int activated = 0;
+        fixture.document.textDocument()->setActionLinkFinder(eightHexDigits(&activated));
+
+        const auto pointOver = [viewport](int position) {
+            return viewport->mapToScene(viewport->rectangleAt(position).center()).toPoint();
+        };
+        const auto underlinedOnScreen = [viewport, &fixture] {
+            fixture.view.grabWindow();
+            QVariantList found;
+            const QVariantList ranges = viewport->visibleLine(0).value("formats").toList();
+            for (const QVariant &range : ranges) {
+                if (range.toMap().value("underline").toBool())
+                    found << range;
+            }
+            return found;
+        };
+
+        // Over the change, nothing held: a hand, and an underline under
+        // exactly the eight digits.
+        QTest::mouseMove(&fixture.view, pointOver(6));
+        QTRY_COMPARE(viewport->cursor().shape(), Qt::PointingHandCursor);
+        QTRY_COMPARE(underlinedOnScreen().size(), 1);
+        const QVariantMap range = underlinedOnScreen().first().toMap();
+        QCOMPARE(range.value("start").toInt(), 4);
+        QCOMPARE(range.value("length").toInt(), 8);
+
+        // Over plain text again: neither.
+        QTest::mouseMove(&fixture.view, pointOver(1));
+        QTRY_VERIFY2(viewport->cursor().shape() != Qt::PointingHandCursor,
+                     "the hand stayed over text that offers nothing");
+        QTRY_COMPARE(underlinedOnScreen().size(), 0);
+        // And hovering did nothing but show.
+        QCOMPARE(activated, 0);
+    }
+
+    // A plain click on it does the thing. A click elsewhere places the caret
+    // as ever; a press on it that turns into a drag is a selection; a click
+    // with Control held is a request to follow a symbol, which this is not.
+    void testAPlainClickOnAnActionDoesIt()
+    {
+        TemporaryDirectory dir("qtc-viewport-action-click");
+        const FilePath file = dir.filePath("log.txt");
+        QVERIFY(file.writeFileContents("see 1234abcd here\n"));
+
+        CodeViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QTRY_VERIFY(viewport->visibleLineCount() > 0);
+
+        int activated = 0;
+        QString done;
+        fixture.document.textDocument()->setActionLinkFinder(eightHexDigits(&activated, &done));
+
+        const auto pointOver = [viewport](int position) {
+            return viewport->mapToScene(viewport->rectangleAt(position).center()).toPoint();
+        };
+
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::NoModifier, pointOver(6));
+        QTRY_COMPARE(activated, 1);
+        QCOMPARE(done, QString("1234abcd"));
+
+        // Elsewhere: the caret goes there, and nothing is done.
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::NoModifier, pointOver(1));
+        QTRY_VERIFY(viewport->cursorPosition() < 4);
+        QCOMPARE(activated, 1);
+
+        // A drag that starts on it is a selection, not a click on it.
+        QTest::mousePress(&fixture.view, Qt::LeftButton, Qt::NoModifier, pointOver(5));
+        QTest::mouseMove(&fixture.view, pointOver(15));
+        QTest::mouseRelease(&fixture.view, Qt::LeftButton, Qt::NoModifier, pointOver(15));
+        QTRY_VERIFY2(viewport->selectionStart() != viewport->selectionEnd(),
+                     "dragging across the text selected nothing");
+        QCOMPARE(activated, 1);
+
+        // Control held: not this.
+        QTest::mouseClick(&fixture.view, Qt::LeftButton, Qt::ControlModifier, pointOver(6));
+        QCOMPARE(activated, 1);
+    }
+
     // Control-click will go somewhere. Finding the link needs a language with
     // a link finder registered; drawing one that has been found does not, and
     // that is the half tested here.

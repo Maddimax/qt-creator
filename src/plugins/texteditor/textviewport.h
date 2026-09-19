@@ -342,6 +342,10 @@ public:
     // Ctrl+click. Answers whether it took the click, so that a file whose
     // language has no finder still gets an ordinary click.
     Q_INVOKABLE bool followSymbolAt(int position, bool inNextSplit = false);
+    // A plain click on something the language offers to do at \a position -
+    // see ActionLink. Answers whether it was taken, in which case the click
+    // was not a request to place the caret.
+    Q_INVOKABLE bool activateActionAt(int position);
     void findLinkAt(const QTextCursor &cursor, const Utils::LinkHandler &callback,
                     bool resolveTarget, bool inNextSplit);
 
@@ -1316,6 +1320,7 @@ private:
     void rebuildVisibleLines();
     void modifyTabSettings(const std::function<void(TabSettingsData &)> &modify);
     void updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers);
+    void updateActionLink(const QPointF &pos);
     bool handleSmartBackspace(QTextCursor &cursor);
     void insertTypedText(QTextCursor &cursor, const QString &text);
     void offerCompletionsIfAsked(const QTextCursor &cursor);
@@ -1547,6 +1552,10 @@ private:
     // so that a second jump replaces the first instead of fighting it.
     QPointer<QSequentialAnimationGroup> m_navigationAnimation;
     Utils::Link m_currentLink;
+    // Whether what is underlined is something to do rather than somewhere to
+    // go: shown without Control, and not to stand in for a symbol link once
+    // Control is held.
+    bool m_linkIsAction = false;
     bool m_hovering = false;
     // Whether the Alt being held was pressed on its own: any other key while
     // it is down means it was a shortcut rather than a request for a tooltip.

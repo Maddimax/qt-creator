@@ -10166,6 +10166,7 @@ public:
     QList<BaseHoverHandler *> m_hoverHandlers; // not owned
     Context m_editorContexts;
     TextEditorFactory::LinkFinder m_linkFinder;
+    TextEditorFactory::ActionLinkFinder m_actionLinkFinder;
     TextEditorFactory::LinkFinder m_typeFinder;
     std::unique_ptr<CompletionAssistProvider> m_completionAssistProvider; // owned
     int m_optionalActionMask = 0;
@@ -10350,6 +10351,26 @@ TextEditorFactory::LinkFinder TextEditorFactory::linkFinderFor(TextDocument *doc
         return own;
     TextEditorFactory * const factory = preferredFactoryFor(document->filePath());
     return factory ? factory->linkFinder() : LinkFinder();
+}
+
+void TextEditorFactory::setActionLinkFinder(const ActionLinkFinder &finder)
+{
+    d->m_actionLinkFinder = finder;
+}
+
+TextEditorFactory::ActionLinkFinder TextEditorFactory::actionLinkFinder() const
+{
+    return d->m_actionLinkFinder;
+}
+
+TextEditorFactory::ActionLinkFinder TextEditorFactory::actionLinkFinderFor(TextDocument *document)
+{
+    if (!document)
+        return {};
+    if (const ActionLinkFinder own = document->actionLinkFinder())
+        return own;
+    TextEditorFactory * const factory = preferredFactoryFor(document->filePath());
+    return factory ? factory->actionLinkFinder() : ActionLinkFinder();
 }
 
 void TextEditorFactory::addHoverHandler(BaseHoverHandler *handler)

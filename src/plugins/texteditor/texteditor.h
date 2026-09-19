@@ -781,6 +781,7 @@ public:
     using AutoCompleterCreator = std::function<AutoCompleter *()>;
     // Declared beside TextDocument, which can also carry one.
     using LinkFinder = TextEditor::LinkFinder;
+    using ActionLinkFinder = TextEditor::ActionLinkFinder;
 
     void setDocumentCreator(const DocumentCreator &creator);
     void setEditorWidgetCreator(const EditorWidgetCreator &creator);
@@ -820,6 +821,15 @@ public:
     // The link finder for \a document's language, or an empty one where the
     // language has none.
     static LinkFinder linkFinderFor(TextDocument *document);
+
+    // What a plain click does on something in this language, over and above
+    // placing the caret - see ActionLink in textdocument.h. A log's change
+    // numbers and its URLs are the case this is for.
+    void setActionLinkFinder(const ActionLinkFinder &finder);
+    ActionLinkFinder actionLinkFinder() const;
+    // The document's own first, then its language's; empty where neither has
+    // one, which is every language but a VCS output.
+    static ActionLinkFinder actionLinkFinderFor(TextDocument *document);
 
     // The same for Follow Symbol to *Type*, which asks a different question of
     // the same language. Registered here for the same reason: CppEditor used

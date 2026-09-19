@@ -65977,3 +65977,109 @@ No `.qbs` edited: no file list changed.
    retire one VCS at a time, moving each one's constructor declarations into
    the parameters so batch 299's staging area can go.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — Links that are actions, the viewport's half (batch 301)
+
+Entry 300's step 3, the TextEditor side of it. The VCS side - the three
+cursor handlers as a finder on the VCS factory, and the `changeUnderCursor()`
+that only the widget subclasses know - is the next batch, and it needs what
+is here first.
+
+### What the widget editor does that the viewport could not
+
+`VcsBaseEditorWidget::mouseMoveEvent()` asks three handlers - a change under
+the cursor, a URL, an e-mail address - and if one answers, underlines the span
+as an extra selection and shows a hand, **with no key held**; `mouseReleaseEvent()`
+on a plain left click that was not a drag lets the handler act: describe the
+change, open the URL, mail the address. The viewport's link machinery is for
+`Utils::Link`, which names a *place*: `updateLink()` clears everything unless
+Control is held, `followSymbolAt()` goes somewhere. A change number is not a
+place, and `hasValidTarget()` would drop it.
+
+### The seam
+
+`ActionLink` in `textdocument.h`: a span (`linkTextStart`/`End`) and a
+`std::function<void()> activate`; valid when it has both. `ActionLinkFinder`
+is `ActionLink(TextDocument *, const QTextCursor &)` - **synchronous**, unlike
+`LinkFinder`, because these are found by a pattern over the text and not by a
+server. Registered on a document (`TextDocument::setActionLinkFinder()`) or a
+factory (`TextEditorFactory::setActionLinkFinder()`), and resolved the way the
+link finder is: `TextEditorFactory::actionLinkFinderFor(document)` prefers the
+document's own. The VCS document will register its own, since the patterns
+are its already.
+
+### The viewport
+
+- `updateLink()`'s no-Control branch, which was `clearLink(); return;`, is
+  `updateActionLink(pos)`: no finder → clear, as before; finder → ask at the
+  position, and if it answers, `showLink()` a `Utils::Link` carrying only the
+  span - the same underline and hand a symbol link gets, from the same
+  drawing site at `textviewport.cpp:6394` - and remember `m_linkIsAction`.
+  The same "still inside what is underlined" shortcut, keyed on that flag.
+- Control pressed while an action is underlined: `updateLink()` clears it
+  first, or the symbol-link path's shortcut would have kept the action's span
+  standing in for a symbol link it never looked up.
+- `activateActionAt(position)` (invokable): asks the finder again rather
+  than reading what is underlined - a click can land with no hover before it,
+  as a test's does - and does the thing if the position is inside the span.
+- `CodeViewport.qml`: the press already places the caret as ever; the
+  release, on a left button with no modifier and when the pointer did not
+  move while pressed (`textArea.dragged`, new), calls `activateActionAt()`.
+  A drag is a selection; a modifier meant something else on the press;
+  Control+click stays the symbol link's.
+
+### The tests
+
+Both in `textviewport_test.cpp`, over a document whose finder is eight hex
+digits (the shape of a change) counting what was done:
+
+- `testAnActionUnderThePointerShowsAsALinkWithNoKeyHeld` (bare viewport):
+  the pointer over the digits with nothing held → a hand and one underline,
+  start 4, length 8; over plain text → neither; and hovering did nothing.
+- `testAPlainClickOnAnActionDoesIt` (the form): a plain click on the digits
+  → done once, with the digits; a click elsewhere → caret there, still once;
+  a press on the digits dragged across the line → a selection, still once;
+  Ctrl+click on the digits → still once.
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run.
+
+qmllint on the TextEditor module: nothing beyond the known `startDragDistance`
+warning (entry 298).
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals, distinct
+names, the tree checked clean at the end):
+
+- **A** - `updateLink()`'s no-Control branch back to `clearLink()`: the hover
+  test fails on the hand, "Compared values are not the same" (an I-beam where a
+  pointing hand was expected).
+- **B** - the form's release does nothing but place the caret: the click test
+  fails on `activated == 1`, "Compared values are not the same" - a plain click
+  on the digits did nothing.
+
+### Measurements
+
+    -test TextEditor     793 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Designer        11 passed, 0 failed, 0 skipped, exit 0
+    -test ScxmlEditor     13 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor is 793: 791 plus the two viewport tests. Designer and ScxmlEditor
+ran because their read-only XML views are this viewport with this form, and
+a plain click there must still only place the caret. No entry-247 crash in
+three TextEditor runs.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **VCS step 3, the VCS half**: `VcsEditorDocument` registers an
+   `ActionLinkFinder` built from the three handlers' patterns - the URL and
+   e-mail ones are `vcsbase`'s own and move as they are; the change one needs
+   `changeUnderCursor()`, a virtual on each widget subclass, so it becomes a
+   `std::function` in the parameters (the description pane's parameters
+   already have exactly that) that each VCS fills in when it goes. Then the
+   handlers' context-menu entries as dynamic actions.
+2. Steps 4-6 (entry 298): diff navigation as a link finder; busy state,
+   `firstLineNumber` on the gutter, `setRevisionsVisible(false)`; flip and
+   retire one VCS at a time, constructor declarations into the parameters.
+3. The QmlDesigner-side two; the standing list (entry 298).

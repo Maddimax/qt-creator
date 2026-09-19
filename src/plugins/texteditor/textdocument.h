@@ -56,6 +56,29 @@ using LinkFinder = std::function<void(TextDocument *document,
                                       const Utils::LinkHandler &callback,
                                       bool resolveTarget,
                                       bool inNextSplit)>;
+
+// Something to do with what is under the pointer, where the language has such
+// a thing - a change in a log to describe, a URL to open. Not a place in a
+// file, which is what a Utils::Link names: it is shown the way a link is, but
+// with no key held, and a click on it does the thing rather than going
+// somewhere. Invalid where there is nothing to do here.
+class TEXTEDITOR_EXPORT ActionLink
+{
+public:
+    bool isValid() const
+    {
+        return linkTextStart >= 0 && linkTextEnd > linkTextStart && bool(activate);
+    }
+
+    int linkTextStart = -1;
+    int linkTextEnd = -1;
+    std::function<void()> activate;
+};
+// The language's answer for what is under \a cursor. Synchronous, unlike a
+// LinkFinder: what these are found with is a pattern over the text, not a
+// server.
+using ActionLinkFinder = std::function<ActionLink(TextDocument *document,
+                                                  const QTextCursor &cursor)>;
 class TextMark;
 class ToolBarChoice;
 class TextSuggestion;
@@ -332,6 +355,11 @@ public:
     // TextEditorFactory::linkFinderFor() prefers this over the factory's.
     LinkFinder linkFinder() const;
     void setLinkFinder(const LinkFinder &finder);
+    // What a plain click does on something in *this* document, over and above
+    // placing the caret - see ActionLink. Preferred over the factory's, as the
+    // link finder is.
+    ActionLinkFinder actionLinkFinder() const;
+    void setActionLinkFinder(const ActionLinkFinder &finder);
     void addToolBarAction(QAction *action);
     void removeToolBarAction(QAction *action);
     // The choice the language offers in the toolbar, or nullptr where it

@@ -211,6 +211,9 @@ Item {
             // Set while a press is sitting on a selection without having moved
             // far enough to be a drag: -1 when there is no such press.
             property int pendingDragAt: -1
+            // Whether the pointer moved while pressed: a release after that is
+            // the end of a selection, not a click.
+            property bool dragged: false
             // Set while a drag that began with Alt is taking a rectangle
             // of text rather than a run of it.
             property bool blockSelecting: false
@@ -235,6 +238,7 @@ Item {
 
             onPressed: (mouse) => {
                 viewport.forceActiveFocus()
+                textArea.dragged = false
                 const position = viewport.positionAt(mouse.x, mouse.y)
                 if (mouse.button === Qt.RightButton) {
                     // Right-clicking inside a selection acts on it, so the
@@ -317,6 +321,7 @@ Item {
                 viewport.showMouse()
                 if (!pressed)
                     return
+                textArea.dragged = true
                 if (textArea.pendingDragAt >= 0) {
                     const far = Math.abs(mouse.x - textArea.pressX)
                               + Math.abs(mouse.y - textArea.pressY)
@@ -346,7 +351,7 @@ Item {
                 // and keep going while the pointer stays out there.
                 autoScroll.running = mouse.y < 0 || mouse.y > textArea.height
             }
-            onReleased: {
+            onReleased: (mouse) => {
                 autoScroll.stop()
                 textArea.blockSelecting = false
                 // The press never became a drag, so it was a click, and a click
@@ -356,6 +361,14 @@ Item {
                     viewport.selectionStart = textArea.pendingDragAt
                     viewport.selectionEnd = textArea.pendingDragAt
                     textArea.pendingDragAt = -1
+                }
+                // A plain click on something the language offers to do here -
+                // a change in a log, a URL - does it. Not after a drag, which
+                // was a selection; not with a modifier, which meant something
+                // else on the press.
+                if (!textArea.dragged && mouse.button === Qt.LeftButton
+                        && mouse.modifiers === Qt.NoModifier) {
+                    viewport.activateActionAt(viewport.positionAt(mouse.x, mouse.y))
                 }
             }
             onCanceled: {

@@ -1436,6 +1436,7 @@ void TextViewport::showLink(const Utils::Link &link)
     if (m_currentLink == link)
         return;
     m_currentLink = link;
+    m_linkIsAction = false;
     setCursor(Qt::PointingHandCursor);
     polish();
     update();
@@ -1446,6 +1447,7 @@ void TextViewport::clearLink()
     if (!m_currentLink.hasValidLinkText())
         return;
     m_currentLink = Utils::Link();
+    m_linkIsAction = false;
     unsetCursor();
     polish();
     update();
@@ -1454,12 +1456,18 @@ void TextViewport::clearLink()
 void TextViewport::updateLink(const QPointF &pos, Qt::KeyboardModifiers modifiers)
 {
     if (!isMouseNavigation(modifiers)) {
-        clearLink();
+        // No Control held, so not a symbol link - but something the language
+        // offers to do here is shown the same way, and needs no key held.
+        updateActionLink(pos);
         return;
     }
     TextDocument * const doc = textDocument();
     if (!doc)
         return;
+    // Control is down now: what was underlined as an action must not stand in
+    // for the symbol link the shortcut below would otherwise keep.
+    if (m_linkIsAction)
+        clearLink();
     const int position = positionAt(pos.x(), pos.y());
     if (position < 0) {
         clearLink();
@@ -1484,6 +1492,58 @@ void TextViewport::updateLink(const QPointF &pos, Qt::KeyboardModifiers modifier
                        self->clearLink();
                },
                /*resolveTarget=*/false, /*inNextSplit=*/false);
+}
+
+void TextViewport::updateActionLink(const QPointF &pos)
+{
+    TextDocument * const doc = textDocument();
+    const ActionLinkFinder finder = doc ? TextEditorFactory::actionLinkFinderFor(doc)
+                                        : ActionLinkFinder();
+    if (!finder) {
+        clearLink();
+        return;
+    }
+    const int position = positionAt(pos.x(), pos.y());
+    if (position < 0) {
+        clearLink();
+        return;
+    }
+    // Still inside what is already underlined: the answer cannot have changed.
+    if (m_linkIsAction && position >= m_currentLink.linkTextStart
+        && position < m_currentLink.linkTextEnd) {
+        return;
+    }
+    QTextCursor cursor(doc->document());
+    cursor.setPosition(position);
+    const ActionLink action = finder(doc, cursor);
+    if (!action.isValid()) {
+        clearLink();
+        return;
+    }
+    Utils::Link link;
+    link.linkTextStart = action.linkTextStart;
+    link.linkTextEnd = action.linkTextEnd;
+    showLink(link);
+    m_linkIsAction = true;
+}
+
+bool TextViewport::activateActionAt(int position)
+{
+    TextDocument * const doc = textDocument();
+    if (!doc || position < 0)
+        return false;
+    const ActionLinkFinder finder = TextEditorFactory::actionLinkFinderFor(doc);
+    if (!finder)
+        return false;
+    // Asked again rather than read off what is underlined: a click can land
+    // without a hover before it, as a test's does.
+    QTextCursor cursor(doc->document());
+    cursor.setPosition(position);
+    const ActionLink action = finder(doc, cursor);
+    if (!action.isValid() || position < action.linkTextStart || position >= action.linkTextEnd)
+        return false;
+    action.activate();
+    return true;
 }
 
 // The language's own answer if it registered one, and otherwise the question
