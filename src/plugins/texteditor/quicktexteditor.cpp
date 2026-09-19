@@ -6710,7 +6710,13 @@ private slots:
                              // gets the Qt Quick editor from VcsEditorFactory.
                              QString("Git SVN Log Editor"), QString("Git Log Editor"),
                              QString("Git Reflog Editor"), QString("Git Annotation Editor"),
-                             QString("Git Commit Editor"), QString("Git Rebase Editor")};
+                             QString("Git Commit Editor"), QString("Git Rebase Editor"),
+                             QString("Mercurial File Log Editor"),
+                             QString("Mercurial Annotation Editor"),
+                             QString("Mercurial Diff Editor"),
+                             QString("Bazaar File Log Editor"),
+                             QString("Bazaar Annotation Editor"),
+                             QString("Bazaar Diff Editor")};
         expected.sort();
         QCOMPARE(quick, expected);
     }
@@ -6945,8 +6951,10 @@ private slots:
         };
         // Output that is never a file - a VCS log, a blame - has no name to
         // open; it opens with contents, by id, and is checked the same way.
-        static const QSet<QString> outputNotFiles{"Git SVN Log Editor", "Git Log Editor",
-                                                  "Git Reflog Editor", "Git Annotation Editor"};
+        static const QSet<QString> outputNotFiles{
+            "Git SVN Log Editor", "Git Log Editor", "Git Reflog Editor", "Git Annotation Editor",
+            "Mercurial File Log Editor", "Mercurial Annotation Editor", "Mercurial Diff Editor",
+            "Bazaar File Log Editor", "Bazaar Annotation Editor", "Bazaar Diff Editor"};
 
         Utils::TemporaryDirectory dir("quick-language-census");
         QVERIFY(dir.isValid());

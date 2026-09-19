@@ -3,23 +3,24 @@
 
 #pragma once
 
-#include <vcsbase/vcsbaseeditor.h>
+#include <vcsbase/vcseditordocument.h>
 
-#include <QRegularExpression>
+#include <functional>
+
+namespace Utils { class FilePath; }
 
 namespace Bazaar::Internal {
 
-class BazaarEditorWidget : public VcsBase::VcsBaseEditorWidget
-{
-public:
-    BazaarEditorWidget();
+// The change under \a cursor: a revision number, on a line that names one
+// - a number alone matches too much of a log to be one anywhere.
+QString bazaarChangeUnderCursor(const QTextCursor &cursor);
 
-private:
-    QString changeUnderCursor(const QTextCursor &cursor) const override;
-    VcsBase::BaseAnnotationHighlighterCreator annotationHighlighterCreator() const override;
-
-    const QRegularExpression m_changesetId;
-    const QRegularExpression m_exactChangesetId;
-};
+// The parameters of a Bazaar editor of \a type: the patterns and texts the
+// widget subclass declared, its annotation highlighter and the change under
+// the cursor, with the describe function the caller supplies.
+VcsBase::VcsBaseEditorParameters bazaarEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe);
 
 } // Bazaar::Internal

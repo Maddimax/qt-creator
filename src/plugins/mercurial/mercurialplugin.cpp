@@ -29,9 +29,12 @@
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>
 
+#include <texteditor/texteditor.h>
+
 #include <vcsbase/vcsbaseconstants.h>
 #include <vcsbase/vcsbaseeditor.h>
 #include <vcsbase/vcscommand.h>
+#include <vcsbase/vcseditordocument.h>
 #include <vcsbase/vcsoutputwindow.h>
 
 #include <QAction>
@@ -39,6 +42,8 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QMenu>
+#include <QScopeGuard>
+#include <QTextCursor>
 #include <QtGlobal>
 
 #ifdef WITH_TESTS
@@ -55,29 +60,26 @@ namespace Mercurial::Internal {
 class MercurialPluginPrivate final : public VcsBase::VersionControlBase
 {
 public:
-    VcsEditorFactory logEditorFactory{
-        {LogOutput,
-         Constants::FILELOG_ID,
-         Tr::tr("Mercurial File Log Editor"),
-         Constants::LOGAPP,
-         [] { return new MercurialEditorWidget; },
-         std::bind(&MercurialPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory logEditorFactory{mercurialEditorParameters(
+        LogOutput,
+        Constants::FILELOG_ID,
+        Tr::tr("Mercurial File Log Editor"),
+        Constants::LOGAPP,
+        std::bind(&MercurialPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory annotateEditorFactory{
-        {AnnotateOutput,
-         Constants::ANNOTATELOG_ID,
-         Tr::tr("Mercurial Annotation Editor"),
-         Constants::ANNOTATEAPP,
-         [] { return new MercurialEditorWidget; },
-         std::bind(&MercurialPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory annotateEditorFactory{mercurialEditorParameters(
+        AnnotateOutput,
+        Constants::ANNOTATELOG_ID,
+        Tr::tr("Mercurial Annotation Editor"),
+        Constants::ANNOTATEAPP,
+        std::bind(&MercurialPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory diffEditorFactory{
-        {DiffOutput,
-         Constants::DIFFLOG_ID,
-         Tr::tr("Mercurial Diff Editor"),
-         Constants::DIFFAPP,
-         [] { return new MercurialEditorWidget; },
-         std::bind(&MercurialPluginPrivate::vcsDescribe, this, _1, _2)}};
+    VcsEditorFactory diffEditorFactory{mercurialEditorParameters(
+        DiffOutput,
+        Constants::DIFFLOG_ID,
+        Tr::tr("Mercurial Diff Editor"),
+        Constants::DIFFAPP,
+        std::bind(&MercurialPluginPrivate::vcsDescribe, this, _1, _2))};
 
     MercurialPluginPrivate();
 
@@ -804,6 +806,7 @@ private slots:
     void testDiffFileResolving_data();
     void testDiffFileResolving();
     void testLogResolving();
+    void testTheEditorsAreQtQuickViewsWithMercurialsParameters();
 };
 
 void MercurialTest::testDiffFileResolving_data()
@@ -856,6 +859,53 @@ void MercurialTest::testLogResolving()
                 "summary:     test-rebase: add another test for rebase with multiple roots\n"
                 );
     VcsBaseEditorWidget::testLogResolving(dd->logEditorFactory, data, "18473:692cbda1eb50", "18472:37100f30590f");
+}
+
+// With no widget subclass left, the Mercurial editors open in the Qt Quick
+// editor over a document that carries what the subclass declared: the log
+// knows its entries and the changeset under the pointer - twelve hex digits,
+// not the revision number before them - and a blame is coloured by
+// Mercurial's own highlighter.
+void MercurialTest::testTheEditorsAreQtQuickViewsWithMercurialsParameters()
+{
+    QString title = "Mercurial log test";
+    Core::IEditor * const log = Core::EditorManager::openEditorWithContents(
+        Constants::FILELOG_ID, &title, "changeset:   18473:692cbda1eb50\nuser:        someone\n");
+    QVERIFY(log);
+    const QScopeGuard closeLog([log] { Core::EditorManager::closeEditors({log}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(log), "the log opened in the widget editor");
+    auto * const document = qobject_cast<VcsEditorDocument *>(log->document());
+    QVERIFY2(document, "the log editor's document is not a VCS document");
+    QCOMPARE(document->logEntryPattern().pattern(), QString("^changeset:\\s+(\\S+)$"));
+    QCOMPARE(document->annotateRevisionTextFormat(), Tr::tr("&Annotate %1"));
+    QCOMPARE(document->sections()->entries().size(), 1);
+
+    const TextEditor::ActionLinkFinder finder
+        = TextEditor::TextEditorFactory::actionLinkFinderFor(document);
+    QVERIFY2(finder, "the log offers nothing to do under the pointer");
+    QTextCursor cursor(document->document());
+    cursor.setPosition(22);
+    const TextEditor::ActionLink onTheChange = finder(document, cursor);
+    QVERIFY2(onTheChange.isValid(), "the changeset under the pointer is not offered as a change");
+    QCOMPARE(onTheChange.linkTextStart, 19);
+    QCOMPARE(onTheChange.linkTextEnd, 31);
+    cursor.setPosition(15);
+    QVERIFY2(!finder(document, cursor).isValid(), "the revision number is offered as a change");
+
+    QString blameTitle = "Mercurial blame test";
+    Core::IEditor * const blame = Core::EditorManager::openEditorWithContents(
+        Constants::ANNOTATELOG_ID, &blameTitle, QByteArray());
+    QVERIFY(blame);
+    const QScopeGuard closeBlame([blame] { Core::EditorManager::closeEditors({blame}, false); });
+    auto * const annotation = qobject_cast<VcsEditorDocument *>(blame->document());
+    QVERIFY2(annotation, "the blame editor's document is not a VCS document");
+    QVERIFY2(annotation->parameters().annotationHighlighterCreator,
+             "Mercurial's parameters name no annotation highlighter");
+    annotation->setPlainText("someone 692cbda1eb50 Wed Jan 23 22:52:55 2013 +0900: one\n"
+                             "someone 37100f30590f Sat Jan 19 04:08:16 2013 +0100: two\n");
+    QCOMPARE(annotation->annotationChanges().size(), 2);
+    QVERIFY2(qobject_cast<BaseAnnotationHighlighter *>(annotation->syntaxHighlighter()),
+             "the blame arrived and no annotation highlighter was installed");
 }
 #endif
 

@@ -7,6 +7,9 @@
 #include "bazaartr.h"
 #include "constants.h"
 
+#include <vcsbase/vcsbaseeditor.h>
+
+#include <QRegularExpression>
 #include <QString>
 #include <QTextCursor>
 
@@ -14,21 +17,11 @@
 
 namespace Bazaar::Internal {
 
-BazaarEditorWidget::BazaarEditorWidget() :
-    m_changesetId(QLatin1String(Constants::CHANGESET_ID)),
-    m_exactChangesetId(QLatin1String(Constants::CHANGESET_ID_EXACT))
+QString bazaarChangeUnderCursor(const QTextCursor &cursorIn)
 {
-    setAnnotateRevisionTextFormat(Tr::tr("&Annotate %1"));
-    setAnnotatePreviousRevisionTextFormat(Tr::tr("Annotate &parent revision %1"));
-    // Diff format:
-    // === <change> <file|dir> 'mainwindow.cpp'
-    setDiffFilePattern("^=== [a-z]+ [a-z]+ '(.+)'\\s*");
-    setLogEntryPattern("^revno: (\\d+)");
-    setAnnotationEntryPattern("^(" BZR_CHANGE_PATTERN ") ");
-}
-
-QString BazaarEditorWidget::changeUnderCursor(const QTextCursor &cursorIn) const
-{
+    static const QRegularExpression changesetId(QLatin1String(Constants::CHANGESET_ID));
+    static const QRegularExpression exactChangesetId(
+        QLatin1String(Constants::CHANGESET_ID_EXACT));
     // The test is done in two steps: first we check if the line contains a
     // changesetId. Then we check if the cursor is over the changesetId itself
     // and not over "revno" or another part of the line.
@@ -39,7 +32,7 @@ QString BazaarEditorWidget::changeUnderCursor(const QTextCursor &cursorIn) const
     cursor.select(QTextCursor::LineUnderCursor);
     if (cursor.hasSelection()) {
         const QString line = cursor.selectedText();
-        const QRegularExpressionMatch match = m_changesetId.match(line);
+        const QRegularExpressionMatch match = changesetId.match(line);
         if (match.hasMatch()) {
             const int start = match.capturedStart();
             const int stop = match.capturedEnd();
@@ -48,7 +41,7 @@ QString BazaarEditorWidget::changeUnderCursor(const QTextCursor &cursorIn) const
                 cursor.select(QTextCursor::WordUnderCursor);
                 if (cursor.hasSelection()) {
                     const QString change = cursor.selectedText();
-                    if (m_exactChangesetId.match(change).hasMatch())
+                    if (exactChangesetId.match(change).hasMatch())
                         return change;
                 }
             }
@@ -57,9 +50,23 @@ QString BazaarEditorWidget::changeUnderCursor(const QTextCursor &cursorIn) const
     return {};
 }
 
-VcsBase::BaseAnnotationHighlighterCreator BazaarEditorWidget::annotationHighlighterCreator() const
+VcsBase::VcsBaseEditorParameters bazaarEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe)
 {
-    return VcsBase::getAnnotationHighlighterCreator<BazaarAnnotationHighlighter>();
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, {}, describe,
+                                                bazaarChangeUnderCursor};
+    parameters.annotationHighlighterCreator
+        = VcsBase::getAnnotationHighlighterCreator<BazaarAnnotationHighlighter>();
+    // Diff format:
+    // === <change> <file|dir> 'mainwindow.cpp'
+    parameters.diffFilePattern = "^=== [a-z]+ [a-z]+ '(.+)'\\s*";
+    parameters.logEntryPattern = "^revno: (\\d+)";
+    parameters.annotationEntryPattern = "^(" BZR_CHANGE_PATTERN ") ";
+    parameters.annotateRevisionTextFormat = Tr::tr("&Annotate %1");
+    parameters.annotatePreviousRevisionTextFormat = Tr::tr("Annotate &parent revision %1");
+    return parameters;
 }
 
 } // Bazaar::Internal

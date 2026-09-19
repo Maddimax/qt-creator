@@ -193,10 +193,10 @@ void MercurialClient::incoming(const FilePath &repositoryRoot, const QString &re
 
     const QString title = Tr::tr("Hg incoming %1").arg(id);
 
-    VcsBaseEditorWidget *editor = createVcsEditor(Constants::DIFFLOG_ID, title, repositoryRoot,
-                                                  VcsBaseEditor::getEncoding(repositoryRoot),
-                                                  "incoming", id);
-    executeInEditor(FilePath::fromString(repository), {vcsBinary(repositoryRoot), args}, editor);
+    VcsEditorDocument * const document
+        = createVcsDocument(Constants::DIFFLOG_ID, title, repositoryRoot,
+                            VcsBaseEditor::getEncoding(repositoryRoot), "incoming", id);
+    executeInEditor(FilePath::fromString(repository), {vcsBinary(repositoryRoot), args}, document);
 }
 
 void MercurialClient::outgoing(const FilePath &repositoryRoot)
@@ -206,10 +206,11 @@ void MercurialClient::outgoing(const FilePath &repositoryRoot)
 
     const QString title = Tr::tr("Hg outgoing %1").arg(repositoryRoot.toUserOutput());
 
-    VcsBaseEditorWidget *editor = createVcsEditor(Constants::DIFFLOG_ID, title, repositoryRoot,
-                                                  VcsBaseEditor::getEncoding(repositoryRoot),
-                                                  "outgoing", repositoryRoot.toUrlishString());
-    executeInEditor(repositoryRoot, args, editor);
+    VcsEditorDocument * const document
+        = createVcsDocument(Constants::DIFFLOG_ID, title, repositoryRoot,
+                            VcsBaseEditor::getEncoding(repositoryRoot), "outgoing",
+                            repositoryRoot.toUrlishString());
+    executeInEditor(repositoryRoot, args, document);
 }
 
 void MercurialClient::annotate(const Utils::FilePath &workingDir, const QString &file,

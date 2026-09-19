@@ -68089,3 +68089,117 @@ class left; AUTOMOC handles it.
    Mercurial and Bazaar first: their subclasses are the smallest.
 2. The QmlDesigner-side two; the standing list (entry 298), plus the
    double-click on a diff line.
+
+## 2026-09-19 — Mercurial's and Bazaar's editors open in the Qt Quick editor (batch 317)
+
+Entry 316's next item 1, the two smallest first. `MercurialEditorWidget`
+and `BazaarEditorWidget` go; five VCS widget subclasses remain (Subversion,
+CVS, Perforce, Fossil, ClearCase).
+
+### What each subclass had, and where it went
+
+Both declared in their constructors what batch 315 made parameters -
+`diffFilePattern`, `logEntryPattern`, `annotationEntryPattern`, the two
+annotate texts - and answered `changeUnderCursor()` and
+`annotationHighlighterCreator()`; Mercurial also `decorateVersion()` (hg's
+short description of a revision) and `annotationPreviousVersions()` (its
+parents), both asking the client with `source()`. Each is a free function
+now, on `VcsBase::source(document)` where the widget used `source()`, and
+`mercurialEditorParameters()` / `bazaarEditorParameters()` build the
+parameters for the three factories of each; the factories supply no widget
+creator. Mercurial's two regexes were members built per widget; they are
+function-local statics, on `QRegularExpression::anchoredPattern()`, which
+the old comment was waiting for. An unused third member went with them.
+
+Bazaar's `changeUnderCursor()` is the interesting one: a Bazaar revision is
+a number, and "a regex like `[0-9]+` matches a lot of text", so it first
+asks whether the *line* names a revision (`revno: 6572`, a leading
+indented number, a `6572: ` prefix) and only then whether the word under
+the cursor is one. The test has a timestamp line for exactly that.
+
+`MercurialClient::incoming()` and `outgoing()` still held a
+`VcsBaseEditorWidget *` from `createVcsEditor()` - null for a Qt Quick
+editor, which `executeInEditor()` would have asserted on. They hold the
+document from `createVcsDocument()`. Fossil's client is the last caller of
+`createVcsEditor()`, four times; it goes with Fossil.
+
+### The tests
+
+- `MercurialTest::testTheEditorsAreQtQuickViewsWithMercurialsParameters`:
+  a log opened by id with `changeset:   18473:692cbda1eb50` is a Qt Quick
+  view over a VCS document with Mercurial's log pattern and `&Annotate %1`,
+  finding one section; the changeset under the pointer is offered as a
+  change spanning exactly its twelve digits, the revision number before
+  the colon is not; a blame opened by id names an annotation highlighter
+  creator and, given two `hg annotate -u -c -d` lines, finds two changes
+  and installs a `BaseAnnotationHighlighter`.
+- `BazaarPlugin::testTheEditorsAreQtQuickViewsWithBazaarsParameters`: the
+  same shape over `revno: 6572 [merge]` and a `timestamp:` line: `6572` is
+  offered, `revno` and the `2012` of the timestamp are not; a blame with
+  two `6572 ... | line` entries is coloured.
+- The two censuses list the six editors among the Qt Quick ones and among
+  the output that is never a file.
+- `testDiffFileResolving` and `testLogResolving` of both plugins, the
+  VcsBase helpers on the document, now run over the Qt Quick editor.
+
+First run, one build, in the VM: the Mercurial test 3/0, the Bazaar test
+3/0, `testDiffFileResolving` 5/0 and `testLogResolving` 3/0 in each
+plugin, both censuses 3/0 - every one exit 0 at the first attempt. The
+Bazaar timestamp assertion and the Mercurial revision-number assertion
+are the two that would tell a careless `changeUnderCursor()` apart from
+the widget's; the controls below take each away.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - Mercurial's parameters carry no `changeUnderCursor`:
+  "'onTheChange.isValid()' returned FALSE. (the changeset under the
+  pointer is not offered as a change)".
+- **B** - Bazaar takes any number for a change, both steps of its line
+  check gone: "'!finder(document, cursor).isValid()' returned FALSE. (a
+  number in a timestamp is offered as a change)" - and only that; `6572`
+  and `revno` answer as before.
+- **C** - Mercurial's parameters name no annotation highlighter:
+  "'annotation->parameters().annotationHighlighterCreator' returned FALSE".
+- **D** - Bazaar's parameters carry no log entry pattern: the existing
+  `testLogResolving` fails first, "Actual (document->sections()->
+  entries().value(0)): "", Expected "6572"", and the new test on the
+  pattern itself.
+
+### Measurements
+
+On the batch's build, in the VM:
+
+    -test TextEditor     806 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         33 passed, 0 failed, 0 skipped, exit 0
+    -test Mercurial       17 passed, 0 failed, 0 skipped, exit 0
+    -test Bazaar          19 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor is 806 still: the censuses grew their lists, not their count.
+Mercurial 17 and Bazaar 19 are 16 and 18 plus the new test each. Git,
+VcsBase's code and the other five VCS are untouched by this batch and
+Git was not re-run; VcsBase ran because the suites script always runs it.
+
+The suites run was killed by the host for memory after TextEditor's
+second run, with the third orphaned in the VM; that one was killed and
+the remaining five suites re-run on the same binary. The controls script
+had died before that on a quoting slip of its own - the `'"'"'` idiom
+inside a double-quoted `echo` - having patched nothing; fixed and run
+after the suites.
+
+No `.qbs` edited: the four editor files keep their names. Neither header
+has a `Q_OBJECT` class left; AUTOMOC handles it.
+
+### What is next
+
+1. Subversion, CVS, ClearCase: each a widget subclass of two or three
+   virtuals the parameters already have a place for. Perforce adds
+   `findDiffFile()` - a diff file resolver of the VCS's own, which the
+   document has a setter for and the parameters do not yet - and the
+   annotation separator. Then Fossil, whose client still holds four
+   widgets from `createVcsEditor()` and sets a config on them, and with it
+   `createVcsEditor()` goes. With the last one, `VcsBaseEditorWidget`,
+   `VcsBaseEditor` and the staging area go.
+2. The QmlDesigner-side two; the standing list (entry 298), plus the
+   double-click on a diff line.

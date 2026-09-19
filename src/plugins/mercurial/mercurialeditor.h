@@ -3,26 +3,24 @@
 
 #pragma once
 
-#include <vcsbase/vcsbaseeditor.h>
+#include <vcsbase/vcseditordocument.h>
 
-#include <QRegularExpression>
+#include <functional>
+
+namespace Utils { class FilePath; }
 
 namespace Mercurial::Internal {
 
-class MercurialEditorWidget : public VcsBase::VcsBaseEditorWidget
-{
-public:
-    MercurialEditorWidget();
+// The change under \a cursor: a word of exactly twelve or forty hex digits.
+QString mercurialChangeUnderCursor(const QTextCursor &cursor);
 
-private:
-    QString changeUnderCursor(const QTextCursor &cursor) const override;
-    VcsBase::BaseAnnotationHighlighterCreator annotationHighlighterCreator() const override;
-    QString decorateVersion(const QString &revision) const override;
-    QStringList annotationPreviousVersions(const QString &revision) const override;
-
-    const QRegularExpression exactIdentifier12;
-    const QRegularExpression exactIdentifier40;
-    const QRegularExpression changesetIdentifier40;
-};
+// The parameters of a Mercurial editor of \a type: the patterns and texts
+// the widget subclass declared, its annotation highlighter, and what it
+// answered about a change - the one under the cursor, its short description,
+// its parents - with the describe function the caller supplies.
+VcsBase::VcsBaseEditorParameters mercurialEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe);
 
 } // Mercurial::Internal

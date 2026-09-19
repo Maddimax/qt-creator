@@ -8,32 +8,23 @@
 #include "mercurialclient.h"
 #include "mercurialtr.h"
 
-#include <vcsbase/diffandloghighlighter.h>
+#include <vcsbase/vcsbaseeditor.h>
+#include <vcsbase/vcsbaseplugin.h>
 
+#include <QRegularExpression>
 #include <QString>
 #include <QTextCursor>
-#include <QTextBlock>
-#include <QDebug>
 
 using namespace Utils;
 
 namespace Mercurial::Internal {
 
-// use QRegularExpression::anchoredPattern() when minimum Qt is raised to 5.12+
-MercurialEditorWidget::MercurialEditorWidget() :
-        exactIdentifier12(QString("\\A(?:") + Constants::CHANGEIDEXACT12 + QString(")\\z")),
-        exactIdentifier40(QString("\\A(?:") + Constants::CHANGEIDEXACT40 + QString(")\\z")),
-        changesetIdentifier40(Constants::CHANGESETID40)
+QString mercurialChangeUnderCursor(const QTextCursor &cursorIn)
 {
-    setDiffFilePattern(Constants::DIFFIDENTIFIER);
-    setLogEntryPattern("^changeset:\\s+(\\S+)$");
-    setAnnotateRevisionTextFormat(Tr::tr("&Annotate %1"));
-    setAnnotatePreviousRevisionTextFormat(Tr::tr("Annotate &parent revision %1"));
-    setAnnotationEntryPattern(Constants::CHANGESETID12);
-}
-
-QString MercurialEditorWidget::changeUnderCursor(const QTextCursor &cursorIn) const
-{
+    static const QRegularExpression exactIdentifier12(
+        QRegularExpression::anchoredPattern(Constants::CHANGEIDEXACT12));
+    static const QRegularExpression exactIdentifier40(
+        QRegularExpression::anchoredPattern(Constants::CHANGEIDEXACT40));
     QTextCursor cursor = cursorIn;
     cursor.select(QTextCursor::WordUnderCursor);
     if (cursor.hasSelection()) {
@@ -46,24 +37,39 @@ QString MercurialEditorWidget::changeUnderCursor(const QTextCursor &cursorIn) co
     return {};
 }
 
-VcsBase::BaseAnnotationHighlighterCreator MercurialEditorWidget::annotationHighlighterCreator() const
+static QString mercurialDecorateVersion(VcsBase::VcsEditorDocument *document,
+                                        const QString &revision)
 {
-    return VcsBase::getAnnotationHighlighterCreator<MercurialAnnotationHighlighter>();
-}
-
-QString MercurialEditorWidget::decorateVersion(const QString &revision) const
-{
-    const FilePath workingDirectory = source().absolutePath();
+    const FilePath workingDirectory = VcsBase::source(document).absolutePath();
     // Format with short summary
     return mercurialClient().shortDescriptionSync(workingDirectory, revision);
 }
 
-QStringList MercurialEditorWidget::annotationPreviousVersions(const QString &revision) const
+static QStringList mercurialAnnotationPreviousVersions(VcsBase::VcsEditorDocument *document,
+                                                       const QString &revision)
 {
-    const FilePath filePath = source();
+    const FilePath filePath = VcsBase::source(document);
     const FilePath workingDirectory = filePath.absolutePath();
     // Retrieve parent revisions
     return mercurialClient().parentRevisionsSync(workingDirectory, filePath.fileName(), revision);
+}
+
+VcsBase::VcsBaseEditorParameters mercurialEditorParameters(
+    VcsBase::EditorContentType type, Id id, const QString &displayName, const QString &mimeType,
+    const std::function<void(const FilePath &, const QString &)> &describe)
+{
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType, {}, describe,
+                                                mercurialChangeUnderCursor};
+    parameters.decorateVersion = mercurialDecorateVersion;
+    parameters.annotationPreviousVersions = mercurialAnnotationPreviousVersions;
+    parameters.annotationHighlighterCreator
+        = VcsBase::getAnnotationHighlighterCreator<MercurialAnnotationHighlighter>();
+    parameters.diffFilePattern = Constants::DIFFIDENTIFIER;
+    parameters.logEntryPattern = "^changeset:\\s+(\\S+)$";
+    parameters.annotationEntryPattern = Constants::CHANGESETID12;
+    parameters.annotateRevisionTextFormat = Tr::tr("&Annotate %1");
+    parameters.annotatePreviousRevisionTextFormat = Tr::tr("Annotate &parent revision %1");
+    return parameters;
 }
 
 } // Mercurial::Internal
