@@ -260,11 +260,13 @@ public:
 
     void setLineNumbersVisible(bool b);
     bool lineNumbersVisible() const;
-    // What the language withholds from the display settings: a pane of prose
-    // has no line numbers and does not wrap whatever the settings say, and
-    // stays so through every push of them. The factory says it.
+    // What the language withholds from the display and margin settings: a
+    // pane of prose has no line numbers and does not wrap, a VCS's output has
+    // no right margin, whatever the settings say, and stays so through every
+    // push of them. The factory says it.
     void setLineNumbersAllowed(bool allowed);
     void setWrappingAllowed(bool allowed);
+    void setMarginAllowed(bool allowed);
 
     void setAlwaysOpenLinksInNextSplit(bool b);
     bool alwaysOpenLinksInNextSplit() const;
@@ -922,6 +924,11 @@ public:
     // Whether a view of this language wraps long lines when the settings say
     // so. False for the same pane, where a line is what it is.
     bool wrapsLines() const;
+    void setMarginVisible(bool on);
+    // Whether a view of this language draws the right margin when the
+    // settings say so. False for a VCS's output, whose lines are as long as
+    // they are.
+    bool marginVisible() const;
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
     // Whether the language has anything to fold. A view uses it to decide

@@ -784,6 +784,7 @@ public:
     // every push of them.
     bool m_lineNumbersAllowed = true;
     bool m_wrappingAllowed = true;
+    bool m_marginAllowed = true;
     bool m_contentsChanged = false;
     bool m_lastCursorChangeWasInteresting = false;
     std::shared_ptr<void> m_suggestionBlocker;
@@ -3638,6 +3639,12 @@ void TextEditorWidget::setWrappingAllowed(bool allowed)
 {
     d->m_wrappingAllowed = allowed;
     setDisplaySettings(displaySettings());
+}
+
+void TextEditorWidget::setMarginAllowed(bool allowed)
+{
+    d->m_marginAllowed = allowed;
+    setMarginSettings(marginSettings());
 }
 
 void TextEditorWidget::setLineNumbersVisible(bool b)
@@ -8976,7 +8983,10 @@ void TextEditorWidget::setDiffChangeSigns(const QHash<int, QChar> &blockSigns, b
 
 void TextEditorWidget::setMarginSettings(const MarginSettingsData &ms)
 {
-    d->m_marginSettings = ms;
+    // What the language withholds, whatever the settings say.
+    MarginSettingsData settings = ms;
+    settings.m_showMargin = settings.m_showMargin && d->m_marginAllowed;
+    d->m_marginSettings = settings;
     updateVisualWrapColumn();
 
     viewport()->update();
@@ -10218,6 +10228,7 @@ public:
     bool m_restoresState = true;
     bool m_lineNumbersVisible = true;
     bool m_wrapsLines = true;
+    bool m_marginVisible = true;
     bool m_codeFoldingSupported = false;
     bool m_paranthesesMatchinEnabled = false;
     bool m_marksVisible = true;
@@ -11389,6 +11400,16 @@ bool TextEditorFactory::wrapsLines() const
     return d->m_wrapsLines;
 }
 
+void TextEditorFactory::setMarginVisible(bool on)
+{
+    d->m_marginVisible = on;
+}
+
+bool TextEditorFactory::marginVisible() const
+{
+    return d->m_marginVisible;
+}
+
 void TextEditorFactory::setCodeFoldingSupported(bool on)
 {
     d->m_codeFoldingSupported = on;
@@ -11483,11 +11504,14 @@ BaseTextEditor *TextEditorFactoryPrivate::createEditorHelper(const TextDocumentP
     // from the document, and this is the language's answer over that.
     if (m_readOnly)
         textEditorWidget->setReadOnly(true);
-    // And over the display settings, which are pushed into every widget.
+    // And over the display and margin settings, which are pushed into every
+    // widget.
     if (!m_lineNumbersVisible)
         textEditorWidget->setLineNumbersAllowed(false);
     if (!m_wrapsLines)
         textEditorWidget->setWrappingAllowed(false);
+    if (!m_marginVisible)
+        textEditorWidget->setMarginAllowed(false);
     return editor;
 }
 

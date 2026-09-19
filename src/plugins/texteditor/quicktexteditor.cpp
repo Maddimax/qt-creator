@@ -332,6 +332,11 @@ public:
         // language's answer, asked of the view the way anyone asks it.
         if (m_factory && m_factory->readOnly())
             TextEditor::setReadOnlyOf(this, true);
+        // Nor has such output a right margin - a VCS's lines are as long as
+        // they are - where the language says so: the margin settings
+        // overridden with the margin off, which a push of them does not reach.
+        if (m_factory && !m_factory->marginVisible())
+            TextEditor::setMarginSettingsIn(this, MarginSettingsData());
 
         // A tooltip is a widget and has to be placed in screen coordinates.
         // The item is in a QQuickWidget's offscreen window, whose own position
@@ -14958,10 +14963,11 @@ private slots:
     }
 
     // A pane of a few lines of prose - a change's description above a diff -
-    // has no line numbers and does not wrap, whatever the settings say; the
-    // widget subclasses said so by overriding the settings push. The factory
-    // says it for either view, a push of the settings leaves it standing, and
-    // the pane's host can ask how tall a line is to size the pane in lines.
+    // has no line numbers and does not wrap, and a VCS's output has no right
+    // margin, whatever the settings say; the widget subclasses said so by
+    // overriding the settings pushes. The factory says it for either view, a
+    // push of the settings leaves it standing, and the pane's host can ask
+    // how tall a line is to size the pane in lines.
     void testAFactoryCanSayItsViewsAreProse_data()
     {
         QTest::addColumn<bool>("quick");
@@ -14986,9 +14992,18 @@ private slots:
                 if (prose) {
                     setLineNumbersVisible(false);
                     setWrapsLines(false);
+                    setMarginVisible(false);
                 }
             }
         };
+        // With the right margin on in the settings, so that withholding it
+        // is something to see.
+        MarginSettings &margins = marginSettings();
+        const MarginSettingsData marginsWere = margins.data();
+        const QScopeGuard restoreMargins([&margins, marginsWere] { margins.setData(marginsWere); });
+        MarginSettingsData marginOn = marginsWere;
+        marginOn.m_showMargin = true;
+        margins.setData(marginOn);
         const auto form = [](Core::IEditor *editor) -> QQuickItem * {
             auto * const host = editor->widget()->findChild<QQuickWidget *>();
             return host ? host->rootObject() : nullptr;
@@ -15005,17 +15020,29 @@ private slots:
             QQuickItem * const root = form(editor);
             return root && root->property("wrapLines").toBool();
         };
+        // What each view lays out with: the widget's settings as masked, the
+        // Qt Quick view's as overridden.
+        const auto marginShown = [](Core::IEditor *editor) -> bool {
+            if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+                return widget->marginSettings().m_showMargin;
+            TextViewport * const view = viewportForEditor(editor);
+            return view && view->marginSettings().m_showMargin;
+        };
 
         ProseFactory prose(quick, true);
         QCOMPARE(prose.lineNumbersVisible(), false);
         QCOMPARE(prose.wrapsLines(), false);
+        QCOMPARE(prose.marginVisible(), false);
         const std::unique_ptr<Core::IEditor> pane(prose.createEditor());
         QVERIFY2(pane.get(), "the factory built nothing");
         QVERIFY2(!lineNumbersShown(pane.get()), "the pane has a line number column");
         QVERIFY2(!wraps(pane.get()), "the pane wraps its lines");
+        QVERIFY2(!marginShown(pane.get()), "the pane draws a right margin");
         emit displaySettings().changed();
+        emit margins.changed();
         QVERIFY2(!lineNumbersShown(pane.get()), "a settings push brought the line numbers back");
         QVERIFY2(!wraps(pane.get()), "a settings push brought wrapping back");
+        QVERIFY2(!marginShown(pane.get()), "a settings push brought the margin back");
         QVERIFY2(lineSpacingOf(pane.get()) > 0, "the pane's host cannot tell how tall a line is");
 
         // And a language that withholds nothing follows the settings.
@@ -15024,6 +15051,7 @@ private slots:
         QVERIFY2(file.get(), "the factory built nothing");
         QCOMPARE(lineNumbersShown(file.get()), displaySettings().displayLineNumbers());
         QCOMPARE(wraps(file.get()), displaySettings().textWrapping());
+        QVERIFY2(marginShown(file.get()), "a language that withholds nothing lost the margin");
     }
 
     // An external tool whose output replaces the selection: the text goes

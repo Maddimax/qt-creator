@@ -284,6 +284,9 @@ VcsEditorFactory::VcsEditorFactory(const VcsBaseEditorParameters &parameters)
     setUsesQuickEditor(true);
     setMarksVisible(false);
     setRevisionsVisible(false);
+    // No right margin over output whose lines are as long as they are, which
+    // is what the widget subclass forced in setMarginSettings().
+    setMarginVisible(false);
     // Output is not to be typed into, and is folded where it has chunks -
     // which is what the widget subclass asked for in init(). A file the VCS
     // hands over to be edited says so in the parameters, and whether an

@@ -69382,3 +69382,120 @@ edited. `texteditor.h` lost two declarations, so everything rebuilt.
    `cpptoolsreuse.cpp:322` and `:352`, `languageclient/client.cpp:1399`.
    CppEditor's and the language client's: what each does to every widget
    of a document is what the next batch has to give the Qt Quick view.
+
+## 2026-09-20 — The VCS margins (batch 327)
+
+Entry 326's next items: the QmlDesigner-side two, the standing list with
+the diff double-click and the VCS margins, and the four callers of the
+list-shaped widget lookups. The four were looked at first this tick:
+
+- `CppEditorWidget::editorWidgetsForDocument()` has one caller,
+  `CppModelManager`'s signal-slot completion, which takes a widget's
+  semantic info when one is valid and otherwise preprocesses the text
+  itself - so a Qt Quick editor takes the slower path to the same
+  answer. A cost, not a gap.
+- `semanticDocumentOf()` in `cpptoolsreuse.cpp` prefers a widget's
+  semantic info and falls back to the `CppEditorDocument`'s; `editorFor(
+  TextEditorWidget *)` maps a widget to its editor, which a Qt Quick
+  editor never asks; the language client clears refactor markers on
+  every widget *and* on the document, "a view that is not a widget reads
+  the markers from the document". Each already answers for the Qt Quick
+  view.
+
+None is a batch. The VCS margins are: a regression the migration made,
+recorded in entry 319 and carried on the standing list since.
+
+### The gap closed: a language can withhold the right margin
+
+`VcsBaseEditorWidget::setMarginSettings()` pushed empty margin settings
+into every VCS widget unless a subclass had called `setMarginsEnabled(
+true)`, which Perforce alone did. The Qt Quick view had no such switch:
+it draws the margin as the settings say, so when the VCS editors moved
+(batches 315 to 320) every one of them gained a right margin over
+output whose lines are as long as they are - a diff, a log, a blame.
+Entry 319 chose not to re-create Perforce's exception; this batch
+restores the widget's default for all of them, the way batch 323 gave a
+factory `setLineNumbersVisible()` and `setWrapsLines()`:
+
+- `TextEditorFactory::setMarginVisible(bool)`, true by default. The
+  widget masks the margin settings it is pushed
+  (`setMarginSettings()`, through `setMarginAllowed()`, which
+  `createEditorHelper()` sets from the factory) so that a settings push
+  leaves the margin off. The Qt Quick editor, where it configures its
+  view from the factory, overrides the view's margin settings with the
+  margin off through `setMarginSettingsIn()` - the view keeps an
+  optional override and reads it instead of the global settings, so a
+  push of them does not reach it either.
+- `VcsEditorFactory` says `setMarginVisible(false)` for every VCS.
+
+### The tests
+
+- `QuickTextEditorTest::testAFactoryCanSayItsViewsAreProse` gains the
+  third knob: with the margin turned on in the settings for the test's
+  duration, a factory that withholds it builds a view whose margin
+  settings - the widget's as masked, the Qt Quick view's as overridden -
+  say no margin, still after a push of the margin settings; a factory
+  that withholds nothing shows it.
+- `VcsEditorDocumentTest::testTheEditorsStateIsTheDocuments`, where the
+  gutter assertions are: a `VcsEditorFactory` says no margin.
+- `testTheRightMarginSitsAtItsColumnAndOutlivesTheTint`, the Qt Quick
+  view's own margin test, ran as the negative side: a plain file's
+  factory withholds nothing, and its margin is where the settings put
+  it.
+
+First build, in the VM: the prose test 4/0 (both rows), the VcsBase
+test 3/0, the margin test 3/0, exit 0 each, at the first attempt; the
+runs' only warnings are the usual `raise()` and `isLoaded()` ones.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Three, one per
+view and one for the factory that has to say it:
+
+- **A** - the Qt Quick editor leaves the view's margin settings to the
+  global ones, as before: the quick row, "'!marginShown(pane.get())'
+  returned FALSE. (the pane draws a right margin)"; the widget row
+  passes.
+- **B** - the widget applies the margin settings it is pushed, as
+  before: the widget row, the same message; the quick row passes.
+- **C** - `VcsEditorFactory` withholds nothing: "'!factory.marginVisible()'
+  returned FALSE. (a VCS view draws a right margin over output)".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     812 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         36 passed, 0 failed, 0 skipped, exit 0
+    -test Git            143 passed, 3 failed, 0 skipped, exit 3
+                           testInlineDiffFile and
+                           testConflictedFileInTextEditor, this
+                           branch's baseline pair (entry 313), and
+                           InstantBlameTest::testBlameDocumentContents
+    -test Perforce        10 passed, 0 failed, 0 skipped, exit 0
+    -test DiffEditor      62 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor, QuickUi, VcsBase, Perforce and DiffEditor are what entries
+324 and 326 recorded; the prose test's two rows carry the new
+assertions rather than adding any. Git's third failure is the standing
+flake (entries 320 and 321: a 16-second test object in the suite,
+300 ms and green alone), in a test about blame tooltips that no margin
+touches. Measured as before, the test alone, five times:
+
+    -test Git,testBlameDocumentContents   3/0, exit 0, x5 (307-320 ms each)
+
+No memory kill, no typing flake in the three TextEditor runs. No `.qbs`
+edited. `texteditor.h` gained three declarations, so everything rebuilt.
+
+### What is next
+
+1. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor), the last `setEditorWidgetCreator()` callers besides the
+   Plain Text Editor's test-side factory; the standing suites do not
+   load QmlDesigner, so the verification has to be its own.
+2. The double-click on a diff line: the widget's `mouseDoubleClickEvent`
+   jumped to the file and line; the Qt Quick view follows a diff line
+   through the link finder (Ctrl+click, F2) but has no double-click
+   hook, and QTest cannot double-click a Quick item, so the test has to
+   drive whatever hook is added directly.
+3. The standing list (entry 298).

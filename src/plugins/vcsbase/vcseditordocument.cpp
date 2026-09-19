@@ -1197,6 +1197,7 @@ private slots:
         // said by the factory, for the view that has no widget.
         QVERIFY2(!factory.marksVisible(), "a VCS view has a column for marks it cannot carry");
         QVERIFY2(!factory.revisionsVisible(), "a VCS view marks edited lines nobody saves");
+        QVERIFY2(!factory.marginVisible(), "a VCS view draws a right margin over output");
         // Through the editor manager, as a client opens one: the choice below
         // jumps in the editor the manager knows for the document.
         QString title = "VCS document test";
