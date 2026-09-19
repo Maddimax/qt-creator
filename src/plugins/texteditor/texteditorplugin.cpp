@@ -311,20 +311,20 @@ void TextEditorPlugin::updateSearchResultsTabWidth(const TabSettingsData &tabSet
 
 void TextEditorPlugin::updateCurrentSelection(const QString &text)
 {
-    if (BaseTextEditor *editor = BaseTextEditor::currentTextEditor()) {
-        // Read-only blocks user input only, not a programmatic insert.
-        if (editor->editorWidget()->isReadOnly())
-            return;
-        QTextCursor tc = editor->textCursor();
-        const int pos = tc.position();
-        const int anchor = tc.anchor();
-        const bool selectionInTextDirection = pos >= anchor;
-        tc.insertText(text);
-        const int newPos = tc.position();
-        tc.setPosition(selectionInTextDirection ? anchor : newPos);
-        tc.setPosition(selectionInTextDirection ? newPos : pos, QTextCursor::KeepAnchor);
-        editor->setTextCursor(tc);
-    }
+    // Whichever view is current. Read-only blocks user input only, not a
+    // programmatic insert, so the view is asked.
+    IEditor * const editor = EditorManager::currentEditor();
+    QTextCursor tc = textCursorOf(editor);
+    if (tc.isNull() || isReadOnlyIn(editor))
+        return;
+    const int pos = tc.position();
+    const int anchor = tc.anchor();
+    const bool selectionInTextDirection = pos >= anchor;
+    tc.insertText(text);
+    const int newPos = tc.position();
+    tc.setPosition(selectionInTextDirection ? anchor : newPos);
+    tc.setPosition(selectionInTextDirection ? newPos : pos, QTextCursor::KeepAnchor);
+    setTextCursorOf(editor, tc);
 }
 
 void TextEditorPlugin::createStandardContextMenu()

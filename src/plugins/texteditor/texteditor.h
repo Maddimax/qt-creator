@@ -132,7 +132,6 @@ public:
 
     virtual void finalizeInitialization() {}
 
-    static BaseTextEditor *currentTextEditor();
     static QList<BaseTextEditor *> openedTextEditors();
     static QList<BaseTextEditor *> textEditorsForDocument(TextDocument *textDocument);
     static QList<BaseTextEditor *> textEditorsForFilePath(const Utils::FilePath &path);
@@ -693,7 +692,6 @@ public:
 
     Q_INVOKABLE bool inFindScope(const QTextCursor &cursor) const;
 
-    static TextEditorWidget *currentTextEditorWidget();
     static TextEditorWidget *fromEditor(const Core::IEditor *editor);
     static QList<TextEditorWidget *> textEditorWidgetsForDocument(TextDocument *document);
 
@@ -1188,6 +1186,10 @@ TEXTEDITOR_EXPORT void removeHoverHandlerIn(Core::IEditor *editor, BaseHoverHand
 // scratch editor is there to be read. Both views have the notion; only the
 // widget one had a way to be told.
 TEXTEDITOR_EXPORT void setReadOnlyIn(Core::IEditor *editor, bool readOnly);
+// Whether \a editor's view refuses edits, for whichever reason - what a
+// programmatic insert has to ask, since only typing is blocked by it. True
+// where \a editor shows no text.
+TEXTEDITOR_EXPORT bool isReadOnlyIn(Core::IEditor *editor);
 
 // Follow the symbol the caret is on, in whichever view \a editor has. The
 // language's link finder is what answers; this only decides who asks.

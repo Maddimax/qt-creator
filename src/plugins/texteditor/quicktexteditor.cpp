@@ -62,6 +62,7 @@
 #include <coreplugin/dialogs/codecselector.h>
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
+#include <coreplugin/externaltoolmanager.h>
 #include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/editormanager/ieditorfactory.h>
 
@@ -15023,6 +15024,59 @@ private slots:
         QVERIFY2(file.get(), "the factory built nothing");
         QCOMPARE(lineNumbersShown(file.get()), displaySettings().displayLineNumbers());
         QCOMPARE(wraps(file.get()), displaySettings().textWrapping());
+    }
+
+    // An external tool whose output replaces the selection: the text goes
+    // where the selection was and is selected in its place, in either view;
+    // a view that refuses edits is left alone - read-only blocks typing, not
+    // a programmatic insert, so the view has to be asked. That asked the
+    // widget editor by type, so from a Qt Quick editor the output went
+    // nowhere.
+    void testAnExternalToolsOutputReplacesTheSelectionInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::addColumn<bool>("readOnly");
+        QTest::newRow("widget") << false << false;
+        QTest::newRow("quick") << true << false;
+        QTest::newRow("widget, read-only") << false << true;
+        QTest::newRow("quick, read-only") << true << true;
+    }
+
+    void testAnExternalToolsOutputReplacesTheSelectionInEitherView()
+    {
+        QFETCH(bool, quick);
+        QFETCH(bool, readOnly);
+
+        const Utils::Id editorId = quick ? Utils::Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                         : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QString title = "External tool selection test";
+        Core::IEditor * const editor
+            = Core::EditorManager::openEditorWithContents(editorId, &title, "one two three\n");
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        QTextCursor selectTwo = textCursorOf(editor);
+        selectTwo.setPosition(4);
+        selectTwo.setPosition(7, QTextCursor::KeepAnchor);
+        setTextCursorOf(editor, selectTwo);
+        setReadOnlyIn(editor, readOnly);
+        QCOMPARE(isReadOnlyIn(editor), readOnly);
+
+        emit Core::ExternalToolManager::instance()->replaceSelectionRequested("2");
+
+        if (readOnly) {
+            QCOMPARE(document->plainText(), QString("one two three\n"));
+            return;
+        }
+        QCOMPARE(document->plainText(), QString("one 2 three\n"));
+        // What is selected now is the new text, the way round the selection was.
+        const QTextCursor after = textCursorOf(editor);
+        QCOMPARE(after.anchor(), 4);
+        QCOMPARE(after.position(), 5);
     }
 
     // A document whose text is on its way - a VCS command's output - says so,

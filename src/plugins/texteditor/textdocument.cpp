@@ -44,7 +44,6 @@
 #include <QApplication>
 #include <QFutureInterface>
 #include <QMenu>
-#include <QScrollBar>
 #include <QStringList>
 
 using namespace Core;
@@ -1060,35 +1059,14 @@ QTextDocument *TextDocument::document() const
 /*!
  * Saves the document to the file specified by \a fileName. If errors occur,
  * the return value will be Result::Error that contains their cause.
- * If \a option is \c SaveOption::AutoSave, the cursor will be restored and some signals suppressed
- * and we do not clean up the text file (cleanWhitespace(), ensureFinalNewLine()).
+ * If \a option is \c SaveOption::AutoSave, the text is written as it is - no cleanWhitespace(),
+ * no ensureFinalNewLine() - and some signals are suppressed.
  */
 Result<> TextDocument::saveImpl(const FilePath &filePath, SaveOption option)
 {
     QTextCursor cursor(&d->m_document);
 
-    // When autosaving, we don't want to modify the document/location under the user's fingers.
-    TextEditorWidget *editorWidget = nullptr;
-    int savedPosition = 0;
-    int savedAnchor = 0;
-    int savedVScrollBarValue = 0;
-    int savedHScrollBarValue = 0;
-    int undos = d->m_document.availableUndoSteps();
-
-    // When saving the current editor, make sure to maintain the cursor and scroll bar
-    // positions for undo
-    if (BaseTextEditor *editor = BaseTextEditor::currentTextEditor()) {
-        if (editor->document() == this) {
-            editorWidget = editor->editorWidget();
-            QTextCursor cur = editor->textCursor();
-            savedPosition = cur.position();
-            savedAnchor = cur.anchor();
-            savedVScrollBarValue = editorWidget->verticalScrollBar()->value();
-            savedHScrollBarValue = editorWidget->horizontalScrollBar()->value();
-            cursor.setPosition(cur.position());
-        }
-    }
-
+    // When autosaving, we don't want to modify the document under the user's fingers.
     if (option != SaveOption::AutoSave) {
         cursor.beginEditBlock();
         cursor.movePosition(QTextCursor::Start);
@@ -1119,19 +1097,6 @@ Result<> TextDocument::saveImpl(const FilePath &filePath, SaveOption option)
     }
 
     const Result<> res = write(filePath, saveFormat, plainText());
-
-    // restore text cursor and scroll bar positions
-    if (option == SaveOption::AutoSave && undos < d->m_document.availableUndoSteps()) {
-        d->m_document.undo();
-        if (editorWidget) {
-            QTextCursor cur = editorWidget->textCursor();
-            cur.setPosition(savedAnchor);
-            cur.setPosition(savedPosition, QTextCursor::KeepAnchor);
-            editorWidget->verticalScrollBar()->setValue(savedVScrollBarValue);
-            editorWidget->horizontalScrollBar()->setValue(savedHScrollBarValue);
-            editorWidget->setTextCursor(cur);
-        }
-    }
 
     if (!res)
         return res;

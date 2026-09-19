@@ -69275,3 +69275,110 @@ new rows are in both counts. That build is the tree as committed.
    `textdocument.cpp:1080`. Those two, then the function itself and
    `TextEditorWidget::currentTextEditorWidget()` can go, and with them
    the last "or nothing" answer for the Qt Quick editor.
+
+## 2026-09-20 — currentTextEditor() and currentTextEditorWidget() are gone (batch 326)
+
+Entry 325's third item. `BaseTextEditor::currentTextEditor()` was a
+`qobject_cast<BaseTextEditor *>(EditorManager::currentEditor())` and
+`TextEditorWidget::currentTextEditorWidget()` the same through
+`fromEditor()`: each "the widget editor, or nothing", and nothing is
+what a C++ file in the Qt Quick editor got from every caller. Entries
+324 and 325 took the callers outside TextEditor; two were left inside
+it, and with those two done the functions go. No caller anywhere in
+`src/` or `tests/` now; the comments in AutoTest, the debugger and
+`quicktexteditor.cpp` that name them say "used to", and stay.
+
+### The gap closed: an external tool's output reaches the Qt Quick editor's selection
+
+`TextEditorPlugin::updateCurrentSelection()`, connected to
+`ExternalToolManager::replaceSelectionRequested` - an external tool
+whose output is set to replace the selection - asked for the widget
+editor, so from a Qt Quick editor the output went nowhere. It asks the
+current editor's cursor through `textCursorOf()`, inserts, and puts the
+selection over the new text through `setTextCursorOf()`, the way round
+it was. Its read-only check - "read-only blocks user input only, not a
+programmatic insert", so the view has to be asked - is the new
+`TextEditor::isReadOnlyIn(IEditor *)`: the widget's `isReadOnly()`, the
+Qt Quick view's, true where the editor shows no text. `setReadOnlyIn()`
+had a setter with no getter beside it.
+
+### A finding: the caret-and-scroll restore on autosave was dead since 2013
+
+The other caller was `TextDocument::saveImpl()`. It remembered the
+current editor's caret, anchor and both scroll bar values if that editor
+showed this document, and put them back after `d->m_document.undo()`
+when an autosave had added undo steps. It came in `6382ae65b90`
+(2013-01-29, "Save and restore position in document on auto save"),
+for the whitespace cleanup an autosave used to do and then undo. Two
+weeks later `e3f5597b261` (2013-02-13, "Do not clean whitespaces/ensure
+final line in autosave") put the cleanup under `if (!autoSave)` - and
+an autosave has added no undo step since, so the condition
+`option == AutoSave && undos < availableUndoSteps()` has been false for
+twelve years, the restore with it, and the `cursor.setPosition()` it
+made on the cleanup cursor is overwritten by the `movePosition(Start)`
+that follows. Rather than convert dead code to the Qt Quick view, it
+goes: the block, its five locals, and `<QScrollBar>`. The function's
+doc comment said the cursor would be restored on autosave; it says what
+happens now.
+
+### The tests
+
+- `QuickTextEditorTest::testAnExternalToolsOutputReplacesTheSelectionInEitherView`,
+  four rows (widget/quick x editable/read-only): "one two three" with
+  "two" selected, the tool manager's signal with "2"; the text is
+  "one 2 three" and the selection is the "2", anchor first; read-only,
+  through `setReadOnlyIn()` and read back through `isReadOnlyIn()`, the
+  text is untouched. Emitted on the real signal, so the connection is in
+  the test too. `ExternalToolReadOnlyTest::testReadOnlyEditorNotModified`
+  in `texteditor_test.cpp` already covered the read-only half for the
+  widget editor alone, through `BaseTextEditor` and `editorWidget()`;
+  it stays as it is, the widget row of an older shape.
+- The save path lost dead code; the suites' save tests are its cover.
+
+First build, in the VM: 6/0 (four rows), exit 0, at the first attempt;
+the run's only warnings are the usual `raise()` and `isLoaded()` ones.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Three, since the
+function the pre-fix code called is gone the cast it was is written out:
+
+- **A** - the slot takes `qobject_cast<BaseTextEditor *>(EditorManager::
+  currentEditor())`, as `currentTextEditor()` did: the quick row,
+  "Actual (document->plainText()): "one two three\n", Expected "one 2
+  three\n""; the other three rows pass.
+- **B** - the read-only check is dropped: both read-only rows, the text
+  replaced, "Actual "one 2 three\n", Expected "one two three\n"".
+- **C** - `isReadOnlyIn()` answers false for every Qt Quick view: the
+  "quick, read-only" row at the getter itself, "Actual (isReadOnlyIn(
+  editor)): 0, Expected (readOnly): 1"; the widget rows pass.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     812 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test Core           293 passed, 0 failed, 0 skipped, exit 0
+    -test CppEditor     1658 passed, 0 failed, 58 skipped, exit 0
+
+TextEditor is 812: 808 plus the four rows. Core - the external tool
+manager's plugin - and CppEditor are what the doc last recorded. No
+memory kill, no typing flake in the three TextEditor runs. No `.qbs`
+edited. `texteditor.h` lost two declarations, so everything rebuilt.
+
+### What is next
+
+1. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor), the last `setEditorWidgetCreator()` callers besides the
+   Plain Text Editor's test-side factory; the standing suites do not
+   load QmlDesigner, so the verification has to be its own.
+2. The standing list (entry 298); the double-click on a diff line; the
+   VCS margins.
+3. `BaseTextEditor::openedTextEditors()` and
+   `textEditorsForDocument()`, `TextEditorWidget::textEditorWidgetsForDocument()`:
+   the list-shaped cousins of what this batch removed, each "the widget
+   editors, and none of the Qt Quick ones". Counted this tick, outside
+   `texteditor.cpp`: four callers - `cppeditorwidget.cpp:451`,
+   `cpptoolsreuse.cpp:322` and `:352`, `languageclient/client.cpp:1399`.
+   CppEditor's and the language client's: what each does to every widget
+   of a document is what the next batch has to give the Qt Quick view.

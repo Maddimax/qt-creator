@@ -2244,11 +2244,6 @@ TextDocumentPtr TextEditorWidget::textDocumentPtr() const
     return d->m_document;
 }
 
-TextEditorWidget *TextEditorWidget::currentTextEditorWidget()
-{
-    return fromEditor(EditorManager::currentEditor());
-}
-
 TextEditorWidget *TextEditorWidget::fromEditor(const IEditor *editor)
 {
     if (editor)
@@ -9963,11 +9958,6 @@ void BaseTextEditor::restoreState(const QByteArray &state)
     editorWidget()->restoreState(state);
 }
 
-BaseTextEditor *BaseTextEditor::currentTextEditor()
-{
-    return qobject_cast<BaseTextEditor *>(EditorManager::currentEditor());
-}
-
 QList<BaseTextEditor *> BaseTextEditor::openedTextEditors()
 {
     return qobject_container_cast<BaseTextEditor *>(DocumentModel::editorsForOpenedDocuments());
@@ -11122,6 +11112,17 @@ void setReadOnlyIn(Core::IEditor *editor, bool readOnly)
     }
     if (TextViewport * const view = Internal::viewportForEditor(editor))
         view->setReadOnly(readOnly);
+}
+
+bool isReadOnlyIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return true;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->isReadOnly();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->isReadOnly();
+    return true;
 }
 
 void pasteIn(Core::IEditor *editor)
