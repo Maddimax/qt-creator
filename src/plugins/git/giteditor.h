@@ -33,6 +33,29 @@ void gitResolveDiffTarget(VcsBase::VcsEditorDocument *document,
                           const Utils::Link &link,
                           const Utils::LinkHandler &callback);
 
+// The rest of what a Git editor answers about a change or a chunk, for the
+// menu: whether a revision is one, its short description, its parents, Git's
+// own entries for a change and for a chunk (staging it), and the file a blame
+// line is of. The widget's virtuals call these; the parameters carry them.
+bool gitIsValidRevision(const QString &revision);
+QString gitDecorateVersion(VcsBase::VcsEditorDocument *document, const QString &revision);
+QStringList gitAnnotationPreviousVersions(VcsBase::VcsEditorDocument *document,
+                                          const QString &revision);
+void gitAddChangeActions(QMenu *menu, VcsBase::VcsEditorDocument *document,
+                         const QString &change, int line);
+void gitAddDiffActions(QMenu *menu, VcsBase::VcsEditorDocument *document,
+                       const VcsBase::DiffChunk &chunk);
+void gitApplyDiffChunk(VcsBase::VcsEditorDocument *document, const VcsBase::DiffChunk &chunk,
+                       Core::PatchAction patchAction);
+Utils::FilePath gitFileNameForLine(VcsBase::VcsEditorDocument *document, int line);
+
+// The parameters of a Git editor of \a type: the six above and the earlier
+// two, with the widget and the describe function the caller supplies.
+VcsBase::VcsBaseEditorParameters gitEditorParameters(
+    VcsBase::EditorContentType type, Utils::Id id, const QString &displayName,
+    const QString &mimeType, const std::function<QWidget *()> &editorWidgetCreator,
+    const std::function<void(const Utils::FilePath &, const QString &)> &describe);
+
 class GitEditorWidget : public VcsBase::VcsBaseEditorWidget
 {
     Q_OBJECT

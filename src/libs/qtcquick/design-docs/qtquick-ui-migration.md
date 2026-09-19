@@ -66580,3 +66580,132 @@ No `.qbs` edited: no file list changed.
    `VcsEditorFactory` to the Qt Quick editor and retire one VCS's widget at a
    time, each one's constructor declarations into the parameters.
 3. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — The rest of a VCS's answers, as parameters (batch 306)
+
+Entry 305's item 1: the six widget virtuals a right click still needed, as
+`std::function`s in `VcsBaseEditorParameters`, Git first.
+
+### The six, and one flag
+
+`isValidRevision(revision)`, `decorateVersion(document, revision)`,
+`annotationPreviousVersions(document, revision)`, `addChangeActions(menu,
+document, change, line)`, `addDiffActions(menu, document, chunk)`,
+`fileNameForLine(document, line)` - each unset meaning the base answer the
+widget's default gave: every revision valid, shown as it is, no parents, no
+entries of the VCS's own, the source as the file. Plus
+`changeLinksInOtherContent`, which is what `GitEditorWidget::supportChangeLinks()`
+added to the base's log-and-annotation: a commit message and a rebase script
+name changes too. The document's action-link finder and its menu use it.
+
+The two menu-filling ones keep the `QMenu *` shape rather than returning
+actions: `GitClient::addChangeActions(QMenu *, ...)` is what Git's client code
+has, and a `QMenu` owns the actions added to it. The document keeps one
+`QMenu` for the purpose, clears it at each click, and hands back only the
+actions a fill added - appended to the list after its own entries, which stay
+parented to the document. Two owners, kept apart; the actions the widget
+made this way were owned by its transient `QMenu` too.
+
+### The menu, now the handler's shape
+
+For a change in an **annotation**: copy; describe and annotate the revision
+itself (decorated), only if it is one; the revisions before it, each in the
+previous-revision format (or the plain one where none was set) and decorated,
+whether or not the current one is valid - `ChangeTextCursorHandler::fillContextMenu()`
+does that too; then the VCS's own entries. For a change in a **log**: copy,
+describe, annotate where the log has said it can (undecorated), the VCS's
+own. For a **chunk**: Apply, Revert, the VCS's own - only where the chunk can
+be applied, as the widget had it. `requestAnnotation()` asks `fileNameForLine`
+for the file, which for a Git blame with `--show-name` is the name on the
+line, not the source.
+
+### Git
+
+`gitIsValidRevision()`, `gitDecorateVersion()`, `gitAnnotationPreviousVersions()`,
+`gitAddChangeActions()`, `gitAddDiffActions()`, `gitApplyDiffChunk()`,
+`gitFileNameForLine()` - the widget overrides' bodies, taking the document
+where they read the source, the working directory or the text. The widget's
+overrides call them. `gitEditorParameters()` builds all eight functions and
+the flag into one struct, and the six factories in `gitplugin.cpp` call it,
+which ends the growing aggregate initialisers there. Staging a chunk from
+the document's menu runs `gitApplyDiffChunk()` with the document's working
+directory and emits `diffChunkReverted()` on the document - which the widget
+forwards - where the widget's version emitted its own.
+
+Mercurial, Perforce, CVS and Subversion override `annotationPreviousVersions`
+(and Mercurial `decorateVersion`) on their widgets still; they get the base
+answers in a view that is not the widget until they move.
+
+### The tests
+
+- `testTheVcssOwnAnswersShapeTheMenu` (VcsBase): an annotation document with
+  all five answer functions set to distinguishable fakes and a previous
+  format. At a valid revision the menu is exactly copy, describe, `Annotate
+  "1234abcd!"`, `Previous "0000abcd!"`, `Extra for 1234abcd at 1`; triggering
+  the previous one asks for `renamed.cpp` (the fake `fileNameForLine`,
+  relative to the working directory), revision `0000abcd`, line 1. At a
+  revision the fake calls invalid: copy, the previous one, the VCS's own - no
+  describe, no annotate. An `OtherContent` document offers change links only
+  with the flag.
+- The diff test grew `addDiffActions`: `Extra chunk a.txt` after Revert at
+  the hunk, nothing at a header.
+- The Git log test grew: Git's `Cherr&y-Pick <hash>` follows the describe
+  entry at a change - `GitClient::addChangeActions()` through the factory's
+  parameters, without a repository (the entries act only when triggered).
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run - the answers test,
+the diff test with its new chunk entry, and the Git log test with Cherry-pick.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals, distinct
+names, the tree checked clean at the end):
+
+- **A** - the VCS adds nothing of its own: the answers test's menu is one entry
+  short ("Compared lists have different sizes"), and the Git log test's
+  Cherry-pick is missing.
+- **B** - every revision is valid: the invalid revision's menu gains describe
+  and annotate ("Compared lists have different sizes").
+- **C** - the annotated file is the source, whatever the VCS says: the annotate
+  signal names `sub/file.cpp` where `renamed.cpp` was expected ("Compared
+  values are not the same").
+
+### Measurements
+
+    -test TextEditor     794 passed, 0 failed, 3 skipped, exit 0   x1 (run 2)
+                         793 passed, 1 failed, 3 skipped, exit 1   x2 (runs 1, 3)
+                           CodeAssistTests::testFollowSymbolBigFile, 'spy.wait(1000)'
+                         794 passed, 0 failed, 3 skipped, exit 0   x1 (run 4, afterwards)
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         26 passed, 0 failed, 0 skipped, exit 0
+    -test Git            136 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and
+                           InstantBlameTest::testBlameDocumentContents
+
+VcsBase is 26: 25 plus this test. Git's 139 are the same 139 as batch 305's
+(137 + 2); one of them, the blame test, failed this time. Nothing of this
+batch is near either failing test - the follow-symbol one opens a plain
+text file from a widget editor, the blame one holds a widget over a plain
+`TextDocument` - and both have a history here: entries 298, 300 and 304.
+What is new is the density: two of three TextEditor runs, where it was one
+in ten, and the blame test on the same afternoon. Measured, not argued:
+the blame test's object took **16038 ms** in this run against 325 ms in
+batch 305's (the fourth time that fifty-fold shows up, always with the same
+five `git` processes); the code-assist object took **1096 ms and 1003 ms** in
+the two failing runs against **88 ms** in the clean one - a one-second wait
+that ran out by a few dozen milliseconds, on a file open that normally takes
+none. The follow-symbol test alone on this binary, ten runs: 0 failures - as in
+batch 298, never alone, only under a full run.
+The host is carrying two virtual machines of some 32 GB each; the test VM is
+one of them, and everything with a one-second wait in it is paying for that.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **Steps 5-6** (entry 298): the busy state (`executeTask()`'s spinner over
+   the widget), `firstLineNumber` on the Qt Quick gutter, `setRevisionsVisible(false)`
+   as a factory flag the Quick view honours; then `VcsEditorFactory` to
+   `setUsesQuickEditor(true)` and Git's widget subclass retired - its
+   constructor's patterns and formats into the parameters, so batch 299's
+   staging goes with it.
+2. The other seven VCS, one at a time, the same way.
+3. The QmlDesigner-side two; the standing list (entry 298).

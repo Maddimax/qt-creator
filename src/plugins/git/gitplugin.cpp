@@ -438,65 +438,53 @@ public:
 
     GitGrep gitGrep;
 
-    VcsEditorFactory svnLogEditorFactory{
-        {OtherContent,
-         Git::Constants::GIT_SVN_LOG_EDITOR_ID,
-         Tr::tr("Git SVN Log Editor"),
-         "text/vnd.qtcreator.git.svnlog",
-         [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor,
-         gitResolveDiffTarget}};
+    VcsEditorFactory svnLogEditorFactory{gitEditorParameters(
+        OtherContent,
+        Git::Constants::GIT_SVN_LOG_EDITOR_ID,
+        Tr::tr("Git SVN Log Editor"),
+        "text/vnd.qtcreator.git.svnlog",
+        [] { return new GitEditorWidget; },
+        std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory logEditorFactory{
-        {LogOutput,
-         Git::Constants::GIT_LOG_EDITOR_ID,
-         Tr::tr("Git Log Editor"),
-         "text/vnd.qtcreator.git.log",
-         [] { return new GitLogEditorWidgetT<GitEditorWidget>; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor,
-         gitResolveDiffTarget}};
+    VcsEditorFactory logEditorFactory{gitEditorParameters(
+        LogOutput,
+        Git::Constants::GIT_LOG_EDITOR_ID,
+        Tr::tr("Git Log Editor"),
+        "text/vnd.qtcreator.git.log",
+        [] { return new GitLogEditorWidgetT<GitEditorWidget>; },
+        std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory reflogEditorFactory{
-        {LogOutput,
-         Git::Constants::GIT_REFLOG_EDITOR_ID,
-         Tr::tr("Git Reflog Editor"),
-         "text/vnd.qtcreator.git.reflog",
-         [] { return new GitLogEditorWidgetT<GitReflogEditorWidget>; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor,
-         gitResolveDiffTarget}};
+    VcsEditorFactory reflogEditorFactory{gitEditorParameters(
+        LogOutput,
+        Git::Constants::GIT_REFLOG_EDITOR_ID,
+        Tr::tr("Git Reflog Editor"),
+        "text/vnd.qtcreator.git.reflog",
+        [] { return new GitLogEditorWidgetT<GitReflogEditorWidget>; },
+        std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory blameEditorFactory{
-        {AnnotateOutput,
-         Git::Constants::GIT_BLAME_EDITOR_ID,
-         Tr::tr("Git Annotation Editor"),
-         "text/vnd.qtcreator.git.annotation",
-         [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor,
-         gitResolveDiffTarget}};
+    VcsEditorFactory blameEditorFactory{gitEditorParameters(
+        AnnotateOutput,
+        Git::Constants::GIT_BLAME_EDITOR_ID,
+        Tr::tr("Git Annotation Editor"),
+        "text/vnd.qtcreator.git.annotation",
+        [] { return new GitEditorWidget; },
+        std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory commitTextEditorFactory{
-        {OtherContent,
-         Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID,
-         Tr::tr("Git Commit Editor"),
-         "text/vnd.qtcreator.git.commit",
-         [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor,
-         gitResolveDiffTarget}};
+    VcsEditorFactory commitTextEditorFactory{gitEditorParameters(
+        OtherContent,
+        Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID,
+        Tr::tr("Git Commit Editor"),
+        "text/vnd.qtcreator.git.commit",
+        [] { return new GitEditorWidget; },
+        std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
-    VcsEditorFactory rebaseEditorFactory{
-        {OtherContent,
-         Git::Constants::GIT_REBASE_EDITOR_ID,
-         Tr::tr("Git Rebase Editor"),
-         "text/vnd.qtcreator.git.rebase",
-         [] { return new GitEditorWidget; },
-         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor,
-         gitResolveDiffTarget}};
+    VcsEditorFactory rebaseEditorFactory{gitEditorParameters(
+        OtherContent,
+        Git::Constants::GIT_REBASE_EDITOR_ID,
+        Tr::tr("Git Rebase Editor"),
+        "text/vnd.qtcreator.git.rebase",
+        [] { return new GitEditorWidget; },
+        std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
 private:
     QStringList lineRange(int &firstLine, bool allowSingleLine = false) const;
@@ -2712,6 +2700,14 @@ void GitTest::testTheLogKnowsAChangeUnderThePointer()
     QCOMPARE(onTheHash.linkTextEnd, 47);
     cursor.setPosition(2);
     QVERIFY2(!finder(document, cursor).isValid(), "the word \"commit\" is offered as a change");
+
+    // And a right click on it offers Git's own entries after the common ones -
+    // Cherry-pick first, as GitClient::addChangeActions() lists them.
+    cursor.setPosition(20);
+    const QStringList offered = Utils::transform(document->contextMenuActions(cursor), &QAction::text);
+    QVERIFY2(offered.indexOf("Cherr&y-Pick 3587b513bafd7a83d8c816ac1deed72b5e3a27e9")
+                 > offered.indexOf("&Describe Change 3587b513bafd7a83d8c816ac1deed72b5e3a27e9"),
+             qPrintable(offered.join(", ")));
 }
 
 // A line of a diff in a Git log is a link to the file it changes. Outside a

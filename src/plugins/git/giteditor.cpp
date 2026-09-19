@@ -28,6 +28,7 @@
 
 #include <QKeyEvent>
 #include <QMenu>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QSet>
 #include <QTextBlock>
@@ -206,13 +207,14 @@ void GitEditorWidget::setPlainText(const QString &text)
     textDocument()->setPlainText(modText);
 }
 
-void GitEditorWidget::applyDiffChunk(const DiffChunk& chunk, PatchAction patchAction)
+void gitApplyDiffChunk(VcsBase::VcsEditorDocument *document, const DiffChunk &chunk,
+                       PatchAction patchAction)
 {
     TemporaryFile patchFile("git-apply-chunk");
     if (!patchFile.open())
         return;
 
-    const FilePath baseDir = workingDirectory();
+    const FilePath baseDir = document->workingDirectory();
     patchFile.write(chunk.header);
     patchFile.write(chunk.chunk);
     patchFile.close();
@@ -227,10 +229,16 @@ void GitEditorWidget::applyDiffChunk(const DiffChunk& chunk, PatchAction patchAc
         else
             VcsOutputWindow::appendError(baseDir, errorMessage);
         if (patchAction == PatchAction::Revert)
-            emit diffChunkReverted();
+            emit document->diffChunkReverted();
     } else {
         VcsOutputWindow::appendError(baseDir, errorMessage);
     }
+}
+
+void GitEditorWidget::applyDiffChunk(const DiffChunk& chunk, PatchAction patchAction)
+{
+    if (VcsBase::VcsEditorDocument * const document = vcsDocument())
+        gitApplyDiffChunk(document, chunk, patchAction);
 }
 
 void GitEditorWidget::init()
@@ -329,19 +337,28 @@ bool GitEditorWidget::replaceRebaseAction(QKeyEvent *e)
     return true;
 }
 
-void GitEditorWidget::addDiffActions(QMenu *menu, const DiffChunk &chunk)
+void gitAddDiffActions(QMenu *menu, VcsBase::VcsEditorDocument *document, const DiffChunk &chunk)
 {
     menu->addSeparator();
 
+    const QPointer<VcsBase::VcsEditorDocument> held(document);
     QAction *stageAction = menu->addAction(Tr::tr("Stage Chunk..."));
-    connect(stageAction, &QAction::triggered, this, [this, chunk] {
-        applyDiffChunk(chunk, PatchAction::Apply);
+    QObject::connect(stageAction, &QAction::triggered, document, [held, chunk] {
+        if (held)
+            gitApplyDiffChunk(held, chunk, PatchAction::Apply);
     });
 
     QAction *unstageAction = menu->addAction(Tr::tr("Unstage Chunk..."));
-    connect(unstageAction, &QAction::triggered, this, [this, chunk] {
-        applyDiffChunk(chunk, PatchAction::Revert);
+    QObject::connect(unstageAction, &QAction::triggered, document, [held, chunk] {
+        if (held)
+            gitApplyDiffChunk(held, chunk, PatchAction::Revert);
     });
+}
+
+void GitEditorWidget::addDiffActions(QMenu *menu, const DiffChunk &chunk)
+{
+    if (VcsBase::VcsEditorDocument * const document = vcsDocument())
+        gitAddDiffActions(menu, document, chunk);
 }
 
 void GitEditorWidget::aboutToOpen(const FilePath &filePath, const FilePath &realFilePath)
@@ -356,15 +373,21 @@ void GitEditorWidget::aboutToOpen(const FilePath &filePath, const FilePath &real
     }
 }
 
-QString GitEditorWidget::decorateVersion(const QString &revision) const
+static FilePath gitSourceWorkingDirectory(VcsBase::VcsEditorDocument *document)
 {
-    // Format verbose, hash being first token
-    return gitClient().synchronousShortDescription(sourceWorkingDirectory(), revision);
+    return GitClient::fileWorkingDirectory(VcsBase::source(document));
 }
 
-QStringList GitEditorWidget::annotationPreviousVersions(const QString &revision) const
+QString gitDecorateVersion(VcsBase::VcsEditorDocument *document, const QString &revision)
 {
-    const Utils::FilePath &repository = sourceWorkingDirectory();
+    // Format verbose, hash being first token
+    return gitClient().synchronousShortDescription(gitSourceWorkingDirectory(document), revision);
+}
+
+QStringList gitAnnotationPreviousVersions(VcsBase::VcsEditorDocument *document,
+                                          const QString &revision)
+{
+    const Utils::FilePath repository = gitSourceWorkingDirectory(document);
     QStringList revisions;
     QString errorMessage;
     // Get the hashes of the file.
@@ -375,21 +398,45 @@ QStringList GitEditorWidget::annotationPreviousVersions(const QString &revision)
     return revisions;
 }
 
-bool GitEditorWidget::isValidRevision(const QString &revision) const
+bool gitIsValidRevision(const QString &revision)
 {
     return gitClient().isValidRevision(revision);
 }
 
-void GitEditorWidget::addChangeActions(QMenu *menu, const QString &change, int line)
+void gitAddChangeActions(QMenu *menu, VcsBase::VcsEditorDocument *document,
+                         const QString &change, int line)
 {
-    const EditorContentType type = contentType();
+    const EditorContentType type = document->contentType();
     if (type == OtherContent)
         return;
 
     if (type == LogOutput)
         line = 1;
 
-    GitClient::addChangeActions(menu, source(), change, line);
+    GitClient::addChangeActions(menu, VcsBase::source(document), change, line);
+}
+
+QString GitEditorWidget::decorateVersion(const QString &revision) const
+{
+    VcsBase::VcsEditorDocument * const document = vcsDocument();
+    return document ? gitDecorateVersion(document, revision) : revision;
+}
+
+QStringList GitEditorWidget::annotationPreviousVersions(const QString &revision) const
+{
+    VcsBase::VcsEditorDocument * const document = vcsDocument();
+    return document ? gitAnnotationPreviousVersions(document, revision) : QStringList();
+}
+
+bool GitEditorWidget::isValidRevision(const QString &revision) const
+{
+    return gitIsValidRevision(revision);
+}
+
+void GitEditorWidget::addChangeActions(QMenu *menu, const QString &change, int line)
+{
+    if (VcsBase::VcsEditorDocument * const document = vcsDocument())
+        gitAddChangeActions(menu, document, change, line);
 }
 
 QString GitEditorWidget::revisionSubject(const QTextBlock &inBlock) const
@@ -411,11 +458,12 @@ bool GitEditorWidget::supportChangeLinks() const
             || (textDocument()->id() == Git::Constants::GIT_REBASE_EDITOR_ID);
 }
 
-FilePath GitEditorWidget::fileNameForLine(int line) const
+FilePath gitFileNameForLine(VcsBase::VcsEditorDocument *document, int line)
 {
     // 7971b6e7 share/qtcreator/dumper/dumper.py  228  (hjk
-    QTextBlock block = document()->findBlockByLineNumber(line - 1);
-    QTC_ASSERT(block.isValid(), return source());
+    const FilePath source = VcsBase::source(document);
+    QTextBlock block = document->document()->findBlockByLineNumber(line - 1);
+    QTC_ASSERT(block.isValid(), return source);
     static const QRegularExpression renameExp(
         "^" CHANGE_PATTERN "\\s+(.+?)(?:\\s+\\d+)?\\s{2,}\\(");
     const QRegularExpressionMatch match = renameExp.match(block.text());
@@ -424,7 +472,34 @@ FilePath GitEditorWidget::fileNameForLine(int line) const
         if (!fileName.isEmpty())
             return FilePath::fromString(fileName);
     }
-    return source();
+    return source;
+}
+
+FilePath GitEditorWidget::fileNameForLine(int line) const
+{
+    VcsBase::VcsEditorDocument * const document = vcsDocument();
+    return document ? gitFileNameForLine(document, line) : source();
+}
+
+VcsBase::VcsBaseEditorParameters gitEditorParameters(
+    EditorContentType type, Id id, const QString &displayName, const QString &mimeType,
+    const std::function<QWidget *()> &editorWidgetCreator,
+    const std::function<void(const FilePath &, const QString &)> &describe)
+{
+    VcsBase::VcsBaseEditorParameters parameters{type, id, displayName, mimeType,
+                                                editorWidgetCreator, describe,
+                                                gitChangeUnderCursor, gitResolveDiffTarget};
+    parameters.isValidRevision = gitIsValidRevision;
+    parameters.decorateVersion = gitDecorateVersion;
+    parameters.annotationPreviousVersions = gitAnnotationPreviousVersions;
+    parameters.addChangeActions = gitAddChangeActions;
+    parameters.addDiffActions = gitAddDiffActions;
+    parameters.fileNameForLine = gitFileNameForLine;
+    // What the widget's supportChangeLinks() adds to the base's log and
+    // annotation: a commit message and a rebase script name changes too.
+    parameters.changeLinksInOtherContent = id == Id(Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID)
+                                           || id == Id(Git::Constants::GIT_REBASE_EDITOR_ID);
+    return parameters;
 }
 
 FilePath GitEditorWidget::sourceWorkingDirectory() const

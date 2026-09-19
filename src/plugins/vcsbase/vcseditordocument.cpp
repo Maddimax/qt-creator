@@ -29,6 +29,7 @@
 #include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
+#include <QMenu>
 #include <QPointer>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -275,6 +276,9 @@ public:
     VcsEditorSections *sections = nullptr;
     VcsSectionsChoice *choice = nullptr;
     QList<QAction *> contextActions;
+    // What the VCS adds of its own, through the QMenu-filling functions its
+    // client code already has; the menu owns those actions.
+    std::unique_ptr<QMenu> extraMenu;
 };
 
 } // namespace Internal
@@ -383,8 +387,10 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
         });
     }
     // What a plain click does on a change, a URL or an address - in a log or
-    // an annotation, which is where the widget editor's handlers are asked.
-    if (parameters.type == LogOutput || parameters.type == AnnotateOutput) {
+    // an annotation, which is where the widget editor's handlers are asked,
+    // and wherever else the VCS says its output has them.
+    if (parameters.type == LogOutput || parameters.type == AnnotateOutput
+        || parameters.changeLinksInOtherContent) {
         setActionLinkFinder([this](TextEditor::TextDocument *, const QTextCursor &cursor) {
             return Internal::actionLinkAt(this, cursor);
         });
@@ -790,6 +796,9 @@ QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor
     // The previous click's are gone with its menu; these live until the next.
     qDeleteAll(d->contextActions);
     d->contextActions.clear();
+    if (!d->extraMenu)
+        d->extraMenu.reset(new QMenu);
+    d->extraMenu->clear();
     if (cursor.isNull())
         return {};
 
@@ -798,10 +807,19 @@ QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor
         connect(action, &QAction::triggered, this, act);
         d->contextActions.append(action);
     };
-    const EditorContentType type = d->parameters.type;
+    // The VCS's own entries, appended in place: filled into the menu that
+    // owns them, and only the ones this fill added handed back.
+    QList<QAction *> extras;
+    const auto addExtras = [this, &extras](const std::function<void(QMenu *)> &fill) {
+        const int before = int(d->extraMenu->actions().size());
+        fill(d->extraMenu.get());
+        extras += d->extraMenu->actions().mid(before);
+    };
+    const VcsBaseEditorParameters &p = d->parameters;
+    const EditorContentType type = p.type;
 
     // What is under the pointer, in the order the widget's handlers are asked.
-    if (type == LogOutput || type == AnnotateOutput) {
+    if (type == LogOutput || type == AnnotateOutput || p.changeLinksInOtherContent) {
         const QString change = d->parameters.changeUnderCursor
                                    ? d->parameters.changeUnderCursor(cursor) : QString();
         Internal::UrlUnderCursor url;
@@ -811,17 +829,48 @@ QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor
         if (change.isEmpty() && !url.isValid())
             mail = Internal::emailUnderCursor(cursor);
         if (!change.isEmpty()) {
+            const bool valid = !p.isValidRevision || p.isValidRevision(change);
+            const auto decorated = [this, &p](const QString &revision) {
+                return p.decorateVersion ? p.decorateVersion(this, revision) : revision;
+            };
+            const int line = cursor.blockNumber() + 1;
+            const auto annotateEntry = [this, &add, line](const QString &text, const QString &revision) {
+                add(text, [this, revision, line] { requestAnnotation(revision, line); });
+            };
+            const auto describeEntry = [this, &add, change] {
+                add(Tr::tr("&Describe Change %1").arg(change), [this, change] {
+                    if (d->parameters.describeFunc)
+                        d->parameters.describeFunc(VcsBase::source(this), change);
+                });
+            };
             add(Tr::tr("Copy \"%1\"").arg(change), [change] { Utils::setClipboardAndSelection(change); });
-            add(Tr::tr("&Describe Change %1").arg(change), [this, change] {
-                if (d->parameters.describeFunc)
-                    d->parameters.describeFunc(VcsBase::source(this), change);
-            });
-            // An annotation offers the revision itself; a log offers the file
-            // annotated at it, where the VCS has said its log can.
-            if (type == AnnotateOutput || d->fileLogAnnotateEnabled) {
-                const int line = cursor.blockNumber() + 1;
-                add(d->annotateRevisionTextFormat.arg(change),
-                    [this, change, line] { requestAnnotation(change, line); });
+            if (type == AnnotateOutput) {
+                // The revision itself, where it is one, and the revisions
+                // before it as the VCS names them - as the widget's handler
+                // built it for an annotation.
+                if (valid) {
+                    describeEntry();
+                    annotateEntry(d->annotateRevisionTextFormat.arg(decorated(change)), change);
+                }
+                const QStringList previous = p.annotationPreviousVersions
+                                                 ? p.annotationPreviousVersions(this, change)
+                                                 : QStringList();
+                const QString previousFormat = d->annotatePreviousRevisionTextFormat.isEmpty()
+                                                   ? d->annotateRevisionTextFormat
+                                                   : d->annotatePreviousRevisionTextFormat;
+                for (const QString &revision : previous)
+                    annotateEntry(previousFormat.arg(decorated(revision)), revision);
+            } else {
+                // A log offers the file annotated at the change, where the
+                // VCS has said its log can.
+                describeEntry();
+                if (d->fileLogAnnotateEnabled)
+                    annotateEntry(d->annotateRevisionTextFormat.arg(change), change);
+            }
+            if (p.addChangeActions) {
+                addExtras([this, &p, change, line](QMenu *menu) {
+                    p.addChangeActions(menu, this, change, line);
+                });
             }
         } else if (url.isValid()) {
             add(Tr::tr("Open URL in Browser..."),
@@ -856,9 +905,11 @@ QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor
                     applyChunk(chunk, Core::PatchAction::Revert);
                 }, Qt::QueuedConnection);
             });
+            if (p.addDiffActions)
+                addExtras([this, &p, chunk](QMenu *menu) { p.addDiffActions(menu, this, chunk); });
         }
     }
-    return d->contextActions;
+    return d->contextActions + extras;
 }
 
 // What the widget's slotAnnotateRevision() works out: the working directory
@@ -867,7 +918,9 @@ QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor
 // answers differently.
 void VcsEditorDocument::requestAnnotation(const QString &change, int line)
 {
-    const FilePath fileName = VcsBase::source(this).canonicalPath();
+    const FilePath fileName = (d->parameters.fileNameForLine
+                                   ? d->parameters.fileNameForLine(this, line)
+                                   : VcsBase::source(this)).canonicalPath();
     const FilePath ownWorkingDirectory = d->workingDirectory;
     const FilePath workingDirectory = ownWorkingDirectory.isEmpty()
             ? Core::VcsManager::findTopLevelForDirectory(fileName.parentDir())
@@ -1225,6 +1278,94 @@ private slots:
                  "an annotation does not offer to annotate the revision under the pointer");
     }
 
+    // What a VCS answers through its parameters shapes the menu the way its
+    // widget virtuals did: which revisions are valid, how a revision is shown,
+    // which revisions came before, what entries of its own it adds, and which
+    // file a line is of. Each is tried; the base answers where a parameter is
+    // unset are the other tests' business.
+    void testTheVcssOwnAnswersShapeTheMenu()
+    {
+        VcsBaseEditorParameters parameters{AnnotateOutput,
+                                           "VcsEditorDocumentTest.Answers",
+                                           "VCS document test answers",
+                                           "text/vnd.qtcreator.vcs-document-answers-test",
+                                           {},
+                                           [](const FilePath &, const QString &) {},
+                                           [](const QTextCursor &cursor) {
+                                               static const QRegularExpression eightHex(
+                                                   QRegularExpression::anchoredPattern("[0-9a-f]{8}"));
+                                               QTextCursor word = cursor;
+                                               word.select(QTextCursor::WordUnderCursor);
+                                               const QString text = word.selectedText();
+                                               return eightHex.match(text).hasMatch() ? text : QString();
+                                           }};
+        parameters.isValidRevision = [](const QString &revision) { return revision != "deadbeef"; };
+        parameters.decorateVersion = [](VcsEditorDocument *, const QString &revision) {
+            return revision + "!";
+        };
+        parameters.annotationPreviousVersions = [](VcsEditorDocument *, const QString &) {
+            return QStringList{"0000abcd"};
+        };
+        parameters.addChangeActions = [](QMenu *menu, VcsEditorDocument *, const QString &change, int line) {
+            menu->addAction(QString("Extra for %1 at %2").arg(change).arg(line));
+        };
+        parameters.fileNameForLine = [](VcsEditorDocument *, int) {
+            return FilePath::fromString("/repo/renamed.cpp");
+        };
+        VcsEditorDocument document(parameters);
+        VcsBase::setSource(&document, FilePath::fromString("/repo/sub/file.cpp"));
+        document.setWorkingDirectory(FilePath::fromString("/repo"));
+        document.setAnnotatePreviousRevisionTextFormat("Previous \"%1\"");
+        const QString text = "1234abcd (someone) line one\n"
+                             "deadbeef (nobody) line two\n";
+        document.setPlainText(text);
+        const auto cursorAt = [&document, &text](const QString &what) {
+            QTextCursor cursor(document.document());
+            cursor.setPosition(int(text.indexOf(what)) + 1);
+            return cursor;
+        };
+        const auto textsOf = [](const QList<QAction *> &actions) {
+            return Utils::transform(actions, &QAction::text);
+        };
+
+        // A valid revision: copy, describe, itself decorated, the one before
+        // it in the previous format and decorated, then the VCS's own.
+        const QList<QAction *> onValid = document.contextMenuActions(cursorAt("1234abcd"));
+        QCOMPARE(textsOf(onValid), QStringList({"Copy \"1234abcd\"", "&Describe Change 1234abcd",
+                                                "Annotate \"1234abcd!\"", "Previous \"0000abcd!\"",
+                                                "Extra for 1234abcd at 1"}));
+        // Annotating the one before goes to the file the VCS names for the
+        // line, relative to the working directory, from that line.
+        QSignalSpy annotated(&document, &VcsEditorDocument::annotateRevisionRequested);
+        for (QAction * const action : onValid) {
+            if (action->text() == "Previous \"0000abcd!\"")
+                action->trigger();
+        }
+        QCOMPARE(annotated.count(), 1);
+        QCOMPARE(annotated.first().at(1).toString(), QString("renamed.cpp"));
+        QCOMPARE(annotated.first().at(2).toString(), QString("0000abcd"));
+        QCOMPARE(annotated.first().at(3).toInt(), 1);
+
+        // One the VCS calls invalid: copy, the ones before it, the VCS's own -
+        // and neither describe nor annotate itself.
+        const QStringList onInvalid = textsOf(document.contextMenuActions(cursorAt("deadbeef")));
+        QCOMPARE(onInvalid, QStringList({"Copy \"deadbeef\"", "Previous \"0000abcd!\"",
+                                         "Extra for deadbeef at 2"}));
+
+        // An output of another type has change links only if the VCS says so.
+        VcsBaseEditorParameters other = parameters;
+        other.type = OtherContent;
+        other.id = "VcsEditorDocumentTest.OtherLinks";
+        VcsEditorDocument plain(other);
+        QVERIFY2(!TextEditor::TextEditorFactory::actionLinkFinderFor(&plain),
+                 "an output of another type offers change links unasked");
+        other.changeLinksInOtherContent = true;
+        other.id = "VcsEditorDocumentTest.OtherLinksAsked";
+        VcsEditorDocument commitLike(other);
+        QVERIFY2(TextEditor::TextEditorFactory::actionLinkFinderFor(&commitLike),
+                 "an output the VCS said has change links offers none");
+    }
+
     // A diff's chunk, and the place in the file a line of it stands for, are
     // the document's to work out: from its patterns, its working directory
     // and its source, with the highlighter it installs itself saying where
@@ -1237,13 +1378,16 @@ private slots:
         const FilePath file = dir.filePath("a.txt");
         QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
 
-        const VcsBaseEditorParameters parameters{DiffOutput,
-                                                 "VcsEditorDocumentTest.Diff",
-                                                 "VCS document test diff",
-                                                 "text/vnd.qtcreator.vcs-document-diff-test",
-                                                 {},
-                                                 [](const FilePath &, const QString &) {},
-                                                 {}};
+        VcsBaseEditorParameters parameters{DiffOutput,
+                                           "VcsEditorDocumentTest.Diff",
+                                           "VCS document test diff",
+                                           "text/vnd.qtcreator.vcs-document-diff-test",
+                                           {},
+                                           [](const FilePath &, const QString &) {},
+                                           {}};
+        parameters.addDiffActions = [](QMenu *menu, VcsEditorDocument *, const DiffChunk &chunk) {
+            menu->addAction("Extra chunk " + chunk.fileName.fileName());
+        };
         VcsEditorDocument document(parameters);
         document.setWorkingDirectory(file.parentDir());
         document.setDiffFilePattern("^(?:diff --git a/|index |[+-]{3} (?:/dev/null|[ab]/(.+$)))");
@@ -1282,6 +1426,10 @@ private slots:
         const QStringList onHeader
             = Utils::transform(document.contextMenuActions(cursorAt("--- a/a.txt")), &QAction::text);
         QVERIFY2(!onHeader.contains("Apply Chunk..."), "a header offers to apply a chunk");
+        // The VCS's own entries for the chunk, after Apply and Revert.
+        QVERIFY2(onChunk.indexOf("Extra chunk a.txt") > onChunk.indexOf("Revert Chunk..."),
+                 qPrintable(onChunk.join(", ")));
+        QVERIFY2(!onHeader.contains("Extra chunk a.txt"), "a header gets the VCS's chunk entries");
 
         const DiffTarget onChanged = document.diffTargetAt(cursorAt("+TWO"));
         QVERIFY2(onChanged.isValid(), "a changed line stands for no place in the file");

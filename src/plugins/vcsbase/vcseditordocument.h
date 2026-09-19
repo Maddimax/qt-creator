@@ -23,6 +23,7 @@
 
 QT_BEGIN_NAMESPACE
 class QAction;
+class QMenu;
 class QTextBlock;
 class QTextCursor;
 class QWidget;
@@ -63,6 +64,7 @@ enum EditorContentType
     OtherContent
 };
 
+class DiffChunk;
 class DiffTarget;
 class VcsEditorDocument;
 
@@ -87,6 +89,23 @@ public:
     std::function<void(VcsEditorDocument *document, const DiffTarget &target,
                        const Utils::Link &link, const Utils::LinkHandler &callback)>
         resolveDiffTarget;
+    // The rest of what the widget subclasses answered through virtuals, for
+    // the menu a right click on a change or a chunk offers. Unset means the
+    // base answer: every revision valid, shown as it is, no previous
+    // revisions, no entries of the VCS's own, and the source as the file a
+    // line is of.
+    std::function<bool(const QString &revision)> isValidRevision;
+    std::function<QString(VcsEditorDocument *document, const QString &revision)> decorateVersion;
+    std::function<QStringList(VcsEditorDocument *document, const QString &revision)>
+        annotationPreviousVersions;
+    std::function<void(QMenu *menu, VcsEditorDocument *document, const QString &change, int line)>
+        addChangeActions;
+    std::function<void(QMenu *menu, VcsEditorDocument *document, const DiffChunk &chunk)>
+        addDiffActions;
+    std::function<Utils::FilePath(VcsEditorDocument *document, int line)> fileNameForLine;
+    // Whether an output of neither log nor annotation type has change links
+    // all the same - Git's commit and rebase editors do.
+    bool changeLinksInOtherContent = false;
 };
 
 class VCSBASE_EXPORT DiffChunk
