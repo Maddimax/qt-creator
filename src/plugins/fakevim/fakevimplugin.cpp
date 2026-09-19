@@ -1295,6 +1295,94 @@ QObject *createFakeVimTagStackTest()
     return new FakeVimTagStackTest;
 }
 
+// What vim asks about the text - "=" and the indenter, the tab settings, the
+// file's format, what is a comment, what is electric - went to the widget
+// editor alone, so in a Qt Quick editor "=" did nothing, ":set fileformat"
+// did nothing, and a script asking synIDattr() got no names. The document
+// answers in either view, and the view's own auto completer says what is a
+// comment.
+class FakeVimDocumentAnswersTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDocumentAnswersVimInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheDocumentAnswersVimInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        const bool wasOn = settings().useFakeVim();
+        const bool usedEditorTabs = settings().useEditorTabSettings();
+        const QScopeGuard restoreSettings([wasOn, usedEditorTabs] {
+            settings().useFakeVim.setValue(wasOn);
+            settings().useEditorTabSettings.setValue(usedEditorTabs);
+        });
+        settings().useFakeVim.setValue(true);
+        settings().useEditorTabSettings.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-document-answers");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("main.cpp");
+        QVERIFY(file.writeFileContents("int f()\n{\nreturn 0; // done\n}\n"));
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restoreView([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        IEditor * const editor = EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        FakeVimHandler * const handler = dd->m_editorToHandler.value(editor).handler;
+        QVERIFY2(handler, "no handler was made, so this proves nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // "=" over the file: the document's indenter, at the document's tab
+        // settings - four spaces for C++.
+        handler->handleInput("gg=G");
+        QCOMPARE(document->plainText(), QString("int f()\n{\n    return 0; // done\n}\n"));
+
+        // The tab settings vim is told are the document's.
+        int tabSize = 0;
+        int indentSize = 0;
+        bool spaces = false;
+        handler->tabSettingsRequested(&tabSize, &indentSize, &spaces);
+        QCOMPARE(indentSize, document->tabSettings().m_indentSize);
+        QCOMPARE(tabSize, document->tabSettings().m_tabSize);
+
+        // ":set fileformat=dos" is the document's line ending, and
+        // ":set fileformat?" reads it back.
+        QCOMPARE(document->lineTerminationMode(), Utils::TextFileFormat::LFLineTerminator);
+        handler->handleCommand("set fileformat=dos");
+        QCOMPARE(document->lineTerminationMode(), Utils::TextFileFormat::CRLFLineTerminator);
+        QString format;
+        handler->documentOptionRequested("fileformat", &format);
+        QCOMPARE(format, QString("dos"));
+
+        // What is a comment, asked the way synIDattr() asks: line 3, inside
+        // "// done". And "}" is electric for C++.
+        QStringList names;
+        handler->syntaxNamesRequested(3, 18, &names);
+        QVERIFY2(names.contains("Comment"), qPrintable("names: " + names.join(", ")));
+        bool electric = false;
+        handler->checkForElectricCharacter(&electric, QChar('}'));
+        QVERIFY2(electric, "a closing brace is not electric in C++");
+    }
+};
+
+QObject *createFakeVimDocumentAnswersTest()
+{
+    return new FakeVimDocumentAnswersTest;
+}
+
 #endif // WITH_TESTS
 
 class FakeVimUserCommandsPage : public IOptionsPage
@@ -1587,6 +1675,7 @@ FakeVimPlugin::FakeVimPlugin()
     addTestCreator(createFakeVimExCommandsTest);
     addTestCreator(createFakeVimSuggestionsTest);
     addTestCreator(createFakeVimTagStackTest);
+    addTestCreator(createFakeVimDocumentAnswersTest);
 #endif
 
     m_defaultExCommandMap[CppEditor::Constants::SWITCH_HEADER_SOURCE] = "^A$";
@@ -2718,6 +2807,18 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
     });
 
     auto tew = TextEditorWidget::fromEditor(editor);
+    // What the handler asks about the text - indenting, the tab settings, the
+    // file's format, what is a comment - is the document's, in either view;
+    // the widget editor was the only one asked before, so a file in the Qt
+    // Quick editor answered none of it.
+    const QPointer<TextDocument> document(qobject_cast<TextDocument *>(editor->document()));
+    const QPointer<TextEditor::TextViewport> viewport(
+        qobject_cast<TextEditor::TextViewport *>(TextEditor::keyTargetOf(editor)));
+    const auto autoCompleterOf = [tew, viewport]() -> AutoCompleter * {
+        if (tew)
+            return tew->autoCompleter();
+        return viewport ? viewport->autoCompleter() : nullptr;
+    };
 
     //qDebug() << "OPENING: " << editor << editor->widget()
     //    << "MODE: " << theFakeVimSetting(ConfigUseFakeVim)->value();
@@ -2864,24 +2965,24 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         }
     });
 
-    handler->indentRegion.set([tew](int beginBlock, int endBlock, QChar typedChar) {
-        if (!tew)
+    handler->indentRegion.set([document](int beginBlock, int endBlock, QChar typedChar) {
+        if (!document)
             return;
 
         TabSettingsData tabSettings;
         if (settings().useEditorTabSettings()) {
             // Follow the editor's (project) tab settings (QTCREATORBUG-14273).
-            tabSettings = tew->textDocument()->tabSettings();
+            tabSettings = document->tabSettings();
         } else {
             tabSettings.m_indentSize = settings().shiftWidth();
             tabSettings.m_tabSize = settings().tabStop();
             tabSettings.m_tabPolicy = settings().expandTab()
                     ? TabSettingsData::SpacesOnlyTabPolicy : TabSettingsData::TabsOnlyTabPolicy;
             tabSettings.m_continuationAlignBehavior =
-                    tew->textDocument()->tabSettings().m_continuationAlignBehavior;
+                    document->tabSettings().m_continuationAlignBehavior;
         }
 
-        QTextDocument *doc = tew->document();
+        QTextDocument *doc = document->document();
         QTextBlock startBlock = doc->findBlockByNumber(beginBlock);
 
         // Record line lenghts for mark adjustments
@@ -2896,16 +2997,16 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
                 while (!cursor.atBlockEnd())
                     cursor.deleteChar();
             } else {
-                tew->textDocument()->indenter()->indentBlock(block, typedChar, tabSettings);
+                document->indenter()->indentBlock(block, typedChar, tabSettings);
             }
             block = block.next();
         }
     });
 
-    handler->tabSettingsRequested.set([tew](int *tabSize, int *indentSize, bool *spacesForTabs) {
-        if (!tew)
+    handler->tabSettingsRequested.set([document](int *tabSize, int *indentSize, bool *spacesForTabs) {
+        if (!document)
             return;
-        const TabSettingsData ts = tew->textDocument()->tabSettings();
+        const TabSettingsData ts = document->tabSettings();
         *tabSize = ts.m_tabSize;
         *indentSize = ts.m_indentSize;
         *spacesForTabs = ts.m_tabPolicy == TabSettingsData::SpacesOnlyTabPolicy;
@@ -2932,10 +3033,9 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
     // The file's own shape. Qt Creator has no CR-only line ending and keeps no
     // note of a missing final newline, so "mac" is refused and 'endofline' is
     // not answered here at all.
-    handler->documentOptionRequested.set([tew](const QString &option, QString *value) {
-        if (!tew)
+    handler->documentOptionRequested.set([document](const QString &option, QString *value) {
+        if (!document)
             return;
-        TextDocument *document = tew->textDocument();
         if (option == "fileformat") {
             *value = document->lineTerminationMode()
                              == Utils::TextFileFormat::CRLFLineTerminator
@@ -2964,11 +3064,10 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
             tew->setDisplaySettings(settings);
         }
     });
-    handler->documentOptionChanged.set([tew](const QString &option,
-                                            const QString &value, bool *accepted) {
-        if (!tew)
+    handler->documentOptionChanged.set([document](const QString &option,
+                                                 const QString &value, bool *accepted) {
+        if (!document)
             return;
-        TextDocument *document = tew->textDocument();
         if (option == "fileformat") {
             if (value == "unix") {
                 document->setLineTerminationMode(
@@ -3008,9 +3107,9 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         }
     });
 
-    handler->checkForElectricCharacter.set([tew](bool *result, QChar c) {
-        if (tew)
-            *result = tew->textDocument()->indenter()->isElectricCharacter(c);
+    handler->checkForElectricCharacter.set([document](bool *result, QChar c) {
+        if (document)
+            *result = document->indenter()->isElectricCharacter(c);
     });
 
     handler->requestDisableBlockSelection.set([tew] {
@@ -3379,22 +3478,25 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         tagStackMove(handler, distance);
     });
 
-    handler->syntaxNamesRequested.set([tew](int line, int column, QStringList *names) {
+    handler->syntaxNamesRequested.set([document, autoCompleterOf](int line, int column,
+                                                                    QStringList *names) {
         // Qt Creator keeps no name for what the highlighter produced, only
         // colors, so the only thing that can be answered is what the language
         // of the document knows how to be asked. That covers what a script
-        // commenting or reformatting code looks for.
-        if (!tew || !tew->autoCompleter())
+        // commenting or reformatting code looks for. The auto completer is
+        // the view's, in either view.
+        AutoCompleter * const completer = autoCompleterOf();
+        if (!document || !completer)
             return;
-        QTextCursor cursor(tew->document());
-        const QTextBlock block = tew->document()->findBlockByNumber(line - 1);
+        QTextCursor cursor(document->document());
+        const QTextBlock block = document->document()->findBlockByNumber(line - 1);
         if (!block.isValid())
             return;
         cursor.setPosition(block.position() + qBound(0, column - 1,
                                                      qMax(0, block.length() - 1)));
-        if (tew->autoCompleter()->isInComment(cursor))
+        if (completer->isInComment(cursor))
             names->append("Comment");
-        if (tew->autoCompleter()->isInString(cursor))
+        if (completer->isInString(cursor))
             names->append("String");
     });
 
@@ -3417,9 +3519,9 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         }
     });
 
-    handler->completionRequested.set([tew] {
-        if (tew)
-            tew->invokeAssist(Completion, &theFakeVimCompletionAssistProvider);
+    handler->completionRequested.set([alive = QPointer<IEditor>(editor)] {
+        if (alive)
+            TextEditor::invokeAssistIn(alive, Completion, &theFakeVimCompletionAssistProvider);
     });
 
     handler->processOutput.set([](const QString &command, const QString &input, QString *output) {

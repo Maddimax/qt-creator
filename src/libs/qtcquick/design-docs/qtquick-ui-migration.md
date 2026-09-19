@@ -69725,3 +69725,130 @@ edited; `qmlengineutils.cpp` gained a `Q_OBJECT` test class and so a
    editor): verifiable in the VM now (above), given a test object in
    their plugins and a run without `-noload QmlDesigner`.
 3. The standing list (entry 298).
+
+## 2026-09-20 — FakeVim asks the document, in either view (batch 330)
+
+Entry 329's first item: FakeVim's `editorOpened()` captured
+`TextEditorWidget::fromEditor(editor)` as `tew` and set some twenty
+handler callbacks that begin `if (!tew) return;`. A C++ file opens in
+the Qt Quick editor, so vim in one - which types and moves fine through
+the `ViewportAdapter` (the entry "FakeVim drives the Qt Quick editor")
+- could not do any of what those
+callbacks answer. This batch is the first group: everything the
+document alone can answer, plus completion, which has an editor-level
+helper.
+
+### The gap closed: seven callbacks answer for a file in the Qt Quick editor
+
+`editorOpened()` now holds the `TextDocument` in a `QPointer` beside
+`tew`, and a small `autoCompleterOf()` that answers the widget's auto
+completer or the Qt Quick view's (`TextViewport::autoCompleter()`,
+reached through `keyTargetOf()` the way the adapter is). The callbacks:
+
+- `indentRegion` - `=`, `>>`, and the re-indent after an electric
+  character: the document's indenter at the document's tab settings
+  (or FakeVim's own, as the setting says). Vim in a Qt Quick C++ file
+  could not indent at all.
+- `tabSettingsRequested` - what `:set ts?`/`sw?`/`et?` show and what
+  `>>` shifts by when FakeVim follows the editor's settings.
+- `documentOptionRequested` and `documentOptionChanged` - `:set
+  fileformat` and `:set bomb`, read and written on the document.
+- `checkForElectricCharacter` - the indenter's, so typing `}` in a Qt
+  Quick C++ file re-indents the line as it does in the widget.
+- `syntaxNamesRequested` - what `synIDattr()` answers a script: whether
+  the position is in a comment or a string, asked of the view's auto
+  completer.
+- `completionRequested` - Ctrl-N, through `TextEditor::invokeAssistIn()`
+  with FakeVim's own provider, on the editor rather than the widget.
+
+Left for the next batch, each with a reason of its own:
+
+- `displayOptionRequested/Changed` (`:set number`, `wrap`, `list`,
+  `cursorline`, `breakindent`) and `marginOptionChanged` (`colorcolumn`,
+  `foldcolumn`) read and write the *widget's* display and margin
+  settings per editor. The Qt Quick editor pushes the global display
+  settings and has a per-editor margin override (`setMarginSettingsIn()`)
+  but no per-editor display override yet; that seam first.
+- The four block-selection callbacks (Ctrl-V) work on the widget's
+  `MultiTextCursor`; `multiTextCursorOf()`/`setMultiTextCursorOf()` exist
+  for either view, so this is a mechanical group with a test of its own.
+- `modeChanged` uses `tew` for the cursor shape and relative numbers;
+  the relative numbers half already has a Qt Quick branch
+  (`createRelativeNumberWidget()`).
+- `enterBuffer()`'s `g:syntax_on`.
+
+### The tests
+
+- `FakeVimDocumentAnswersTest::testTheDocumentAnswersVimInEitherView`,
+  two rows: `main.cpp` opened through the C++ factory switched to the
+  widget or the Qt Quick view, FakeVim on and following the editor's tab
+  settings. `gg=G` indents `return 0;` by four spaces (the indenter
+  through `indentRegion`); `tabSettingsRequested` answers the document's
+  sizes; `:set fileformat=dos` flips the document's line ending and
+  `documentOptionRequested` reads it back; `syntaxNamesRequested` says
+  "Comment" inside `// done`; `checkForElectricCharacter` says `}` is.
+  The last four are asked as vim asks them, through the handler's
+  `Callback::operator()`.
+- `testFakeVimDrivesTheQuickEditor` ran as the adapter's cover:
+  unchanged.
+- Completion has no test: what `invokeAssistIn()` does is TextEditor's
+  and tested there; that FakeVim calls it is a one-line substitution.
+
+First build, in the VM: the new test 4/0 (both rows), the adapter's
+cover 3/0, exit 0 each, at the first attempt; the runs' only warnings
+are the usual `raise()` and `isLoaded()` ones.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Three, for the
+three answers the test can tell apart by view:
+
+- **A** - `indentRegion` bails without a widget, as before: the quick
+  row, "Actual (document->plainText()): "int f()\n{\nreturn 0; //
+  done\n}\n"" - `=` did nothing; the widget row passes.
+- **B** - `documentOptionChanged` bails without a widget: the quick row,
+  "Actual (document->lineTerminationMode()): 0, Expected (CRLF): 1".
+- **C** - `syntaxNamesRequested` takes the widget's auto completer alone:
+  the quick row, "'names.contains("Comment")' returned FALSE. (names: )"
+  - nothing answered at all, which is what a script got.
+
+Control C's first run did not compile: its patch named `tew` inside a
+lambda that no longer captures it. The pre-fix shape has to be put back
+whole - the capture list as well as the line - which the rerun does with
+two patches; entry 317's lesson in another form, and `zsh -n` cannot
+catch this one, only the compiler can.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     814 passed, 0 failed, 3 skipped, exit 0   x3 (runs 2-4)
+                         run 1: 813 passed, 1 failed, exit 1 -
+                         testTheCaretLandsWhereTheWidgetEditorsDoes,
+                         "the quick view would not take the script"
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test FakeVim        608 passed, 0 failed, 14 skipped, exit 0
+    -test TextEditor,testTheCaretLandsWhereTheWidgetEditorsDoes   3/0, exit 0, x10
+
+FakeVim is 608: 604 plus the new test object's two rows and its
+init/cleanup. QuickUi is what entry 329 recorded. Run 1's failure is the
+standing typing flake in another test that types through the same
+helper: the line before the FAIL is the viewport's soft assert
+"cursor.position() == insertedAt + typed.size()", entry 284's
+diagnostic, "left it at N+2". The prescription as before: the test ten
+times alone, all green, and a fourth full run, green; runs 2 to 4 were
+814/0/3. FakeVim's handler is installed on every editor the suite
+opens, but the callbacks this batch touched are asked only with FakeVim
+on, which the suite's tests do not have. No memory kill. No `.qbs`
+edited; `fakevimplugin.cpp` already has its `.moc` include.
+
+### What is next
+
+1. FakeVim, group two: the display and margin options, once the Qt Quick
+   editor has a per-editor display settings override to write to
+   (`setDisplaySettingsIn()` beside `setMarginSettingsIn()`), and the
+   block-selection four through the multi-cursor helpers; then
+   `modeChanged`'s cursor shape and `g:syntax_on`.
+2. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor): verifiable in the VM (entry 329), given a test object in
+   their plugins and a run without `-noload QmlDesigner`.
+3. The standing list (entry 298).
