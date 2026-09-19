@@ -467,7 +467,7 @@ public:
     {
         if (!m_toolBar) {
             m_toolBar = Internal::createQuickTextToolBar(m_viewport, &m_toolBarActions,
-                                                         nullptr, m_document->toolBarChoice());
+                                                         nullptr, m_document->toolBarChoices());
         }
         return m_toolBar;
     }

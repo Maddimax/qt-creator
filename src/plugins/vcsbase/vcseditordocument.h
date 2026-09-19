@@ -274,9 +274,10 @@ public:
     VcsEditorSections *sections() const;
     void updateSections();
 
-    // The sections as what the tool bar offers: the entry the caret is in,
-    // and a jump to any other. A log or a diff has one; the others none.
-    TextEditor::ToolBarChoice *toolBarChoice() const override;
+    // The sections as what the tool bar offers - the entry the caret is in,
+    // and a jump to any other; a log or a diff has one - and then the editor
+    // config's choices, once there is a config.
+    QList<TextEditor::ToolBarChoice *> toolBarChoices() const override;
 
     // What a right click at \a cursor offers, as the widget editor's handlers
     // offered it: for a change, to copy, describe and annotate it; for a URL

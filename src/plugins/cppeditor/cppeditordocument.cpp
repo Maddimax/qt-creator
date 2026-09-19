@@ -417,7 +417,7 @@ private:
 };
 } // namespace
 
-TextEditor::ToolBarChoice *CppEditorDocument::toolBarChoice() const
+QList<TextEditor::ToolBarChoice *> CppEditorDocument::toolBarChoices() const
 {
     // Made once and kept, for the same reason the toolbar action is: a view
     // is rebuilt and would otherwise lose what is connected to it.
@@ -425,7 +425,7 @@ TextEditor::ToolBarChoice *CppEditorDocument::toolBarChoice() const
         auto * const self = const_cast<CppEditorDocument *>(this);
         d->m_parseContextChoice = new ParseContextChoice(self->parseContextModel(), self);
     }
-    return d->m_parseContextChoice;
+    return {d->m_parseContextChoice};
 }
 
 QList<QAction *> CppEditorDocument::ownToolBarActions() const
@@ -1181,7 +1181,7 @@ private slots:
     void testTheChoiceSaysWhetherTheReaderPickedIt()
     {
         CppEditorDocument document;
-        TextEditor::ToolBarChoice * const choice = document.toolBarChoice();
+        TextEditor::ToolBarChoice * const choice = document.toolBarChoices().value(0);
         QVERIFY2(choice, "the document offers no choice for a view to draw");
 
         const QList<ProjectPart::ConstPtr> two{partNamed("Debug"), partNamed("Release")};
@@ -1214,7 +1214,7 @@ private slots:
     void testTheChoiceSaysWhenItHasChanged()
     {
         CppEditorDocument document;
-        TextEditor::ToolBarChoice * const choice = document.toolBarChoice();
+        TextEditor::ToolBarChoice * const choice = document.toolBarChoices().value(0);
         QVERIFY(choice);
 
         QSignalSpy changed(choice, &TextEditor::ToolBarChoice::changed);

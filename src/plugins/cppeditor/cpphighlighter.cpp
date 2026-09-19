@@ -1120,12 +1120,12 @@ private slots:
         // the file. Not available for a file in no project, which is what a
         // temporary directory is - so what is asserted is that it exists and
         // says so, not that it offers anything.
-        TextEditor::ToolBarChoice * const choice = document->toolBarChoice();
+        TextEditor::ToolBarChoice * const choice = document->toolBarChoices().value(0);
         QVERIFY2(choice, "the document offers no choice of parse context");
         QVERIFY2(choice->model(), "the choice has nothing to choose between");
         QVERIFY2(!choice->isAvailable(),
                  "a file in no project offered a choice of project part");
-        QCOMPARE(document->toolBarChoice(), choice);
+        QCOMPARE(document->toolBarChoices(), QList<TextEditor::ToolBarChoice *>{choice});
 
         // That the form draws either is TextEditor's to say - this plugin has
         // no Qt Quick to look with. See QuickTextEditorTest.

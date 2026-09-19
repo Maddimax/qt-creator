@@ -372,9 +372,11 @@ public:
     void setBusy(bool busy);
     void addToolBarAction(QAction *action);
     void removeToolBarAction(QAction *action);
-    // The choice the language offers in the toolbar, or nullptr where it
-    // offers none. Owned by the document.
-    virtual ToolBarChoice *toolBarChoice() const;
+    // The choices the language offers in the toolbar - which of several ways
+    // a C++ file is parsed, which section of a log the caret is in, what a
+    // VCS command is told - each drawn as a combo box. Owned by the document;
+    // toolBarChoicesChanged() says when the list itself changes.
+    virtual QList<ToolBarChoice *> toolBarChoices() const;
 
     void setCodeStyle(ICodeStylePreferences *preferences);
     ICodeStylePreferences *codeStyle() const;
@@ -409,6 +411,9 @@ signals:
     void refactorMarkersChanged();
     // Which actions the toolbar should show has changed.
     void toolBarActionsChanged();
+    // Which choices it should show has changed - not a choice's rows, which
+    // the choice says itself, but the list of them.
+    void toolBarChoicesChanged();
     void markRemoved(TextEditor::TextMark *mark);
     // A reader clicked the gutter's mark column on \a line, in whichever view
     // is showing this document. Emitted once per click however many views

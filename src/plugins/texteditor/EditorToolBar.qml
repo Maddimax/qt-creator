@@ -27,52 +27,71 @@ Row {
     // Typed as var: ToolBarOutline is a plain QObject rather than a QML type,
     // and QML reaches its properties through the meta-object either way.
     required property var outline
-    // Which of several ways the file is being parsed, where there is more than
-    // one. Null where the language offers no such choice, which is all of them
-    // but C++.
-    required property var choice
+    // The choices the document offers: which of several ways a C++ file is
+    // parsed, which section of a log the caret is in, what a VCS command is
+    // told. A list of ToolBarChoice objects, empty for most languages; the
+    // editor sets it again when the document's list changes.
+    required property var choices
 
     spacing: Spacing.GapHM
 
-    // Which of several project parts the file belongs to. Hidden unless there
-    // is more than one, which is what the widget editor does with it too.
-    ComboBox {
-        id: choiceCombo
+    // One combo box per choice, hidden while the choice has nothing to offer -
+    // one project part is no choice, which is what the widget editor does
+    // with it too.
+    Repeater {
+        model: root.choices
 
-        objectName: "parseContextCombo"
-        anchors.verticalCenter: parent.verticalCenter
-        visible: root.choice !== null && root.choice.available
-        model: root.choice ? root.choice.model : null
-        // Set rather than bound: a ComboBox writes its own currentIndex when
-        // the model changes, so a binding would be broken by the first refill.
-        // See the same trap with editText in the migration notes.
-        onModelChanged: choiceCombo.currentIndex = root.choice ? root.choice.currentIndex : -1
-        ToolTip.text: root.choice ? root.choice.toolTip : ""
-        ToolTip.visible: hovered && ToolTip.text !== ""
-        onActivated: (index) => root.choice.choose(index)
+        delegate: Row {
+            id: choiceRow
 
-        Connections {
-            target: root.choice
-            function onChanged(): void {
-                choiceCombo.currentIndex = root.choice.currentIndex
+            required property var modelData
+            readonly property var choice: choiceRow.modelData
+
+            // Guarded: a Repeater's delegate has no parent while it is being
+            // created, and an unguarded binding warns on every one of them.
+            anchors.verticalCenter: parent ? parent.verticalCenter : undefined
+            spacing: Spacing.GapHM
+            visible: choiceRow.choice.available
+
+            ComboBox {
+                id: choiceCombo
+
+                objectName: "parseContextCombo"
+                anchors.verticalCenter: parent.verticalCenter
+                model: choiceRow.choice.model
+                // Set rather than bound: a ComboBox writes its own currentIndex
+                // when the model changes, so a binding would be broken by the
+                // first refill. See the same trap with editText in the
+                // migration notes.
+                onModelChanged: choiceCombo.currentIndex = choiceRow.choice.currentIndex
+                ToolTip.text: choiceRow.choice.toolTip
+                ToolTip.visible: hovered && ToolTip.text !== ""
+                onActivated: (index) => choiceRow.choice.choose(index)
+
+                Connections {
+                    target: choiceRow.choice
+                    function onChanged(): void {
+                        choiceCombo.currentIndex = choiceRow.choice.currentIndex
+                    }
+                }
+            }
+
+            // Undoing a pick, which only the reader can do - left alone the
+            // language goes on choosing the same part. Shown only while there
+            // is a pick, so its being there is also what says the current row
+            // is one rather than what the language worked out.
+            QtcButton {
+                objectName: "clearParseContextButton"
+
+                anchors.verticalCenter: parent.verticalCenter
+                visible: choiceRow.choice.chosen
+                role: QtcButton.Role.SmallList
+                text: qsTr("Clear")
+                ToolTip.text: qsTr("Parse this file the way the code model would")
+                ToolTip.visible: hovered
+                onClicked: choiceRow.choice.clearChoice()
             }
         }
-    }
-
-    // Undoing a pick, which only the reader can do - left alone the language
-    // goes on choosing the same part. Shown only while there is a pick, so its
-    // being there is also what says the current part is one rather than what
-    // the language worked out.
-    QtcButton {
-        objectName: "clearParseContextButton"
-
-        anchors.verticalCenter: parent.verticalCenter
-        visible: root.choice !== null && root.choice.available && root.choice.chosen
-        role: QtcButton.Role.SmallList
-        text: qsTr("Clear")
-        ToolTip.text: qsTr("Parse this file the way the code model would")
-        ToolTip.visible: hovered
-        onClicked: root.choice.clearChoice()
     }
 
     // Which function the caret is in, and a way to go to another. A button

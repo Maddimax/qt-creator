@@ -67246,3 +67246,126 @@ No `.qbs` edited: no file list changed.
    retired (entry 309).
 4. The other seven VCS; the QmlDesigner-side two; the standing list (entry
    298).
+
+## 2026-09-19 — The Qt Quick tool bar draws every choice (batch 311)
+
+Entry 310's next item 1: the seam from one `ToolBarChoice` to a list, so
+that a VCS document's config choices - batch 310's `VcsBaseEditorChoice`s -
+reach the Qt Quick tool bar beside the sections choice of batch 300.
+
+### The seam
+
+`TextDocument::toolBarChoice()` (one or none) becomes
+`toolBarChoices()` (a list) with `toolBarChoicesChanged()` - "not a
+choice's rows, which the choice says itself, but the list of them". One
+concept, one entry point; the single form went rather than staying as a
+convenience beside the list.
+
+- `CppEditorDocument` returns its one parse-context choice, still made
+  once and kept. Its two `ParseContextChoiceTest`s and the highlighter test
+  take `.value(0)` and compare the list.
+- `VcsEditorDocument` returns the sections choice, where the type has one,
+  and then the config's; `setEditorConfig()` emits the new signal beside
+  `toolBarActionsChanged()`.
+- `MarkdownEditor` passes the list.
+
+### The Qt Quick editor
+
+`createQuickTextToolBar(view, actions, outline, choices)` takes the list
+and sets the form's `choices` from `toolBarChoicesForForm()` - a
+`QVariantList` of `QObject *`, which QML sees as an array of objects and a
+`Repeater` takes as a model. `QuickTextEditor::toolBar()` tells every
+choice where the caret is and connects each to the view's caret
+(`followCaretWith()`, which keeps its connections so that a new list
+replaces them rather than adding), and watches `toolBarChoicesChanged`:
+on it, the connections are redone and the form's `choices` set again.
+
+`EditorToolBar.qml`: `required property var choices`; a `Repeater` whose
+delegate is a `Row` per choice - hidden while the choice is not available -
+holding the combo box (`parseContextCombo`, bound to *its* choice's model,
+current index set rather than bound, `activated` → `choose()`, a
+`Connections` on `changed`) and the clear button
+(`clearParseContextButton`, shown while the choice is `chosen`). The
+object names stay: `itemNamed()`/`itemsNamed()` in the tests walk the
+items, which is how a Repeater's delegates are found (they are visual
+children and QObject children of somewhere else - entry 298's lesson, and
+the reason no test looked them up with `findChild()` to begin with).
+
+### The tests
+
+- `QuickTextEditorTest::testTheFormDrawsEveryChoiceTheDocumentOffers`: a
+  document offering two two-row choices, each recording picks and the
+  caret line. Two combo boxes, each found by the model it shows (a Row's
+  children share one y, so order is not a fact to rely on); activating row
+  1 on the second combo picks on the second choice and not the first, and
+  the combo follows; both choices were told line 1 when the row was built.
+  Then the document offers a third and emits the signal: three combo boxes,
+  the third showing the new choice's rows, and the new choice told the
+  caret.
+- `testTheFormDrawsTheLanguagesChoice` unchanged in what it asserts: its
+  document returns a one-element list.
+- `testAnEditorConfigListsItselfAndTheViewsDrawIt` (VcsBase) grew: no
+  choices before `setEditorConfig()`, `toolBarChoicesChanged` once, and the
+  list is exactly the config's choice.
+
+Alone: 3 passed, 0 failed, exit 0 each, at the first run - after one build
+failure, the editor's tool bar member being a `QWidget` pointer and not the
+Quick widget, which is found with `findChild<QQuickWidget *>()` as the
+tests find it. Ran alongside, since their code moved: TextEditor's
+`testTheFormDrawsTheLanguagesChoice`, VcsBase's config and state tests, and
+CppEditor's two `ParseContextChoiceTest`s and
+`testTheLanguagesButtonIsInTheToolBar` - 3 passed, 0 failed, exit 0 each.
+No QML warning in the two form tests' logs.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A** - the form's `Repeater` takes `choices.slice(0, 1)`: the new test
+  fails on the first count, actual 1 where 2 was expected.
+- **B** - the editor never connects `toolBarChoicesChanged`: the same test
+  fails on the count after the third is offered, actual 2 where 3 was
+  expected - the first two drawn and picked as before.
+- **C** - `VcsEditorDocument::toolBarChoices()` skips the config: the VcsBase
+  config test fails on the list, "Compared lists have different sizes"
+  (empty where the config's choice was expected) - the actions were there
+  and the views were told.
+
+### Measurements
+
+The first suites run was killed by the host for memory (the second batch
+in a row - the two VMs hold most of it) after its build had finished and
+TextEditor run 1 was under way: 400 passed, 0 failed over 18 objects when
+it stopped. Nothing in a suites run patches the tree, and nothing in the
+tree changed since the build, so the suites ran again without rebuilding
+(`suites311b.sh`, which checks the tree for control markers first). The
+VM's other `qtcreator` process, a 21.0 beta the user has had open there
+for six days, is not the tests' and was left alone.
+
+    -test TextEditor     798 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         29 passed, 0 failed, 0 skipped, exit 0
+    -test Git            138 passed, 2 failed, 0 skipped, exit 2
+    -test CppEditor,testTheChoiceSaysWhetherTheReaderPickedIt   3/0, exit 0
+    -test CppEditor,testTheChoiceSaysWhenItHasChanged           3/0, exit 0
+    -test CppEditor,testTheLanguagesButtonIsInTheToolBar        3/0, exit 0
+
+TextEditor is 798: 797 plus the choices test, all three runs clean. VcsBase
+stays 29: the new assertions are inside the config test. Git is 138 passed
+with exactly the baseline's two failures - no instant-blame flake this
+time, on a run that did not follow a Docker build. QuickUi unchanged. The
+three CppEditor tests are the ones whose code moved; the whole CppEditor
+suite was not run.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. Git's `GitLogFilterWidget` (grep, pickaxe and author line edits, a case
+   toggle, shown by the `Filter` action) - the last widget UI a Git log
+   editor has: a shape the Quick tool bar can draw, or a config extension
+   for text fields.
+2. **The clients' handle** on the document (entry 308); `VcsEditorFactory`
+   on the Qt Quick editor for a VCS with no widget creator; Git's subclass
+   retired (entry 309).
+3. The other seven VCS; the QmlDesigner-side two; the standing list (entry
+   298).

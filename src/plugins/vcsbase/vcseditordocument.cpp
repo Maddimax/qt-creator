@@ -540,6 +540,7 @@ void VcsEditorDocument::setEditorConfig(VcsBaseEditorConfig *config)
 {
     d->config = config;
     emit toolBarActionsChanged();
+    emit toolBarChoicesChanged();
 }
 
 QList<QAction *> VcsEditorDocument::ownToolBarActions() const
@@ -875,9 +876,17 @@ VcsEditorSections *VcsEditorDocument::sections() const
     return d->sections;
 }
 
-TextEditor::ToolBarChoice *VcsEditorDocument::toolBarChoice() const
+QList<TextEditor::ToolBarChoice *> VcsEditorDocument::toolBarChoices() const
 {
-    return d->choice;
+    QList<TextEditor::ToolBarChoice *> choices;
+    if (d->choice)
+        choices.append(d->choice);
+    if (d->config) {
+        const QList<VcsBaseEditorChoice *> own = d->config->choices();
+        for (VcsBaseEditorChoice * const choice : own)
+            choices.append(choice);
+    }
+    return choices;
 }
 
 QList<QAction *> VcsEditorDocument::contextMenuActions(const QTextCursor &cursor)
@@ -1163,7 +1172,7 @@ private slots:
 
         // And the sections are what the tool bar offers: the row the caret is
         // in is current, and choosing a row goes there. Not a pick to undo.
-        TextEditor::ToolBarChoice * const choice = document->toolBarChoice();
+        TextEditor::ToolBarChoice * const choice = document->toolBarChoices().value(0);
         QVERIFY2(choice, "a log document offers the tool bar no choice");
         QCOMPARE(choice->model(), document->sections());
         QVERIFY2(choice->isAvailable(), "two sections, and nothing to choose between");
@@ -1441,9 +1450,13 @@ private slots:
         VcsEditorDocument * const document = widget->vcsDocument();
         QVERIFY(document);
         QVERIFY(!document->toolBarActions().contains(whitespace));
+        QVERIFY(document->toolBarChoices().isEmpty());
         QSignalSpy told(document, &TextEditor::TextDocument::toolBarActionsChanged);
+        QSignalSpy toldChoices(document, &TextEditor::TextDocument::toolBarChoicesChanged);
         widget->setEditorConfig(&config);
         QCOMPARE(told.count(), 1);
+        QCOMPARE(toldChoices.count(), 1);
+        QCOMPARE(document->toolBarChoices(), QList<TextEditor::ToolBarChoice *>{moves});
         const QList<QAction *> offered = document->toolBarActions();
         QVERIFY2(offered.contains(whitespace) && offered.contains(firstParent)
                      && offered.contains(reload),

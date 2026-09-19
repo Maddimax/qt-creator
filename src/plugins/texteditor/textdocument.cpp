@@ -743,9 +743,9 @@ void TextDocument::removeToolBarAction(QAction *action)
         emit toolBarActionsChanged();
 }
 
-ToolBarChoice *TextDocument::toolBarChoice() const
+QList<ToolBarChoice *> TextDocument::toolBarChoices() const
 {
-    return nullptr;
+    return {};
 }
 
 bool TextDocument::handleKeyPress(QKeyEvent *event, const QTextCursor &cursor)

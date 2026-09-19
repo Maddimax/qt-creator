@@ -932,18 +932,39 @@ public:
         // it can arrive after this row does, which childEvent() below answers.
         ToolBarOutline * const outline = findChild<ToolBarOutline *>();
 
-        // A choice whose current row follows the caret is told where it is,
-        // now and as it moves. The view's signal, so that the connection goes
-        // with the view.
-        ToolBarChoice * const choice = m_document->toolBarChoice();
-        if (choice) {
-            choice->followCaret(view->cursorLine());
-            connect(view, &TextViewport::cursorPositionChanged, choice,
-                    [choice, view] { choice->followCaret(view->cursorLine()); });
-        }
-
-        m_toolBar = Internal::createQuickTextToolBar(view, &m_toolBarActions, outline, choice);
+        // The document may offer more choices once the editor is up - a VCS
+        // editor's config arrives after it - so the list is watched, and the
+        // form is handed the new one.
+        const QList<ToolBarChoice *> choices = m_document->toolBarChoices();
+        followCaretWith(choices, view);
+        m_toolBar = Internal::createQuickTextToolBar(view, &m_toolBarActions, outline, choices);
+        connect(m_document.data(), &TextDocument::toolBarChoicesChanged, this, [this] {
+            TextViewport * const current = viewport();
+            if (!m_toolBar || !current)
+                return;
+            const QList<ToolBarChoice *> now = m_document->toolBarChoices();
+            followCaretWith(now, current);
+            auto * const quick = m_toolBar->findChild<QQuickWidget *>();
+            if (QQuickItem * const root = quick ? quick->rootObject() : nullptr)
+                root->setProperty("choices", Internal::toolBarChoicesForForm(now));
+        });
         return m_toolBar;
+    }
+
+    // A choice whose current row follows the caret is told where it is, now
+    // and as it moves. The view's signal, so that the connection goes with the
+    // view; kept, so that a new list replaces the old connections rather than
+    // adding to them.
+    void followCaretWith(const QList<ToolBarChoice *> &choices, TextViewport *view)
+    {
+        for (const QMetaObject::Connection &connection : std::as_const(m_choiceConnections))
+            disconnect(connection);
+        m_choiceConnections.clear();
+        for (ToolBarChoice * const choice : choices) {
+            choice->followCaret(view->cursorLine());
+            m_choiceConnections << connect(view, &TextViewport::cursorPositionChanged, choice,
+                                           [choice, view] { choice->followCaret(view->cursorLine()); });
+        }
     }
 
     // A split view is a duplicate, so it has to be built the way this one
@@ -1417,6 +1438,7 @@ private:
     // one, and the views the tests make by hand.
     TextEditorFactory * const m_factory = nullptr;
     QtcQuick::ActionModel m_toolBarActions;
+    QList<QMetaObject::Connection> m_choiceConnections;
     bool m_outlineUpdateScheduled = false;
     // Owned by the toolbar the editor manager puts it in, so a QPointer.
     QPointer<QWidget> m_toolBar;
@@ -1604,17 +1626,25 @@ QtcQuick::QuickWidget *createQuickTextView(CodeSource *source,
     return widget;
 }
 
+QVariantList toolBarChoicesForForm(const QList<ToolBarChoice *> &choices)
+{
+    QVariantList list;
+    for (ToolBarChoice * const choice : choices)
+        list.append(QVariant::fromValue<QObject *>(choice));
+    return list;
+}
+
 QtcQuick::QuickWidget *createQuickTextToolBar(TextViewport *view,
                                               QtcQuick::ActionModel *languageActions,
                                               ToolBarOutline *outline,
-                                              ToolBarChoice *choice)
+                                              const QList<ToolBarChoice *> &choices)
 {
     auto * const bar = new QtcQuick::QuickWidget;
     bar->quickWidget()->setInitialProperties(
         {{"viewport", QVariant::fromValue(view)},
          {"languageActions", QVariant::fromValue(languageActions)},
          {"outline", QVariant::fromValue(outline)},
-         {"choice", QVariant::fromValue(choice)}});
+         {"choices", toolBarChoicesForForm(choices)}});
     bar->setSource(QUrl("qrc:/qt/qml/QtCreator/TextEditor/EditorToolBar.qml"));
     return bar;
 }
@@ -11728,7 +11758,7 @@ private slots:
         actions.setActions({&glyph});
 
         const std::unique_ptr<QWidget> bar(
-            Internal::createQuickTextToolBar(view, &actions, nullptr, nullptr));
+            Internal::createQuickTextToolBar(view, &actions, nullptr, {}));
         QVERIFY(bar.get());
         bar->resize(600, 40);
         bar->show();
@@ -11987,7 +12017,7 @@ private slots:
 
         // No outline and no choice: a caller may legitimately have neither.
         const std::unique_ptr<QWidget> bar(
-            Internal::createQuickTextToolBar(view, &actions, nullptr, nullptr));
+            Internal::createQuickTextToolBar(view, &actions, nullptr, {}));
         QVERIFY2(bar.get(), "no toolbar was built at all");
         bar->resize(600, 40);
         bar->show();
@@ -13490,7 +13520,7 @@ private slots:
                 : TextDocument("QuickEditorChoiceTest")
                 , m_choice(new TestChoice(this))
             {}
-            ToolBarChoice *toolBarChoice() const override { return m_choice; }
+            QList<ToolBarChoice *> toolBarChoices() const override { return {m_choice}; }
             TestChoice * const m_choice;
         };
 
@@ -13557,6 +13587,119 @@ private slots:
         QVERIFY(view);
         view->setCursorPosition(document->document()->findBlockByNumber(2).position());
         QTRY_COMPARE(document->m_choice->m_followed, 3);
+    }
+
+    // A document may offer more than one choice - a VCS log's sections and
+    // what its command is told - and may offer another once the editor is up,
+    // since a VCS editor's config arrives after it. The form draws a combo per
+    // choice, each bound to its own, and follows the list.
+    void testTheFormDrawsEveryChoiceTheDocumentOffers()
+    {
+        class ListedChoice final : public ToolBarChoice
+        {
+        public:
+            explicit ListedChoice(QObject *parent)
+                : ToolBarChoice(parent)
+            {
+                m_model.appendRow(new QStandardItem("first"));
+                m_model.appendRow(new QStandardItem("second"));
+            }
+            QAbstractItemModel *model() const override
+            {
+                return const_cast<QStandardItemModel *>(&m_model);
+            }
+            int currentIndex() const override { return m_current; }
+            QString toolTip() const override { return {}; }
+            bool isAvailable() const override { return true; }
+            bool isChosen() const override { return false; }
+            void choose(int index) override
+            {
+                m_current = index;
+                ++m_chosen;
+                emit changed();
+            }
+            void clearChoice() override {}
+            void followCaret(int line) override { m_followed = line; }
+
+            QStandardItemModel m_model;
+            int m_current = 0;
+            int m_chosen = 0;
+            int m_followed = -1;
+        };
+
+        class ChoicesDocument final : public TextDocument
+        {
+        public:
+            ChoicesDocument()
+                : TextDocument("QuickEditorChoicesTest")
+            {
+                m_choices << new ListedChoice(this) << new ListedChoice(this);
+            }
+            QList<ToolBarChoice *> toolBarChoices() const override
+            {
+                QList<ToolBarChoice *> choices;
+                for (ListedChoice * const choice : m_choices)
+                    choices.append(choice);
+                return choices;
+            }
+            void offerAnother()
+            {
+                m_choices << new ListedChoice(this);
+                emit toolBarChoicesChanged();
+            }
+            QList<ListedChoice *> m_choices;
+        };
+
+        class ChoicesFactory final : public TextEditorFactory
+        {
+        public:
+            ChoicesFactory()
+            {
+                setId("QuickEditorChoicesTest");
+                setDisplayName("Quick Editor Choices Test");
+                setDocumentCreator([] { return new ChoicesDocument; });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(true);
+            }
+        };
+
+        ChoicesFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = static_cast<ChoicesDocument *>(editor->document());
+        QWidget * const bar = editor->toolBar();
+        QVERIFY2(bar, "the editor puts nothing in the toolbar row");
+        auto * const quick = bar->findChild<QQuickWidget *>();
+        QVERIFY(quick);
+
+        // The combo bound to a choice, found by the model it shows: a Row's
+        // children share one y, so their order is not a fact to rely on.
+        const auto comboFor = [quick](ToolBarChoice *choice) -> QQuickItem * {
+            const QList<QQuickItem *> combos = itemsNamed(quick->rootObject(), "parseContextCombo");
+            for (QQuickItem * const combo : combos) {
+                if (combo->property("model").value<QObject *>() == choice->model())
+                    return combo;
+            }
+            return nullptr;
+        };
+
+        QTRY_COMPARE(itemsNamed(quick->rootObject(), "parseContextCombo").size(), 2);
+        QQuickItem * const second = comboFor(document->m_choices.at(1));
+        QVERIFY2(second, "no combo shows the second choice's rows");
+        QVERIFY2(comboFor(document->m_choices.at(0)), "no combo shows the first choice's rows");
+        QMetaObject::invokeMethod(second, "activated", Q_ARG(int, 1));
+        QTRY_COMPARE(document->m_choices.at(1)->m_chosen, 1);
+        QCOMPARE(document->m_choices.at(0)->m_chosen, 0);
+        QTRY_COMPARE(second->property("currentIndex").toInt(), 1);
+        // Both were told where the caret is when the row was built.
+        QCOMPARE(document->m_choices.at(0)->m_followed, 1);
+        QCOMPARE(document->m_choices.at(1)->m_followed, 1);
+
+        // One more, offered once the editor is up: drawn, and told the caret.
+        document->offerAnother();
+        QTRY_COMPARE(itemsNamed(quick->rootObject(), "parseContextCombo").size(), 3);
+        QVERIFY2(comboFor(document->m_choices.at(2)), "no combo shows the late choice's rows");
+        QCOMPARE(document->m_choices.at(2)->m_followed, 1);
     }
 
     // The provider is on the document, and asking it is what turns that into

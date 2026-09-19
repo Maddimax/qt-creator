@@ -87,7 +87,7 @@ public:
     // the token it is about. Static, being a transformation on the ranges.
     static const QList<QTextEdit::ExtraSelection>
     unselectLeadingWhitespace(const QList<QTextEdit::ExtraSelection> &selections);
-    TextEditor::ToolBarChoice *toolBarChoice() const override;
+    QList<TextEditor::ToolBarChoice *> toolBarChoices() const override;
 
     // the blocks list must be sorted
     void setIfdefedOutBlocks(const QList<TextEditor::BlockRange> &blocks);
