@@ -4,6 +4,7 @@
 #include "lspinspector.h"
 
 #include "client.h"
+#include "jsonmessagebox.h"
 #include "languageclientmanager.h"
 #include "languageclientsettings.h"
 #include "languageclienttr.h"
@@ -15,7 +16,6 @@
 #include <utils/jsontreeitem.h>
 #include <utils/layoutbuilder.h>
 #include <utils/macroexpander.h>
-#include <utils/variablechooser.h>
 
 #include <QAction>
 #include <QBuffer>
@@ -195,40 +195,34 @@ static QWidget *createMessageEditor(QComboBox *clients)
 {
     auto container = new QWidget;
 
-    TextEditor::BaseTextEditor *messageEditor = LanguageClient::createJsonEditor(container);
-    messageEditor->editorWidget()->setVisible(false);
-    messageEditor->document()->setContents(R"({
+    auto * const message = new Internal::JsonMessageBox(container);
+    QWidget * const messageWidget = message->widget();
+    messageWidget->setVisible(false);
+    message->setText(R"({
     "jsonrpc": "2.0",
     "id": "%{UUID}",
     "method": "checkStatus",
     "params": { "options": {"localChecksOnly": true} }
 })");
 
-    VariableChooser *vc = new VariableChooser(messageEditor->editorWidget());
-    vc->addMacroExpanderProvider(MacroExpanderProvider(globalMacroExpander()));
-    vc->addSupportedWidget(messageEditor->editorWidget());
-
     auto errorLabel = new QLabel;
-    auto send = [clients, messageEditor, errorLabel] {
-        if (messageEditor->editorWidget()->isHidden()) {
-            messageEditor->editorWidget()->setVisible(true);
+    auto send = [clients, message, messageWidget, errorLabel] {
+        if (messageWidget->isHidden()) {
+            messageWidget->setVisible(true);
             return;
         }
         const QList<Client *> clientList = LanguageClientManager::clientsByName(
             clients->currentText());
         QString errMsg;
-        for (Client *client : clientList) {
-            errMsg += sendMessage(
-                client,
-                globalMacroExpander()->expand(messageEditor->textDocument()->plainText()));
-        }
+        for (Client *client : clientList)
+            errMsg += sendMessage(client, globalMacroExpander()->expand(message->text()));
         errorLabel->setText(errMsg);
     };
 
     // clang-format off
     using namespace Layouting;
     Column {
-        messageEditor->editorWidget(),
+        messageWidget,
         Row { st, errorLabel, PushButton { text(Tr::tr("Send message")), onClicked(container, send) } },
         noMargin,
     }.attachTo(container);

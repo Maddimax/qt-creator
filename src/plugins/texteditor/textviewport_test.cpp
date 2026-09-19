@@ -1175,6 +1175,45 @@ private slots:
         QCOMPARE(text->toPlainText(), QString("\n\ngamma\n"));
     }
 
+    // Text handed to the view to put in - a variable chooser's choice - lands
+    // where the caret is and leaves the caret after it, as typing it would;
+    // what is selected goes in its place. Whoever hands it over says nothing
+    // about where.
+    void testInsertedTextLandsAtTheCaretAndLeavesItAfter()
+    {
+        TemporaryDirectory dir("textviewport-insert");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("small.txt");
+        QVERIFY(file.writeFileContents("alpha\nbeta\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+
+        TextViewport * const viewport = fixture.viewport;
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        QVERIFY(text);
+        viewport->setReadOnly(false);
+
+        viewport->setCursorPosition(5);
+        viewport->insertText("%{Id}");
+        QCOMPARE(text->toPlainText(), QString("alpha%{Id}\nbeta\n"));
+        QVERIFY2(viewport->cursorPosition() == 10,
+                 qPrintable(QString("the caret is at %1, not after what was put in")
+                                .arg(viewport->cursorPosition())));
+
+        viewport->setSelectionStart(0);
+        viewport->setSelectionEnd(5);
+        viewport->insertText("Z");
+        QCOMPARE(text->toPlainText(), QString("Z%{Id}\nbeta\n"));
+        QCOMPARE(viewport->cursorPosition(), 1);
+
+        // A view that cannot be typed in cannot be handed text either.
+        viewport->setReadOnly(true);
+        viewport->insertText("no");
+        QCOMPARE(text->toPlainText(), QString("Z%{Id}\nbeta\n"));
+    }
+
     // The gutter is the first thing that makes a viewport look like an editor
     // rather than a text box, and the only thing holding its rows against the
     // text's is that both work the line's position out the same way.

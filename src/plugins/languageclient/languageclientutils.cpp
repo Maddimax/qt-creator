@@ -662,6 +662,11 @@ void autoSetupLanguageServer(TextDocument *document)
 
 #ifdef WITH_TESTS
 
+#include "jsonmessagebox.h"
+
+#include <texteditor/textmark.h>
+
+#include <utils/algorithm.h>
 #include <utils/temporarydirectory.h>
 
 #include <QTest>
@@ -673,29 +678,45 @@ class QuickFixMarkerTest final : public QObject
     Q_OBJECT
 
 private slots:
-    // The JSON box the LSP inspector shows messages in. It has never had a
-    // test, and it changed under JSON moving to the Qt Quick view: it takes
-    // the first factory whose editor is a BaseTextEditor, which the Qt Quick
-    // one is not.
-    void testTheJsonBoxIsAWidgetEditorThatHighlightsJson()
+    // The JSON box the LSP inspector shows messages in: drawn by the Qt Quick
+    // code view, configured by its controller.
+    void testTheJsonBoxHighlightsJsonAndMarksAParseError()
     {
-        const std::unique_ptr<TextEditor::BaseTextEditor> editor(createJsonEditor());
-        QVERIFY2(editor.get(), "no editor was made for the inspector's messages");
+        std::unique_ptr<Internal::JsonMessageBox> made(new Internal::JsonMessageBox);
+        Internal::JsonMessageBox * const box = made.get();
+        QVERIFY2(box, "no box was made for the inspector's messages");
 
-        TextEditor::TextEditorWidget * const widget = editor->editorWidget();
-        QVERIFY2(widget, "the box is not a widget editor, so what configures it did nothing");
+        // Drawn by a Qt Quick scene, not by a widget editor: the widget it
+        // hands out to be laid out hosts one and holds no TextEditorWidget.
+        // The scene loading at all is the view finding its controller;
+        // Core::createQmlView() refuses otherwise.
+        const std::unique_ptr<QWidget> widget(box->widget());
+        QVERIFY2(widget, "the box has no widget to lay out");
+        // And that widget owns the box from here: the view takes its
+        // controller. Deleting the widget is deleting the box.
+        made.release();
+        QVERIFY2(!widget->findChild<TextEditor::TextEditorWidget *>(),
+                 "the box is still drawn by a widget editor");
+        QVERIFY2(Utils::anyOf(widget->findChildren<QWidget *>(),
+                              [](QWidget *part) { return part->inherits("QQuickWidget"); }),
+                 "the box is not drawn by a Qt Quick scene");
 
         // What the box is configured to be: JSON, without the furniture of a
         // code editor.
-        TextEditor::TextDocument * const document = editor->textDocument();
+        TextEditor::TextDocument * const document = box->document();
         QVERIFY(document);
         QVERIFY2(document->syntaxHighlighter(), "the box would show JSON unhighlighted");
 
         // And it reports a parse error on the line it is on, which is the
-        // only thing in it that is about JSON rather than about text.
-        document->setPlainText("{ \"a\": }");
-        QTRY_VERIFY2(!document->marks().isEmpty(),
-                     "a malformed message was not marked as one");
+        // only thing in it that is about JSON rather than about text - and
+        // stops reporting it once the message parses again.
+        box->setText("{\n  \"a\": }");
+        QTRY_VERIFY2(!document->marks().isEmpty(), "a malformed message was not marked as one");
+        QCOMPARE(document->marks().first()->lineNumber(), 2);
+        QVERIFY2(!document->marks().first()->lineAnnotation().isEmpty(),
+                 "the mark says nothing about what is wrong");
+        box->setText("{\n  \"a\": 1 }");
+        QTRY_VERIFY2(document->marks().isEmpty(), "the mark stayed after the message was fixed");
     }
 
     void testAQuickFixIsOfferedInAViewThatIsNotAWidget()

@@ -65051,3 +65051,168 @@ TextEditor's count is 785: 784 plus this test.
 5. Then entries 288-293's standing list: the two-view tests' widget rows, the
    five specialised editors, QmlJSEditor into the standing suites, ASan, the
    typing flake, Windows.
+
+## 2026-09-19 — The inspector's JSON box off the widget editor (batch 295)
+
+Entry 294's item 1: `createJsonEditor()` in `languageclientsettings.cpp`, the
+one caller of `createPlainTextEditor()` that embedded a widget editor rather
+than opening a file - the LSP Inspector's box for a message to send. Ported.
+
+### What the box was
+
+A `BaseTextEditor` from `createPlainTextEditor()`, then configured by hand:
+the JSON generic highlighter, line numbers, revisions and folding turned off,
+`contentsChanged` wired to a parse of the text with a `TextMark` on the line
+of the first error, and a `VariableChooser` attached to the editor widget.
+The inspector hid the editor widget until "Send message" was clicked once,
+then read `textDocument()->plainText()` from it. Six things on a
+`TextEditorWidget`, every one of them with a Qt Quick counterpart already in
+the tree; what was missing was a place to hang them.
+
+### The change
+
+`JsonMessageBox`, a `QObject` controller in `jsonmessagebox.h`, internal to the
+plugin: a
+`CodeBuffer` with `Utils::Constants::JSON_MIMETYPE` - that is the highlighter,
+the buffer configures it from the mime type - a `Utils::VariableModel` fed
+the global expander, and the parse check moved verbatim from the lambda into
+`checkJson()`, on the buffer's `textChanged`. `widget()` builds the view once,
+through `Core::createQmlView()`, from `JsonMessageEditor.qml`: a `CodeViewport`
+on the buffer (`readOnly: false`, annotations on, so the mark's text is
+readable), an "Insert Variable..." `QtcButton`, and a `QtcVariableChooser` on
+the model. `createJsonEditor()` is gone; the inspector makes the box, lays
+out `widget()`, shows and hides that, and reads `text()`. Nothing in the
+inspector knows what draws the text any more, and `utils/variablechooser.h`
+is out of it.
+
+`QtcVariableChooser` fetches nothing itself, and its filter is recursive, so
+every group is fetched up front the way `aspectmodels.cpp` does it - copied,
+with a pointer to where from rather than the paragraph explaining why.
+
+**The caret.** The chooser's `chose(text)` has to put text in at the caret and
+leave the caret after it. My first QML did `controller.insertAt(view.cursorPosition, text)`
+and then `view.cursorPosition = at + text.length` - which is an assignment to
+a `readonly property alias`; `CodeViewport` exposes the caret's position to
+read and not to write, on purpose. The viewport had no invokable that puts
+text in at the caret either: `dropText()` takes a coordinate, `paste()` takes
+the clipboard, `applyCompletion()` replaces a prefix. So `TextViewport` gets
+`Q_INVOKABLE void insertText(const QString &)` - every caret, in place of
+its selection, caret left after, refused when `!canEdit()`, the tail of
+`pasteNormally()` without the per-caret split and the re-indent - and
+`CodeViewport` exposes it as `function insert(text)`. The controller places
+nothing; `insertAt()` is gone.
+
+**The opaque pointer, and the header it led to.** The class started life in
+`languageclientsettings.h`, next to the function it replaced.
+`Q_PROPERTY(TextEditor::CodeBuffer *buffer ...)` with `CodeBuffer` forward-declared
+fails in the moc TU - "Pointer Meta Types must either point to fully-defined
+types or be declared with Q_DECLARE_OPAQUE_POINTER"; `mocs_compilation.cpp`
+includes only the header. `Q_DECLARE_OPAQUE_POINTER` is the wrong answer here:
+it also declares the type *not* a pointer to a QObject, and QML would then get
+a variant it cannot assign to the view's `CodeSource` property. So the header
+included `codebuffer.h`, LanguageClient built - and **LuaLanguageClient did
+not**: `codesource.h` includes `<QtQmlIntegration>` for its `QML_ELEMENT`,
+and a plugin that includes the settings header for the settings classes has no
+Qt Qml include path. A header shared with downstream plugins is not the place
+for a class that names a QML-registered type. The box is in `jsonmessagebox.h/.cpp`
+now, `LanguageClient::Internal`, included by the inspector and the test and
+nobody else; LanguageClient's own `Qt::Qml` dependency, which
+`qt_add_qml_module` had been supplying silently, is written down in
+`CMakeLists.txt` (`DEPENDS`) and `languageclient.qbs` (`Depends { name: "Qt.qml" }`),
+where the qbs side had nothing and would not have found the header.
+
+### Ownership
+
+`Core::createQmlView()` reparents the controller to the view it makes, so
+after `widget()` the box belongs to its widget, whatever it was parented to
+before. In the inspector that is fine - the widget is laid out into the same
+container. In the test it means the widget is what to delete, not the box:
+the test holds the widget in a `unique_ptr` and releases the box's the moment
+`widget()` has returned one. My first version deleted the box and leaked a
+parentless `QQuickWidget` whose scene was bound to a controller that had
+gone - not a failure the test would have shown, and exactly the kind of
+object that falls off Qt's shutdown cliff (`~/.claude/qt.md`).
+
+### The tests
+
+`testTheJsonBoxHighlightsJsonAndMarksAParseError` replaces
+`testTheJsonBoxIsAWidgetEditorThatHighlightsJson`, whose first assertion was
+that the box *is* a widget editor. Now: the widget the box hands out has no
+`TextEditorWidget` under it and hosts a Qt Quick scene (a `QQuickWidget`, asked
+by name: LanguageClient links no Qt Quick, and `textviewport.h` needs
+`QQuickItem` - that include was the first build failure); the document has a
+highlighter; `{\n  "a": }` gets a mark on line 2 with an annotation; `{\n  "a": 1 }`
+clears it. Alone: 3 passed, 0 failed, exit 0, and no QML warning in its log.
+
+`testInsertedTextLandsAtTheCaretAndLeavesItAfter` in `textviewport_test.cpp`:
+caret at 5 in `alpha\nbeta\n`, `insertText("%{Id}")` gives `alpha%{Id}\n...`
+with the caret at 10; a selection 0..5 replaced by `Z` leaves the caret at 1;
+a read-only view is unchanged by it. Alone: 3 passed, 0 failed, exit 0.
+
+Controls, each the pre-fix shape of one assertion:
+
+- **A** - the `textChanged` → `checkJson()` connect removed: 2 passed, 1 failed,
+  "a malformed message was not marked as one".
+- **B** - `setMimeType(JSON_MIMETYPE)` removed: 2 passed, 1 failed, "the box
+  would show JSON unhighlighted".
+- **C** - `setMultiTextCursor(cursors)` removed from `insertText()`, so the text
+  lands and the view is not handed its carets back: 2 passed, 1 failed -
+  "Actual (viewport->cursorPosition()): 6, Expected (1)". Worth reading
+  closely: the *first* caret assertion (10 after a plain insert) **passed**
+  under the control, because a `QTextCursor` sitting exactly where text is
+  inserted is carried past it by the document itself. Only the replaced
+  selection told the two apart. A test of "caret after insert" that inserts
+  at a collapsed caret alone cannot distinguish the view moving its caret from
+  the document moving it for free.
+
+The first run of A and B measured nothing and said "3 passed": the control
+script still patched `languageclientsettings.cpp`, where the code had been an
+hour earlier. The count-assert refused the patch - and the script ran the
+unpatched binary anyway and printed its pass. A control runner whose patch
+did not apply must *end the run*, not report; `set -e` now, and noted in
+`~/.claude/testing.md`. A and B were run again against `jsonmessagebox.cpp`:
+
+### qmllint
+
+`ninja LanguageClient_qmllint` (`~/.claude/qt-creator.md`, "qmllint target per
+plugin"), run after the suites: two warnings, both real - `x` and `y` set on
+the `QtcVariableChooser`, a direct child of the `ColumnLayout`, "an item that
+is managed by a layout. This is undefined behavior". A popup positions itself
+in its parent; the layout's children are the layout's to place. The chooser
+is declared inside the `CodeViewport` now, `y: view.height`, and the lint is
+clean: no warning from the module's lint. The suites below ran before that QML-only change to the
+LanguageClient module; the LanguageClient suite and the box's test were run
+again after it: 3 passed, exit 0, and 44 passed, 0 failed, exit 0.
+
+### Measurements
+
+    -test TextEditor       786 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi          228 passed, 0 failed, 0 skipped, exit 0
+    -test LanguageClient    44 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor's count is 786: 785 plus the viewport test. LanguageClient is 44,
+as before: one test replaced, none added there. No entry-247 crash in three
+TextEditor runs this time.
+
+qbs, resolved with a scratch profile as `~/.claude/qt-creator.md` describes:
+with `"doesnotexist.cpp"` added to the product the resolve names
+`LanguageClient` and the missing file; as edited, no line names the product
+(19 errors overall, the vendored qbs products' usual ones). Two earlier
+resolves measured nothing and looked like they had: the scratch settings
+still pointed at `~/Qt/6.11.1/macos/bin/qmake`, which is 6.11.2 now, so every
+product failed with "Dependency 'Qt.core' not found" - control and edited
+alike. A negative control that produces the same output as the real run is
+the first thing to check, before reading either. Noted in `qt-creator.md`.
+
+### What is next
+
+1. **The widget editor's own read-only hazard** (entry 293).
+2. **Two Debugger tests failing on HEAD** (entry 293) - a `.pro` will not open
+   in the test VM.
+3. **An image opened in the offscreen suite hangs** (entry 294).
+4. `createPlainTextEditor()` has no embedded-widget caller left; its remaining
+   uses are the plain text factory itself and the two-view tests' control
+   side, which stay (entry 290).
+5. Then entries 288-293's standing list: the two-view tests' widget rows, the
+   five specialised editors, QmlJSEditor into the standing suites, ASan, the
+   typing flake, Windows.

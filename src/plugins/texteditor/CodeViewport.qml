@@ -77,6 +77,13 @@ Item {
     readonly property alias selectionStart: viewport.selectionStart
     readonly property alias selectionEnd: viewport.selectionEnd
 
+    // Puts text in at the caret, in place of the selection, and leaves the
+    // caret after it - what a chooser beside the view does with what was
+    // chosen. A caller places text; where the caret is stays the view's.
+    function insert(text: string): void {
+        viewport.insertText(text)
+    }
+
     implicitHeight: Metrics.formTextAreaHeight
 
     Rectangle {

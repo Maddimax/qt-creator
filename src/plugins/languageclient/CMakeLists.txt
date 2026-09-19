@@ -5,7 +5,7 @@ elseif (MINGW)
 endif()
 
 add_qtc_plugin(LanguageClient
-  DEPENDS McpServerLib
+  DEPENDS McpServerLib Qt::Qml
   PUBLIC_DEPENDS LanguageServerProtocol Qt::Core
   PLUGIN_DEPENDS ProjectExplorer Core TextEditor
   SOURCES
@@ -17,6 +17,7 @@ add_qtc_plugin(LanguageClient
     documentsymbolcache.cpp documentsymbolcache.h
     dynamiccapabilities.cpp dynamiccapabilities.h
     foldingrangesupport.cpp foldingrangesupport.h
+    jsonmessagebox.cpp jsonmessagebox.h
     languageclientcompletionassist.cpp languageclientcompletionassist.h
     languageclientfunctionhint.cpp languageclientfunctionhint.h
     languageclientformatter.cpp languageclientformatter.h
@@ -58,6 +59,7 @@ if(TARGET LanguageClient)
     RESOURCE_PREFIX "/qt/qml"
     NO_PLUGIN
     QML_FILES
+      JsonMessageEditor.qml
       LanguageClientProjectPanel.qml
       LanguageClientsPage.qml
       MimeTypeDialog.qml

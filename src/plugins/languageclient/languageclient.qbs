@@ -5,6 +5,7 @@ QtcPlugin {
     name: "LanguageClient"
 
     Depends { name: "Qt.core" }
+    Depends { name: "Qt.qml" }
     Depends { name: "Qt.testlib"; condition: qtc.withPluginTests }
 
     Depends { name: "Utils" }
@@ -39,6 +40,8 @@ QtcPlugin {
         "dynamiccapabilities.h",
         "foldingrangesupport.cpp",
         "foldingrangesupport.h",
+        "jsonmessagebox.cpp",
+        "jsonmessagebox.h",
         "languageclient_global.h",
         "languageclienttr.h",
         "languageclientformatter.cpp",

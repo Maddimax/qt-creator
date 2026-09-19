@@ -19,9 +19,6 @@
 #include <projectexplorer/projectmanager.h>
 #include <projectexplorer/projectpanelfactory.h>
 
-#include <texteditor/plaintexteditorfactory.h>
-#include <texteditor/textmark.h>
-
 #include <utils/aspectpresentation.h>
 #include <utils/shutdownguard.h>
 #include <utils/algorithm.h>
@@ -994,52 +991,6 @@ bool LanguageFilter::operator==(const LanguageFilter &other) const
 {
     return this->filePattern == other.filePattern && this->mimeTypes == other.mimeTypes
            && this->excludeMimeTypes == other.excludeMimeTypes;
-}
-
-BaseTextEditor *createJsonEditor(QObject *parent)
-{
-    using namespace Text;
-    // The plain text editor, asked for by name. This used to walk the
-    // factories that claim a .json and keep the first whose editor is a
-    // BaseTextEditor - which, since JSON moved to the Qt Quick view, means
-    // building a Qt Quick editor and the Qt Quick plain text editor behind it
-    // and throwing both away before landing here anyway. The box is
-    // configured below whatever it came from, so ask for it directly.
-    BaseTextEditor * const textEditor = createPlainTextEditor();
-    QTC_ASSERT(textEditor, return nullptr);
-    textEditor->setParent(parent);
-
-    TextDocument *document = textEditor->textDocument();
-    TextEditorWidget *widget = textEditor->editorWidget();
-    widget->configureGenericHighlighter(mimeTypeForName(Utils::Constants::JSON_MIMETYPE));
-    widget->setLineNumbersVisible(false);
-    widget->setRevisionsVisible(false);
-    widget->setCodeFoldingSupported(false);
-    QObject::connect(document, &TextDocument::contentsChanged, widget, [document]() {
-        const Id jsonMarkId("LanguageClient.JsonTextMarkId");
-        const TextMarks marks = document->marks();
-        for (TextMark *mark : marks) {
-            if (mark->category().id == jsonMarkId)
-                delete mark;
-        }
-        const QString content = document->plainText().trimmed();
-        if (content.isEmpty())
-            return;
-        QJsonParseError error;
-        QJsonDocument::fromJson(content.toUtf8(), &error);
-        if (error.error == QJsonParseError::NoError)
-            return;
-        const Position pos = Position::fromPositionInDocument(document->document(), error.offset);
-        if (!pos.isValid())
-            return;
-        auto mark = new TextMark(
-            FilePath(), pos.line, {::LanguageClient::Tr::tr("JSON Error"), jsonMarkId});
-        mark->setLineAnnotation(error.errorString());
-        mark->setColor(Theme::CodeModel_Error_TextMarkColor);
-        mark->setIcon(Icons::CODEMODEL_ERROR.icon());
-        document->addMark(mark);
-    });
-    return textEditor;
 }
 
 constexpr const char projectSettingsId[] = "LanguageClient.ProjectSettings";

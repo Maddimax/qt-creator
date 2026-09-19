@@ -730,6 +730,10 @@ public:
     // Text dragged out of here and moved into something else: it has gone,
     // so it has to stop being here too.
     Q_INVOKABLE void removeSelectedText();
+    // Puts \a text in at every caret, in place of what is selected there, and
+    // leaves the caret after it. For whatever hands the view text to put in
+    // where it is - a variable chooser - rather than at a place it points at.
+    Q_INVOKABLE void insertText(const QString &text);
     int contentWidthPercent() const;
     // How many of the rows on screen had to be shaped by the last layout.
     // Scrolling brings back text that has already been shaped, and the rest

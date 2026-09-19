@@ -3447,6 +3447,17 @@ void TextViewport::pasteNormally()
     setMultiTextCursor(cursors);
 }
 
+void TextViewport::insertText(const QString &text)
+{
+    if (!canEdit() || text.isEmpty())
+        return;
+    Utils::MultiTextCursor cursors = multiTextCursor();
+    if (cursors.isNull())
+        return;
+    cursors.insertText(text);
+    setMultiTextCursor(cursors);
+}
+
 void TextViewport::undo()
 {
     if (!canEdit())

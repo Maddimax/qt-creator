@@ -33,8 +33,6 @@ class BuildConfiguration;
 class Project;
 }
 
-namespace TextEditor { class BaseTextEditor; }
-
 namespace LanguageClient {
 
 class Client;
@@ -189,8 +187,6 @@ private:
     QStringList m_enabledSettings;
     QStringList m_disabledSettings;
 };
-
-LANGUAGECLIENT_EXPORT TextEditor::BaseTextEditor *createJsonEditor(QObject *parent = nullptr);
 
 void setupLanguageClientProjectPanel();
 
