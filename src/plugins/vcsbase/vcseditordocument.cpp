@@ -362,6 +362,26 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
         connect(this, &TextDocument::contentsChanged, this, &VcsEditorDocument::updateSections);
         d->choice = new Internal::VcsSectionsChoice(this, d->sections);
     }
+    // A line of a diff goes somewhere: Ctrl+click, Follow Symbol and Return
+    // in a read-only view follow it, in whichever view. The line is the link
+    // text; where it goes is the chunk header's answer, or the VCS's.
+    if (parameters.type == LogOutput || parameters.type == DiffOutput) {
+        setLinkFinder([this](TextEditor::TextDocument *, const QTextCursor &cursor,
+                             const Utils::LinkHandler &callback, bool, bool) {
+            const DiffTarget target = diffTargetAt(cursor);
+            if (!target.isValid()) {
+                callback(Utils::Link());
+                return;
+            }
+            Utils::Link link(target.filePath, target.line);
+            link.linkTextStart = cursor.block().position();
+            link.linkTextEnd = cursor.block().position() + cursor.block().length() - 1;
+            if (d->parameters.resolveDiffTarget)
+                d->parameters.resolveDiffTarget(this, target, link, callback);
+            else
+                callback(link);
+        });
+    }
     // What a plain click does on a change, a URL or an address - in a log or
     // an annotation, which is where the widget editor's handlers are asked.
     if (parameters.type == LogOutput || parameters.type == AnnotateOutput) {
@@ -725,6 +745,28 @@ DiffTarget VcsEditorDocument::diffTargetAt(const QTextCursor &cursor) const
     target.line = chunkStart + lineCount;
     target.contextBlock = block;
     return target;
+}
+
+QString VcsEditorDocument::revisionForLine(int line) const
+{
+    const int section = d->sections->sectionOfLine(line);
+    if (section >= 0 && section < d->sections->rowCount()) {
+        const int sectionLine = d->sections->lines().at(section);
+        const QTextBlock sectionBlock = document()->findBlockByLineNumber(sectionLine);
+        if (sectionBlock.isValid()) {
+            const QRegularExpressionMatch match = d->logEntryPattern.match(sectionBlock.text());
+            if (match.hasMatch())
+                return match.captured(1);
+        }
+    }
+
+    for (QTextBlock block = document()->findBlockByLineNumber(line); block.isValid();
+         block = block.previous()) {
+        const QRegularExpressionMatch match = d->logEntryPattern.match(block.text());
+        if (match.hasMatch())
+            return match.captured(1);
+    }
+    return {};
 }
 
 void VcsEditorDocument::setRevisionSubjectHook(const BlockToString &revisionSubject)
@@ -1247,6 +1289,52 @@ private slots:
         QCOMPARE(onChanged.line, 2);
         QVERIFY2(!document.diffTargetAt(cursorAt("--- a/a.txt")).isValid(),
                  "a header line stands for a place in the file");
+
+        // And that place is what following the line goes to, in either view:
+        // the document's link finder answers the file and line, with the whole
+        // line as the link's text; a header line is no link.
+        const TextEditor::LinkFinder finder = TextEditor::TextEditorFactory::linkFinderFor(&document);
+        QVERIFY2(finder, "a diff's lines are not links");
+        Utils::Link followed;
+        finder(&document, cursorAt("+TWO"), [&followed](const Utils::Link &link) { followed = link; },
+               true, false);
+        QCOMPARE(followed.targetFilePath, file);
+        QCOMPARE(followed.target.line, 2);
+        const QTextBlock changed = cursorAt("+TWO").block();
+        QCOMPARE(followed.linkTextStart, changed.position());
+        QCOMPARE(followed.linkTextEnd, changed.position() + changed.length() - 1);
+        Utils::Link fromHeader = Utils::Link(file, 99);
+        finder(&document, cursorAt("--- a/a.txt"),
+               [&fromHeader](const Utils::Link &link) { fromHeader = link; }, true, false);
+        QVERIFY2(!fromHeader.hasValidTarget(), "a header line is followed somewhere");
+
+        // Where the VCS knows better, the parameters' resolver answers - given
+        // the target and the link as found, and free to move it.
+        VcsBaseEditorParameters resolving = parameters;
+        resolving.id = "VcsEditorDocumentTest.ResolvedDiff";
+        int askedForLine = 0;
+        resolving.resolveDiffTarget = [&askedForLine](VcsEditorDocument *, const DiffTarget &target,
+                                                      const Utils::Link &link,
+                                                      const Utils::LinkHandler &callback) {
+            askedForLine = target.line;
+            Utils::Link moved = link;
+            moved.target.line = link.target.line + 10;
+            callback(moved);
+        };
+        VcsEditorDocument resolved(resolving);
+        resolved.setWorkingDirectory(file.parentDir());
+        resolved.setDiffFilePattern("^(?:diff --git a/|index |[+-]{3} (?:/dev/null|[ab]/(.+$)))");
+        resolved.setLogEntryPattern("^commit ([0-9a-f]{8})[0-9a-f]{32}");
+        resolved.setPlainText(text);
+        QTRY_VERIFY(resolved.diffTargetAt(cursorAt("+TWO")).isValid());
+        QTextCursor onChangedLine(resolved.document());
+        onChangedLine.setPosition(int(text.indexOf("+TWO")) + 1);
+        Utils::Link viaVcs;
+        TextEditor::TextEditorFactory::linkFinderFor(&resolved)(
+            &resolved, onChangedLine, [&viaVcs](const Utils::Link &link) { viaVcs = link; }, true, false);
+        QCOMPARE(askedForLine, 2);
+        QCOMPARE(viaVcs.target.line, 12);
+        QCOMPARE(viaVcs.targetFilePath, file);
     }
 };
 

@@ -63,6 +63,9 @@ enum EditorContentType
     OtherContent
 };
 
+class DiffTarget;
+class VcsEditorDocument;
+
 class VCSBASE_EXPORT VcsBaseEditorParameters
 {
 public:
@@ -76,6 +79,14 @@ public:
     // What a plain click on it describes, in a view that is not the widget
     // editor; a VCS that leaves it unset offers only its URLs there.
     std::function<QString(const QTextCursor &)> changeUnderCursor;
+    // Where a line of a diff goes when followed, better than the file and
+    // line the chunk header names, where the VCS can tell - Git resolves the
+    // line for the revision. Given the target as found and the link that
+    // stands for it; answers through the handler, since the VCS may have to
+    // ask a process. Unset, the link is followed as found.
+    std::function<void(VcsEditorDocument *document, const DiffTarget &target,
+                       const Utils::Link &link, const Utils::LinkHandler &callback)>
+        resolveDiffTarget;
 };
 
 class VCSBASE_EXPORT DiffChunk
@@ -202,6 +213,9 @@ public:
     // chunk header above it; invalid in a header or where the file is not
     // there.
     DiffTarget diffTargetAt(const QTextCursor &cursor) const;
+    // The revision the log entry \a line, counted from zero, belongs to -
+    // what the entry's pattern captured - or nothing outside any entry.
+    QString revisionForLine(int line) const;
 
     // The sections, found from the text with the patterns above whenever the
     // text changes. A log entry's subject is the one thing the document

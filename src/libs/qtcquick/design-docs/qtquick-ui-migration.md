@@ -66446,3 +66446,137 @@ No `.qbs` edited: no file list changed.
 3. Steps 5-6 (entry 298): busy state, `firstLineNumber` on the gutter,
    `setRevisionsVisible(false)`; flip and retire one VCS at a time.
 4. The QmlDesigner-side two; the standing list (entry 298).
+
+## 2026-09-19 — Diff lines as links, with the VCS's say (batch 305)
+
+Entry 304's item 1: the jump as a parameter, then the diff `LinkFinder` on
+the document for both views, and Return on the Qt Quick side.
+
+### The parameter
+
+`VcsBaseEditorParameters::resolveDiffTarget` - `void(VcsEditorDocument *,
+const DiffTarget &, const Utils::Link &, const Utils::LinkHandler &)`. Given
+the target the chunk header names and the link that stands for it as found,
+it answers through the handler, because Git's answer is a `git` process.
+Unset, the link is followed as found. Git's is `gitResolveDiffTarget()`, the
+body of `GitEditorWidget::jumpToDiffTarget()` moved out: the revision from
+`revisionForLine()` on the header's block, the top level above the working
+directory or the source's, and `gitClient().resolveLine()` if both are there,
+else the link as found. All six Git factories carry it, and the widget's
+override builds a `DiffTarget` and goes through the same function - so the
+widget's Return and double-click and the Qt Quick view's links agree, which is
+the condition entry 304 set for doing this at all. `revisionForLine()` is on
+the document (the widget forwards); it only ever read the sections and the
+log pattern.
+
+### The finder
+
+`VcsEditorDocument` registers a `LinkFinder` for a log or a diff: the
+target from `diffTargetAt()`; an empty link where there is none (a header, a
+file not on disk); else a link to the file and line with the whole line as
+its text, handed to the resolver where the parameters have one. From here
+Ctrl+hover underlines the line, Ctrl+click and Follow Symbol go there - in
+the widget editor too, since its `findLinkAt()` consults the document's
+finder; that is new there, and consistent with what Return did, because the
+resolver is the same.
+
+### Return, on the Qt Quick side
+
+`TextViewport::keyPressEvent()`: Return or Enter, no modifier, in a view that
+is read-only, where the document's language has a link finder - follow the
+symbol under the caret. It sits after the null-cursor check and before the
+edit handlers and the language's `handleKeyPress()`, which is where the widget
+VCS editor's own `keyPressEvent()` decided before handing the key on. A
+viewport rule, not a VCS one: the widget did this for a read-only diff, and
+every read-only view with links can have it. Double-click is left as it is
+(word selection) - the widget's double-click jump is the same target and can
+come with the QML form's own binding when a Qt Quick VCS view exists.
+
+### The tests
+
+- `testADiffsChunkAndItsTargetAreTheDocuments` (VcsBase) grew: the document's
+  finder answers the file at line 2 with the changed line as link text and
+  nothing for a header; with a resolver in the parameters that moves the line
+  by ten, the resolver is asked with the target's line and its answer is what
+  comes back.
+- `GitTest::testTheLogFollowsADiffLineToItsFile`: a real Git log editor, a
+  diff of a file in a temporary directory - no repository, so no revision to
+  resolve through - and the finder answers the file at line 2: Git's
+  resolver's fallback branch through Git's own factory. The resolving branch
+  needs a repository and a `git` process; not exercised.
+- `TextViewportTest::testReturnInAReadOnlyViewFollowsTheLinkUnderTheCaret`:
+  a document whose finder links everywhere to line 3 of another file; the
+  view read-only, Return opens it there (`EditorManager::linkOpened`, the
+  test signal `openLink()` emits) and the text is untouched; the view editable
+  again, Return is a newline and opens nothing more.
+
+Alone: the VcsBase and Git tests 3 passed, 0 failed, exit 0 at the first run
+(after one compile error - `VcsBase::source()` needs `vcsbaseplugin.h`, which
+`giteditor.cpp` had not included). The viewport test failed its *second*
+half first time: Return in the read-only view opened the other file and left
+the text alone, and then, typing allowed again, a Return typed nothing. Not
+the rule: following the link opened an editor in the main window, which made
+that window the active one, and a key sent to the fixture's QQuickView after
+that finds no active focus item - `forceActiveFocus()` on an item in a window
+that is not active does not make one. The test does the editable Return first,
+while its window is still the active one, and the read-only Return second.
+After that: 3 passed, 0 failed, exit 0. (`~/.claude/qt-quick.md`, "Keys to a
+QQuickView stop landing once another window became active".)
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals, distinct
+names, the tree checked clean at the end):
+
+- **A** - a diff line links nowhere (no finder registered): both the VcsBase and
+  the Git test fail on `finder`, "a diff's lines are not links".
+- **B** - the VCS's resolver is never asked: the VcsBase test fails on
+  `viaVcs.target.line == 12`, "Compared values are not the same" - the base
+  link came back where the resolver's should have.
+- **C** - Return in a read-only view does nothing: the viewport test fails on
+  `opened.count() == 1`, "Compared values are not the same" - the editable
+  Return before it still typed its newline, so C is about the rule alone.
+
+The host killed the first control run for memory while C was building - two
+virtual machines hold some 63 GB between them - with C's patch in the tree.
+Restored by hand before anything else was built, checked clean, and C run on
+its own from a script that checks the tree clean at its end.
+
+### Measurements
+
+    -test TextEditor     794 passed, 0 failed, 3 skipped, exit 0   x3 (runs 1, 2, 4)
+                         351 passed, 0 failed, 1 skipped, exit 255  (run 3)
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         25 passed, 0 failed, 0 skipped, exit 0
+    -test Git            137 passed, 2 failed, 0 skipped, exit 2
+
+TextEditor is 794: 793 plus the Return test. Git is 137: 136 plus this
+batch's, with the baseline's two failures and nothing new. VcsBase unchanged
+at 25: the diff test grew, no object was added.
+
+**Run 3 died** - exit 255 with no failure line, 351 passed, the log ending in
+the QWARN that opens `testTypingALineOfCppLeavesTheSameFileInEitherView(quick:
+a line)` and nothing after it, no `malloc` line, no signal. That is the
+site the plan has known since entry 191 (a truncation), entry 226 (once a
+`malloc(): smallbin double linked list corrupted` there) and entry 227 (the
+typing flake's real row): the Qt Quick typing path, full-suite only, rare.
+Not the entry-247 crash, which is a different test. Nothing in this batch is
+in that path - the Return rule is behind `isReadOnly()`, and that test types
+into an editable view - but the claim is measured, not argued: a fourth
+full run was clean, and the test alone on this binary, ten runs: 0 failures,
+32 rows passing each time.
+The plan's standing item on this failure stands; this batch adds one
+sighting with its numbers.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. The remaining widget virtuals into the parameters: `isValidRevision`,
+   `annotationPreviousVersions`, `decorateVersion`, `addChangeActions`,
+   `addDiffActions`, `fileNameForLine` - Git first, with the menu entries
+   behind them (annotate previous, Stage/Unstage Chunk) joining
+   `contextMenuActions()`.
+2. Steps 5-6 (entry 298): busy state (`executeTask()`'s spinner),
+   `firstLineNumber` on the gutter, `setRevisionsVisible(false)`; then flip
+   `VcsEditorFactory` to the Qt Quick editor and retire one VCS's widget at a
+   time, each one's constructor declarations into the parameters.
+3. The QmlDesigner-side two; the standing list (entry 298).

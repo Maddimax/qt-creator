@@ -23,6 +23,16 @@ class GitLogFilterWidget;
 // editor can offer to describe it.
 QString gitChangeUnderCursor(const QTextCursor &cursor);
 
+// Where a line of a diff in \a document goes: the file and line as found,
+// unless the line belongs to a revision in a repository, in which case git
+// says where that line is in the working tree now. Answers \a callback
+// either way; the Git editors' parameters carry it, and the widget's own
+// jump goes through it.
+void gitResolveDiffTarget(VcsBase::VcsEditorDocument *document,
+                          const VcsBase::DiffTarget &target,
+                          const Utils::Link &link,
+                          const Utils::LinkHandler &callback);
+
 class GitEditorWidget : public VcsBase::VcsBaseEditorWidget
 {
     Q_OBJECT

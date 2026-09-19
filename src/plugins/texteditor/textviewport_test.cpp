@@ -1883,6 +1883,57 @@ private slots:
         QCOMPARE(activated, 1);
     }
 
+    // Return in a view that cannot be typed in follows the link under the
+    // caret, where the language has links - what Return does in a read-only
+    // diff. In a view that can be typed in it is a newline, as ever.
+    void testReturnInAReadOnlyViewFollowsTheLinkUnderTheCaret()
+    {
+        TemporaryDirectory dir("qtc-viewport-return-link");
+        const FilePath file = dir.filePath("from.txt");
+        QVERIFY(file.writeFileContents("go there\n"));
+        const FilePath other = dir.filePath("there.txt");
+        QVERIFY(other.writeFileContents("one\ntwo\nthree\n"));
+
+        ViewportFixture fixture(file);
+        QVERIFY2(fixture.isReady(), qPrintable(fixture.error()));
+        TextViewport * const viewport = fixture.viewport;
+        QVERIFY(QTest::qWaitForWindowExposed(&fixture.view));
+        QVERIFY2(fixture.hasFocus(), "the viewport never took focus, so no key arrives");
+        QTextDocument * const text = fixture.document.textDocument()->document();
+        QVERIFY(text);
+
+        // Every place in the file is a link to the third line of the other one.
+        fixture.document.textDocument()->setLinkFinder(
+            [other](TextDocument *, const QTextCursor &cursor, const Utils::LinkHandler &callback,
+                    bool, bool) {
+                Utils::Link link(other, 3);
+                link.linkTextStart = cursor.block().position();
+                link.linkTextEnd = cursor.block().position() + cursor.block().length() - 1;
+                callback(link);
+            });
+        const QScopeGuard closeThem([] { Core::EditorManager::closeAllEditors(false); });
+        QSignalSpy opened(Core::EditorManager::instance(), &Core::EditorManager::linkOpened);
+
+        // Typing allowed: Return is a newline and goes nowhere. First, while
+        // this window is the active one - following the link below opens an
+        // editor in the main window, and a key sent to this window after that
+        // finds no active focus item to land on.
+        viewport->setReadOnly(false);
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, Qt::Key_Return);
+        QTRY_COMPARE(text->toPlainText(), QString("g\no there\n"));
+        QCOMPARE(opened.count(), 0);
+
+        // Read-only: Return follows the link under the caret and types nothing.
+        viewport->setReadOnly(true);
+        viewport->setCursorPosition(1);
+        QTest::keyClick(&fixture.view, Qt::Key_Return);
+        QTRY_COMPARE(opened.count(), 1);
+        QTRY_COMPARE(Core::EditorManager::currentDocument()->filePath(), other);
+        QCOMPARE(Core::EditorManager::currentEditor()->currentLine(), 3);
+        QCOMPARE(text->toPlainText(), QString("g\no there\n"));
+    }
+
     // Control-click will go somewhere. Finding the link needs a language with
     // a link finder registered; drawing one that has been found does not, and
     // that is the half tested here.

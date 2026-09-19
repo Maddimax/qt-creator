@@ -93,6 +93,8 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
+#include <utils/temporarydirectory.h>
+
 #include <QScopeGuard>
 #include <QSplitter>
 #include <QTimer>
@@ -443,7 +445,8 @@ public:
          "text/vnd.qtcreator.git.svnlog",
          [] { return new GitEditorWidget; },
          std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor}};
+         gitChangeUnderCursor,
+         gitResolveDiffTarget}};
 
     VcsEditorFactory logEditorFactory{
         {LogOutput,
@@ -452,7 +455,8 @@ public:
          "text/vnd.qtcreator.git.log",
          [] { return new GitLogEditorWidgetT<GitEditorWidget>; },
          std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor}};
+         gitChangeUnderCursor,
+         gitResolveDiffTarget}};
 
     VcsEditorFactory reflogEditorFactory{
         {LogOutput,
@@ -461,7 +465,8 @@ public:
          "text/vnd.qtcreator.git.reflog",
          [] { return new GitLogEditorWidgetT<GitReflogEditorWidget>; },
          std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor}};
+         gitChangeUnderCursor,
+         gitResolveDiffTarget}};
 
     VcsEditorFactory blameEditorFactory{
         {AnnotateOutput,
@@ -470,7 +475,8 @@ public:
          "text/vnd.qtcreator.git.annotation",
          [] { return new GitEditorWidget; },
          std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor}};
+         gitChangeUnderCursor,
+         gitResolveDiffTarget}};
 
     VcsEditorFactory commitTextEditorFactory{
         {OtherContent,
@@ -479,7 +485,8 @@ public:
          "text/vnd.qtcreator.git.commit",
          [] { return new GitEditorWidget; },
          std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor}};
+         gitChangeUnderCursor,
+         gitResolveDiffTarget}};
 
     VcsEditorFactory rebaseEditorFactory{
         {OtherContent,
@@ -488,7 +495,8 @@ public:
          "text/vnd.qtcreator.git.rebase",
          [] { return new GitEditorWidget; },
          std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2),
-         gitChangeUnderCursor}};
+         gitChangeUnderCursor,
+         gitResolveDiffTarget}};
 
 private:
     QStringList lineRange(int &firstLine, bool allowSingleLine = false) const;
@@ -2429,6 +2437,7 @@ private slots:
     void testDiffFileResolving();
     void testLogResolving();
     void testTheLogKnowsAChangeUnderThePointer();
+    void testTheLogFollowsADiffLineToItsFile();
     void testGitRemote_data();
     void testGitRemote();
     void testInlineDiffFile();
@@ -2703,6 +2712,47 @@ void GitTest::testTheLogKnowsAChangeUnderThePointer()
     QCOMPARE(onTheHash.linkTextEnd, 47);
     cursor.setPosition(2);
     QVERIFY2(!finder(document, cursor).isValid(), "the word \"commit\" is offered as a change");
+}
+
+// A line of a diff in a Git log is a link to the file it changes. Outside a
+// repository there is no revision to resolve the line through, so the link
+// is the chunk header's own answer - which is the half of the resolver a
+// test without a repository can reach.
+void GitTest::testTheLogFollowsADiffLineToItsFile()
+{
+    Utils::TemporaryDirectory dir("git-log-diff-line");
+    QVERIFY(dir.isValid());
+    const Utils::FilePath file = dir.filePath("a.txt");
+    QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+
+    QString title = "Git log test";
+    Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+        Git::Constants::GIT_LOG_EDITOR_ID, &title, QByteArray());
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+    auto * const document = qobject_cast<VcsBase::VcsEditorDocument *>(editor->document());
+    QVERIFY(document);
+    document->setWorkingDirectory(file.parentDir());
+    const QString text = "commit 3587b513bafd7a83d8c816ac1deed72b5e3a27e9\n"
+                         "diff --git a/a.txt b/a.txt\n"
+                         "--- a/a.txt\n"
+                         "+++ b/a.txt\n"
+                         "@@ -1,3 +1,3 @@\n"
+                         " one\n"
+                         "-two\n"
+                         "+TWO\n"
+                         " three\n";
+    document->setPlainText(text);
+
+    const TextEditor::LinkFinder finder = TextEditor::TextEditorFactory::linkFinderFor(document);
+    QVERIFY2(finder, "a Git log's diff lines are not links");
+    QTextCursor onChanged(document->document());
+    onChanged.setPosition(int(text.indexOf("+TWO")) + 1);
+    QTRY_VERIFY2(document->diffTargetAt(onChanged).isValid(), "no target for the changed line");
+    Utils::Link followed;
+    finder(document, onChanged, [&followed](const Utils::Link &link) { followed = link; }, true, false);
+    QCOMPARE(followed.targetFilePath, file);
+    QCOMPARE(followed.target.line, 2);
 }
 
 class RemoteTest {

@@ -17,6 +17,7 @@
 #include <texteditor/textdocument.h>
 
 #include <vcsbase/commonvcssettings.h>
+#include <vcsbase/vcsbaseplugin.h>
 #include <vcsbase/vcsbaseeditorconfig.h>
 #include <vcsbase/vcsoutputwindow.h>
 
@@ -478,36 +479,58 @@ bool GitEditorWidget::caseSensitive() const
     return m_logFilterWidget && m_logFilterWidget->caseAction->isChecked();
 }
 
-void GitEditorWidget::jumpToDiffTarget(const FilePath &filePath,
-                                       int lineNumber,
-                                       const QTextBlock &contextBlock)
+void gitResolveDiffTarget(VcsBase::VcsEditorDocument *document,
+                          const VcsBase::DiffTarget &target,
+                          const Utils::Link &link,
+                          const Utils::LinkHandler &callback)
 {
-    const QString revision = revisionForLine(contextBlock.blockNumber());
+    const QString revision = document->revisionForLine(target.contextBlock.blockNumber());
 
-    const FilePath contextPath = !workingDirectory().isEmpty()
-            ? workingDirectory()
-            : sourceWorkingDirectory();
+    const FilePath contextPath = !document->workingDirectory().isEmpty()
+            ? document->workingDirectory()
+            : GitClient::fileWorkingDirectory(VcsBase::source(document));
     const FilePath topLevel = VcsManager::findTopLevelForDirectory(contextPath);
     if (topLevel.isEmpty() || revision.isEmpty()) {
-        VcsBaseEditorWidget::jumpToDiffTarget(filePath, lineNumber, contextBlock);
+        callback(link);
         return;
     }
 
-    const FilePath relativePath = filePath.relativeChildPath(topLevel);
+    const FilePath relativePath = target.filePath.relativeChildPath(topLevel);
     if (relativePath.isEmpty()) {
-        VcsBaseEditorWidget::jumpToDiffTarget(filePath, lineNumber, contextBlock);
+        callback(link);
         return;
     }
 
     gitClient().resolveLine(topLevel,
                             relativePath.toUrlishString(),
-                            lineNumber,
+                            target.line,
                             revision,
-                            [this, topLevel, lineNumber, contextBlock]
+                            [topLevel, link, callback]
                             (const QString &resolvedFilePath, int resolvedLine) {
-        const FilePath newPath = topLevel.pathAppended(resolvedFilePath);
-        const int newLine = resolvedLine > 0 ? resolvedLine : lineNumber;
-        VcsBaseEditorWidget::jumpToDiffTarget(newPath, newLine, contextBlock);
+        Utils::Link resolved = link;
+        resolved.targetFilePath = topLevel.pathAppended(resolvedFilePath);
+        if (resolvedLine > 0)
+            resolved.target.line = resolvedLine;
+        callback(resolved);
+    });
+}
+
+void GitEditorWidget::jumpToDiffTarget(const FilePath &filePath,
+                                       int lineNumber,
+                                       const QTextBlock &contextBlock)
+{
+    VcsBase::VcsEditorDocument * const document = vcsDocument();
+    if (!document) {
+        VcsBaseEditorWidget::jumpToDiffTarget(filePath, lineNumber, contextBlock);
+        return;
+    }
+    VcsBase::DiffTarget target;
+    target.filePath = filePath;
+    target.line = lineNumber;
+    target.contextBlock = contextBlock;
+    gitResolveDiffTarget(document, target, Utils::Link(filePath, lineNumber),
+                         [this, contextBlock](const Utils::Link &link) {
+        VcsBaseEditorWidget::jumpToDiffTarget(link.targetFilePath, link.target.line, contextBlock);
     });
 }
 

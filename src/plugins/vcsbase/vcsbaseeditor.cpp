@@ -963,27 +963,8 @@ void VcsBaseEditorWidget::slotJumpToEntry(int index)
 
 QString VcsBaseEditorWidget::revisionForLine(int line) const
 {
-    const VcsEditorDocument * const vcsDoc = vcsDocument();
-    QTC_ASSERT(vcsDoc, return {});
-    const QRegularExpression logEntryPattern = vcsDoc->logEntryPattern();
-    const VcsEditorSections * const sections = vcsDoc->sections();
-    const int section = sections->sectionOfLine(line);
-    if (section >= 0 && section < sections->rowCount()) {
-        const int sectionLine = sections->lines().at(section);
-        const QTextBlock sectionBlock = document()->findBlockByLineNumber(sectionLine);
-        if (sectionBlock.isValid()) {
-            const QRegularExpressionMatch match = logEntryPattern.match(sectionBlock.text());
-            if (match.hasMatch())
-                return match.captured(1);
-        }
-    }
-
-    for (QTextBlock block = document()->findBlockByLineNumber(line); block.isValid(); block = block.previous()) {
-        const QRegularExpressionMatch match = logEntryPattern.match(block.text());
-        if (match.hasMatch())
-            return match.captured(1);
-    }
-    return {};
+    const VcsEditorDocument * const document = vcsDocument();
+    return document ? document->revisionForLine(line) : QString();
 }
 
 void VcsBaseEditorWidget::slotCursorPositionChanged()

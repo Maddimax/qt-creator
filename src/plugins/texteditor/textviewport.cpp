@@ -2221,6 +2221,16 @@ void TextViewport::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    // Return in a view that cannot be typed in follows what the caret is on,
+    // where the language has links: a line of a diff goes to the file it
+    // changes. What the widget VCS editor did with Return in a read-only diff.
+    if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && isReadOnly()
+        && event->modifiers() == Qt::NoModifier
+        && TextEditorFactory::linkFinderFor(textDocument())) {
+        followSymbolUnderCursor();
+        return event->accept();
+    }
+
     // What is in the middle of something spanning several places at once - an
     // in-place rename - before anything that answers for the file as a whole.
     // Enter ends a rename, and a rename that cannot be ended goes on editing
