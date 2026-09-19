@@ -146,8 +146,8 @@ void VcsBaseEditorChoice::setCurrentIndex(int index)
     \class VcsBase::VcsBaseEditorConfig
 
     \brief The VcsBaseEditorConfig is an action and choice aggregator for use
-    with VcsBase::VcsBaseEditor, influencing for example the generation of
-    version control diff output.
+    with a VcsBase::VcsEditorDocument, influencing for example the generation
+    of version control diff output.
 
     The class maintains a list of command line arguments (starting from baseArguments())
     which are set according to the state of its toggles and choices. A change signal is

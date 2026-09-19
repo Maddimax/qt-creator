@@ -2118,6 +2118,35 @@ private slots:
         QCOMPARE(viaVcs.target.line, 12);
         QCOMPARE(viaVcs.targetFilePath, file);
     }
+
+    // Annotate asks where the current editor's caret is, to open the blame on
+    // that line. That asked the widget editor, so a file in the Qt Quick
+    // editor answered -1 and its blame opened at the top; either view answers
+    // now. Nothing where the current editor is another file, as before.
+    void testTheCurrentEditorsLineIsAskedOfEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheCurrentEditorsLineIsAskedOfEitherView()
+    {
+        QFETCH(bool, quick);
+        const Utils::Id editorId = quick ? Utils::Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                         : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        QString title = "VCS current line test";
+        Core::IEditor * const editor = Core::EditorManager::openEditorWithContents(
+            editorId, &title, "one\ntwo\nthree\nfour\nfive\n");
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(Core::EditorManager::currentEditor(), editor);
+        QCOMPARE(bool(TextEditor::TextEditorWidget::fromEditor(editor)), !quick);
+
+        editor->gotoLine(2);
+        QCOMPARE(VcsBaseEditor::lineNumberOfCurrentEditor(), 2);
+        QCOMPARE(VcsBaseEditor::lineNumberOfCurrentEditor(FilePath::fromString("/nowhere/else")), -1);
+    }
 };
 
 QObject *createVcsEditorDocumentTest()

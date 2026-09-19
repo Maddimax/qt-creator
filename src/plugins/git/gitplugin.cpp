@@ -442,7 +442,7 @@ public:
         "text/vnd.qtcreator.git.rebase",
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
-private:
+    // The current editor's selected lines as git's -L range; its tests ask too.
     QStringList lineRange(int &firstLine, bool allowSingleLine = false) const;
 };
 
@@ -1138,8 +1138,10 @@ QStringList GitPluginPrivate::lineRange(int &firstLine, bool allowSingleLine) co
         return QStringList{"-L " + QString::number(firstLine) + ',' + QString::number(stop)};
     };
 
-    if (BaseTextEditor *textEditor = BaseTextEditor::currentTextEditor()) {
-        QTextCursor cursor = textEditor->textCursor();
+    // Either view's caret: the widget editor's or the Qt Quick view's.
+    IEditor * const editor = EditorManager::currentEditor();
+    QTextCursor cursor = TextEditor::textCursorOf(editor);
+    if (!cursor.isNull()) {
         if (cursor.hasSelection()) {
             int selectionStart = cursor.selectionStart();
             int selectionEnd = cursor.selectionEnd();
@@ -1151,14 +1153,16 @@ QStringList GitPluginPrivate::lineRange(int &firstLine, bool allowSingleLine) co
                 firstLine = startBlock + 1;
                 if (cursor.atBlockStart())
                     --endBlock;
-                if (auto widget = qobject_cast<VcsBaseEditorWidget *>(textEditor->widget())) {
-                    const int previousFirstLine = widget->firstLineNumber();
+                // A VCS editor - a blame of part of a file - counts from where
+                // it starts rather than from one.
+                if (auto document = qobject_cast<VcsEditorDocument *>(editor->document())) {
+                    const int previousFirstLine = document->firstLineNumber();
                     if (previousFirstLine > 0)
                         firstLine = previousFirstLine;
                 }
                 return buildLineRange(firstLine, firstLine + endBlock - startBlock);
             } else if (startBlock == endBlock) {
-                QTextCursor lineCursor = textEditor->textCursor();
+                QTextCursor lineCursor = TextEditor::textCursorOf(editor);
                 lineCursor.movePosition(QTextCursor::StartOfLine);
                 const bool startsAtLineStart = (lineCursor.position() == selectionStart);
                 lineCursor.movePosition(QTextCursor::EndOfLine);
@@ -2396,6 +2400,8 @@ private slots:
     void testSubmitMessageSpellCheck();
     void testDiffDescriptionEditor();
     void testGerritPageEditsTheParameters();
+    void testTheSelectionsLineRangeComesFromEitherView_data();
+    void testTheSelectionsLineRangeComesFromEitherView();
 };
 
 // The Gerrit settings live in GerritParameters, which the rest of the plugin
@@ -3388,6 +3394,65 @@ void GitTest::testDiffDescriptionEditor()
     QTRY_COMPARE(splitter->sizes().at(0), descriptionHeight);
 
     QVERIFY(EditorManager::closeDocuments({EditorManager::currentDocument()}, false));
+}
+
+// Log Selection and Blame take the current editor's selected lines as git's
+// -L range. That asked the widget editor for its cursor, so a file in the Qt
+// Quick editor had no selection to speak of; the range comes from whichever
+// view is current now. And a blame of part of a file - a VCS editor that
+// counts from its first line rather than from one - still says where it
+// starts, through its document.
+void GitTest::testTheSelectionsLineRangeComesFromEitherView_data()
+{
+    QTest::addColumn<bool>("quick");
+    QTest::newRow("widget") << false;
+    QTest::newRow("quick") << true;
+}
+
+void GitTest::testTheSelectionsLineRangeComesFromEitherView()
+{
+    QFETCH(bool, quick);
+    const Utils::Id editorId = quick ? Utils::Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                     : Utils::Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+    const QByteArray contents = "one\ntwo\nthree\nfour\n";
+    // Lines two and three: from the start of two to the start of four.
+    const auto selectLinesTwoAndThree = [](IEditor *editor) {
+        QTextCursor cursor = TextEditor::textCursorOf(editor);
+        QTextDocument * const text = cursor.document();
+        cursor.setPosition(text->findBlockByNumber(1).position());
+        cursor.setPosition(text->findBlockByNumber(3).position(), QTextCursor::KeepAnchor);
+        TextEditor::setMultiTextCursorOf(editor, Utils::MultiTextCursor({cursor}));
+    };
+
+    QString title = "Git line range test";
+    IEditor * const editor = EditorManager::openEditorWithContents(editorId, &title, contents);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+    QCOMPARE(EditorManager::currentEditor(), editor);
+    QCOMPARE(bool(TextEditor::TextEditorWidget::fromEditor(editor)), !quick);
+
+    int firstLine = -1;
+    QCOMPARE(dd->lineRange(firstLine), QStringList());
+    editor->gotoLine(3);
+    QCOMPARE(dd->lineRange(firstLine, true), QStringList{"-L 3,3"});
+    selectLinesTwoAndThree(editor);
+    QCOMPARE(dd->lineRange(firstLine), QStringList{"-L 2,3"});
+    QCOMPARE(firstLine, 2);
+
+    // A blame of lines ten onwards, selected the same way, blames from ten.
+    QString blameTitle = "Git line range blame test";
+    IEditor * const blame = EditorManager::openEditorWithContents(
+        Git::Constants::GIT_BLAME_EDITOR_ID, &blameTitle, contents);
+    QVERIFY(blame);
+    const QScopeGuard closeBlame([blame] { EditorManager::closeEditors({blame}, false); });
+    QCOMPARE(EditorManager::currentEditor(), blame);
+    auto * const blameDocument = qobject_cast<VcsEditorDocument *>(blame->document());
+    QVERIFY(blameDocument);
+    blameDocument->setFirstLineNumber(10);
+    selectLinesTwoAndThree(blame);
+    firstLine = -1;
+    QCOMPARE(dd->lineRange(firstLine), QStringList{"-L 10,11"});
+    QCOMPARE(firstLine, 10);
 }
 
 #endif

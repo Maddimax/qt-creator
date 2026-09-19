@@ -69008,3 +69008,129 @@ the edited file was named by nothing.
 2. The QmlDesigner-side two (Effect Composer, binding editor), which the
    standing suites do not load; the standing list (entry 298); the
    double-click on a diff line and the VCS margins.
+
+## 2026-09-19 — The VCS widget editor is gone (batch 324)
+
+Entry 323's first item: `VcsBaseEditorWidget` had no subclass and no
+instance left. This batch removes it - the class, its private, the
+three cursor handlers (change, URL, e-mail), the widget half of
+`vcsbaseeditor.cpp` (the file from 1515 lines to 348, the header from
+270 to 78) - and turns `VcsBaseEditor` from a class with a deleted
+constructor into a namespace of the functions the VCS plugins still
+ask: `getEncoding`, `getSource`, `getTitleId`, `lineNumberOfCurrentEditor`,
+`gotoLineOfEditor`, the editor tags, and the two test helpers. Callers
+spell `VcsBaseEditor::getEncoding(...)` as they did; the header lost its
+forward declarations of the handlers, the private, `QMenu`,
+`QTextCursor` and QtTaskTree, and `Q_DECLARE_METATYPE(DiffChunk)`, which
+only the widget's context menu put in a `QVariant`. No `Q_OBJECT` is
+left in the file, so its `.moc` include went too.
+
+### The gap closed: the caret and the selection are asked of either view
+
+Two of the remaining functions asked the widget editor *by type*, and so
+answered nothing for a file in the Qt Quick editor - which is where a
+C++ file is:
+
+- `VcsBaseEditor::lineNumberOfCurrentEditor()` cast the current editor
+  to `BaseTextEditor` and its widget to `TextEditorWidget` for the caret
+  line and the visible range. It is what every VCS's Annotate passes as
+  the line to open the blame on (eight callers: Git, Subversion, CVS,
+  Perforce, ClearCase, Fossil twice, Git's client); from a Quick editor
+  it was -1, and the blame opened at the top. It asks
+  `TextEditor::lineColumnOf()` and `visibleLinesIn()` now: the caret's
+  line where it is on screen, the middle of the visible range where it
+  is not, as the widget path did with `centerVisibleBlockNumber()`.
+- Git's `lineRange()`, the `-L first,last` that Log Selection and Blame
+  pass to git, asked `BaseTextEditor::currentTextEditor()` for its
+  cursor - null for a Quick editor, so no range and a log or blame of
+  the whole file - and cast the widget to `VcsBaseEditorWidget` to read
+  where a blame of part of a file starts counting. It asks
+  `TextEditor::textCursorOf()` of the current editor, and the document
+  (`VcsEditorDocument::firstLineNumber()`, a `TextDocument`'s) for the
+  first line. Same arithmetic otherwise.
+
+`lineRange()` moved out of `GitPluginPrivate`'s private section so the
+test can ask it; it is a `.cpp`-local class.
+
+### The tests
+
+- `VcsEditorDocumentTest::testTheCurrentEditorsLineIsAskedOfEitherView`,
+  two rows: five lines opened by id in the widget editor or the Qt Quick
+  one, the caret put on line two, `lineNumberOfCurrentEditor()` answers
+  2 - and -1 for a file that is not the current editor's.
+- `GitTest::testTheSelectionsLineRangeComesFromEitherView`, two rows: in
+  either view no selection is no range; a caret on line three is
+  "-L 3,3" where one line is allowed; lines two and three selected
+  (start of two to start of four) are "-L 2,3" with `firstLine` 2; and
+  in a Git blame editor whose document counts from ten, the same
+  selection is "-L 10,11" with `firstLine` 10.
+
+First build to compile - the first attempt missed the test section's
+closing brace for the new namespace, and spelt the editor id as a
+ternary of two string literals of different lengths, which decays to a
+`const char *` that `Utils::Id` deliberately has no constructor for -
+and then, in the VM: both tests 4/0 at the first run, exit 0; Git's
+`testLogResolving` through the renamed helper 3/0.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Three, one per
+lookup the batch made view-agnostic and one for the line it moved to
+the document:
+
+- **A** - `lineNumberOfCurrentEditor()` asks the widget editor's
+  `IEditor` by type first, as it did: the quick row, "Compared values
+  are not the same. Actual (VcsBaseEditor::lineNumberOfCurrentEditor()):
+  -1, Expected 2"; the widget row passes.
+- **B** - `lineRange()` asks `BaseTextEditor::currentTextEditor()`, as
+  it did: the quick row at its first range, "Actual (dd->lineRange(
+  firstLine, true)) size: 0, Expected (QStringList{"-L 3,3"}) size: 1" -
+  and the widget row too, at the blame: a Git blame editor is a Qt
+  Quick editor now, so the pre-fix code has no cursor there either.
+  Which is the bug as a user meets it: Blame inside a blame did nothing
+  it could name.
+- **C** - `lineRange()` reads no first line from the document: both
+  rows, "Actual "-L 2,3", Expected "-L 10,11"", the widget's blame
+  arithmetic kept but from one.
+
+The control script's echo lines had apostrophes spelled `'"'"'` inside
+double quotes again - entry 317's lesson - and `zsh -n` caught it before
+a run this time; plain wording, and the one apostrophe left is inside
+the single-quoted control text where the idiom is right.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     808 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         36 passed, 0 failed, 0 skipped, exit 0
+    -test Git            144 passed, 2 failed, 0 skipped, exit 2
+                           testInlineDiffFile and
+                           testConflictedFileInTextEditor, this
+                           branch's baseline pair (entry 313)
+    -test DiffEditor      62 passed, 0 failed, 0 skipped, exit 0
+    Fossil 16, Mercurial 17, Bazaar 19, Subversion 4, Cvs 5, Perforce 10,
+    ClearCase 23 with 2 skipped, all exit 0
+
+VcsBase is 36: 34 plus the current-line test's two rows. Git is 144: 142
+plus the line-range test's two rows, the baseline pair as ever. Every
+VCS plugin's suite - each calls `VcsBaseEditor::` functions and the two
+test helpers - is what entry 322 recorded. No memory kill, no typing
+flake in the three TextEditor runs. No `.qbs` edited: no file list
+changed, `vcsbaseeditor.cpp` and `.h` stay.
+
+### What is next
+
+1. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor), which the standing suites do not load - the last two
+   `setEditorWidgetCreator()` callers besides the Plain Text Editor's
+   test-side factory (entry 323).
+2. The standing list (entry 298); the double-click on a diff line; the
+   VCS margins.
+3. `BaseTextEditor::currentTextEditor()` and `TextEditorWidget::currentTextEditorWidget()`
+   callers outside TextEditor, each a "the widget editor or nothing"
+   the way `lineRange()` was. Counted this tick: six, one each in
+   Lua, FakeVim, the debugger's disassembler agent and tooltip
+   manager, CppEditor's code model inspector, and AutoTest. Each is a
+   candidate for the `IEditor` helpers; which of them a C++ file's
+   reader reaches is the question.

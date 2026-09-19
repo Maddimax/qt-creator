@@ -298,7 +298,7 @@ public:
 
     // The file a diff names, on disk: looked for under the working directory,
     // beside the source, at the VCS top level above the source, and as given
-    // - what VcsBaseEditorWidget::findDiffFile() always did.
+    // - what the widget editor's findDiffFile() always did.
     QString resolveDiffFile(const QString &fileName) const;
     // The same, through the VCS where it knows better - Perforce maps depot
     // paths - and resolveDiffFile() where it does not.
