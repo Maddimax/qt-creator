@@ -5,10 +5,6 @@
 
 #include <vcsbase/vcsbaseeditor.h>
 
-#include <QRegularExpression>
-
-QT_FORWARD_DECLARE_CLASS(QKeyEvent)
-
 namespace Utils { class FilePath; }
 
 namespace Git::Internal {
@@ -64,28 +60,5 @@ VcsBase::VcsBaseEditorConfig *createGitLogConfig(bool fileRelated, QObject *pare
 void gitPutOutput(VcsBase::VcsEditorDocument *document, const QString &output);
 // A log entry's subject: the first line after the first blank one.
 QString gitRevisionSubject(const QTextBlock &block);
-
-// The widget for the commit message and the rebase script - the two Git
-// editors that edit a file, with a highlighter and, for the rebase, key
-// handling of their own. The output editors are the Qt Quick editor's.
-class GitEditorWidget : public VcsBase::VcsBaseEditorWidget
-{
-    Q_OBJECT
-
-public:
-    void restoreState(const QByteArray &state) override;
-
-private:
-    void init() override;
-    void keyPressEvent(QKeyEvent *e) override;
-    bool replaceRebaseAction(QKeyEvent *e);
-    void aboutToOpen(const Utils::FilePath &filePath, const Utils::FilePath &realFilePath) override;
-    QString changeUnderCursor(const QTextCursor &) const override;
-    QString decorateVersion(const QString &revision) const override;
-    QStringList annotationPreviousVersions(const QString &revision) const override;
-    bool isValidRevision(const QString &revision) const override;
-    void addChangeActions(QMenu *menu, const QString &change, int line = 0) override;
-    bool supportChangeLinks() const override;
-};
 
 } // Git::Internal

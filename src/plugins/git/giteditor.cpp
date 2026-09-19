@@ -10,11 +10,13 @@
 #include "gitsettings.h"
 #include "gittr.h"
 
+#include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/icore.h>
 #include <coreplugin/vcsmanager.h>
 
 #include <texteditor/syntaxhighlighter.h>
 #include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
 
 #include <vcsbase/commonvcssettings.h>
 #include <vcsbase/vcsbaseplugin.h>
@@ -73,11 +75,6 @@ QString gitChangeUnderCursor(const QTextCursor &c)
     if (changeNumberPattern.match(change).hasMatch())
         return change;
     return {};
-}
-
-QString GitEditorWidget::changeUnderCursor(const QTextCursor &c) const
-{
-    return gitChangeUnderCursor(c);
 }
 
 /**
@@ -172,42 +169,33 @@ void gitApplyDiffChunk(VcsBase::VcsEditorDocument *document, const DiffChunk &ch
     }
 }
 
-void GitEditorWidget::init()
+// What Git wants known about the commit message or the rebase script as it
+// opens, before the text is read: the repository - the file's directory is
+// the git directory - and so the commit encoding the text is in, and the
+// highlighter, which knows the repository's comment character.
+static void gitAboutToOpen(VcsBase::VcsEditorDocument *document, const FilePath &filePath)
 {
-    VcsBaseEditorWidget::init();
-    Id editorId = textDocument()->id();
-    const bool isCommitEditor = editorId == Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID;
-    const bool isRebaseEditor = editorId == Git::Constants::GIT_REBASE_EDITOR_ID;
-    if (!isCommitEditor && !isRebaseEditor)
-        return;
-    const QString commentMarker = gitClient().commentMarker(source());
-    if (isCommitEditor) {
-        textDocument()->resetSyntaxHighlighter([commentMarker] {
+    const FilePath gitPath = filePath.absolutePath();
+    VcsBase::setSource(document, gitPath);
+    document->setEncoding(gitClient().encoding(GitClient::EncodingCommit, gitPath));
+    const QString commentMarker = gitClient().commentMarker(gitPath);
+    if (document->id() == Id(Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID)) {
+        document->resetSyntaxHighlighter([commentMarker] {
             auto highlighter = new GitSubmitHighlighter(commentMarker);
             highlighter->setSpellCheckLanguage(VcsBase::Internal::submitMessageSpellCheckLanguage());
             return highlighter;
         });
-        connect(&VcsBase::Internal::commonSettings(), &AspectContainer::applied, this, [this] {
-            if (TextEditor::SyntaxHighlighter *highlighter = textDocument()->syntaxHighlighter()) {
+        QObject::connect(&VcsBase::Internal::commonSettings(), &AspectContainer::applied,
+                         document, [document] {
+            if (TextEditor::SyntaxHighlighter *highlighter = document->syntaxHighlighter()) {
                 highlighter->setSpellCheckLanguage(
                     VcsBase::Internal::submitMessageSpellCheckLanguage());
             }
         });
-        connect(this, &PlainTextEdit::cursorPositionChanged, this, [this] {
-            if (TextEditor::SyntaxHighlighter *highlighter = textDocument()->syntaxHighlighter())
-                highlighter->setSpellCheckCursorPosition(textCursor().position());
-        });
-    } else if (isRebaseEditor) {
-        textDocument()->resetSyntaxHighlighter(
+    } else {
+        document->resetSyntaxHighlighter(
             [commentMarker] { return new GitRebaseHighlighter(commentMarker); });
     }
-}
-
-void GitEditorWidget::keyPressEvent(QKeyEvent *e)
-{
-    if (replaceRebaseAction(e))
-        return;
-    VcsBaseEditorWidget::keyPressEvent(e);
 }
 
 /*!
@@ -215,13 +203,13 @@ void GitEditorWidget::keyPressEvent(QKeyEvent *e)
     is the shortcut of a rebase action, this replaces the action keyword or
     shortcut that is already there with the one matching the pressed key.
 */
-bool GitEditorWidget::replaceRebaseAction(QKeyEvent *e)
+static bool gitReplaceRebaseAction(Core::IEditor *editor, QKeyEvent *e)
 {
-    if (textDocument()->id() != Git::Constants::GIT_REBASE_EDITOR_ID)
+    const QTextCursor cursor = TextEditor::textCursorOf(editor);
+    if (cursor.isNull() || cursor.hasSelection() || !cursor.atBlockStart()
+        || e->text().size() != 1) {
         return false;
-    const QTextCursor cursor = textCursor();
-    if (cursor.hasSelection() || !cursor.atBlockStart() || e->text().size() != 1)
-        return false;
+    }
 
     const QChar key = e->text().at(0);
     const QList<GitRebaseHighlighter::RebaseAction> &actions = GitRebaseHighlighter::actions();
@@ -261,9 +249,28 @@ bool GitEditorWidget::replaceRebaseAction(QKeyEvent *e)
     tokenCursor.removeSelectedText();
     tokenCursor.setPosition(blockPosition);
     tokenCursor.endEditBlock();
-    setTextCursor(tokenCursor);
+    TextEditor::setTextCursorOf(editor, tokenCursor);
     return true;
 }
+
+// The rebase script's key handling, parented to each of its editors - which
+// is where the view looks for what takes a key before it does.
+class GitRebaseKeyHandler final : public TextEditor::EditHandler
+{
+public:
+    explicit GitRebaseKeyHandler(Core::IEditor *editor)
+        : EditHandler(editor)
+        , m_editor(editor)
+    {}
+
+    bool handleKeyPress(QKeyEvent *event, const std::function<void()> &) final
+    {
+        return gitReplaceRebaseAction(m_editor, event);
+    }
+
+private:
+    Core::IEditor * const m_editor;
+};
 
 void gitAddDiffActions(QMenu *menu, VcsBase::VcsEditorDocument *document, const DiffChunk &chunk)
 {
@@ -281,18 +288,6 @@ void gitAddDiffActions(QMenu *menu, VcsBase::VcsEditorDocument *document, const 
         if (held)
             gitApplyDiffChunk(held, chunk, PatchAction::Revert);
     });
-}
-
-void GitEditorWidget::aboutToOpen(const FilePath &filePath, const FilePath &realFilePath)
-{
-    Q_UNUSED(realFilePath)
-    Id editorId = textDocument()->id();
-    if (editorId == Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID
-            || editorId == Git::Constants::GIT_REBASE_EDITOR_ID) {
-        const FilePath gitPath = filePath.absolutePath();
-        setSource(gitPath);
-        textDocument()->setEncoding(gitClient().encoding(GitClient::EncodingCommit, gitPath));
-    }
 }
 
 static FilePath gitSourceWorkingDirectory(VcsBase::VcsEditorDocument *document)
@@ -338,36 +333,6 @@ void gitAddChangeActions(QMenu *menu, VcsBase::VcsEditorDocument *document,
     GitClient::addChangeActions(menu, VcsBase::source(document), change, line);
 }
 
-QString GitEditorWidget::decorateVersion(const QString &revision) const
-{
-    VcsBase::VcsEditorDocument * const document = vcsDocument();
-    return document ? gitDecorateVersion(document, revision) : revision;
-}
-
-QStringList GitEditorWidget::annotationPreviousVersions(const QString &revision) const
-{
-    VcsBase::VcsEditorDocument * const document = vcsDocument();
-    return document ? gitAnnotationPreviousVersions(document, revision) : QStringList();
-}
-
-bool GitEditorWidget::isValidRevision(const QString &revision) const
-{
-    return gitIsValidRevision(revision);
-}
-
-void GitEditorWidget::addChangeActions(QMenu *menu, const QString &change, int line)
-{
-    if (VcsBase::VcsEditorDocument * const document = vcsDocument())
-        gitAddChangeActions(menu, document, change, line);
-}
-
-bool GitEditorWidget::supportChangeLinks() const
-{
-    return VcsBaseEditorWidget::supportChangeLinks()
-            || (textDocument()->id() == Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID)
-            || (textDocument()->id() == Git::Constants::GIT_REBASE_EDITOR_ID);
-}
-
 FilePath gitFileNameForLine(VcsBase::VcsEditorDocument *document, int line)
 {
     // 7971b6e7 share/qtcreator/dumper/dumper.py  228  (hjk
@@ -401,10 +366,22 @@ VcsBase::VcsBaseEditorParameters gitEditorParameters(
     parameters.fileNameForLine = gitFileNameForLine;
     parameters.annotationHighlighterCreator
         = VcsBase::getAnnotationHighlighterCreator<GitAnnotationHighlighter>();
-    // What the widget's supportChangeLinks() adds to the base's log and
-    // annotation: a commit message and a rebase script name changes too.
-    parameters.changeLinksInOtherContent = id == Id(Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID)
-                                           || id == Id(Git::Constants::GIT_REBASE_EDITOR_ID);
+    // The commit message and the rebase script are files Git hands over to
+    // be edited: typed into, opened at the top each time - new text under
+    // the same old name - their repository and encoding learned as they open;
+    // and, like a log, they name changes.
+    const bool commit = id == Id(Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID);
+    const bool rebase = id == Id(Git::Constants::GIT_REBASE_EDITOR_ID);
+    if (commit || rebase) {
+        parameters.readOnly = false;
+        parameters.restoresState = false;
+        parameters.aboutToOpen = gitAboutToOpen;
+        parameters.changeLinksInOtherContent = true;
+    }
+    // The script's keys: an action's shortcut at the start of a line replaces
+    // the action there.
+    if (rebase)
+        parameters.decorateEditor = [](Core::IEditor *editor) { new GitRebaseKeyHandler(editor); };
     /* Diff format:
         diff --git a/src/plugins/git/giteditor.cpp b/src/plugins/git/giteditor.cpp
         index 40997ff..4e49337 100644
@@ -429,14 +406,6 @@ VcsBase::VcsBaseEditorParameters gitEditorParameters(
         parameters.syntaxHighlighterCreator = [] { return new GitReflogHighlighter; };
     }
     return parameters;
-}
-
-void GitEditorWidget::restoreState(const QByteArray &state)
-{
-    Q_UNUSED(state)
-    // Do nothing. We always want to start at the top without any folding etc pp.
-    // That the Git editors for e.g. rebases share the same name doesn't mean that
-    // they should share editing state.
 }
 
 void gitResolveDiffTarget(VcsBase::VcsEditorDocument *document,

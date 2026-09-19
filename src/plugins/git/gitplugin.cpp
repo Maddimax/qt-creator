@@ -96,6 +96,7 @@
 #include <QPushButton>
 #include <utils/temporarydirectory.h>
 
+#include <QKeyEvent>
 #include <QScopeGuard>
 #include <QSplitter>
 #include <QTimer>
@@ -434,7 +435,7 @@ public:
         Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID,
         Tr::tr("Git Commit Editor"),
         "text/vnd.qtcreator.git.commit",
-        [] { return new GitEditorWidget; },
+        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
     VcsEditorFactory rebaseEditorFactory{gitEditorParameters(
@@ -442,7 +443,7 @@ public:
         Git::Constants::GIT_REBASE_EDITOR_ID,
         Tr::tr("Git Rebase Editor"),
         "text/vnd.qtcreator.git.rebase",
-        [] { return new GitEditorWidget; },
+        {},
         std::bind(&GitPluginPrivate::vcsDescribe, this, _1, _2))};
 
 private:
@@ -2388,6 +2389,8 @@ private slots:
     void testABlameIsColouredThroughTheParameters();
     void testTheLogsFilterIsItsConfigsToRead();
     void testTheLogEditorIsAQtQuickView();
+    void testTheRebaseEditorReplacesTheActionUnderTheCaret();
+    void testTheCommitEditorReadsTheRepositorysSettings();
     void testGitRemote_data();
     void testGitRemote();
     void testInlineDiffFile();
@@ -2764,6 +2767,97 @@ void GitTest::testTheLogEditorIsAQtQuickView()
     QCOMPARE(document->sections()->entries().size(), 1);
     QVERIFY2(document->sections()->entries().first().contains("The subject"),
              qPrintable(document->sections()->entries().join(", ")));
+}
+
+// The rebase script opens in the Qt Quick editor, knowing its repository and
+// highlighted as a script; and a rebase action's shortcut typed at the start
+// of a todo line replaces the action there, the caret staying at the start so
+// that the next shortcut replaces it again. Elsewhere on the line the key is
+// typed as any letter is.
+void GitTest::testTheRebaseEditorReplacesTheActionUnderTheCaret()
+{
+    Utils::TemporaryDirectory dir("git-rebase-editor");
+    QVERIFY(dir.isValid());
+    const FilePath todo = dir.filePath("git-rebase-todo");
+    QVERIFY(todo.writeFileContents("pick 1234567 first\npick 89abcde second\n"));
+
+    Core::IEditor * const editor
+        = Core::EditorManager::openEditor(todo, Git::Constants::GIT_REBASE_EDITOR_ID);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+             "the rebase script opened in the widget editor");
+    auto * const document = qobject_cast<VcsBase::VcsEditorDocument *>(editor->document());
+    QVERIFY2(document, "the rebase editor's document is not a VCS document");
+    QCOMPARE(VcsBase::source(document), todo.parentDir());
+    QVERIFY2(qobject_cast<GitRebaseHighlighter *>(document->syntaxHighlighter()),
+             "the script is not highlighted as a rebase script");
+
+    const auto type = [editor](Qt::Key key, const char *text) {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, QString::fromLatin1(text));
+        QCoreApplication::sendEvent(TextEditor::keyTargetOf(editor), &press);
+    };
+    const auto caretTo = [editor, document](int position) {
+        QTextCursor cursor(document->document());
+        cursor.setPosition(position);
+        TextEditor::setTextCursorOf(editor, cursor);
+    };
+
+    caretTo(0);
+    type(Qt::Key_S, "s");
+    QCOMPARE(document->plainText(), QString("squash 1234567 first\npick 89abcde second\n"));
+    QCOMPARE(TextEditor::textCursorOf(editor).position(), 0);
+    type(Qt::Key_E, "e");
+    QCOMPARE(document->plainText(), QString("edit 1234567 first\npick 89abcde second\n"));
+
+    caretTo(4);
+    type(Qt::Key_S, "s");
+    QCOMPARE(document->plainText(), QString("edits 1234567 first\npick 89abcde second\n"));
+}
+
+// The commit message opens in the Qt Quick editor and learns its repository
+// as it opens: the encoding the message is in and the comment character its
+// highlighter honours are the repository's; the highlighter spell-checks in
+// the language the settings say, and is told where the caret is.
+void GitTest::testTheCommitEditorReadsTheRepositorysSettings()
+{
+    Utils::TemporaryDirectory dir("git-commit-editor");
+    QVERIFY(dir.isValid());
+    const FilePath repo = dir.path();
+    const auto git = [repo](const QStringList &arguments) {
+        return gitClient().vcsSynchronousExec(repo, arguments).result()
+               == ProcessResult::FinishedWithSuccess;
+    };
+    if (!git({"init"}))
+        QSKIP("git is not available here");
+    QVERIFY(git({"config", "core.commentChar", ";"}));
+    QVERIFY(git({"config", "i18n.commitEncoding", "ISO-8859-1"}));
+    const FilePath message = repo / ".git" / "COMMIT_EDITMSG";
+    QVERIFY(message.writeFileContents("Subject\n; a comment\n"));
+
+    Core::IEditor * const editor
+        = Core::EditorManager::openEditor(message, Git::Constants::GIT_COMMIT_TEXT_EDITOR_ID);
+    QVERIFY(editor);
+    const QScopeGuard closeIt([editor] { Core::EditorManager::closeEditors({editor}, false); });
+    QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+             "the commit message opened in the widget editor");
+    auto * const document = qobject_cast<VcsBase::VcsEditorDocument *>(editor->document());
+    QVERIFY2(document, "the commit editor's document is not a VCS document");
+    QCOMPARE(VcsBase::source(document), repo / ".git");
+    QCOMPARE(document->encoding().name(), QByteArray("ISO-8859-1"));
+    QCOMPARE(document->plainText(), QString("Subject\n; a comment\n"));
+
+    auto * const highlighter
+        = qobject_cast<GitSubmitHighlighter *>(document->syntaxHighlighter());
+    QVERIFY2(highlighter, "the message is not highlighted as a commit message");
+    QCOMPARE(highlighter->commentMarker(), QString(";"));
+    QCOMPARE(highlighter->spellCheckLanguage(),
+             VcsBase::Internal::submitMessageSpellCheckLanguage());
+
+    QTextCursor cursor(document->document());
+    cursor.setPosition(3);
+    TextEditor::setTextCursorOf(editor, cursor);
+    QCOMPARE(highlighter->spellCheckCursorPosition(), 3);
 }
 
 // A line of a diff in a Git log is a link to the file it changes. Outside a

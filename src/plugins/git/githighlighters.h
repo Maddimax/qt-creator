@@ -35,6 +35,8 @@ enum Format {
 // keywords (words in front of a colon as in 'Task: <bla>').
 class GitSubmitHighlighter : public TextEditor::SyntaxHighlighter
 {
+    Q_OBJECT
+
 public:
     explicit GitSubmitHighlighter(const QString &commentMarker = {}, QTextEdit *parent = nullptr);
 
@@ -52,6 +54,8 @@ private:
 // (retrieving the format from the text editor) and marks up keywords
 class GitRebaseHighlighter : public TextEditor::SyntaxHighlighter
 {
+    Q_OBJECT
+
 public:
     class RebaseAction
     {

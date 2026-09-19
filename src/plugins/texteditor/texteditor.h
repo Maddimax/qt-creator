@@ -904,6 +904,12 @@ public:
     // Whether a view of this language refuses to be typed into. True for
     // output that is not a file to edit - a VCS log, a diff.
     bool readOnly() const;
+    void setRestoresState(bool on);
+    // Whether an editor of this language, reopened on a path it was open on
+    // before, comes back where it was left - caret, scroll, folds. False for
+    // a file that is new text under the same old name each time: Git's
+    // commit message and rebase script start at the top.
+    bool restoresState() const;
     void setParenthesesMatchingEnabled(bool on);
     void setCodeFoldingSupported(bool on);
     // Whether the language has anything to fold. A view uses it to decide

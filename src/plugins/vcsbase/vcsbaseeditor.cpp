@@ -1551,11 +1551,16 @@ VcsEditorFactory::VcsEditorFactory(const VcsBaseEditorParameters &parameters)
     }
     setMarksVisible(false);
     setRevisionsVisible(false);
-    // Output, not a file: not to be typed into, and folded where it has
-    // chunks - which is what the widget subclass asked for in init().
-    setReadOnly(true);
+    // Output is not to be typed into, and is folded where it has chunks -
+    // which is what the widget subclass asked for in init(). A file the VCS
+    // hands over to be edited says so in the parameters, and whether an
+    // editor reopened on it comes back where the last one was left.
+    setReadOnly(parameters.readOnly);
+    setRestoresState(parameters.restoresState);
     if (parameters.type == LogOutput || parameters.type == DiffOutput)
         setCodeFoldingSupported(true);
+    if (parameters.decorateEditor)
+        setEditorDecorator(parameters.decorateEditor);
 }
 
 VcsEditorFactory::~VcsEditorFactory() = default;

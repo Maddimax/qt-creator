@@ -884,6 +884,11 @@ QString SyntaxHighlighter::spellCheckLanguage() const
     return d->spellCheckLanguage;
 }
 
+int SyntaxHighlighter::spellCheckCursorPosition() const
+{
+    return d->spellCheckCursorPosition;
+}
+
 void SyntaxHighlighter::setSpellCheckCursorPosition(int position)
 {
     if (d->spellCheckCursorPosition == position)

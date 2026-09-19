@@ -1162,6 +1162,16 @@ TextEditorWidgetPrivate::TextEditorWidgetPrivate(TextEditorWidget *parent)
     connect(q, &PlainTextEdit::cursorPositionChanged,
             this, &TextEditorWidgetPrivate::updateCursorPosition);
 
+    // Where the caret is, for a highlighter that spell-checks: the word being
+    // written is not underlined until the caret has left it. Asked of the
+    // document each time, since a highlighter can be replaced.
+    connect(q, &PlainTextEdit::cursorPositionChanged, this, [this] {
+        SyntaxHighlighter * const highlighter = m_document ? m_document->syntaxHighlighter()
+                                                           : nullptr;
+        if (highlighter)
+            highlighter->setSpellCheckCursorPosition(q->textCursor().position());
+    });
+
     connect(q, &PlainTextEdit::updateRequest,
             this, &TextEditorWidgetPrivate::slotUpdateRequest);
 
@@ -9921,8 +9931,14 @@ QByteArray BaseTextEditor::saveState() const
     return editorWidget()->saveState();
 }
 
+namespace Internal { static bool restoresState(const TextEditorFactoryPrivate *origin); }
+
 void BaseTextEditor::restoreState(const QByteArray &state)
 {
+    // The language's answer over what was saved: a file that is new text
+    // under an old name each time starts at the top.
+    if (!Internal::restoresState(d->m_origin))
+        return;
     editorWidget()->restoreState(state);
 }
 
@@ -10188,11 +10204,17 @@ public:
     bool m_duplicatedSupported = true;
     bool m_revisionsVisible = true;
     bool m_readOnly = false;
+    bool m_restoresState = true;
     bool m_codeFoldingSupported = false;
     bool m_paranthesesMatchinEnabled = false;
     bool m_marksVisible = true;
     bool m_toolBarVisible = true;
 };
+
+static bool restoresState(const TextEditorFactoryPrivate *origin)
+{
+    return !origin || origin->m_restoresState;
+}
 
 } /// namespace Internal
 
@@ -11295,6 +11317,16 @@ void TextEditorFactory::setReadOnly(bool on)
 bool TextEditorFactory::readOnly() const
 {
     return d->m_readOnly;
+}
+
+void TextEditorFactory::setRestoresState(bool on)
+{
+    d->m_restoresState = on;
+}
+
+bool TextEditorFactory::restoresState() const
+{
+    return d->m_restoresState;
 }
 
 void TextEditorFactory::setCodeFoldingSupported(bool on)

@@ -64,6 +64,7 @@ public:
     // A word that the text cursor is on is being written and is not marked as
     // misspelled. Pass -1 for no such word.
     void setSpellCheckCursorPosition(int position);
+    int spellCheckCursorPosition() const;
 
 public slots:
     virtual void rehighlight();

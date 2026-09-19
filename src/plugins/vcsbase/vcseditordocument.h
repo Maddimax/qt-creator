@@ -35,6 +35,8 @@ class Storage;
 }
 QT_END_NAMESPACE
 
+namespace Core { class IEditor; }
+
 namespace TextEditor {
 class SyntaxHighlighter;
 class ToolBarChoice;
@@ -145,6 +147,18 @@ public:
     // What a command's output becomes in the document, where not the text as
     // it arrived - Git colours a log from its escape codes and trims a blame.
     std::function<void(VcsEditorDocument *document, const QString &output)> putOutput;
+    // What the widget subclass did for a VCS editor of a file rather than of
+    // output - Git's commit message and rebase script. Such a file is typed
+    // into; it is new text under the same old name each time, so an editor
+    // reopened on it starts at the top rather than where the last one was
+    // left; and the VCS learns its source and encoding as it opens.
+    bool readOnly = true;
+    bool restoresState = true;
+    std::function<void(VcsEditorDocument *document, const Utils::FilePath &filePath)>
+        aboutToOpen;
+    // What the VCS parents to each editor of this kind rather than to its
+    // text: the rebase script's key handling.
+    std::function<void(Core::IEditor *editor)> decorateEditor;
 };
 
 class VCSBASE_EXPORT DiffChunk

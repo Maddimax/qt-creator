@@ -393,6 +393,14 @@ VcsEditorDocument::VcsEditorDocument(const VcsBaseEditorParameters &parameters)
         setAnnotatePreviousRevisionTextFormat(parameters.annotatePreviousRevisionTextFormat);
     if (parameters.syntaxHighlighterCreator)
         updateHighlighter();
+    // A file the VCS hands over: what it wants known about it as it opens -
+    // its source, its encoding - before the text is read.
+    if (parameters.aboutToOpen) {
+        connect(this, &TextEditor::TextDocument::aboutToOpen, this,
+                [this](const FilePath &filePath, const FilePath &) {
+                    d->parameters.aboutToOpen(this, filePath);
+                });
+    }
     // The sections follow the text. A log or a diff has them; the others
     // have nothing to find, and so nothing to offer in the tool bar either.
     if (parameters.type == LogOutput || parameters.type == DiffOutput) {
@@ -1778,6 +1786,52 @@ private slots:
                  "the factory built no Qt Quick view either");
         QVERIFY2(qobject_cast<VcsEditorDocument *>(editor->document()),
                  "the Qt Quick editor's document is not a VCS document");
+    }
+
+    // What the widget subclass did for a VCS editor of a file rather than of
+    // output - Git's commit message and rebase script: typed into; opened at
+    // the top each time; its source and encoding set as the file opens,
+    // before the text is read; and something of the VCS's parented to each
+    // editor - is the parameters' too.
+    void testTheParametersDeclareWhatTheWidgetDidForAFile()
+    {
+        TemporaryDirectory dir("vcs-document-file");
+        QVERIFY(dir.isValid());
+        const FilePath file = dir.filePath("SCRIPT");
+        QVERIFY(file.writeFileContents("first line\n"));
+
+        QList<FilePath> opened;
+        QStringList textWhenOpened;
+        QList<Core::IEditor *> decorated;
+        VcsBaseEditorParameters parameters{OtherContent,
+                                           "VcsEditorDocumentTest.File",
+                                           "VCS document test file",
+                                           "text/vnd.qtcreator.vcs-document-file-test",
+                                           {},
+                                           [](const FilePath &, const QString &) {}};
+        parameters.readOnly = false;
+        parameters.restoresState = false;
+        parameters.aboutToOpen = [&opened, &textWhenOpened](VcsEditorDocument *document,
+                                                              const FilePath &path) {
+            opened << path;
+            textWhenOpened << document->plainText();
+        };
+        parameters.decorateEditor = [&decorated](Core::IEditor *editor) { decorated << editor; };
+
+        VcsEditorFactory factory(parameters);
+        QVERIFY2(factory.usesQuickEditor(), "a VCS with no widget still gets the widget editor");
+        QVERIFY2(!factory.readOnly(), "a file the VCS hands over to be edited is read-only");
+        QVERIFY2(!factory.restoresState(),
+                 "a file that is new text each time comes back where the last one was left");
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QCOMPARE(decorated, QList<Core::IEditor *>{editor.get()});
+        auto * const document = qobject_cast<VcsEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QVERIFY(document->open(file, file).has_value());
+        QCOMPARE(opened, QList<FilePath>{file});
+        QCOMPARE(textWhenOpened, QStringList{QString()});
+        QCOMPARE(document->plainText(), QString("first line\n"));
     }
 
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()

@@ -67939,3 +67939,153 @@ No `.qbs` edited: no file list changed.
    last one, `VcsBaseEditorWidget`, `VcsBaseEditor` and the staging area go.
 3. The QmlDesigner-side two; the standing list (entry 298), plus the
    double-click on a diff line.
+
+## 2026-09-19 — Git's commit message and rebase script open in the Qt Quick editor (batch 316)
+
+Entry 315's next item 1: the two Git editors that edit a file, and with
+them `GitEditorWidget`. Git has no widget subclass left; VcsBase's
+`VcsBaseEditorWidget` stays for the other seven.
+
+### What the widget still did, and where each piece went
+
+- **Editable.** `VcsEditorFactory` said read-only for every VCS editor
+  (entry 315), which the widget path survived by accident: `setReadOnly(true)`
+  before the file opens, and `openFinishedSuccessfully()` recomputing the
+  widget's read-only state from the document after. The Qt Quick editor's
+  `setReadOnlyOf()` is deliberate and outlives the view's own reasons, so
+  the accident does not repeat; the parameters say `readOnly = false` for
+  a file the VCS hands over, and the factory passes it on.
+- **Starts at the top.** `restoreState()` overridden to do nothing: "the
+  Git editors for e.g. rebases share the same name" - `git-rebase-todo`,
+  `COMMIT_EDITMSG` - and a saved caret in last week's script means nothing
+  in this week's. `TextEditorFactory::setRestoresState(false)` says it for
+  the language; `BaseTextEditor::restoreState()` and the Qt Quick editor's
+  ask the factory first. The parameters carry it.
+- **Source and encoding as the file opens.** `aboutToOpen()` - the widget's
+  virtual behind `TextDocument::aboutToOpen`, emitted before the text is
+  read - set the source to the file's directory (the git directory) and
+  the encoding to the repository's commit encoding. The parameters carry
+  an `aboutToOpen` hook; `VcsEditorDocument` connects it to its own
+  signal. Git also builds the highlighter there, with the repository's
+  `core.commentChar`: the widget's `init()` built it with `source()` still
+  empty - `init()` runs from `finalizeInitialization()`, before any file
+  is opened - so the comment character was git's answer outside any
+  repository. The test sets a repository's to `;` and finds it.
+- **The rebase keys.** `keyPressEvent()` replaced the action at the start
+  of a todo line with the one whose shortcut was typed, and put the caret
+  back at the start. `gitReplaceRebaseAction(editor, event)` does the same
+  through `textCursorOf()` and `setTextCursorOf()`; `GitRebaseKeyHandler`
+  is a `TextEditor::EditHandler` that answers with it, parented to the
+  editor by the parameters' `decorateEditor`, which `VcsEditorFactory`
+  hands to `setEditorDecorator()`. The view asks its editor's handlers
+  before anything else - the seam CppLocalRenaming uses - and one that
+  answers false leaves the key to be typed.
+- **Spell check around the caret.** `GitSubmitHighlighter` is told the
+  caret position so that the word being written is not underlined; the
+  widget connected its own `cursorPositionChanged` to it. The API is the
+  base `SyntaxHighlighter`'s, so either view tells the document's
+  highlighter where its caret is - asked of the document each time, since
+  a highlighter can be replaced - and any highlighter that spell-checks
+  gets it. `SyntaxHighlighter::spellCheckCursorPosition()` added to read
+  it back.
+
+`GitSubmitHighlighter` and `GitRebaseHighlighter` gained `Q_OBJECT`, for
+the tests to ask a document which it has.
+
+### The tests
+
+- `QuickTextEditorTest::testAFactoryCanSayItsEditorsStartAtTheTop` (both
+  views): an editor built by a factory, given the state of one left on
+  the third line, comes back to it - position 8 - when the factory
+  restores state, and stays at 0 when it does not.
+- `QuickTextEditorTest::testAViewTellsTheHighlighterWhereTheCaretIs` (both
+  views): a highlighter installed on the document knows -1 until the
+  caret moves, then 5; a replacement knows 9 from the next move on.
+- `VcsEditorDocumentTest::testTheParametersDeclareWhatTheWidgetDidForAFile`:
+  parameters with `readOnly = false`, `restoresState = false`, a recording
+  `aboutToOpen` and a recording `decorateEditor`; the factory answers
+  editable and forgetting, builds one decorated editor, and opening a file
+  on the document runs the hook with the path while the text is still
+  empty.
+- `GitTest::testTheRebaseEditorReplacesTheActionUnderTheCaret`: a
+  `git-rebase-todo` opened by id is a Qt Quick view over a VCS document
+  sourced at its directory and highlighted as a script; `s` at the start
+  of `pick 1234567 first` makes it `squash`, the caret stays at 0, `e`
+  makes it `edit`, and `s` at position 4 is typed: `edits`.
+- `GitTest::testTheCommitEditorReadsTheRepositorysSettings`: `git init`, a
+  `core.commentChar` of `;` and an `i18n.commitEncoding` of ISO-8859-1;
+  `.git/COMMIT_EDITMSG` opened by id is a Qt Quick view whose document is
+  sourced at `.git`, encoded ISO-8859-1, highlighted by a
+  `GitSubmitHighlighter` with `;` and the settings' spell-check language,
+  and the caret at 3 reaches it. Skips where git is not available.
+- The two censuses list the commit and rebase editors, with
+  `COMMIT_EDITMSG` and `git-rebase-todo` as their files.
+
+The first build failed to link: the helper `BaseTextEditor::restoreState()`
+asks was declared in `TextEditor` and defined in `TextEditor::Internal`,
+where `TextEditorFactoryPrivate` lives; declared there now.
+
+The first run: the caret test 4/0 (both rows), the two censuses 3/0 each,
+the VcsBase test 3/0 and the earlier parameters test 3/0, the two Git
+tests 3/0 each, and the three Git tests that open the commit or rebase
+editor or a log - `testDiffFileResolving` (five rows, the commit editor's
+now a Qt Quick view), `testLogResolving`, `testSubmitMessageSpellCheck` -
+green, exit 0. The state test's widget row failed on the forgetting
+factory: 19, not 0. Not the code: `setPlainText()` on the document leaves
+the widget's caret at the end of the text, where a file open would have
+put it at the top, and the test had assumed the top. It puts the caret
+at 0 before restoring - which is what the assertion is about - and the
+test is 4 passed, 0 failed, exit 0, both rows.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end). Where an assertion
+has a view in each editor, one control removes it from both and both
+rows have to fail:
+
+- **A** - neither view asks the factory whether to restore state: both
+  rows, "Actual (comesBackTo(forgets)): 8, Expected 0".
+- **B** - neither view tells the highlighter where its caret is: both
+  rows, "Actual (highlighter->spellCheckCursorPosition()): -1, Expected 5".
+- **C** - the document never runs the parameters' `aboutToOpen`: the
+  VcsBase test, "Compared lists have different sizes. Actual (opened)
+  size: 0"; and the Git commit test, "Actual (VcsBase::source(document)):
+  "", Expected .../.git".
+- **D** - the factory makes every VCS editor read-only, as it did:
+  "'!factory.readOnly()' returned FALSE. (a file the VCS hands over to be
+  edited is read-only)"; and the Git rebase test's typed letter is refused
+  - `edit 1234567` where `edits 1234567` was expected - while the two
+  replacements before it still happen, being the handler's edits on the
+  document rather than the view's.
+- **E** - the factory installs no decorator: "Actual (decorated) size: 0";
+  and the rebase test's first shortcut is typed rather than replacing,
+  "spick 1234567 first".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     806 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         33 passed, 0 failed, 0 skipped, exit 0
+    -test Git            142 passed, 2 failed, 0 skipped, exit 2
+                           testInlineDiffFile and
+                           testConflictedFileInTextEditor, this
+                           branch's baseline pair (entry 313)
+    Bazaar 18, Mercurial 16, Subversion 3, Cvs 4, Perforce 9, Fossil 15,
+    ClearCase 22 passed and 2 skipped, all exit 0
+
+TextEditor is 806: 802 plus the two new two-row tests. VcsBase is 33: 32
+plus the file test. Git is 142: 140 plus its two. No entry-191 crash and
+no entry-300 blame flake in these runs.
+
+No `.qbs` edited: no file list changed. `giteditor.h` has no `Q_OBJECT`
+class left; AUTOMOC handles it.
+
+### What is next
+
+1. The other seven VCS, each moving its constructor declarations and
+   virtuals into its parameters and dropping its widget creator; with the
+   last one, `VcsBaseEditorWidget`, `VcsBaseEditor` and the staging area go.
+   Mercurial and Bazaar first: their subclasses are the smallest.
+2. The QmlDesigner-side two; the standing list (entry 298), plus the
+   double-click on a diff line.

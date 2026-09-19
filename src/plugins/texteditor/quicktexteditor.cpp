@@ -356,6 +356,14 @@ public:
                     this, &Core::IEditor::selectionChanged);
             connect(view, &TextViewport::cursorPositionChanged,
                     m_jumps, &JumpRecorder::caretMoved);
+            // Where the caret is, for a highlighter that spell-checks: the
+            // word being written is not underlined until the caret has left
+            // it. Asked of the document each time, since a highlighter can be
+            // replaced.
+            connect(view, &TextViewport::cursorPositionChanged, this, [this, view] {
+                if (SyntaxHighlighter * const highlighter = m_document->syntaxHighlighter())
+                    highlighter->setSpellCheckCursorPosition(view->cursorPosition());
+            });
         }
 
         // Work the document put off until a view is looking. Done now if this
@@ -1076,6 +1084,10 @@ public:
 
     void restoreState(const QByteArray &state) final
     {
+        // The language's answer over what was saved: a file that is new text
+        // under an old name each time starts at the top.
+        if (m_factory && !m_factory->restoresState())
+            return;
         if (state.isEmpty()) {
             // Opened rather than reopened: there are no folds to put back, so
             // this is where the licence header gets folded if the user asked
@@ -6694,10 +6706,11 @@ private slots:
                              QString("CompilationDatabase.CompilationDatabaseEditor"),
                              QString("Nim.NimEditor"),
                              QString("GLSLEditor.GLSLEditor"),
-                             // Git's output editors: a VCS that supplies no widget
-                             // creator gets the Qt Quick editor from VcsEditorFactory.
+                             // Git's editors: a VCS that supplies no widget creator
+                             // gets the Qt Quick editor from VcsEditorFactory.
                              QString("Git SVN Log Editor"), QString("Git Log Editor"),
-                             QString("Git Reflog Editor"), QString("Git Annotation Editor")};
+                             QString("Git Reflog Editor"), QString("Git Annotation Editor"),
+                             QString("Git Commit Editor"), QString("Git Rebase Editor")};
         expected.sort();
         QCOMPARE(quick, expected);
     }
@@ -6927,6 +6940,8 @@ private slots:
             {"CompilationDatabase.CompilationDatabaseEditor", "compile_commands.json"},
             {"Nim.NimEditor", "module.nim"},
             {"GLSLEditor.GLSLEditor", "shader.frag"},
+            {"Git Commit Editor", "COMMIT_EDITMSG"},
+            {"Git Rebase Editor", "git-rebase-todo"},
         };
         // Output that is never a file - a VCS log, a blame - has no name to
         // open; it opens with contents, by id, and is checked the same way.
@@ -14765,6 +14780,130 @@ private slots:
             QSKIP("fold markers are off in these settings, so no language draws any");
         QVERIFY2(host->rootObject()->property("showFoldMarkers").toBool(),
                  "output that folds draws no fold markers");
+    }
+
+    // Where an editor comes back to when reopened on a path it was open on
+    // before is the language's to say: a file that is new text under the
+    // same old name each time - Git's rebase script - starts at the top. The
+    // widget subclass dropped the state in an override; the factory says it
+    // for either view.
+    void testAFactoryCanSayItsEditorsStartAtTheTop_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAFactoryCanSayItsEditorsStartAtTheTop()
+    {
+        QFETCH(bool, quick);
+
+        class ScriptFactory final : public TextEditorFactory
+        {
+        public:
+            ScriptFactory(bool quick, bool restores)
+            {
+                setId("QuickEditorStateTest");
+                setDisplayName("Quick Editor State Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorStateTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+                setRestoresState(restores);
+            }
+        };
+
+        // Where an editor of the factory's comes back to, given the state of
+        // one that was left on the third line of the same text.
+        const auto comesBackTo = [](TextEditorFactory &factory) -> int {
+            const QString text = "one\ntwo\nthree\nfour\n";
+            const std::unique_ptr<Core::IEditor> left(factory.createEditor());
+            auto * const leftDocument = qobject_cast<TextDocument *>(left->document());
+            if (!leftDocument)
+                return -1;
+            leftDocument->setPlainText(text);
+            QTextCursor cursor(leftDocument->document());
+            cursor.setPosition(text.indexOf("three"));
+            TextEditor::setTextCursorOf(left.get(), cursor);
+            const QByteArray state = left->saveState();
+
+            const std::unique_ptr<Core::IEditor> back(factory.createEditor());
+            auto * const backDocument = qobject_cast<TextDocument *>(back->document());
+            if (!backDocument)
+                return -1;
+            backDocument->setPlainText(text);
+            // At the top, as an editor is after opening a file; the widget's
+            // caret is at the end of text set on its document.
+            QTextCursor top(backDocument->document());
+            top.setPosition(0);
+            TextEditor::setTextCursorOf(back.get(), top);
+            back->restoreState(state);
+            return TextEditor::textCursorOf(back.get()).position();
+        };
+
+        ScriptFactory remembers(quick, true);
+        QCOMPARE(remembers.restoresState(), true);
+        QCOMPARE(comesBackTo(remembers), 8);
+        ScriptFactory forgets(quick, false);
+        QCOMPARE(forgets.restoresState(), false);
+        QCOMPARE(comesBackTo(forgets), 0);
+    }
+
+    // The word the caret is in is being written, and a highlighter that
+    // spell-checks leaves it alone until the caret has left it - so it has to
+    // be told where the caret is. Git's commit editor widget told its own
+    // highlighter; either view tells the document's, whichever that is.
+    void testAViewTellsTheHighlighterWhereTheCaretIs_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAViewTellsTheHighlighterWhereTheCaretIs()
+    {
+        QFETCH(bool, quick);
+
+        class SpellFactory final : public TextEditorFactory
+        {
+        public:
+            explicit SpellFactory(bool quick)
+            {
+                setId("QuickEditorSpellTest");
+                setDisplayName("Quick Editor Spell Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorSpellTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+        SpellFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        document->setPlainText("one two three\n");
+        SyntaxHighlighter *highlighter = nullptr;
+        document->resetSyntaxHighlighter([&highlighter] {
+            highlighter = new SyntaxHighlighter;
+            return highlighter;
+        });
+        QVERIFY(highlighter);
+        QCOMPARE(highlighter->spellCheckCursorPosition(), -1);
+
+        QTextCursor cursor(document->document());
+        cursor.setPosition(5);
+        TextEditor::setTextCursorOf(editor.get(), cursor);
+        QCOMPARE(highlighter->spellCheckCursorPosition(), 5);
+
+        // And one that replaced it, from the next move on.
+        SyntaxHighlighter *replacement = nullptr;
+        document->resetSyntaxHighlighter([&replacement] {
+            replacement = new SyntaxHighlighter;
+            return replacement;
+        });
+        QVERIFY(replacement);
+        cursor.setPosition(9);
+        TextEditor::setTextCursorOf(editor.get(), cursor);
+        QCOMPARE(replacement->spellCheckCursorPosition(), 9);
     }
 
     // A document whose text is on its way - a VCS command's output - says so,
