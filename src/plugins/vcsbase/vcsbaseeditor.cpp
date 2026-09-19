@@ -893,7 +893,8 @@ void VcsBaseEditorWidget::setFileLogAnnotateEnabled(bool e)
 
 void VcsBaseEditorWidget::setHighlightingEnabled(bool e)
 {
-    textDocument()->syntaxHighlighter()->setEnabled(e);
+    if (VcsEditorDocument * const document = vcsDocument())
+        document->setHighlightingEnabled(e);
 }
 
 FilePath VcsBaseEditorWidget::workingDirectory() const

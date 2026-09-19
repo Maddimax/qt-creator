@@ -193,6 +193,9 @@ public:
 
     Utils::FilePath workingDirectory() const;
     void setWorkingDirectory(const Utils::FilePath &workingDirectory);
+    // Whether the highlighter colours the text: off for a log that git
+    // colours itself.
+    void setHighlightingEnabled(bool enabled);
 
     // Where to go once the output has arrived.
     int defaultLineNumber() const;

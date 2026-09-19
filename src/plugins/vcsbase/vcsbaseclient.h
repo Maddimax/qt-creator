@@ -27,6 +27,7 @@ namespace VcsBase {
 
 class VcsBaseEditorConfig;
 class VcsBaseEditorWidget;
+class VcsEditorDocument;
 class VcsBaseSettings;
 
 using CommandHandler = std::function<void(const CommandResult &)>;
@@ -52,6 +53,19 @@ public:
     virtual Utils::FilePath vcsBinary(const Utils::FilePath &forDirectory) const;
     int vcsTimeoutS() const;
 
+    // The editor for \a kind and \a title - the one tagged
+    // \a registerDynamicProperty = \a dynamicPropertyValue if it is open, else
+    // a new one - as its document: temporary, with its source and its default
+    // line set and its annotate requests reaching annotate(). Everything a
+    // client sets afterwards is the document's, whichever kind of view shows
+    // it.
+    VcsEditorDocument *createVcsDocument(Utils::Id kind, QString title,
+                                         const Utils::FilePath &source,
+                                         const Utils::TextEncoding &encoding,
+                                         const char *registerDynamicProperty,
+                                         const QString &dynamicPropertyValue) const;
+    // The same, as the widget editor showing it - for the clients that still
+    // hold one.
     VcsBaseEditorWidget *createVcsEditor(Utils::Id kind, QString title,
                                          const Utils::FilePath &source,
                                          const Utils::TextEncoding &encoding,
@@ -82,6 +96,13 @@ public:
                                      RunFlags flags = RunFlag::None,
                                      int timeoutS = -1, const Utils::TextEncoding &encoding = {}) const;
 
+    // Runs the command and makes its output the document's text.
+    void executeInEditor(const Utils::FilePath &workingDirectory,
+                         const QStringList &arguments,
+                         VcsEditorDocument *document) const;
+    void executeInEditor(const Utils::FilePath &workingDirectory,
+                         const Utils::CommandLine &command,
+                         VcsEditorDocument *document) const;
     void executeInEditor(const Utils::FilePath &workingDirectory,
                          const QStringList &arguments,
                          VcsBaseEditorWidget *editor) const;

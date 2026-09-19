@@ -452,6 +452,12 @@ void VcsEditorDocument::setDefaultLineNumber(int line)
     d->defaultLineNumber = line;
 }
 
+void VcsEditorDocument::setHighlightingEnabled(bool enabled)
+{
+    if (TextEditor::SyntaxHighlighter * const highlighter = syntaxHighlighter())
+        highlighter->setEnabled(enabled);
+}
+
 void VcsEditorDocument::gotoDefaultLine()
 {
     if (d->defaultLineNumber < 0)
@@ -1089,6 +1095,8 @@ void VcsEditorDocument::updateSections()
 
 #ifdef WITH_TESTS
 
+#include "vcsbaseclient.h"
+#include "vcsbaseclientsettings.h"
 #include "vcsbaseeditor.h"
 
 #include <solutions/spinner/spinner.h>
@@ -1517,6 +1525,88 @@ private slots:
         QVERIFY(wrapping->isVisible());
         grep->setVisible(false);
         QVERIFY2(!wrapping->isVisible(), "hiding the field left its line edit in the tool bar");
+    }
+
+    // What a VCS client is handed for the editor it is about to fill was the
+    // widget; it is the document now, so that the same client code fills a
+    // view of any kind. Opened temporary, with its source and its default
+    // line, its annotate requests reaching the client; the same tag is the
+    // same document, filled afresh; and a command fills it. (Read-only it is
+    // from the factory, whoever opens it - not this code's doing.)
+    void testAClientsHandleIsTheDocument()
+    {
+        class HandleClient final : public VcsBaseClientImpl
+        {
+        public:
+            explicit HandleClient(VcsBaseSettings *settings)
+                : VcsBaseClientImpl(settings)
+            {}
+            void annotate(const FilePath &workingDir, const QString &file, int lineNumber,
+                          const QString &revision, const QStringList &, int) final
+            {
+                m_annotated << QStringList{workingDir.toUrlishString(), file,
+                                           QString::number(lineNumber), revision};
+            }
+            QList<QStringList> m_annotated;
+        };
+        class HandleWidget final : public VcsBaseEditorWidget
+        {
+        public:
+            HandleWidget() = default;
+
+        private:
+            QString changeUnderCursor(const QTextCursor &) const final { return {}; }
+        };
+        const VcsBaseEditorParameters parameters{AnnotateOutput,
+                                                 "VcsEditorDocumentTest.Handle",
+                                                 "VCS document test handle",
+                                                 "text/vnd.qtcreator.vcs-document-handle-test",
+                                                 [] { return new HandleWidget; },
+                                                 [](const FilePath &, const QString &) {}};
+        VcsEditorFactory factory(parameters);
+        VcsBaseSettings settings;
+        HandleClient client(&settings);
+        const FilePath source = FilePath::fromString("/repo/sub/file.cpp");
+
+        VcsEditorDocument * const document = client.createVcsDocument(
+            parameters.id, "Handle test", source, TextEncoding(), "HandleTestTag", "one");
+        QVERIFY2(document, "the client got no document");
+        const QScopeGuard closeIt(
+            [document] { Core::EditorManager::closeDocuments({document}, false); });
+        Core::IEditor * const editor = Core::DocumentModel::editorsForDocument(document).value(0);
+        QVERIFY2(editor, "the document is in no editor");
+        QVERIFY2(document->isTemporary(), "version control output is offered for saving");
+        VcsBaseEditorWidget * const widget = VcsBaseEditor::getVcsBaseEditor(editor);
+        QVERIFY(widget);
+        QVERIFY2(widget->isReadOnly(), "a VCS editor from the factory can be typed into");
+        QCOMPARE(VcsBase::source(document), source);
+        QCOMPARE(document->defaultLineNumber(), 1);
+        QCOMPARE(document->plainText(), Tr::tr("Working..."));
+
+        // The same tag is the same document, told to wait again.
+        document->setPlainText("old output");
+        QCOMPARE(client.createVcsDocument(parameters.id, "Handle test", source, TextEncoding(),
+                                          "HandleTestTag", "one"),
+                 document);
+        QCOMPARE(document->plainText(), Tr::tr("Working..."));
+        QCOMPARE(Core::DocumentModel::editorsForDocument(document).size(), 1);
+
+        // An annotation asked for in the document reaches the client's
+        // annotate(), the change trimmed to its first word as ever.
+        emit document->annotateRevisionRequested(FilePath::fromString("/repo"), "sub/file.cpp",
+                                                 "1234abcd someone a subject", 7);
+        QCOMPARE(client.m_annotated,
+                 (QList<QStringList>{{"/repo", "sub/file.cpp", "7", "1234abcd"}}));
+
+        // And a command's output becomes its text.
+        const FilePath sh = FilePath::fromString("sh").searchInPath();
+        if (sh.isEmpty())
+            QSKIP("no sh to run a command with");
+        client.executeInEditor(FilePath::fromString("/"),
+                               CommandLine{sh, {"-c", "printf 'filled\\n'"}}, document);
+        QVERIFY2(document->isBusy(), "the command was handed to nobody");
+        QTRY_VERIFY(!document->isBusy());
+        QCOMPARE(document->plainText(), QString("filled\n"));
     }
 
     void testALogOffersWhatIsUnderThePointerToDoSomethingWith()

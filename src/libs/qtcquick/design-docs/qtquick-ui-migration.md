@@ -67520,3 +67520,130 @@ No `.qbs` edited: no file list changed.
    function; `m_originalLines` goes), ending batch 299's staging.
 3. The other seven VCS; the QmlDesigner-side two; the standing list (entry
    298).
+
+## 2026-09-19 — The client's handle is the document (batch 313)
+
+Entry 312's next item 1: what a VCS client is handed for the editor it is
+about to fill, Git's client first.
+
+### What the handle was
+
+`VcsBaseClientImpl::createVcsEditor(kind, title, source, encoding, tag,
+value)`: find the open editor tagged `tag = value` (and tell its document
+to say `Working...`) or open one with that text; get its
+`VcsBaseEditorWidget`; on a new one connect the widget's
+`annotateRevisionRequested` to the client's virtual, set the source, the
+default line and the encoding; in either case `setForceReadOnly(true)` -
+the widget's `setReadOnly()` plus the document's `setTemporary()`. The
+client then set on the widget what batches 299-312 made the document's,
+and `executeInEditor(wd, args, widget)` ran the command through the
+widget's `executeTask()`, which batch 308 made a forwarder.
+
+### What it is
+
+`VcsEditorDocument *createVcsDocument(...)`, the same lookup returning the
+document: the connection is to the document's signal (the widget's was a
+forward of it), `VcsBase::setSource(document, ...)`, the document's
+default line and encoding; and read-only through `TextEditor::
+setReadOnlyOf()` on every editor the document model has for it - the widget
+path's `setReadOnly()` and the Qt Quick path's `setReadOnlyAsked()` behind
+one call, batch 30x's seam - plus `setTemporary(true)`. `createVcsEditor()`
+is that followed by `getVcsBaseEditor()` on the document's first editor,
+for the clients that still hold a widget; `executeInEditor()` takes the
+document, with the widget overloads forwarding through `vcsDocument()`.
+`VcsEditorDocument::setHighlightingEnabled()` is the one thing Git's `log()`
+still asked the widget for (off for a log git colours itself), null-safe
+where the widget's dereferenced.
+
+`GitClient::log()`, `reflog()`, `annotate()` and `subversionLog()` hold a
+`VcsEditorDocument *` and nothing of the widget; their configs are parented
+to the document (`GitBlameConfig(QObject *)` now, the last Git config
+taking a tool bar). Nothing else in `gitclient.cpp` touches a
+`VcsBaseEditorWidget`; the remaining `editor->` there is an `IEditor` from
+`openShowEditor()`.
+
+Not this batch: `VcsBaseClient::diff()`, `log()`, `annotate()`,
+`annotateFile()` (the generic client Bazaar, Fossil, Mercurial and
+Subversion build on) still take the widget - their config creators take a
+`QToolBar *`, and moving them to `QObject *` touches five VCS's config
+constructors. That is the next batch, and with it the last `createVcsEditor()`
+callers.
+
+### The test
+
+`VcsEditorDocumentTest::testAClientsHandleIsTheDocument`: a client subclass
+whose `annotate()` records its arguments, over a `VcsBaseSettings` of its
+own; `createVcsDocument()` for an annotate-type test factory with tag
+`HandleTestTag = one`. The document is in one editor, temporary, its widget
+read-only, sourced, at default line 1, saying `Working...`. After
+`setPlainText("old output")` the same call returns the same document
+saying `Working...` again, still in one editor. Emitting the document's
+`annotateRevisionRequested` with `1234abcd someone a subject` at line 7
+reaches `annotate()` with `/repo`, `sub/file.cpp`, 7 and `1234abcd` - the
+base's trimming. Then (with `sh`) `executeInEditor()` with a `printf`: busy,
+then the text.
+
+Alone: 3 passed, 0 failed, exit 0, at the first run - after one build
+failure, `VcsBase::setSource()` unknown in `vcsbaseclient.cpp`, which had
+reached it through the widget until now. The command test and the config
+test (both on the widget forwarders) and Git's `testLogResolving`,
+`testTheLogsFilterIsItsConfigsToRead` and `testDiffDescriptionEditor` ran
+too: 3 passed, 0 failed, exit 0 each.
+
+Controls, each the pre-fix shape of one assertion (`set -e`, locals,
+distinct names, the tree checked clean at the end):
+
+- **A, first shape** - `createVcsDocument()` makes no view read-only: **the
+  test passed**, 3/0. The widget was read-only all the same, because
+  `VcsBaseEditor::finalizeInitialization()` sets it on every VCS editor the
+  factory builds - the old `setForceReadOnly(true)` had been saying it a
+  second time for as long as it existed. So the loop over the document's
+  editors went: read-only is the editor's from birth, and when the Qt Quick
+  VCS editor comes it has to be so from birth too, which is the flip's to
+  make and to test. The test keeps the assertion, reworded as what it is -
+  the factory's doing. (`~/.claude/testing.md`: a control that does not bite.)
+- **A, second shape** - `createVcsDocument()` does not mark the document
+  temporary: the test fails on "'document->isTemporary()' returned FALSE.
+  (version control output is offered for saving)".
+- **B** - the tag lookup always says "none open": the test fails on the
+  second call, "Compared QObject pointers are not the same" - a second
+  editor, a second document.
+- **C** - the document's `annotateRevisionRequested` is connected to nobody:
+  the test fails on the client's record, "Compared lists have different
+  sizes" - nothing was annotated.
+
+### Measurements
+
+    -test TextEditor     799 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test VcsBase         30 passed, 0 failed, 0 skipped, exit 0
+    -test Git            138 passed, 3 failed, 0 skipped, exit 3
+                           the baseline's two, and once:
+                           InstantBlameTest::testBlameDocumentContents
+                           'markToolTip(2).contains("-committed")'
+
+TextEditor and QuickUi unchanged, as nothing of theirs changed; three
+clean TextEditor runs, no entry-191 crash this time. VcsBase is 30: 29 plus
+the handle test. Git is 138 passed with the baseline's two failures plus
+the entry-300 load flake - the fourth batch running that follows a Docker
+build with it: the `InstantBlameTest` object took **16032 ms** in the suite
+against 304-332 ms in five solo runs on this binary, 0 failures. Since this
+batch touched Git's blame path, checked rather than assumed: instant blame
+runs `git blame` through `GitClient::commandTask()` and never goes near
+`annotate()`, `createVcsDocument()` or `executeInEditor()`.
+
+No `.qbs` edited: no file list changed.
+
+### What is next
+
+1. **The generic client on the document**: `VcsBaseClient::diff()`,
+   `log()`, `annotate()`, `annotateFile()` and the `ConfigCreator`s on
+   `QObject *`; the five VCS's config constructors likewise (their
+   `#include <QToolBar>` of batch 310 goes with it); `createVcsEditor()` then
+   has no callers in VcsBase and goes when the last VCS lets go of it.
+2. **`VcsEditorFactory` on the Qt Quick editor** for a VCS that supplies no
+   widget creator; Git's subclass retired - its constructor's patterns and
+   formats and its `setPlainText()` into `gitEditorParameters()` (an output
+   function; `m_originalLines` goes), ending batch 299's staging.
+3. The other seven VCS; the QmlDesigner-side two; the standing list (entry
+   298).

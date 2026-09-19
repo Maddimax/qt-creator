@@ -698,8 +698,8 @@ ShowController::ShowController(IDocument *document, const QString &id)
 class GitBlameConfig : public VcsBaseEditorConfig
 {
 public:
-    explicit GitBlameConfig(QToolBar *toolBar)
-        : VcsBaseEditorConfig(toolBar)
+    explicit GitBlameConfig(QObject *parent)
+        : VcsBaseEditorConfig(parent)
     {
         mapSetting(addToggleButton(QString(), Tr::tr("Omit Path"),
                                    Tr::tr("Hide the file path of a change from the output.")),
@@ -1884,20 +1884,21 @@ void GitClient::log(const FilePath &workingDirectory, const QString &fileName,
     const QString title = Tr::tr("Git Log \"%1\"").arg(msgArg);
     const Id editorId = Git::Constants::GIT_LOG_EDITOR_ID;
     const FilePath sourceFile = VcsBaseEditor::getSource(workingDir, fileName);
-    GitEditorWidget *editor = static_cast<GitEditorWidget *>(createVcsEditor(
-        editorId, title, sourceFile, encoding(EncodingLogOutput, sourceFile), "logTitle", msgArg));
-    VcsBaseEditorConfig *argWidget = editor->editorConfig();
+    VcsEditorDocument * const document = createVcsDocument(
+        editorId, title, sourceFile, encoding(EncodingLogOutput, sourceFile), "logTitle", msgArg);
+    QTC_ASSERT(document, return);
+    VcsBaseEditorConfig *argWidget = document->editorConfig();
     if (!argWidget) {
-        argWidget = new GitLogConfig(!fileName.isEmpty(), editor);
+        argWidget = new GitLogConfig(!fileName.isEmpty(), document);
         argWidget->setBaseArguments(args);
         connect(argWidget, &VcsBaseEditorConfig::commandExecutionRequested, this,
                 [this, workingDir, fileName, enableAnnotationContextMenu, args] {
             log(workingDir, fileName, enableAnnotationContextMenu, args);
         });
-        editor->setEditorConfig(argWidget);
+        document->setEditorConfig(argWidget);
     }
-    editor->setFileLogAnnotateEnabled(enableAnnotationContextMenu);
-    editor->setWorkingDirectory(workingDir);
+    document->setFileLogAnnotateEnabled(enableAnnotationContextMenu);
+    document->setWorkingDirectory(workingDir);
 
     QStringList arguments = {"log", decorateOption, colorOption};
     int logCount = settings().logCount();
@@ -1907,9 +1908,9 @@ void GitClient::log(const FilePath &workingDirectory, const QString &fileName,
     arguments << argWidget->arguments();
     if (arguments.contains(patchOption)) {
         arguments.removeAll(colorOption);
-        editor->setHighlightingEnabled(true);
+        document->setHighlightingEnabled(true);
     } else {
-        editor->setHighlightingEnabled(false);
+        document->setHighlightingEnabled(false);
     }
 
     // remove conflicting "all branches" and "follow" options when "log for line" is requested
@@ -1926,7 +1927,7 @@ void GitClient::log(const FilePath &workingDirectory, const QString &fileName,
     if (!fileName.isEmpty() && !isLogForLine)
         arguments << "--" << fileName;
 
-    executeInEditor(workingDir, arguments, editor);
+    executeInEditor(workingDir, arguments, document);
 }
 
 void GitClient::reflog(const FilePath &workingDirectory, const QString &ref)
@@ -1935,19 +1936,20 @@ void GitClient::reflog(const FilePath &workingDirectory, const QString &ref)
     const Id editorId = Git::Constants::GIT_REFLOG_EDITOR_ID;
     // Creating document might change the referenced workingDirectory. Store a copy and use it.
     const FilePath workingDir = workingDirectory;
-    GitEditorWidget *editor = static_cast<GitEditorWidget *>(
-                createVcsEditor(editorId, title, workingDir, encoding(EncodingLogOutput),
-                                "reflogRepository", workingDir.toUrlishString()));
-    VcsBaseEditorConfig *argWidget = editor->editorConfig();
+    VcsEditorDocument * const document = createVcsDocument(
+        editorId, title, workingDir, encoding(EncodingLogOutput),
+        "reflogRepository", workingDir.toUrlishString());
+    QTC_ASSERT(document, return);
+    VcsBaseEditorConfig *argWidget = document->editorConfig();
     if (!argWidget) {
-        argWidget = new GitRefLogConfig(editor);
+        argWidget = new GitRefLogConfig(document);
         if (!ref.isEmpty())
             argWidget->setBaseArguments({ref});
         connect(argWidget, &VcsBaseEditorConfig::commandExecutionRequested, this,
                 [this, workingDir, ref] { reflog(workingDir, ref); });
-        editor->setEditorConfig(argWidget);
+        document->setEditorConfig(argWidget);
     }
-    editor->setWorkingDirectory(workingDir);
+    document->setWorkingDirectory(workingDir);
 
     QStringList arguments = {"reflog", noColorOption, decorateOption};
     arguments << argWidget->arguments();
@@ -1955,7 +1957,7 @@ void GitClient::reflog(const FilePath &workingDirectory, const QString &ref)
     if (logCount > 0)
         arguments << "-n" << QString::number(logCount);
 
-    executeInEditor(workingDir, arguments, editor);
+    executeInEditor(workingDir, arguments, document);
 }
 
 static inline QString msgCannotShow(const QString &hash)
@@ -2040,30 +2042,31 @@ void GitClient::annotate(const Utils::FilePath &workingDir, const QString &file,
     const QString title = Tr::tr("Git Blame \"%1\"").arg(id);
     const FilePath sourceFile = VcsBaseEditor::getSource(workingDir, file);
 
-    VcsBaseEditorWidget *editor = createVcsEditor(editorId, title, sourceFile,
-            encoding(EncodingSource, sourceFile), "blameFileName", id);
-    VcsBaseEditorConfig *argWidget = editor->editorConfig();
+    VcsEditorDocument * const document = createVcsDocument(
+        editorId, title, sourceFile, encoding(EncodingSource, sourceFile), "blameFileName", id);
+    QTC_ASSERT(document, return);
+    VcsBaseEditorConfig *argWidget = document->editorConfig();
     if (!argWidget) {
-        argWidget = new GitBlameConfig(editor->toolBar());
+        argWidget = new GitBlameConfig(document);
         argWidget->setBaseArguments(extraOptions);
         connect(argWidget, &VcsBaseEditorConfig::commandExecutionRequested, this,
                 [this, workingDir, file, revision, extraOptions] {
             const int line = VcsBaseEditor::lineNumberOfCurrentEditor();
             annotate(workingDir, file, line, revision, extraOptions);
         });
-        editor->setEditorConfig(argWidget);
+        document->setEditorConfig(argWidget);
     }
 
-    editor->setWorkingDirectory(workingDir);
+    document->setWorkingDirectory(workingDir);
     QStringList arguments = {"blame", "--root", "--show-name", "--show-number"};
     arguments << argWidget->arguments();
     if (!revision.isEmpty())
         arguments << revision;
     arguments << "--" << file;
-    editor->setDefaultLineNumber(lineNumber);
+    document->setDefaultLineNumber(lineNumber);
     if (firstLine > 0)
-        editor->setFirstLineNumber(firstLine);
-    executeInEditor(workingDir, arguments, editor);
+        document->setFirstLineNumber(firstLine);
+    executeInEditor(workingDir, arguments, document);
 }
 
 void GitClient::checkout(const FilePath &workingDirectory, const QString &ref, StashMode stashMode,
@@ -4087,10 +4090,11 @@ void GitClient::subversionLog(const FilePath &workingDirectory)
     const QString title = Tr::tr("Git SVN Log");
     const Id editorId = Git::Constants::GIT_SVN_LOG_EDITOR_ID;
     const FilePath sourceFile = VcsBaseEditor::getSource(workingDirectory, QStringList());
-    VcsBaseEditorWidget *editor = createVcsEditor(editorId, title, sourceFile, encoding(EncodingDefault),
-                                                  "svnLog", sourceFile.toUrlishString());
-    editor->setWorkingDirectory(workingDirectory);
-    executeInEditor(workingDirectory, arguments, editor);
+    VcsEditorDocument * const document = createVcsDocument(
+        editorId, title, sourceFile, encoding(EncodingDefault), "svnLog", sourceFile.toUrlishString());
+    QTC_ASSERT(document, return);
+    document->setWorkingDirectory(workingDirectory);
+    executeInEditor(workingDirectory, arguments, document);
 }
 
 void GitClient::subversionDeltaCommit(const FilePath &workingDirectory)

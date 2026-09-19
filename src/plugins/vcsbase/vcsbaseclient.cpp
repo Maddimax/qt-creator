@@ -6,6 +6,7 @@
 #include "vcsbaseclientsettings.h"
 #include "vcsbaseeditor.h"
 #include "vcsbaseeditorconfig.h"
+#include "vcsbaseplugin.h"
 #include "vcsbasetr.h"
 #include "vcscommand.h"
 #include "vcsoutputwindow.h"
@@ -15,7 +16,6 @@
 #include <coreplugin/editormanager/documentmodel.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/idocument.h>
-
 
 #include <utils/commandline.h>
 #include <utils/environment.h>
@@ -136,15 +136,31 @@ void VcsBaseClientImpl::annotateRevisionRequested(const FilePath &workingDirecto
 
 void VcsBaseClientImpl::executeInEditor(const FilePath &workingDirectory,
                                         const CommandLine &command,
-                                        VcsBaseEditorWidget *editor) const
+                                        VcsEditorDocument *document) const
 {
+    QTC_ASSERT(document, return);
     const Storage<CommandResult> resultStorage;
 
     const auto task = vcsProcessTask(
         {.runData = {command, workingDirectory, processEnvironment(workingDirectory)},
-         .encoding = editor->encoding()}, resultStorage);
+         .encoding = document->encoding()}, resultStorage);
 
-    editor->executeTask(task, resultStorage);
+    document->executeTask(task, resultStorage);
+}
+
+void VcsBaseClientImpl::executeInEditor(const Utils::FilePath &workingDirectory,
+                                        const QStringList &arguments,
+                                        VcsEditorDocument *document) const
+{
+    executeInEditor(workingDirectory, {vcsBinary(workingDirectory), arguments}, document);
+}
+
+void VcsBaseClientImpl::executeInEditor(const FilePath &workingDirectory,
+                                        const CommandLine &command,
+                                        VcsBaseEditorWidget *editor) const
+{
+    QTC_ASSERT(editor, return);
+    executeInEditor(workingDirectory, command, editor->vcsDocument());
 }
 
 void VcsBaseClientImpl::executeInEditor(const Utils::FilePath &workingDirectory,
@@ -199,36 +215,52 @@ int VcsBaseClientImpl::vcsTimeoutS() const
     return m_baseSettings->timeout();
 }
 
+VcsEditorDocument *VcsBaseClientImpl::createVcsDocument(Id kind, QString title,
+                                                        const FilePath &source,
+                                                        const TextEncoding &encoding,
+                                                        const char *registerDynamicProperty,
+                                                        const QString &dynamicPropertyValue) const
+{
+    VcsEditorDocument *document = nullptr;
+    IEditor *outputEditor = locateEditor(registerDynamicProperty, dynamicPropertyValue);
+    const QString progressMsg = Tr::tr("Working...");
+    if (outputEditor) {
+        // Exists already
+        outputEditor->document()->setContents(progressMsg.toUtf8());
+        document = qobject_cast<VcsEditorDocument *>(outputEditor->document());
+        QTC_ASSERT(document, return nullptr);
+        EditorManager::activateEditor(outputEditor);
+    } else {
+        outputEditor = EditorManager::openEditorWithContents(kind, &title, progressMsg.toUtf8());
+        QTC_ASSERT(outputEditor, return nullptr);
+        outputEditor->document()->setProperty(registerDynamicProperty, dynamicPropertyValue);
+        document = qobject_cast<VcsEditorDocument *>(outputEditor->document());
+        QTC_ASSERT(document, return nullptr);
+        connect(document, &VcsEditorDocument::annotateRevisionRequested,
+                this, &VcsBaseClientImpl::annotateRevisionRequested);
+        VcsBase::setSource(document, source);
+        document->setDefaultLineNumber(1);
+        if (encoding.isValid())
+            document->setEncoding(encoding);
+    }
+
+    // Version control output is not a file to save back. That it is not to
+    // be typed into either is the editor's from its factory.
+    document->setTemporary(true);
+    return document;
+}
+
 VcsBaseEditorWidget *VcsBaseClientImpl::createVcsEditor(Id kind, QString title,
                                                         const FilePath &source,
                                                         const TextEncoding &encoding,
                                                         const char *registerDynamicProperty,
                                                         const QString &dynamicPropertyValue) const
 {
-    VcsBaseEditorWidget *baseEditor = nullptr;
-    IEditor *outputEditor = locateEditor(registerDynamicProperty, dynamicPropertyValue);
-    const QString progressMsg = Tr::tr("Working...");
-    if (outputEditor) {
-        // Exists already
-        outputEditor->document()->setContents(progressMsg.toUtf8());
-        baseEditor = VcsBaseEditor::getVcsBaseEditor(outputEditor);
-        QTC_ASSERT(baseEditor, return nullptr);
-        EditorManager::activateEditor(outputEditor);
-    } else {
-        outputEditor = EditorManager::openEditorWithContents(kind, &title, progressMsg.toUtf8());
-        outputEditor->document()->setProperty(registerDynamicProperty, dynamicPropertyValue);
-        baseEditor = VcsBaseEditor::getVcsBaseEditor(outputEditor);
-        QTC_ASSERT(baseEditor, return nullptr);
-        connect(baseEditor, &VcsBaseEditorWidget::annotateRevisionRequested,
-                this, &VcsBaseClientImpl::annotateRevisionRequested);
-        baseEditor->setSource(source);
-        baseEditor->setDefaultLineNumber(1);
-        if (encoding.isValid())
-            baseEditor->setEncoding(encoding);
-    }
-
-    baseEditor->setForceReadOnly(true);
-    return baseEditor;
+    VcsEditorDocument * const document = createVcsDocument(
+        kind, title, source, encoding, registerDynamicProperty, dynamicPropertyValue);
+    if (!document)
+        return nullptr;
+    return VcsBaseEditor::getVcsBaseEditor(DocumentModel::editorsForDocument(document).value(0));
 }
 
 void VcsBaseClientImpl::saveSettings()
