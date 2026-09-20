@@ -77,12 +77,8 @@ bool CppUseSelectionsUpdater::isRenaming() const
     return m_editorWidget && m_editorWidget->isRenaming();
 }
 
-// The widget's own where there is one: it has the local uses patched into it
-// as the caret moves, and that is what this is about to work out again.
 SemanticInfo CppUseSelectionsUpdater::semanticInfo() const
 {
-    if (m_editorWidget)
-        return m_editorWidget->semanticInfo();
     CppEditorDocument * const document = cppDocument();
     return document ? document->semanticInfo() : SemanticInfo();
 }

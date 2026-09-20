@@ -53,12 +53,9 @@ public:
     CppEditorWidget();
     ~CppEditorWidget() override;
 
-    static const QList<CppEditorWidget *> editorWidgetsForDocument(TextEditor::TextDocument *doc);
 
     CppEditorDocument *cppEditorDocument() const;
 
-    bool isSemanticInfoValidExceptLocalUses() const;
-    bool isSemanticInfoValid() const;
     bool isRenaming() const;
 
     std::shared_ptr<Internal::FunctionDeclDefLink> declDefLink() const;
@@ -96,7 +93,6 @@ public:
     static void updateWidgetHighlighting(QWidget *widget, bool highlight);
     static bool isWidgetHighlighted(QWidget *widget);
 
-    SemanticInfo semanticInfo() const;
     void updateSemanticInfo();
     void invokeTextEditorWidgetAssist(TextEditor::AssistKind assistKind,
                                       TextEditor::IAssistProvider *provider);

@@ -4,6 +4,7 @@
 #include "fileandtokenactions_test.h"
 
 #include "cppeditorwidget.h"
+#include "cppeditordocument.h"
 #include "cppmodelmanager.h"
 #include "cpptoolstestcase.h"
 #include "cppworkingcopy.h"
@@ -162,7 +163,8 @@ TestActionsTestCase::TestActionsTestCase(const Actions &tokenActions, const Acti
         QVERIFY(CppModelManager::workingCopy().get(filePath));
 
         // Rehighlight
-        QVERIFY(waitForRehighlightedSemanticDocument(editorWidget));
+        QVERIFY(waitForRehighlightedSemanticDocument(
+            qobject_cast<CppEditorDocument *>(editorWidget->textDocument())));
 
         // Run all file actions
         executeActionsOnEditorWidget(editorWidget, fileActions);

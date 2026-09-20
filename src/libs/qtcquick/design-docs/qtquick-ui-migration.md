@@ -72304,3 +72304,124 @@ either way.
    (entry 348), which wants a test that can see a tooltip.
 4. Still open: the dropped asset (346), the inline diff editor (341),
    the standing list (340).
+
+## 2026-09-20 — The parse belongs to the document (batch 350)
+
+Entry 349 worked out that the per-view `SemanticInfo` copy has nothing
+left to carry and left retiring it as the next batch. This is that
+batch, and the copy turned out to be worse than redundant.
+
+### The gap closed
+
+`CppEditorWidget` kept a `SemanticInfo` of its own, fed by
+`CppEditorDocument::semanticInfoUpdated` and with the local uses of the
+name under the caret patched in by the use-selections updater. Nine
+places preferred it to the document's, `cpprefactoringchanges.cpp:91`
+saying why: "its semantic info carries the local uses that the
+document's does not".
+
+Both halves of that reason are gone, which 349 established by reading
+and this batch by measuring:
+
+- The only production reader of `localUses` is the Extract Function
+  quick fix, and what it reads is `CppQuickFixInterface`'s copy, which
+  calls `findLocalUses(cursor)` in its own constructor.
+- The copy cannot be fresher than the document's: it is fed *from* the
+  document, and `recalculateSemanticInfo()` is the document's own
+  method and stores what it computes. It can only be equal or staler.
+
+Staler is what it was, and the test says so. Change the text,
+`recalculateSemanticInfo()`, and ask `semanticDocumentOf()` for the
+parse: before this batch it hands back the view's copy, which nothing
+signalled and which therefore still describes the file as it was. The
+comment three lines above the call in `followUrlIn()` says the parse
+"has to describe what the file says now, or the token offsets below
+point into the wrong text" - and it was being handed one that did not.
+
+So the nine readers ask the document: `semanticDocumentOf()`,
+`followUrlIn()`, `parseFor()` in the built-in support, the signal/slot
+type lookup in the model manager, both `CppRefactoringChanges::file()`
+overloads, the decl/def link's three, and the use-selections updater's.
+With them converted, `CppEditorWidget::semanticInfo()`,
+`isSemanticInfoValid()`, `isSemanticInfoValidExceptLocalUses()` and
+`editorWidgetsForDocument()` had no callers left, so the copy and all
+four are gone. `TestCase::waitForRehighlightedSemanticDocument()` keeps
+one overload, the document's.
+
+This is also the last thing on entry 348's census that the Qt Quick
+view could not answer: those nine went looking for a widget, and a view
+that is not one sent them to the fallback every time.
+
+### The test
+
+`SymbolJumpTest::testTheParseHandedOutIsTheDocumentsOwn`, one row and
+the widget view on purpose, since it is the view that kept a copy. Open
+a C++ file, wait for the parse, add a line, recalculate, and what
+`semanticDocumentOf()` hands out is the document's parse.
+
+### Negative control
+
+One, and it is the pre-batch code rather than a sketch of it: every
+production file this batch touched is reverted with `git apply -R`
+except `cpptoolsreuse.cpp`, which holds the new test, and the one
+function in that file is put back by hand - so the whole per-view copy
+is restored and preferred again. The test goes 2 passed, 1 failed on
+"what was handed out is not the parse the document has". The tree is
+restored afterwards and the diff hash matches.
+
+### Measurements, and what happened to them
+
+On the batch's own build, in the VM:
+
+    -test CppEditor    1662 passed, 0 failed, 58 skipped, exit 0
+
+That run is the batch's tree exactly: the only source changes after it
+were the control's, applied and reverted with the diff hash equal
+before and after.
+
+The standing TextEditor and QuickUi runs could not be added to it,
+because the tooling came apart in three ways worth writing down:
+
+1. **A concurrent macOS build breaks the run.** `runtests-linux.sh`
+   rsyncs the whole source tree to the VM first, and a `ninja` build
+   running on the host makes that fail: its temporary object files
+   vanish between rsync's stat and open. The script has `set -e`, so
+   nothing after it runs and no suite log appears at all.
+2. **That failure leaves the VM unable to load plugins.** The first
+   rsync is `--delete` and `extralibs/` is not in the source tree, so
+   it is deleted from the guest; the third rsync, which puts it back,
+   never runs. Two plugins then fail to load, and Qt Creator answers
+   "Errors occurred while loading plugins, skipping test run" - a run
+   that exits 0 with no totals. Restoring it is the runner's own third
+   rsync, run by hand.
+3. **The Linux build directory disappeared from the host**, and
+   `build-linux.sh` reports that as `Error: ... is not a directory` -
+   which the batch scripts' `grep -cE "error:|FAILED|CMake Error"` does
+   not match, so they printed BUILD CLEAN over a build that never ran.
+   Every suite figure taken after that point was the previous binary's,
+   which at that moment was the *control's* - it made the C++ suite
+   look one test worse and the TextEditor suite look unstable, and both
+   were artefacts. The check in those scripts wants `-i` or an added
+   `Error:`.
+
+The VM's copy of the build was pulled back to the host - 19 GB, which
+is what a Debug build of this tree costs - rebuilt, and the suites run
+again through the runner once the host build had finished:
+
+    -test TextEditor     827 passed, 0 failed, 3 skipped, exit 0
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test CppEditor     1662 passed, 0 failed, 58 skipped, exit 0
+
+Three runs of TextEditor were not taken: the point of the three is the
+typing flake, and this batch touches nothing that types. No `.qbs`
+edited - no file was added or removed.
+
+### What is next
+
+1. `CursorInEditor` carrying a `CppEditorWidget *`: the field becomes
+   `Core::IEditor *` and nine more sites of entry 348's census fall
+   out. Nothing outside cppeditor reads it.
+2. The decl/def "could not apply" tooltip through `toolTipPositionIn()`,
+   which wants a test that can see a tooltip.
+3. Still open: the dropped asset (346), the inline diff editor (341),
+   the standing list (340) - which gains the three tooling notes above.

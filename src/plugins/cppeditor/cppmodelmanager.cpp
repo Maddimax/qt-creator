@@ -10,7 +10,7 @@
 #include "cppcodemodelinspectordumper.h"
 #include "cppcodemodelsettings.h"
 #include "cppeditortr.h"
-#include "cppeditorwidget.h"
+#include "cppeditordocument.h"
 #include "cppfindreferences.h"
 #include "cppincludesfilter.h"
 #include "cppindexingsupport.h"
@@ -702,15 +702,10 @@ SignalSlotType CppModelManager::getSignalSlotType(const FilePath &filePath, QTex
         cursor.setPosition(position);
         cursor.insertText("x");
         cursor.setPosition(position);
-    } else {
-        const QList<CppEditorWidget *> editorWidgets = CppEditorWidget::editorWidgetsForDocument(
-            TextEditor::TextDocument::textDocumentForFilePath(filePath));
-        for (CppEditorWidget *editorWidget : editorWidgets) {
-            if (editorWidget->isSemanticInfoValidExceptLocalUses()) {
-                document = editorWidget->semanticInfo().doc;
-                break;
-            }
-        }
+    } else if (const auto cppDocument = qobject_cast<CppEditorDocument *>(
+                   TextEditor::TextDocument::textDocumentForFilePath(filePath))) {
+        if (cppDocument->isSemanticInfoValid())
+            document = cppDocument->semanticInfo().doc;
     }
 
     if (!document) {

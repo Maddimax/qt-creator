@@ -148,11 +148,8 @@ public:
     static bool waitForProcessedEditorDocument(
             const Utils::FilePath &filePath, int timeOutInMs = 5000);
 
-    static CPlusPlus::Document::Ptr waitForRehighlightedSemanticDocument(
-        CppEditorWidget *editorWidget, int timeoutInMs = defaultTimeOutInMs);
-    // The same for any view: the document's semantic info is the parse the
-    // quick fixes walk. Local uses are the widget's own addition to it, and
-    // nothing that reads this needs them.
+    // The document's semantic info is the parse the quick fixes walk, and it
+    // is the same one whichever view shows the file.
     static CPlusPlus::Document::Ptr waitForRehighlightedSemanticDocument(
         CppEditorDocument *document, int timeoutInMs = defaultTimeOutInMs);
 

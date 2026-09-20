@@ -107,8 +107,6 @@ TextEditor::BaseHoverHandler &BuiltinModelManagerSupport::cppHoverHandler()
 // view has one.
 static CPlusPlus::Document::Ptr parseFor(const CursorInEditor &data)
 {
-    if (data.editorWidget())
-        return data.editorWidget()->semanticInfo().doc;
     if (const CPlusPlus::Document::Ptr parse
         = CppEditor::semanticDocumentOf(data.textDocument())) {
         return parse;

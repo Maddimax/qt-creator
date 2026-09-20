@@ -330,21 +330,6 @@ bool TestCase::waitForProcessedEditorDocument(const FilePath &filePath, int time
 }
 
 CPlusPlus::Document::Ptr TestCase::waitForRehighlightedSemanticDocument(
-    CppEditorWidget *editorWidget, int timeoutInMs)
-{
-    QElapsedTimer timer;
-    timer.start();
-
-    while (!editorWidget->isSemanticInfoValid()) {
-        if (timer.elapsed() >= timeoutInMs)
-            return {};
-        QCoreApplication::processEvents();
-        QThread::msleep(20);
-    }
-    return editorWidget->semanticInfo().doc;
-}
-
-CPlusPlus::Document::Ptr TestCase::waitForRehighlightedSemanticDocument(
     CppEditorDocument *document, int timeoutInMs)
 {
     if (!document)

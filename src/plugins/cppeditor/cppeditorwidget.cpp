@@ -413,8 +413,6 @@ public:
     CppEditorOutline *m_cppEditorOutline = nullptr;
 
 
-    SemanticInfo m_lastSemanticInfo;
-
     CppDeclDefLinkController m_declDefLinkController;
 
     QAction *m_parseContextAction = nullptr;
@@ -445,15 +443,6 @@ CppEditorWidget::CppEditorWidget()
     qRegisterMetaType<SemanticInfo>("SemanticInfo");
 }
 
-const QList<CppEditorWidget *> CppEditorWidget::editorWidgetsForDocument(
-    TextEditor::TextDocument *doc)
-{
-    const QList<BaseTextEditor *> editors = BaseTextEditor::textEditorsForDocument(doc);
-    const QList<TextEditorWidget *> editorWidgets
-        = Utils::transform(editors, &BaseTextEditor::editorWidget);
-    return Utils::qobject_container_cast<CppEditorWidget *>(editorWidgets);
-}
-
 void CppEditorWidget::finalizeInitialization()
 {
     d->m_cppEditorDocument = qobject_cast<CppEditorDocument *>(textDocument());
@@ -471,14 +460,6 @@ void CppEditorWidget::finalizeInitialization()
             &CppUseSelectionsUpdater::selectionsForVariableUnderCursorUpdated,
             &d->m_localRenaming,
             &CppLocalRenaming::updateSelectionsForVariableUnderCursor);
-
-    connect(&d->m_useSelectionsUpdater, &CppUseSelectionsUpdater::finished, this,
-            [this] (SemanticInfo::LocalUseMap localUses, bool success) {
-                if (success) {
-                    d->m_lastSemanticInfo.localUsesUpdated = true;
-                    d->m_lastSemanticInfo.localUses = localUses;
-                }
-    });
 
     connect(document(), &QTextDocument::contentsChange,
             &d->m_localRenaming, &CppLocalRenaming::onContentsChangeOfEditorWidgetDocument);
@@ -543,8 +524,6 @@ void CppEditorWidget::finalizeInitializationAfterDuplication(TextEditorWidget *o
     auto cppEditorWidget = qobject_cast<CppEditorWidget *>(other);
     QTC_ASSERT(cppEditorWidget, return);
 
-    if (cppEditorWidget->isSemanticInfoValidExceptLocalUses())
-        updateSemanticInfo(cppEditorWidget->semanticInfo());
     const Id selectionKind = CodeWarningsSelection;
     setExtraSelections(selectionKind, cppEditorWidget->extraSelections(selectionKind));
 
@@ -622,7 +601,7 @@ bool CppEditorWidget::selectBlockUp()
     const bool changed = d->m_cppSelectionChanger
                              .changeSelection(CppSelectionChanger::ExpandSelection,
                                               cursor,
-                                              d->m_lastSemanticInfo.doc);
+                                              d->m_cppEditorDocument->semanticInfo().doc);
     if (changed)
         setTextCursor(cursor);
     d->m_cppSelectionChanger.stopChangeSelection();
@@ -640,7 +619,7 @@ bool CppEditorWidget::selectBlockDown()
     const bool changed = d->m_cppSelectionChanger
                              .changeSelection(CppSelectionChanger::ShrinkSelection,
                                               cursor,
-                                              d->m_lastSemanticInfo.doc);
+                                              d->m_cppEditorDocument->semanticInfo().doc);
     if (changed)
         setTextCursor(cursor);
     d->m_cppSelectionChanger.stopChangeSelection();
@@ -900,25 +879,9 @@ unsigned CppEditorWidget::documentRevision() const
     return document()->revision();
 }
 
-bool CppEditorWidget::isSemanticInfoValidExceptLocalUses() const
-{
-    return d->m_lastSemanticInfo.doc && d->m_lastSemanticInfo.revision == documentRevision()
-           && !d->m_lastSemanticInfo.snapshot.isEmpty();
-}
-
-bool CppEditorWidget::isSemanticInfoValid() const
-{
-    return isSemanticInfoValidExceptLocalUses() && d->m_lastSemanticInfo.localUsesUpdated;
-}
-
 bool CppEditorWidget::isRenaming() const
 {
     return d->m_localRenaming.isActive();
-}
-
-SemanticInfo CppEditorWidget::semanticInfo() const
-{
-    return d->m_lastSemanticInfo;
 }
 
 bool CppEditorWidget::event(QEvent *e)
@@ -993,7 +956,7 @@ QMenu *CppEditorWidget::createRefactorMenu(QWidget *parent) const
         // ### enable
         // updateSemanticInfo(m_semanticHighlighter->semanticInfo(currentSource()));
 
-        if (!isSemanticInfoValidExceptLocalUses())
+        if (!d->m_cppEditorDocument->isSemanticInfoValid())
             return;
 
         d->m_useSelectionsUpdater.abortSchedule();
@@ -1100,8 +1063,6 @@ void CppEditorWidget::updateSemanticInfo(const SemanticInfo &semanticInfo,
     if (semanticInfo.revision < documentRevision())
         return;
 
-    d->m_lastSemanticInfo = semanticInfo;
-
     const CppUseSelectionsUpdater::CallType type
         = updateUseSelectionSynchronously ? CppUseSelectionsUpdater::CallType::Synchronous
                                           : CppUseSelectionsUpdater::CallType::Asynchronous;
@@ -1120,7 +1081,7 @@ std::unique_ptr<AssistInterface> CppEditorWidget::createAssistInterface(AssistKi
         return cppEditorDocument()->createAssistInterface(
             textCursor(), kind, reason, editorFor(const_cast<CppEditorWidget *>(this)));
     }
-    if (kind == QuickFix && isSemanticInfoValid()) {
+    if (kind == QuickFix && d->m_cppEditorDocument->isSemanticInfoValid()) {
         return std::make_unique<CppQuickFixInterface>(
             cppEditorDocument(), textCursor(), reason,
             editorFor(const_cast<CppEditorWidget *>(this)));

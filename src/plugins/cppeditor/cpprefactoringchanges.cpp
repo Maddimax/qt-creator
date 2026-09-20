@@ -48,9 +48,9 @@ CppRefactoringFilePtr CppRefactoringChanges::file(
 {
     CppRefactoringFilePtr result(new CppRefactoringFile(editor));
     result->setCppDocument(document);
-    if (const auto cppEditorWidget = qobject_cast<CppEditorWidget *>(editor)) {
+    if (const auto document = qobject_cast<CppEditorDocument *>(editor->textDocument())) {
         result->m_data = QSharedPointer<CppRefactoringChangesData>::create(
-            cppEditorWidget->semanticInfo().snapshot);
+            document->semanticInfo().snapshot);
     }
     return result;
 }
@@ -86,14 +86,6 @@ CppRefactoringFilePtr CppRefactoringChanges::cppFile(const Utils::FilePath &file
     // unsaved changes.
     const QList<IEditor *> editors = DocumentModel::editorsForFilePath(filePath);
     for (IEditor *editor : editors) {
-        // The widget first, where there is one: its semantic info carries the
-        // local uses that the document's does not.
-        if (const auto textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor)) {
-            if (const auto editorWidget = qobject_cast<CppEditorWidget *>(
-                    textEditor->editorWidget())) {
-                return file(editorWidget, editorWidget->semanticInfo().doc);
-            }
-        }
         if (const auto document = qobject_cast<CppEditorDocument *>(editor->document()))
             return file(document, document->semanticInfo().doc);
     }

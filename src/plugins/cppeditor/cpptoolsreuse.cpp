@@ -204,11 +204,8 @@ void renameUsagesOf(Core::IEditor *editor, const QString &replacement, QTextCurs
 static bool followUrlIn(const CursorInEditor &data, const Utils::LinkHandler &callback)
 {
     // The parse has to describe what the file says now, or the token offsets
-    // below point into the wrong text. A widget knows that about its own copy.
-    if (CppEditorWidget * const widget = data.editorWidget()) {
-        if (!widget->isSemanticInfoValidExceptLocalUses())
-            return false;
-    } else if (const auto document = qobject_cast<CppEditorDocument *>(data.textDocument())) {
+    // below point into the wrong text.
+    if (const auto document = qobject_cast<CppEditorDocument *>(data.textDocument())) {
         if (!document->isSemanticInfoValid())
             return false;
     }
@@ -318,14 +315,6 @@ CPlusPlus::Document::Ptr semanticDocumentOf(TextEditor::TextDocument *document)
 {
     if (!document)
         return {};
-    const QList<TextEditor::TextEditorWidget *> widgets
-        = TextEditor::TextEditorWidget::textEditorWidgetsForDocument(document);
-    for (TextEditor::TextEditorWidget * const widget : widgets) {
-        if (auto * const cppWidget = qobject_cast<CppEditorWidget *>(widget)) {
-            if (const CPlusPlus::Document::Ptr parse = cppWidget->semanticInfo().doc)
-                return parse;
-        }
-    }
     if (auto * const cppDocument = qobject_cast<CppEditorDocument *>(document))
         return cppDocument->semanticInfo().doc;
     return {};
@@ -1571,6 +1560,55 @@ private slots:
             landedOn.insert(at.selectionStart());
         }
         QCOMPARE(landedOn.size(), 3);
+    }
+
+    // The parse everything walks has to describe what the file says now. The
+    // document recalculates it and keeps it; a widget keeps a copy of its own,
+    // fed by a signal, so a recalculation that nobody signalled leaves that
+    // copy behind - and it was the copy that was handed out.
+    void testTheParseHandedOutIsTheDocumentsOwn()
+    {
+        Utils::TemporaryDirectory dir("cpp-parse-handed-out");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("p.cpp");
+        QVERIFY(file.writeFileContents("int alpha = 1;\n"));
+
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        // The widget view on purpose: it is the one that keeps a copy.
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(false);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QVERIFY2(TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the file opened in a view that keeps no copy, so this tests nothing");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // Change the file and have the document parse it again. Nothing
+        // signals that, which is exactly the case a copy cannot keep up with.
+        QTextCursor cursor(document->document());
+        cursor.movePosition(QTextCursor::End);
+        cursor.insertText("int beta = 2;\n");
+        document->recalculateSemanticInfo();
+        QVERIFY(document->isSemanticInfoValid());
+
+        QVERIFY2(semanticDocumentOf(document) == document->semanticInfo().doc,
+                 "what was handed out is not the parse the document has");
     }
 };
 

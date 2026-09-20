@@ -362,7 +362,7 @@ void CppDeclDefLinkController::updateNow()
     if (!document)
         return;
 
-    const SemanticInfo info = m_widget ? m_widget->semanticInfo() : document->semanticInfo();
+    const SemanticInfo info = document->semanticInfo();
     if (m_link) {
         // The marker says whether there is anything left to apply.
         if (m_link->changes(info.snapshot).isEmpty())
@@ -372,9 +372,7 @@ void CppDeclDefLinkController::updateNow()
         return;
     }
 
-    const bool valid = m_widget ? m_widget->isSemanticInfoValidExceptLocalUses()
-                                : document->isSemanticInfoValid();
-    if (!valid)
+    if (!document->isSemanticInfoValid())
         return;
 
     Snapshot snapshot = CppModelManager::snapshot();
@@ -435,12 +433,9 @@ void applyDeclDefLinkChangesIn(Core::IEditor *editor, bool jumpToMatch)
     }
 }
 
-// The parse this link was worked out from. The widget keeps its own copy with
-// the local uses patched in; the document's is the same one otherwise.
+// The parse this link was worked out from, which is the document's.
 static Snapshot snapshotOf(Core::IEditor *editor)
 {
-    if (const auto widget = qobject_cast<CppEditorWidget *>(editor ? editor->widget() : nullptr))
-        return widget->semanticInfo().snapshot;
     if (const auto document
         = qobject_cast<CppEditorDocument *>(editor ? editor->document() : nullptr)) {
         return document->semanticInfo().snapshot;
