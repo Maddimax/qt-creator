@@ -71899,3 +71899,102 @@ this batch, and no `.qbs`: it is two tests and what they measured.
    (entry 340), which holds `AbstractView::isSelectedModelNode()`
    dereferencing an unattached model (entry 345) and now entry 247's
    crash at two in eight.
+
+## 2026-09-20 — Design mode opens its file in the Qt Quick view (batch 347)
+
+Entry 342's step 4, and the last of its four. Design mode no longer
+needs the file it designs to be open in a widget editor.
+
+### The gap closed
+
+`QtQuickDesignerFactory::setUsesQuickEditor(true)` - one line, resting
+on the three batches before it: the text modifier over a document
+(343), the design document over a `Core::IEditor` (344), the Code view
+over a duplicate of that editor (345), and its keys and scope highlight
+shown to work in either view (346).
+
+What was checked before the line went in, rather than after:
+
+- Nothing in QmlDesigner's production code casts the designer's editor
+  to a widget any more. The last one was `DesignDocument::textEditor()`,
+  which has had no callers since the Code view stopped asking, and is
+  removed here.
+- `ShortCutManager::updateActions()` takes a `Core::IEditor *` and only
+  asks it for its document.
+- Format-on-save (`qmljseditorplugin.cpp`) works on the
+  `QmlJSEditorDocument`, not on a view - entry 337's doing.
+- `QmlJSEditorFactory(Utils::Id)`, which the designer's factory derives
+  from, was already set up for both views: the editor decorator has a
+  branch for a relay rather than a widget, the context menu is named by
+  id, and the optional actions are the factory's.
+- `QmlJSEditorFactory()`'s comment said the designer's factory "builds
+  a widget subclass of its own and keeps it". It does not, and did not;
+  the comment is now about what the id-taking constructor leaves to its
+  callers.
+
+Taking the header's include of `texteditor.h` out with `textEditor()`
+broke two files, which is what that include had been covering:
+
+- `modelnodeoperations.cpp` builds a hidden `QPlainTextEdit` purely to
+  hold text for a `NotIndentingTextEditModifier`, and was getting the
+  class through `designdocument.h`. It includes it itself now. A
+  `QTextDocument` would do the same job without a widget - one for the
+  standing list.
+- `designdocument.cpp` calls `TextEditor::undoIn()`/`redoIn()` and had
+  been reaching their declarations through its own header. It includes
+  `texteditor.h` where they are used, and the header forward-declares
+  `TextEditor::TextDocument`, which is all it needs. `QStackedWidget`
+  and a forward-declared `QPlainTextEdit` went too; neither was used.
+
+### The test
+
+`QmlDesigner::TextEditorViewTest::testADesignerEditorIsQuickByDefault`,
+one row and no flipping of anything: a `Form.ui.qml` opened by the
+designer's editor id is not a widget editor, and neither is the Code
+view's duplicate of it beside the form. The other tests in this file
+and in `designdocument.cpp` keep a row per view and flip the factory
+themselves, so both views stay covered.
+
+### Negative control
+
+One, which is the line itself taken back out: the QmlDesigner suite
+goes 15 passed, 1 failed - "the designer's factory still opens a widget
+editor" - and nothing else moves, because the two-row tests set the
+view they want. Exactly the one assertion this line decides.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     827 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlJSEditor     49 passed, 0 failed, 0 skipped, exit 0
+    -test QmlDesigner     16 passed, 0 failed, 0 skipped, exit 0
+                     (loaded; four test objects, 3 + 4 + 4 + 5)
+
+The QmlDesigner suite is the measurement that matters here: every one
+of those tests now runs against a Design mode whose editor is the Qt
+Quick one unless the test says otherwise. Entry 247's crash did not
+show in these three TextEditor runs. The soft asserts stay at nine per
+run. No `.qbs` edited: no file was added or removed.
+
+### What is next
+
+Entry 342's plan is finished. What is left of this migration:
+
+1. The dropped asset (entry 346) - not a test but a judgement, and it
+   wants a dropped asset in a running Creator to settle.
+2. The inline diff editor's own port (entry 341), whose editor is a
+   widget of its own.
+3. The standing list (entry 340), which now holds three things worth
+   doing on their own: `AbstractView::isSelectedModelNode()`
+   dereferencing an unattached model, entry 247's crash at two runs in
+   eight, and the hidden `QPlainTextEdit` above.
+4. The goal all of this is for: C++. `CppEditorFactory` claims the C++
+   mime types directly, and what CppEditor configures on a
+   `TextEditorWidget` - completion, quick fixes, follow symbol,
+   refactoring, the optional-action mask - needs somewhere to go on the
+   Qt Quick side first. That census is the next thing to take, and it
+   is the same shape as the one entry 329 took for QmlDesigner: find
+   every production site that reaches for a widget, close them one at a
+   time, then flip.

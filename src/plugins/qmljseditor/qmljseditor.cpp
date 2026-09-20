@@ -1068,9 +1068,9 @@ private:
 QmlJSEditorFactory::QmlJSEditorFactory()
     : QmlJSEditorFactory(Constants::C_QMLJSEDITOR_ID)
 {
-    // Only the language's own factory: QmlDesigner's, deriving from this one,
-    // builds a widget subclass of its own and keeps it. Qbs's says so for
-    // itself.
+    // The language's own factory. The id-taking constructor below leaves this
+    // to whoever calls it, and Qbs's factory and QmlDesigner's both say so for
+    // themselves.
     setUsesQuickEditor(true);
 }
 

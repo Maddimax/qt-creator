@@ -131,6 +131,11 @@ QtQuickDesignerFactory::QtQuickDesignerFactory()
 {
     setDisplayName(Tr::tr("Qt Quick Designer"));
 
+    // Design mode stands on a Core::IEditor now - the design document, the
+    // Code view over a duplicate of it, and the keys that reach the text - so
+    // the file being designed opens in the same view as every other QML file.
+    setUsesQuickEditor(true);
+
     addMimeType(Utils::Constants::QMLUI_MIMETYPE);
     setDocumentCreator([this]() {
         auto document = new QmlJSEditor::QmlJSEditorDocument(id());

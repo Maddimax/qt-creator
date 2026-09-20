@@ -73,6 +73,7 @@
 #include <QGridLayout>
 #include <QMessageBox>
 #include <QPair>
+#include <QPlainTextEdit>
 #include <QPushButton>
 
 #include <algorithm>

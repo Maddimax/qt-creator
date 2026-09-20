@@ -36,6 +36,9 @@
 
 #include <qmljs/qmljsmodelmanagerinterface.h>
 
+#include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
+
 #include <utils/algorithm.h>
 #include <utils/qtcassert.h>
 
@@ -886,13 +889,6 @@ Core::IEditor *DesignDocument::editor() const
     NanotraceHR::Tracer tracer{"design document editor", category()};
 
     return m_textEditor.data();
-}
-
-TextEditor::BaseTextEditor *DesignDocument::textEditor() const
-{
-    NanotraceHR::Tracer tracer{"design document text editor", category()};
-
-    return qobject_cast<TextEditor::BaseTextEditor *>(editor());
 }
 
 TextEditor::TextDocument *DesignDocument::textDocument() const

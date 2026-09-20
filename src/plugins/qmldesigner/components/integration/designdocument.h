@@ -5,7 +5,6 @@
 
 #include <basetexteditmodifier.h>
 
-#include <texteditor/texteditor.h>
 #include <componenttextmodifier.h>
 #include <coreplugin/icontext.h>
 #include <model.h>
@@ -17,20 +16,15 @@
 
 #include <QObject>
 #include <QString>
-#include <QStackedWidget>
 
 #include <memory>
-
-QT_BEGIN_NAMESPACE
-class QPlainTextEdit;
-QT_END_NAMESPACE
 
 namespace ProjectExplorer {
 class Target;
 }
 
 namespace TextEditor {
-class TextEditorWidget;
+class TextDocument;
 }
 
 namespace QmlDesigner {
@@ -83,8 +77,6 @@ public:
     void setEditor(Core::IEditor *editor);
     Core::IEditor *editor() const;
 
-    // Null unless the editor is a widget one; only the Code view still asks.
-    TextEditor::BaseTextEditor *textEditor() const;
     Utils::FilePath fileName() const;
     ProjectExplorer::Target *currentTarget() const;
     bool isDocumentLoaded() const;

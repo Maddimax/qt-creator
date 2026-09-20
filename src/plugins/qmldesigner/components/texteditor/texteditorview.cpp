@@ -699,6 +699,32 @@ private slots:
                  "Ctrl+Left would fire a designer shortcut instead of reaching the text");
 
     }
+    // The switch itself. No row for the widget view: this is about what the
+    // designer's factory does when nobody has flipped it, which is what a
+    // reader opening a .ui.qml gets.
+    void testADesignerEditorIsQuickByDefault()
+    {
+        Utils::TemporaryDirectory dir("qmldesigner-default-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Form.ui.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem {\n    width: 10\n}\n"));
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(
+            file, QmlJSEditor::Constants::C_QTQUICKDESIGNEREDITOR_ID);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "the designer's factory still opens a widget editor");
+
+        // And the Code view beside it, which duplicates that editor.
+        TextEditorView * const view = QmlDesignerPlugin::instance()->viewManager().textEditorView();
+        QVERIFY(view);
+        QVERIFY2(view->editor(), "the Code view has no editor of its own");
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(view->editor()),
+                 "the Code view still shows a widget editor");
+    }
 };
 
 QObject *createTextEditorViewTest()
