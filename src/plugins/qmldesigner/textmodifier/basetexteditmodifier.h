@@ -7,7 +7,7 @@
 
 #include <plaintexteditmodifier.h>
 
-#include <texteditor/texteditor.h>
+#include <texteditor/textdocument.h>
 
 #include <QStringList>
 
@@ -15,10 +15,15 @@ namespace QmlJS { class Snapshot; }
 
 namespace QmlDesigner {
 
+// The rewriter's way into the text of an open QML file: the document, which
+// either view shows. What this adds to the plain modifier - the tab settings,
+// the ids the semantic info knows, positions as lines and columns - are all
+// the document's; it used to be built on the widget editor and so was the
+// design document behind it.
 class QMLDESIGNER_EXPORT BaseTextEditModifier : public PlainTextEditModifier
 {
 public:
-    BaseTextEditModifier(TextEditor::TextEditorWidget *textEdit);
+    BaseTextEditModifier(TextEditor::TextDocument *document);
 
     void indentLines(int startLine, int endLine) override;
     void indent(int offset, int length) override;
@@ -27,11 +32,17 @@ public:
 
     bool renameId(const QString &oldId, const QString &newId) override;
     QString moveToComponent(int nodeOffset, const QString &importData) override;
+
     QStringList autoComplete(QTextDocument *textDocument, int position, bool explicitComplete) override;
+
     void convertPosition(int pos, int *line, int *column) const override;
 
 private:
-    TextEditor::TextEditorWidget *m_textEdit;
+    TextEditor::TextDocument *m_document;
 };
+
+#ifdef WITH_TESTS
+QObject *createBaseTextEditModifierTest();
+#endif
 
 } // namespace QmlDesigner

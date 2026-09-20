@@ -250,7 +250,8 @@ void matchComponentFromObjectDefQuickFix(const QmlJSQuickFixAssistInterface *int
     }
 }
 
-QString performComponentFromObjectDef(QmlJSEditorWidget *editor,
+QString performComponentFromObjectDef(QmlJSEditorDocument *document,
+                                      const QTextCursor &cursor,
                                       const QString &fileName,
                                       QmlJS::AST::UiObjectDefinition *objDef,
                                       const QString &importData)
@@ -259,8 +260,7 @@ QString performComponentFromObjectDef(QmlJSEditorWidget *editor,
                                         QmlJS::ModelManagerInterface::instance()->snapshot());
     QmlJSRefactoringFilePtr current = refactoring.qmlJSFile(Utils::FilePath::fromString(fileName));
 
-    QmlJSQuickFixAssistInterface interface(editor->textDocument(), editor->textCursor(),
-                                           editor->qmlJsEditorDocument()->semanticInfo(),
+    QmlJSQuickFixAssistInterface interface(document, cursor, document->semanticInfo(),
                                            TextEditor::AssistReason::ExplicitlyInvoked);
     Operation operation(&interface, objDef);
 

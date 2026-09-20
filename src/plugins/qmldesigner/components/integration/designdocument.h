@@ -4,6 +4,8 @@
 #pragma once
 
 #include <basetexteditmodifier.h>
+
+#include <texteditor/texteditor.h>
 #include <componenttextmodifier.h>
 #include <coreplugin/icontext.h>
 #include <model.h>

@@ -664,10 +664,15 @@ static void addSignal(const QString &typeName,
                               otherModel->projectStorageDependencies().modulesStorage,
                               RewriterView::Amend);
 
-    auto textEdit = qobject_cast<TextEditor::TextEditorWidget*>
-            (Core::EditorManager::currentEditor()->widget());
+    // The document, not a widget: the current editor may be the Qt Quick one,
+    // which has none - and the modifier built on a null widget was a crash.
+    Core::IEditor * const currentEditor = Core::EditorManager::currentEditor();
+    TextEditor::TextDocument * const document
+        = currentEditor ? qobject_cast<TextEditor::TextDocument *>(currentEditor->document())
+                        : nullptr;
+    QTC_ASSERT(document, return);
 
-    BaseTextEditModifier modifier(textEdit);
+    BaseTextEditModifier modifier(document);
 
     rewriterView.setCheckSemanticErrors(false);
     rewriterView.setTextModifier(&modifier);

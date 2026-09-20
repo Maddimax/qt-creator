@@ -71382,3 +71382,115 @@ no change to control. No `.qbs` edited.
 1. Step 1 above, the text modifier on the document.
 2. The inline diff editor's own port (entry 341), ghost rows first.
 3. The standing list's process and platform items (entry 340).
+
+## 2026-09-20 — The text modifier on the document (batch 343)
+
+Entry 342's step 1, the first of the four that take Design mode's text
+editor off the widget.
+
+### The gap closed
+
+`BaseTextEditModifier` is the rewriter's way into an open QML file: the
+design document builds one and hands it to the `RewriterView`, and the
+"add signal handler" operation builds one of its own over the current
+editor. It took a `TextEditorWidget *` and read everything through it.
+Its base, `PlainTextEditModifier`, was on the `QTextDocument` already;
+what the derived class took from the widget was the tab settings, the
+`QmlJSEditorDocument` behind it (for `renameId()`, `autoComplete()`
+and `moveToComponent()`), positions as lines and columns, and one call
+into QmlJSEditor - `performComponentFromObjectDef(QmlJSEditorWidget *,
+...)` - which itself read the widget for its document, its caret and
+the semantic info. So a design document could only stand on a widget
+editor, which is why the factory's switch has to wait for this.
+
+- `BaseTextEditModifier(TextEditor::TextDocument *)`: the tab settings
+  are the document's; the QML document is a cast of it; the positions
+  are `Utils::Text::convertPosition()` on its `QTextDocument`, which is
+  exactly what the widget's `convertPosition()` was (measured: it
+  answers a one-based line and a zero-based column; `qmldesignerplugin.cpp`
+  subtracts one from that column with a comment saying it is one-based,
+  which is step 2's to look at).
+- `performComponentFromObjectDef(QmlJSEditorDocument *, const
+  QTextCursor &, ...)`: the three things it read from the widget, handed
+  in. The modifier was its only caller.
+- `DesignDocument::loadDocument()` hands the modifier
+  `edit->textDocument()` and is otherwise unchanged; it still takes the
+  widget, and giving it the editor is step 2.
+- `modelnodeoperations.cpp`'s `addSignal()` built the modifier on
+  `qobject_cast<TextEditorWidget *>(currentEditor()->widget())` - null
+  for a Qt Quick editor, and the modifier's constructor dereferenced it
+  at once. It asks the current editor's document now, and bows out with
+  a `QTC_ASSERT` where there is none. A crash closed on the way; not
+  tested on its own, since the operation needs a model, a rewriter and
+  an external-dependencies object to drive, and the modifier under it is
+  what this batch's test covers.
+
+### The test
+
+`QmlDesigner::BaseTextEditModifierTest::testTheModifierWorksOnEitherViewsDocument`,
+two rows, registered beside the binding editor's test and run with
+QmlDesigner loaded: a QML file with a crooked line and an id used twice,
+opened in the view of the row; the document given tab settings of two
+spaces, unlike the globals; a modifier built on the document. Its tab
+settings are the document's; `convertPosition()` of the crooked line's
+`Rectangle` is line 3, column 6; once the semantic info has learnt the
+id, `renameId("box", "frame")` renames both places and leaves no `box`;
+`indentLines()` on the crooked line puts it at two spaces - the
+document's, so a modifier reading the globals would give four. The
+rename comes before the re-indent, because the rename goes by the
+positions the semantic info saw and the re-indent would move them.
+
+One build failed before a run: `designdocument.h` names
+`TextEditor::BaseTextEditor` and had the header for it only through the
+modifier's, which no longer includes the widget editor; it includes
+`texteditor/texteditor.h` itself now. Then, in the VM, at the first run:
+4/0, both rows, exit 0, with QmlDesigner loaded, no warning of this
+batch's.
+
+### Negative controls
+
+Two, patched into the uncommitted tree by a script that restores by the
+reverse replacement and compares the diff's hash before and after
+(equal). Each is a build, the stock runner's sync test and the
+modifier's test with QmlDesigner loaded. Both fail both rows, which is
+what they should: the modifier's code is one path for either view, and
+the two rows say the two documents it is handed are the same kind of
+thing.
+
+- A, the modifier's cast to the QML document answers null - it knows
+  no QML document, so nothing id-shaped works: 2/2, "'modifier.renameId(
+  "box", "frame")' returned FALSE. (the modifier would not rename the
+  id)". The first attempt at this control wrote `qobject_cast<...>(nullptr)`,
+  which does not compile (the overload is ambiguous on a literal null);
+  the second, a `static_cast`, is what bit.
+- B, `indentLines()` reads the global tab settings instead of the
+  document's: 2/2, "Actual: "    Rectangle { id: frame; ... }", Expected:
+  "  Rectangle { ... }"" - four spaces, the globals', against the
+  document's two.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     824 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlJSEditor     49 passed, 0 failed, 0 skipped, exit 0
+    -test QmlDesigner      7 passed, 0 failed, 0 skipped, exit 0
+                         (QmlDesigner loaded; two test objects, 4 + 3)
+
+QmlJSEditor ran because `performComponentFromObjectDef()` is its;
+unchanged at 49. QmlDesigner is the modifier's four rows and the
+binding editor's three. TextEditor and QuickUi unchanged; the soft
+asserts stay at nine per TextEditor run, no typing flake in the three
+runs, no memory kill. No `.qbs` edited: no file was added or removed.
+
+### What is next
+
+1. Entry 342's step 2: `DesignDocument` off the widget -
+   `loadDocument(Core::IEditor *)`, the undo/redo state from the
+   `QTextDocument`, `textEditor()` retired for `editor()`, and the
+   plugin's eight uses with it (the `column - 1` above among them).
+2. Steps 3 and 4: the Code view over an editor duplicate, then the
+   factory's switch.
+3. The inline diff editor's own port (entry 341); the standing list
+   (entry 340).

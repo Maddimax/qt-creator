@@ -15,6 +15,7 @@
 #include "settingspage.h"
 #include "shortcutmanager.h"
 
+#include <basetexteditmodifier.h>
 #include <bindingeditor/bindingeditorwidget.h>
 #include <colortool/colortool.h>
 #include <connectionview.h>
@@ -259,6 +260,7 @@ Utils::Result<> QmlDesignerPlugin::initialize(const QStringList &)
 
 #ifdef WITH_TESTS
     addTestCreator(&createBindingEditorTest);
+    addTestCreator(&createBaseTextEditModifierTest);
 #endif
 
     return Utils::ResultOk;

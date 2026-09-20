@@ -441,7 +441,7 @@ void DesignDocument::loadDocument(TextEditor::TextEditorWidget *edit)
             this,
             &DesignDocument::dirtyStateChanged);
 
-    m_documentTextModifier.reset(new BaseTextEditModifier(edit));
+    m_documentTextModifier.reset(new BaseTextEditModifier(edit->textDocument()));
 
     connect(m_documentTextModifier.get(),
             &TextModifier::textChanged,
