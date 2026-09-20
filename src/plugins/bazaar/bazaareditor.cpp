@@ -19,9 +19,11 @@ namespace Bazaar::Internal {
 
 QString bazaarChangeUnderCursor(const QTextCursor &cursorIn)
 {
-    static const QRegularExpression changesetId(QLatin1String(Constants::CHANGESET_ID));
-    static const QRegularExpression exactChangesetId(
-        QLatin1String(Constants::CHANGESET_ID_EXACT));
+    // Braces, not parentheses: with a named constant inside, the parenthesised
+    // form declares a function taking a QLatin1String.
+    static const QRegularExpression changesetId{QLatin1String(Constants::CHANGESET_ID)};
+    static const QRegularExpression exactChangesetId{
+        QLatin1String(Constants::CHANGESET_ID_EXACT)};
     // The test is done in two steps: first we check if the line contains a
     // changesetId. Then we check if the cursor is over the changesetId itself
     // and not over "revno" or another part of the line.
