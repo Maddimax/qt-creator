@@ -36,6 +36,7 @@
 #include <utils/changeset.h>
 #include <utils/fileutils.h>
 #include <utils/qtcassert.h>
+#include <utils/textutils.h>
 #include <utils/uniqueobjectptr.h>
 
 #include <QDebug>
@@ -57,14 +58,21 @@ namespace QmlDesigner {
 
 class TextEditorStatusBar;
 
+static QTextDocument *textOf(Core::IEditor *editor)
+{
+    auto * const document = editor ? qobject_cast<TextEditor::TextDocument *>(editor->document())
+                                   : nullptr;
+    return document ? document->document() : nullptr;
+}
+
 class TextEditorWidget : public QWidget
 {
 public:
     TextEditorWidget(TextEditorView *textEditorView);
 
-    void setTextEditor(Utils::UniqueObjectLatePtr<TextEditor::BaseTextEditor> textEditor);
+    void setEditor(Utils::UniqueObjectLatePtr<Core::IEditor> editor);
 
-    TextEditor::BaseTextEditor *textEditor() const { return m_textEditor.get(); }
+    Core::IEditor *editor() const { return m_editor.get(); }
 
     void contextHelp(const Core::IContext::HelpCallback &callback) const;
     void jumpTextCursorToSelectedModelNode();
@@ -87,8 +95,11 @@ protected:
 
 private:
     void updateSelectionByCursorPosition();
+    void gotoPosition(int position);
+    // A point of this widget's, in the coordinates of the view inside it.
+    QPoint mapToEditor(const QPoint &point) const;
 
-    Utils::UniqueObjectLatePtr<TextEditor::BaseTextEditor> m_textEditor;
+    Utils::UniqueObjectLatePtr<Core::IEditor> m_editor;
     QPointer<TextEditorView> m_textEditorView;
     QTimer m_updateSelectionTimer;
     TextEditorStatusBar *m_statusBar = nullptr;
@@ -123,24 +134,41 @@ TextEditorWidget::TextEditorWidget(TextEditorView *textEditorView)
             &TextEditorWidget::updateSelectionByCursorPosition);
 }
 
-void TextEditorWidget::setTextEditor(
-    Utils::UniqueObjectLatePtr<TextEditor::BaseTextEditor> textEditor)
+void TextEditorWidget::setEditor(Utils::UniqueObjectLatePtr<Core::IEditor> editor)
 {
-    std::swap(m_textEditor, textEditor);
+    std::swap(m_editor, editor);
 
-    if (m_textEditor) {
-        m_layout->insertWidget(0, m_textEditor->editorWidget());
+    if (m_editor) {
+        QWidget * const view = m_editor->widget();
+        m_layout->insertWidget(0, view);
 
-        setFocusProxy(m_textEditor->editorWidget());
+        setFocusProxy(view);
 
-        connect(m_textEditor->editorWidget(), &Utils::PlainTextEdit::cursorPositionChanged, this, [this] {
+        TextEditor::whenCursorMoved(m_editor.get(), this, [this] {
             // Cursor position is changed by rewriter
             if (!m_blockCursorSelectionSynchronisation)
                 m_updateSelectionTimer.start();
         });
 
-        m_textEditor->editorWidget()->installEventFilter(this);
+        view->installEventFilter(this);
     }
+}
+
+QPoint TextEditorWidget::mapToEditor(const QPoint &point) const
+{
+    return m_editor ? m_editor->widget()->mapFrom(this, point) : point;
+}
+
+void TextEditorWidget::gotoPosition(int position)
+{
+    QTextDocument * const text = textOf(m_editor.get());
+    QTC_ASSERT(text, return);
+
+    // A one-based line and a zero-based column, which is what gotoLine() takes.
+    int line = 0;
+    int column = 0;
+    Utils::Text::convertPosition(text, position, &line, &column);
+    m_editor->gotoLine(line, column);
 }
 
 void TextEditorWidget::contextHelp(const Core::IContext::HelpCallback &callback) const
@@ -156,7 +184,7 @@ void TextEditorWidget::updateSelectionByCursorPosition()
     if (!m_textEditorView->model())
         return;
 
-    const int cursorPosition = m_textEditor->editorWidget()->textCursor().position();
+    const int cursorPosition = TextEditor::textCursorOf(m_editor.get()).position();
     RewriterView *rewriterView = m_textEditorView->model()->rewriterView();
 
     m_blockRoundTrip = true;
@@ -175,10 +203,7 @@ void TextEditorWidget::jumpToModelNode(const ModelNode &modelNode)
     m_blockCursorSelectionSynchronisation = true;
     const int nodeOffset = rewriterView->nodeOffset(modelNode);
     if (nodeOffset > 0) {
-        int line, column;
-        m_textEditor->editorWidget()->convertPosition(nodeOffset, &line, &column);
-        m_textEditor->editorWidget()->gotoLine(line, column);
-
+        gotoPosition(nodeOffset);
         highlightToModelNode(modelNode);
     }
     m_blockCursorSelectionSynchronisation = false;
@@ -188,14 +213,8 @@ void TextEditorWidget::highlightToModelNode(const ModelNode &modelNode)
 {
     RewriterView *rewriterView = m_textEditorView->model()->rewriterView();
     const int nodeOffset = rewriterView->nodeOffset(modelNode);
-    if (nodeOffset > 0) {
-        int line, column;
-        m_textEditor->editorWidget()->convertPosition(nodeOffset, &line, &column);
-
-        QTextCursor cursor = m_textEditor->textCursor();
-        cursor.setPosition(nodeOffset);
-        m_textEditor->editorWidget()->updateFoldingHighlight(cursor);
-    }
+    if (nodeOffset > 0)
+        TextEditor::highlightScopeAtIn(m_editor.get(), nodeOffset);
 }
 
 void TextEditorWidget::jumpTextCursorToSelectedModelNode()
@@ -208,7 +227,7 @@ void TextEditorWidget::jumpTextCursorToSelectedModelNode()
     if (hasFocus())
         return;
 
-    if (m_textEditor && m_textEditor->editorWidget()->hasFocus())
+    if (m_editor && TextEditor::hasFocusIn(m_editor.get()))
         return;
 
     if (!m_textEditorView->selectedModelNodes().isEmpty())
@@ -234,9 +253,9 @@ void TextEditorWidget::jumpTextCursorToSelectedModelNode()
 
 void TextEditorWidget::gotoCursorPosition(int line, int column)
 {
-    if (m_textEditor) {
-        m_textEditor->editorWidget()->gotoLine(line, column);
-        m_textEditor->editorWidget()->setFocus();
+    if (m_editor) {
+        m_editor->gotoLine(line, column);
+        TextEditor::setFocusIn(m_editor.get());
     }
 }
 
@@ -254,8 +273,8 @@ void TextEditorWidget::clearStatusBar()
 
 int TextEditorWidget::currentLine() const
 {
-    if (m_textEditor)
-        return m_textEditor->currentLine();
+    if (m_editor)
+        return TextEditor::lineColumnOf(m_editor.get()).line;
     return -1;
 }
 
@@ -266,8 +285,8 @@ void TextEditorWidget::setBlockCursorSelectionSynchronisation(bool b)
 
 bool TextEditorWidget::eventFilter(QObject *, QEvent *event)
 {
-    //do not call the eventfilter when the m_textEditor is gone
-    if (!TextEditor::TextEditorWidget::fromEditor(m_textEditor.get()))
+    //do not call the eventfilter when the editor is gone
+    if (!m_editor)
         return false;
 
     static std::vector<int> overrideKeys = { Qt::Key_Delete, Qt::Key_Backspace, Qt::Key_Insert,
@@ -301,10 +320,8 @@ bool TextEditorWidget::eventFilter(QObject *, QEvent *event)
                 return true;
             }
         }
-    } else if (event->type() == QEvent::FocusIn) {
-        m_textEditor->editorWidget()->updateFoldingHighlight(QTextCursor());
-    } else if (event->type() == QEvent::FocusOut) {
-        m_textEditor->editorWidget()->updateFoldingHighlight(QTextCursor());
+    } else if (event->type() == QEvent::FocusIn || event->type() == QEvent::FocusOut) {
+        TextEditor::clearScopeHighlightIn(m_editor.get());
     }
     return false;
 }
@@ -329,8 +346,8 @@ void TextEditorWidget::dragEnterEvent(QDragEnterEvent *dragEnterEvent)
 
 void TextEditorWidget::dragMoveEvent(QDragMoveEvent *dragMoveEvent)
 {
-    QTextCursor cursor = m_textEditor->editorWidget()->cursorForPosition(dragMoveEvent->position().toPoint());
-    const int cursorPosition = cursor.position();
+    const int cursorPosition = TextEditor::positionAtIn(
+        m_editor.get(), mapToEditor(dragMoveEvent->position().toPoint()));
     RewriterView *rewriterView = m_textEditorView->model()->rewriterView();
 
     QTC_ASSERT(rewriterView, return );
@@ -343,8 +360,8 @@ void TextEditorWidget::dragMoveEvent(QDragMoveEvent *dragMoveEvent)
 
 void TextEditorWidget::dropEvent(QDropEvent *dropEvent)
 {
-    QTextCursor cursor = m_textEditor->editorWidget()->cursorForPosition(dropEvent->position().toPoint());
-    const int cursorPosition = cursor.position();
+    const int cursorPosition = TextEditor::positionAtIn(
+        m_editor.get(), mapToEditor(dropEvent->position().toPoint()));
     RewriterView *rewriterView = m_textEditorView->model()->rewriterView();
 
     QTC_ASSERT(rewriterView, return);
@@ -420,7 +437,7 @@ void TextEditorWidget::dropEvent(QDropEvent *dropEvent)
         actionManager.handleExternalAssetsDrop(dropEvent->mimeData());
     }
     m_textEditorView->model()->endDrag();
-    m_textEditor->editorWidget()->updateFoldingHighlight(QTextCursor());
+    TextEditor::clearScopeHighlightIn(m_editor.get());
 }
 
 
@@ -452,7 +469,7 @@ void TextEditorView::modelAboutToBeDetached(Model *model)
     AbstractView::modelAboutToBeDetached(model);
 
     if (m_widget)
-        m_widget->setTextEditor(nullptr);
+        m_widget->setEditor(nullptr);
     disconnect(m_designDocumentConnection);
 }
 
@@ -466,9 +483,9 @@ WidgetInfo TextEditorView::widgetInfo()
                             DesignerWidgetFlags::IgnoreErrors);
 }
 
-TextEditor::BaseTextEditor *TextEditorView::textEditor()
+Core::IEditor *TextEditorView::editor()
 {
-    return m_widget->textEditor();
+    return m_widget->editor();
 }
 
 void TextEditorView::selectedNodesChanged(const QList<ModelNode> &/*selectedNodeList*/,
@@ -538,12 +555,12 @@ void TextEditorView::reformatFile()
         if (currentDocument->source() == newText)
             return;
 
-        const bool hasEditor = m_widget->textEditor();
+        const bool hasEditor = m_widget->editor();
         if (!hasEditor)
             createTextEditor();
 
-        QTextCursor tc = m_widget->textEditor()->textCursor();
-        int pos = m_widget->textEditor()->textCursor().position();
+        QTextCursor tc = TextEditor::textCursorOf(m_widget->editor());
+        const int pos = tc.position();
 
         Utils::ChangeSet changeSet;
         changeSet.replace(0, document->plainText().size(), newText);
@@ -553,10 +570,10 @@ void TextEditorView::reformatFile()
         tc.setPosition(pos);
         tc.endEditBlock();
 
-        m_widget->textEditor()->setTextCursor(tc);
+        TextEditor::setTextCursorOf(m_widget->editor(), tc);
 
         if (!hasEditor)
-            m_widget->setTextEditor(nullptr);
+            m_widget->setEditor(nullptr);
     }
 }
 
@@ -565,29 +582,113 @@ void TextEditorView::jumpToModelNode(const ModelNode &modelNode)
     m_widget->jumpToModelNode(modelNode);
 
     m_widget->window()->windowHandle()->requestActivate();
-    m_widget->textEditor()->widget()->setFocus();
-    m_widget->textEditor()->editorWidget()->updateFoldingHighlight(QTextCursor());
+    TextEditor::setFocusIn(m_widget->editor());
+    TextEditor::clearScopeHighlightIn(m_widget->editor());
 }
 
 void TextEditorView::createTextEditor()
 {
     DesignDocument *designDocument = QmlDesignerPlugin::instance()->currentDesignDocument();
-    TextEditor::BaseTextEditor * const source = designDocument->textEditor();
+    Core::IEditor * const source = designDocument->editor();
     QTC_ASSERT(source, return);
-    auto textEditor = Utils::UniqueObjectLatePtr<TextEditor::BaseTextEditor>(source->duplicate());
+    auto editor = Utils::UniqueObjectLatePtr<Core::IEditor>(source->duplicate());
+    QTC_ASSERT(editor, return);
     static constexpr char qmlTextEditorContextId[] = "QmlDesigner::TextEditor";
-    IContext::attach(textEditor->widget(),
+    IContext::attach(editor->widget(),
                      Context(qmlTextEditorContextId, Constants::qtQuickToolsMenuContextId),
                      [this](const IContext::HelpCallback &callback) {
                          m_widget->contextHelp(callback);
                      });
-    m_widget->setTextEditor(std::move(textEditor));
+    m_widget->setEditor(std::move(editor));
 
     disconnect(m_designDocumentConnection);
     m_designDocumentConnection = connect(designDocument,
                                          &DesignDocument::designDocumentClosed,
                                          m_widget,
-                                         [this] { m_widget->setTextEditor(nullptr); });
+                                         [this] { m_widget->setEditor(nullptr); });
 }
 
 } // namespace QmlDesigner
+
+#ifdef WITH_TESTS
+
+#include <coreplugin/editormanager/ieditorfactory.h>
+#include <qmljseditor/qmljseditorconstants.h>
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
+
+namespace QmlDesigner {
+
+class TextEditorViewTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheCodeViewStandsOnEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheCodeViewStandsOnEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmldesigner-code-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Form.ui.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\n"
+                                       "Item {\n"
+                                       "    Rectangle {\n"
+                                       "        id: box\n"
+                                       "    }\n"
+                                       "}\n"));
+
+        const Utils::Id designerId(QmlJSEditor::Constants::C_QTQUICKDESIGNEREDITOR_ID);
+        auto * const factory = dynamic_cast<TextEditor::TextEditorFactory *>(
+            Core::IEditorFactory::editorFactoryForId(designerId));
+        QVERIFY2(factory, "the designer's editor factory is not a text editor factory");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        // Opening a designer editor enters Design mode, which loads the design
+        // document and attaches the views - the Code view among them.
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file, designerId);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        TextEditorView * const view = QmlDesignerPlugin::instance()->viewManager().textEditorView();
+        QVERIFY(view);
+        QVERIFY2(view->model(), "Design mode attached no model to the Code view");
+
+        // Its own editor over the same document: a duplicate, in the view the
+        // file was opened in.
+        Core::IEditor * const code = view->editor();
+        QVERIFY2(code, "the Code view has no editor of its own");
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(code) == nullptr, quick);
+        QVERIFY2(code != editor, "the Code view took the editor rather than a duplicate");
+        QCOMPARE(code->document(), editor->document());
+
+        // Where the Code view is sent is where its caret goes.
+        view->gotoCursorPosition(4, 0);
+        QCOMPARE(TextEditor::lineColumnOf(code).line, 4);
+        view->gotoCursorPosition(2, 0);
+        QCOMPARE(TextEditor::lineColumnOf(code).line, 2);
+    }
+};
+
+QObject *createTextEditorViewTest()
+{
+    return new TextEditorViewTest;
+}
+
+} // namespace QmlDesigner
+
+#include "texteditorview.moc"
+
+#endif // WITH_TESTS

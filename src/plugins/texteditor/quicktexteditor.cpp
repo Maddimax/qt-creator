@@ -14404,6 +14404,65 @@ private slots:
                  "a rect for the first two blocks reaches into the third");
     }
 
+    // The other direction: a point on the text is a position in the document.
+    // What a drop lands on - QmlDesigner's Code view asks this of whichever
+    // view the file it is showing opened in.
+    void testAPointOnTheTextIsAPositionInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAPointOnTheTextIsAPositionInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-point");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("point.py");
+        //                                 0123456789012345678901
+        QVERIFY(file.writeFileContents("alpha bravo\ncharlie\ndelta\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore(
+            [factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(viewportForEditor(editor) != nullptr, quick);
+
+        // Laid out, because only what is laid out has a place on screen.
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+        if (quick) {
+            TextViewport * const view = viewportForEditor(editor);
+            QTRY_VERIFY(view->visibleLineCount() > 2);
+        }
+
+        // A character is drawn somewhere; a point just inside where it is
+        // drawn is that character again. The caret rect sits at the left edge
+        // of the glyph, so a pixel to the right of it is inside the glyph and
+        // the nearest place for a caret is where it started.
+        const auto readBack = [editor](int position) {
+            const QRect drawn = TextEditor::globalRectForPositionIn(editor, position);
+            if (drawn.isEmpty())
+                return -2;
+            const QPoint inWidget = editor->widget()->mapFromGlobal(
+                QPoint(drawn.left() + 1, drawn.center().y()));
+            return TextEditor::positionAtIn(editor, inWidget);
+        };
+        QCOMPARE(readBack(0), 0);   // the 'a' of alpha
+        QCOMPARE(readBack(6), 6);   // the 'b' of bravo, along the same line
+        QCOMPARE(readBack(12), 12); // the 'c' of charlie, on the next one
+    }
+
     // What a folded row stands in for its text is the document's answer - QML
     // labels a folded object with its id - and the row the view lays out has
     // to carry it. It carried a hard-coded "..." instead, so every language's

@@ -34,6 +34,7 @@
 #include <qmljseditor/qmljseditordocument.h>
 #include <sourcetool/sourcetool.h>
 #include <texttool/texttool.h>
+#include <texteditorview.h>
 #include <timelineeditor/timelineview.h>
 #include <transitioneditor/transitioneditorview.h>
 
@@ -265,6 +266,7 @@ Utils::Result<> QmlDesignerPlugin::initialize(const QStringList &)
     addTestCreator(&createBindingEditorTest);
     addTestCreator(&createBaseTextEditModifierTest);
     addTestCreator(&createDesignDocumentTest);
+    addTestCreator(&createTextEditorViewTest);
 #endif
 
     return Utils::ResultOk;

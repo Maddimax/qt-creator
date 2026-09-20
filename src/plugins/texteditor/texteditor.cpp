@@ -10717,6 +10717,55 @@ void redoIn(Core::IEditor *editor)
         view->redo();
 }
 
+int positionAtIn(Core::IEditor *editor, const QPoint &point)
+{
+    if (!editor)
+        return -1;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        // The widget's coordinates are not its viewport's: the line numbers
+        // and the folding column stand to the left of the text.
+        return widget->cursorForPosition(widget->viewport()->mapFrom(editor->widget(), point))
+            .position();
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        // The widget the caller measured against is the Qt Quick one, whose
+        // scene is its own coordinates; the view is an item inside that scene.
+        const QPointF inView = view->mapFromScene(QPointF(point));
+        return view->positionAt(inView.x(), inView.y());
+    }
+    return -1;
+}
+
+void highlightScopeAtIn(Core::IEditor *editor, int position)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        QTextCursor cursor = widget->textCursor();
+        cursor.setPosition(position);
+        widget->updateFoldingHighlight(cursor);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor)) {
+        // The view highlights by row, since that is what the reader points at.
+        const QRectF row = view->rectangleAt(position);
+        if (!row.isNull())
+            view->highlightScopeAt(row.center().y());
+    }
+}
+
+void clearScopeHighlightIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->updateFoldingHighlight(QTextCursor());
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->clearScopeHighlight();
+}
+
 void replaceIn(Core::IEditor *editor, int length, const QString &text)
 {
     QTextCursor cursor = textCursorOf(editor);

@@ -1387,6 +1387,18 @@ TEXTEDITOR_EXPORT void autoFormatIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void undoIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void redoIn(Core::IEditor *editor);
 
+// The document position under \a point, which is in the coordinates of
+// \a editor's own widget - where something was dropped, or what was pointed
+// at. Only the view can say, since it is the one that laid the text out; -1
+// where \a editor shows no text or has laid none out yet.
+TEXTEDITOR_EXPORT int positionAtIn(Core::IEditor *editor, const QPoint &point);
+
+// Highlight what encloses \a position in \a editor, the way hovering the
+// widget editor's folding column does, and take the highlight back again. For
+// a reader being shown what they are about to drop into.
+TEXTEDITOR_EXPORT void highlightScopeAtIn(Core::IEditor *editor, int position);
+TEXTEDITOR_EXPORT void clearScopeHighlightIn(Core::IEditor *editor);
+
 // Replace \a length characters from the caret in \a editor with \a text.
 TEXTEDITOR_EXPORT void replaceIn(Core::IEditor *editor, int length, const QString &text);
 

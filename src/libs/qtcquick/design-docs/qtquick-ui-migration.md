@@ -71631,3 +71631,142 @@ edited: no file was added or removed.
    `QTC_ASSERT` above going away.
 3. The inline diff editor's own port (entry 341); the standing list
    (entry 340).
+
+## 2026-09-20 — The Code view on an editor duplicate (batch 345)
+
+Entry 342's step 3, the third of the four that take Design mode's text
+editor off the widget. Step 4, the factory's switch, is what is left.
+
+### The gap closed
+
+The Code view is `QmlDesigner::TextEditorWidget`, a container in
+`texteditorview.cpp` holding a *duplicate* of the editor behind the
+design document, with a status bar above it and a find toolbar below.
+It held that duplicate as a `TextEditor::BaseTextEditor` and reached
+through `editorWidget()` for everything: the widget to put in its
+layout and to make its focus proxy, `cursorPositionChanged` to know the
+caret moved, `textCursor()` to read it, `convertPosition()` and
+`gotoLine()` to jump to a node, `currentLine()`, `cursorForPosition()`
+for a drag and a drop, `updateFoldingHighlight()` to show what is being
+dropped into, and the widget to install its event filter on.
+
+All of it is `Core::IEditor`'s, once two things are added:
+
+- `duplicate()` is `Core::IEditor`'s own - the split view's call - and
+  both views answer it; the Qt Quick one builds its duplicate through
+  the factory a second time. So `createTextEditor()` asks
+  `designDocument->editor()` and takes an
+  `UniqueObjectLatePtr<Core::IEditor>`. Batch 344's `QTC_ASSERT` there
+  now stands for "no editor at all" rather than "not a widget editor",
+  and the Qt Quick row no longer trips it.
+- `whenCursorMoved()`, `textCursorOf()`, `lineColumnOf()`,
+  `hasFocusIn()`, `setFocusIn()` and `IEditor::gotoLine()` replace the
+  widget's own, and `Utils::Text::convertPosition()` the widget's
+  `convertPosition()`. The dead line/column computation in
+  `highlightToModelNode()` went with it.
+- Two new seams for what only a view can answer:
+  `positionAtIn(editor, point)`, the document position under a point in
+  the editor's widget, and
+  `highlightScopeAtIn()`/`clearScopeHighlightIn()`. The Qt Quick view
+  had `highlightScopeAt(y)` and `clearScopeHighlight()` already, and
+  takes a row rather than a cursor, so the seam asks `rectangleAt()`
+  where the position is drawn; the widget's
+  `updateFoldingHighlight(cursor)` with a null cursor is its clear.
+
+### A drop that landed in the wrong place
+
+The seam's test caught it: the widget row read the first character of
+the file back as position 7. `cursorForPosition()` takes the *viewport's*
+coordinates, and the Code view handed it the container's - and the line
+numbers, the marks and the folding column stand to the left of the
+viewport. So a drop into the Code view picked the node as far to the
+right of the pointer as that column is wide, and the fold highlight
+under a drag was drawn for the wrong row. `positionAtIn()` maps through
+the viewport, so both views answer where the reader pointed.
+
+### The tests
+
+- `TextEditor::Internal::QuickTextEditorTest::testAPointOnTheTextIsAPositionInEitherView`,
+  two rows, beside the test for the other direction (entry 314's
+  `globalRectForPositionIn()`). A file of three lines, shown at 400x300
+  and waited for until the Qt Quick view has laid rows out, and three
+  characters read back from a point one pixel inside where each is
+  drawn: position 0, position 6 further along the same line, position
+  12 on the next one.
+- `QmlDesigner::TextEditorViewTest::testTheCodeViewStandsOnEitherView`,
+  two rows, run with QmlDesigner loaded. It opens a `Form.ui.qml` by the
+  designer's editor id with that factory's view flipped per row -
+  which enters Design mode and attaches the views - and then: the Code
+  view has an editor of its own, in the row's view, not the same object
+  as the design document's, over the same document; and
+  `gotoCursorPosition()` puts that editor's caret on the line it names,
+  twice.
+
+What the second test does not cover, and why. Two measurements, both
+from writing it:
+
+1. The test environment has no Qt kit - the rewriter reports "The
+   Design Mode requires a valid Qt kit" and "QML module contains C++
+   plugins, currently reading type information" - so the model is the
+   root node and nothing under it, and `nodeAtTextCursorPosition()`
+   answers that root for *every* position, including one inside the
+   import line. An assertion about which node the caret picked could
+   not fail, so there is none. `nodeOffset()` of the root is -1 there,
+   which rules out testing the jump as well.
+2. Waiting for the selection to follow the caret (the 200 ms timer)
+   crashed the test: while the event loop spins, the views are detached
+   from the model, and `AbstractView::isSelectedModelNode()` dereferences
+   `model()` without asking whether it is attached. A `QTRY_` on any
+   model state is a crash in this environment. Worth fixing in
+   `abstractview.cpp` one day - every other accessor there guards.
+
+### Negative controls
+
+Three, patched into the uncommitted tree by a script that restores by
+the reverse replacement and compares the diff's hash before and after
+(equal). Each is a build and both tests.
+
+- A, `createTextEditor()` duplicates `designDocument->textEditor()`
+  again, which is the line as batch 344 left it: the designer test goes
+  3 passed, 1 failed, the Qt Quick row only - "the Code view has no
+  editor of its own". That is exactly the state this step started from,
+  and the widget row is untouched by it.
+- B, `positionAtIn()` takes the point as the viewport's: the seam test
+  goes 3/1 on the widget row, 7 instead of 0 - the defect above, put
+  back.
+- C, `positionAtIn()` skips `mapFromScene()` on the Qt Quick side: 3/1
+  on the quick row, 8 instead of 0. So the view item is not at the quick
+  widget's origin either, and the mapping is load-bearing in both views
+  rather than a formality in one.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     826 passed, 0 failed, 3 skipped, exit 0   x3
+                         and one run exit 255 at 257 passed, whose log
+                         ends in testTheCaretLandsWhereTheWidgetEditorsDoes:
+                         entry 247's crash, seen the same way in 284 and
+                         285. Not this batch's - it touches neither that
+                         test nor what it drives.
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlJSEditor     49 passed, 0 failed, 0 skipped, exit 0
+    -test QmlDesigner     15 passed, 0 failed, 0 skipped, exit 0
+                     (loaded; four test objects, 3 + 4 + 4 + 4)
+
+TextEditor's 826 is 824 plus this batch's two rows; QmlDesigner's 15 is
+344's eleven plus four. The soft asserts stay at nine per TextEditor
+run. No `.qbs` edited: no file was added or removed.
+
+### What is next
+
+1. Entry 342's step 4: `QtQuickDesignerFactory::setUsesQuickEditor(true)`,
+   one line. Before it, three things this batch leaves untested rather
+   than unported: the Code view's event filter, which takes Delete,
+   Backspace, Insert, Escape and five Ctrl chords away from the
+   designer's shortcuts and has only ever seen a `PlainTextEdit`
+   underneath; the fold highlight, whose seam has no test of its own;
+   and a drop of an asset into the Code view end to end, which needs
+   the model the test environment cannot build.
+2. The inline diff editor's own port (entry 341); the standing list
+   (entry 340), which gains `AbstractView::isSelectedModelNode()` above.

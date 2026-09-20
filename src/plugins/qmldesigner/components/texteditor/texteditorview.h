@@ -6,7 +6,7 @@
 #include <qmldesignercomponents_global.h>
 
 
-namespace TextEditor { class BaseTextEditor; }
+namespace Core { class IEditor; }
 
 namespace QmlDesigner {
 
@@ -33,7 +33,9 @@ public:
     bool hasWidget() const override { return true; }
     WidgetInfo widgetInfo() override;
 
-    TextEditor::BaseTextEditor *textEditor();
+    // The editor this view shows: a duplicate of the design document's, in
+    // whichever view that one opened in.
+    Core::IEditor *editor();
 
     void gotoCursorPosition(int line, int column);
 
@@ -48,5 +50,9 @@ private:
     QMetaObject::Connection m_designDocumentConnection;
     bool m_errorState = false;
 };
+
+#ifdef WITH_TESTS
+QObject *createTextEditorViewTest();
+#endif
 
 } // namespace QmlDesigner
