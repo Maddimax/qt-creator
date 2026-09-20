@@ -1245,6 +1245,18 @@ void TextViewport::setVisualizeWhitespace(bool on)
     emit visualizeWhitespaceChanged();
 }
 
+void TextViewport::followWhitespaceSetting()
+{
+    if (!m_visualizeWhitespace)
+        return;
+    const bool was = *m_visualizeWhitespace;
+    m_visualizeWhitespace.reset();
+    if (visualizesWhitespace() == was)
+        return;
+    polish();
+    emit visualizeWhitespaceChanged();
+}
+
 void TextViewport::setBreakIndent(const std::optional<bool> &on)
 {
     if (m_breakIndent == on)

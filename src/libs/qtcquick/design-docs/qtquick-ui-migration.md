@@ -70934,3 +70934,92 @@ remains:
    widget rows still cover that the quick rows do not - the first item
    of the standing list - which is the honest measure of how far the
    two views still differ.
+
+## 2026-09-20 — The Qt Quick view follows the whitespace setting again (batch 339)
+
+Entry 338's first item, the small half: the whitespace override's
+clearing, said but not fixed in entry 332.
+
+### The gap closed
+
+Entry 332 gave both views per-editor display settings and a way back
+to the globals, and noted one flag left out: the Qt Quick view's
+whitespace visualisation is pinned per view - `TextViewport::
+setVisualizeWhitespace(bool)`, an `std::optional<bool>` behind it, the
+setting answering while it is unset - and the editor's
+`pushDisplaySettings()` pinned it from the editor's own settings where
+there were any and left it alone otherwise. So an editor told to
+follow the globals again (`setDisplaySettingsIn(editor, nullopt)`,
+FakeVim's `:set nolist` after a `:set list`) kept the whitespace it was
+last given, while every other flag followed the globals again at once,
+as all of them do in the widget editor.
+
+- `TextViewport::followWhitespaceSetting()`: forgets the pin, and says
+  so only if the answer changed.
+- `pushDisplaySettings()` calls it where the editor has no settings of
+  its own. That is also what a push of the globals now does to
+  whitespace the reader toggled from the menu - the toggle pins the
+  view - which is what the widget editor does with its toggle, whose
+  per-widget setting is replaced at the next push. The two views agree
+  now; whether losing the toggle at a preferences change is right is a
+  question for both of them, not a divergence.
+- The Visualize Whitespace entry's checked state follows what the view
+  shows after a push, with its `toggled` blocked while it is set: left
+  unblocked, setting it would run the toggle's handler and pin the view
+  again to the very value it had just been let go to. Before, the entry
+  was set once at construction and never again.
+
+### The test
+
+`QuickTextEditorTest::testWhitespaceFollowsTheSettingAgainInEitherView`,
+two rows, beside entry 332's own-display test: what the view draws -
+the widget's own settings, the viewport's `visualizesWhitespace()` -
+is the global at first, the editor's own after `setDisplaySettingsIn()`
+with the flag the other way, and the global again after
+`setDisplaySettingsIn(nullopt)`. The widget row passes as before; the
+quick row is the fix.
+
+Built and passed at the first run, in the VM: 4/0, both rows, exit 0.
+Its neighbours ran with it, unchanged: entry 332's own-display test
+4/0, the Qt Quick whitespace-setting test 3/0, FakeVim's `:set` test
+4/0 - the last two being the ones a wrong clearing would have broken,
+the setting's push and `:set list` both going through
+`pushDisplaySettings()`.
+
+### Negative controls
+
+One, the pre-fix shape: `pushDisplaySettings()` leaves the view's pin
+alone where the editor has no settings of its own. Patched into the
+uncommitted tree by a script that restores by the reverse replacement
+and compares the diff's hash before and after (equal); a build and the
+test in the VM: 3/1, the quick row alone, "'shownIn(editor.get()) ==
+global' returned FALSE. (told to follow the setting again, the view
+kept the whitespace it had)". The widget row passing under it is what
+says the failure is the Qt Quick view's and not the test's.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     824 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test FakeVim        616 passed, 0 failed, 14 skipped, exit 0
+
+TextEditor is 824: 822 plus the new test's two rows. FakeVim ran
+because `:set list` and `:set nolist` go through the path this batch
+changed; 616/0/14 as in entry 332. The soft asserts stay at nine per
+TextEditor run; no typing flake in the three runs, no memory kill. No
+`.qbs` edited.
+
+### What is next
+
+1. The standing list (entries 298, 332, 336 and 338): the two-view
+   tests' widget rows, QmlJSEditor into the standing suites (it has run
+   green in three batches now, 48/0), ASan, the typing flake, Windows,
+   the two Debugger tests, ProjectExplorer's cmake mapping test,
+   QmlPreview's client test, the PNG hang, the widget editor's read-only
+   hazard.
+2. The large ones (entry 335): the inline diff, Design mode's text
+   editor, FakeVim's relative numbers - each to be planned in an entry
+   of its own before a batch touches it.
+3. What the tests' widget rows still cover that the quick rows do not.

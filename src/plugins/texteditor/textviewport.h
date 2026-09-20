@@ -1071,7 +1071,10 @@ public:
     bool isWrapping() const;
     void setWrapping(bool wrapping);
     bool visualizesWhitespace() const;
+    // Pins whether spaces and tabs are drawn, for this view alone.
     void setVisualizeWhitespace(bool on);
+    // Forgets the pin: the setting answers again, as it changes.
+    void followWhitespaceSetting();
     // Whether wrapped rows are indented under the text they continue, for
     // this view alone; unset, the setting answers as it changes.
     void setBreakIndent(const std::optional<bool> &on);

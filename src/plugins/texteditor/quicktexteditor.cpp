@@ -95,6 +95,7 @@
 #include <QClipboard>
 #include <QQuickWidget>
 #include <QScopeGuard>
+#include <QSignalBlocker>
 #include <QSignalSpy>
 #include <QStandardItemModel>
 #include <QTextEdit>
@@ -1210,10 +1211,20 @@ private:
         if (TextViewport * const view = viewport()) {
             view->setBreakIndent(m_displaySettings ? std::optional<bool>(settings.m_breakindent)
                                                    : std::nullopt);
-            // The view keeps its own answer once told; told only where this
-            // editor has settings of its own, and left to the globals otherwise.
+            // The view keeps its own answer once told; told where this editor
+            // has settings of its own, and put back to following the setting
+            // where it has none - which a push of the globals does to what the
+            // reader toggled too, as it does in the widget editor.
             if (m_displaySettings)
                 view->setVisualizeWhitespace(settings.m_visualizeWhitespace);
+            else
+                view->followWhitespaceSetting();
+            // The menu entry says what the view shows. Blocked, or it would
+            // pin the view again to the very value it has just been let go to.
+            if (m_whitespaceAction) {
+                const QSignalBlocker blocker(m_whitespaceAction.data());
+                m_whitespaceAction->setChecked(view->visualizesWhitespace());
+            }
         }
     }
 
@@ -15413,6 +15424,64 @@ private slots:
         setDisplaySettingsIn(editor.get(), std::nullopt);
         QCOMPARE(displaySettingsOf(editor.get()).m_displayLineNumbers, global);
         QCOMPARE(lineNumbersShown(editor.get()), global);
+    }
+
+    // Entry 332 left one flag out of "told to follow the globals again, it
+    // does": the Qt Quick view's whitespace was pinned by the editor's own
+    // settings and there was no way to unpin it, so an editor put back to the
+    // globals kept the whitespace it was last given. The widget editor follows
+    // the globals again for every flag at once.
+    void testWhitespaceFollowsTheSettingAgainInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testWhitespaceFollowsTheSettingAgainInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        class PlainFactory final : public TextEditorFactory
+        {
+        public:
+            explicit PlainFactory(bool quick)
+            {
+                setId("QuickEditorWhitespaceFollowTest");
+                setDisplayName("Quick Editor Whitespace Follow Test");
+                setDocumentCreator(
+                    [] { return new TextDocument("QuickEditorWhitespaceFollowTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+        // What the view draws - the widget's own settings, the viewport's
+        // answer - rather than what the editor's settings say, which is the
+        // thing the two can disagree about.
+        const auto shownIn = [](Core::IEditor *editor) -> bool {
+            if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+                return widget->displaySettings().m_visualizeWhitespace;
+            TextViewport * const view = viewportForEditor(editor);
+            return view && view->visualizesWhitespace();
+        };
+
+        PlainFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(editor.get()) != nullptr, quick);
+
+        const bool global = displaySettings().visualizeWhitespace();
+        QCOMPARE(shownIn(editor.get()), global);
+
+        DisplaySettingsData own = displaySettingsOf(editor.get());
+        own.m_visualizeWhitespace = !global;
+        setDisplaySettingsIn(editor.get(), own);
+        QVERIFY2(shownIn(editor.get()) == !global,
+                 "the view did not take the editor's own whitespace");
+
+        setDisplaySettingsIn(editor.get(), std::nullopt);
+        QVERIFY2(shownIn(editor.get()) == global,
+                 "told to follow the setting again, the view kept the whitespace it had");
     }
 
     // An editor in a dialog wants Tab to move on to the buttons, not to
