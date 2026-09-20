@@ -239,6 +239,7 @@ QObject *createPendingChangesDialogTest()
 
 } // Perforce::Internal
 
-#ifdef WITH_TESTS
+// Not guarded: a Q_OBJECT class of this file is production code, and
+// without this its meta-object and vtable are missing in a build with
+// tests off.
 #include "pendingchangesdialog.moc"
-#endif

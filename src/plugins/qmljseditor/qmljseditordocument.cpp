@@ -19,6 +19,8 @@
 
 #include <texteditor/fontsettings.h>
 
+#include <QMenu>
+
 #ifdef WITH_TESTS
 #include "qmljseditorconstants.h"
 
@@ -29,7 +31,6 @@
 #include <utils/mimeconstants.h>
 #include <utils/temporarydirectory.h>
 
-#include <QMenu>
 #include <QScopeGuard>
 
 #include <QSignalSpy>

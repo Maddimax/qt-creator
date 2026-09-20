@@ -96,7 +96,9 @@
 #include <QQuickWidget>
 #include <QScopeGuard>
 #include <QSignalBlocker>
+#ifdef WITH_TESTS
 #include <QSignalSpy>
+#endif
 #include <QStandardItemModel>
 #include <QTextEdit>
 
@@ -15907,6 +15909,7 @@ SymbolRequests *symbolRequestsForEditor(Core::IEditor *editor)
 
 } // namespace TextEditor
 
-#ifdef WITH_TESTS
+// Not guarded: a Q_OBJECT class of this file is production code, and
+// without this its meta-object and vtable are missing in a build with
+// tests off.
 #include "quicktexteditor.moc"
-#endif

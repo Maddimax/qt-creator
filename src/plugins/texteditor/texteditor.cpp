@@ -7280,12 +7280,12 @@ QTextCursor TextEditorWidget::autoCompleteHighlightPosition() const
     return d->m_autoCompleteHighlightPos;
 }
 
-#ifdef WITH_TESTS
 void TextEditorWidget::processTooltipRequest(const QTextCursor &c)
 {
     d->processTooltipRequest(c);
 }
 
+#ifdef WITH_TESTS
 QString TextEditorWidget::textToPrint(bool selectionOnly) const
 {
     const std::unique_ptr<QTextDocument> doc(d->createPrintDocument(selectionOnly));

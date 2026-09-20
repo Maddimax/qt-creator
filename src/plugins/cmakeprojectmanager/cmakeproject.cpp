@@ -27,6 +27,7 @@
 #include <projectexplorer/toolchainkitaspect.h>
 
 #include <utils/mimeconstants.h>
+#include <QRegularExpression>
 
 using namespace Core;
 using namespace ProjectExplorer;

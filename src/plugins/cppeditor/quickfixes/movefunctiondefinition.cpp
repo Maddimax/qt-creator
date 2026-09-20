@@ -15,6 +15,7 @@
 #include <cplusplus/CppRewriter.h>
 #include <cplusplus/Overview.h>
 #include <projectexplorer/projectmanager.h>
+#include <QRegularExpression>
 
 using namespace CPlusPlus;
 using namespace ProjectExplorer;

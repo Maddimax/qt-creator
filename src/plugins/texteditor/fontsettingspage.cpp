@@ -35,7 +35,9 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
+#ifdef WITH_TESTS
 #include <QTest>
+#endif
 #include <QPalette>
 #include <QPointer>
 #include <QPushButton>

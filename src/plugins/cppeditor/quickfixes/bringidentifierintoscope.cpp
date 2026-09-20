@@ -24,6 +24,8 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <QRegularExpression>
+
 #ifdef WITH_TESTS
 #include "../cppsourceprocessertesthelper.h"
 #include "../cpptoolstestcase.h"

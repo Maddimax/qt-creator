@@ -24,7 +24,9 @@
 #include <utils/qtcassert.h>
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
+#ifdef WITH_TESTS
 #include <QTest>
+#endif
 #include <QTextCursor>
 
 QT_BEGIN_NAMESPACE

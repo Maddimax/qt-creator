@@ -44,8 +44,10 @@
 #include <coreplugin/editormanager/ieditor.h>
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
+#ifdef WITH_TESTS
 #include <QSignalSpy>
 #include <QTest>
+#endif
 
 using namespace Core;
 using namespace Utils;

@@ -593,8 +593,11 @@ public:
 
     QTextCursor autoCompleteHighlightPosition() const;
 
-#ifdef WITH_TESTS
+    // Not test-only: processTooltipRequestIn() forwards to it for any caller
+    // that has an editor rather than a widget.
     void processTooltipRequest(const QTextCursor &c);
+
+#ifdef WITH_TESTS
     QString textToPrint(bool selectionOnly) const;
 #endif
 

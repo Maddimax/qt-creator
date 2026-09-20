@@ -13,6 +13,7 @@
 #include <cplusplus/TypeOfExpression.h>
 
 #include <functional>
+#include <QRegularExpression>
 
 #ifdef WITH_TESTS
 #include "cppquickfix_test.h"

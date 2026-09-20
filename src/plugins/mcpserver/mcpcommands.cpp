@@ -29,7 +29,9 @@
 #include <texteditor/refactoringchanges.h>
 #include <utils/temporarydirectory.h>
 #include <QScopeGuard>
+#ifdef WITH_TESTS
 #include <QTest>
+#endif
 #include <texteditor/textdocument.h>
 #include <texteditor/textdocumentlayout.h>
 #include <texteditor/texteditor.h>

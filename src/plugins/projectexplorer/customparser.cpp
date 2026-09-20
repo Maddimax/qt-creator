@@ -17,6 +17,7 @@
 #include <utils/qtcsettings.h>
 #include <utils/stylehelper.h>
 
+#include <QAbstractTableModel>
 #include <QCheckBox>
 #include <QJsonArray>
 #include <QLabel>

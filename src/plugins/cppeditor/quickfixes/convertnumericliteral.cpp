@@ -7,6 +7,8 @@
 #include "../cpprefactoringchanges.h"
 #include "cppquickfix.h"
 
+#include <QRegularExpression>
+
 #include <bitset>
 
 using namespace CPlusPlus;

@@ -25,7 +25,9 @@
 #include <utils/aggregate.h>
 #include <QQuickItem>
 #include <QQuickWidget>
+#ifdef WITH_TESTS
 #include <QTest>
+#endif
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 

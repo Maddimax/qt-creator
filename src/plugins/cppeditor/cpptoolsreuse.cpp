@@ -8,6 +8,7 @@
 #include "cppcanonicalsymbol.h"
 #include "cppcodemodelsettings.h"
 #include "cppcompletionassist.h"
+#include "cppeditordocument.h"
 #include "cppeditorwidget.h"
 #include "cppeditorconstants.h"
 #include "cppeditortr.h"
@@ -39,7 +40,6 @@
 #include <coreplugin/find/searchresultwindow.h>
 #include <texteditor/symbolrequests.h>
 #include <QSignalSpy>
-#include "cppeditordocument.h"
 #include "modelmanagertesthelper.h"
 #include "cpplocalrenaming.h"
 #include <utils/temporarydirectory.h>

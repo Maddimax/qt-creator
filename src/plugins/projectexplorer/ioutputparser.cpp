@@ -8,7 +8,9 @@
 
 #include <coreplugin/outputpaneview.h>
 #include <coreplugin/outputview.h>
+#ifdef WITH_TESTS
 #include <QTest>
+#endif
 #include <QTextCursor>
 #include <coreplugin/outputtasksink.h>
 #include <texteditor/fontsettings.h>

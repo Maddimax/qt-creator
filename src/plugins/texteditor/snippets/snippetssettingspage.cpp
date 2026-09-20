@@ -23,7 +23,9 @@
 #include <utils/layoutbuilder.h>
 
 #include <QAbstractButton>
+#ifdef WITH_TESTS
 #include <QTest>
+#endif
 #include <QAbstractTableModel>
 #include <QComboBox>
 #include <QItemSelectionModel>

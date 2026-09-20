@@ -16,7 +16,9 @@
 #endif
 #include <QQuickItem>
 #include <QQuickWidget>
+#ifdef WITH_TESTS
 #include <QSignalSpy>
+#endif
 #include <QTextLayout>
 #include <QTime>
 

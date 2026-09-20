@@ -31,9 +31,13 @@
 
 #include "find/ifindsupport.h"
 #include <utils/aggregate.h>
+#ifdef WITH_TESTS
 #include <QSignalSpy>
+#endif
 #include <QTabWidget>
+#ifdef WITH_TESTS
 #include <QTest>
+#endif
 #include <QApplication>
 #include <QTextBlock>
 #include <QTextCursor>

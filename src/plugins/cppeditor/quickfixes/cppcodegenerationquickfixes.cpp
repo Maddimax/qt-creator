@@ -35,6 +35,7 @@
 #include <QTreeView>
 #include <QLabel>
 #include <QVBoxLayout>
+#include <QRegularExpression>
 
 #ifdef WITH_TESTS
 #include "cppquickfix_test.h"
