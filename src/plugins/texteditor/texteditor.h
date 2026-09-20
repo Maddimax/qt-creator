@@ -267,6 +267,9 @@ public:
     void setLineNumbersAllowed(bool allowed);
     void setWrappingAllowed(bool allowed);
     void setMarginAllowed(bool allowed);
+    // Display settings of this widget's own, kept across every push of the
+    // globals; an empty \a settings puts it back to following them.
+    void setDisplaySettingsOverride(const std::optional<DisplaySettingsData> &settings);
 
     void setAlwaysOpenLinksInNextSplit(bool b);
     bool alwaysOpenLinksInNextSplit() const;
@@ -1317,6 +1320,18 @@ TEXTEDITOR_EXPORT void setBehaviorSettingsIn(Core::IEditor *editor,
 // means the same thing: back to following the globals.
 TEXTEDITOR_EXPORT void setMarginSettingsIn(Core::IEditor *editor,
                                            const std::optional<MarginSettingsData> &settings);
+
+// How \a editor's view shows the text - line numbers, wrapping, whitespace,
+// the current line, fold markers - where one editor is to differ from the
+// rest: vim's per-window ':set number'. Kept across every push of the
+// globals; an empty \a settings puts the view back to following them. What
+// the language withholds (a pane of prose) stays withheld either way.
+TEXTEDITOR_EXPORT void setDisplaySettingsIn(Core::IEditor *editor,
+                                            const std::optional<DisplaySettingsData> &settings);
+// What \a editor's view shows the text with: its own, or the globals.
+TEXTEDITOR_EXPORT DisplaySettingsData displaySettingsOf(Core::IEditor *editor);
+// And where it draws its margin, the same way.
+TEXTEDITOR_EXPORT MarginSettingsData marginSettingsOf(Core::IEditor *editor);
 
 // Add to what \a editor's view offers. A factory's OptionalActions mask says
 // what the language can answer before anything has run; a language server

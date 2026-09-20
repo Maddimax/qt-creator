@@ -69948,3 +69948,155 @@ memory kill, no typing flake in the three TextEditor runs this time. No
    editor): verifiable in the VM (entry 329), given a test object in
    their plugins and a run without `-noload QmlDesigner`.
 3. The standing list (entry 298).
+
+## 2026-09-20 — An editor can show the text its own way, and FakeVim's last widget-only callbacks (batch 332)
+
+Entry 331's first item: the seam the display and margin options need,
+and then the options themselves - the last of FakeVim's `editorOpened()`
+callbacks that asked for the widget.
+
+### The gap closed: per-editor display settings, in either view
+
+Vim keeps `number`, `wrap`, `list`, `cursorline`, `breakindent`,
+`colorcolumn` and `foldcolumn` per window; here that is per editor.
+FakeVim's `displayOptionRequested`, `displayOptionChanged` and
+`marginOptionChanged` read and wrote the widget editor's own display
+and margin settings. The Qt Quick editor had no such thing: it pushed
+the global display settings into its form and its view read the rest
+from the globals, with a per-view override for whitespace and, since
+batch 327, a per-editor margin override. And the widget's own settings
+were not kept: the next push of the globals - a change in Preferences -
+put them back.
+
+- `TextEditor::setDisplaySettingsIn(IEditor *, std::optional<DisplaySettingsData>)`
+  and `displaySettingsOf(IEditor *)`, beside `setMarginSettingsIn()`,
+  and `marginSettingsOf()` to read the margin the same way. An empty
+  settings puts the view back to following the globals as they change.
+- The widget: `TextEditorWidget::setDisplaySettingsOverride()` keeps the
+  settings in the private, and the push on `DisplaySettings::changed`
+  applies the override where there is one. What the factory withholds
+  (batch 323's masks) is applied on top either way.
+- The Qt Quick editor: `m_displaySettings`, an `effectiveDisplaySettings()`
+  that is the override or the globals, and `pushDisplaySettings()` - the
+  constructor's lambda made a member - reading it for the form's line
+  numbers, wrapping, fold markers, current line and annotations, and for
+  the view's whitespace and `breakindent`. The view gained
+  `setBreakIndent(std::optional<bool>)` beside its whitespace override,
+  read where it lays wrapped rows out. The dispatch from
+  `texteditor.cpp` goes through two `Internal` functions in
+  `quicktexteditor.h`, the way the optional-action ones do, because the
+  editor class lives in its `.cpp`.
+- FakeVim's three callbacks ask the editor: `displaySettingsOf()` to
+  read, `setDisplaySettingsIn()` to write, `marginSettingsOf()` and
+  `setMarginSettingsIn()` for `colorcolumn`. `editorOpened()` now
+  captures the widget for one thing only: `autoCompleterOf()`, where the
+  Qt Quick view's completer is the other branch.
+
+One thing to know: the view's whitespace override has a setter but no
+clearing - `setVisualizeWhitespace(bool)` pins it, which is also how
+the whitespace toggle works - so an editor told to follow the globals
+again keeps the whitespace it was last given until the next toggle. The
+other flags follow the globals again at once. Said here rather than
+fixed, since fixing it means changing what the toggle does too.
+
+### The tests
+
+- `QuickTextEditorTest::testAnEditorCanShowTheTextItsOwnWay`, two rows:
+  an editor from a factory withholding nothing shows line numbers as
+  the globals say; given settings of its own with the flag the other
+  way, it shows them that way (`displaySettingsOf()`, the widget's
+  `lineNumbersVisible()`, the form's `showLineNumbers`), still after a
+  push of the globals; told to follow the globals again, it does.
+- `FakeVimDisplayOptionsTest::testSetShowsTheTextVimsWayInEitherView`,
+  two rows: `:set nonumber` (or `number`, the other way from the
+  globals) changes the editor's settings and `:set number?` reads it
+  back; `:set colorcolumn=40` is the editor's margin; `:set foldcolumn=0`
+  takes the fold markers.
+- The prose test ran as the factory-mask cover: unchanged.
+
+Two builds failed to compile before a run. First, the two members the
+`Internal` functions call had been put beside the private helpers;
+they are public now, beside `viewport()`. Second, entry 324's decay
+again in the FakeVim test: a ternary of two string literals of
+different lengths is a `const char *`, which the restricted ASCII cast
+refuses where a literal on its own is taken - `QStringLiteral` on each
+arm. Then, in the VM: the own-display test 4/0 (both rows), FakeVim's
+`:set` test 4/0, the prose test 4/0, exit 0 each, at the first run; the
+runs' only warnings are the usual `raise()` and `isLoaded()` ones.
+
+Controls, each the pre-fix shape of one assertion, capture list and
+guard together (`set -e`, locals, distinct names, the tree checked clean
+at the end). Four: one per view for the seam, one per FakeVim callback
+the test can tell apart:
+
+- **A** - the Qt Quick editor's `lineNumbersWanted()` reads the globals
+  alone, as before: the quick row, "'lineNumbersShown(editor.get()) ==
+  !global' returned FALSE. (the view did not take the editor's own
+  settings)"; the widget row passes.
+- **B** - the widget's push on `DisplaySettings::changed` applies the
+  globals alone, as before: the widget row, "(a push of the globals took
+  the editor's own settings away)"; the quick row passes.
+- **C** - `displayOptionChanged` bails without a widget: the quick row,
+  "Actual (displaySettingsOf(editor).m_displayLineNumbers): 1, Expected
+  (!numbered): 0".
+- **D** - `marginOptionChanged` bails without a widget: the quick row,
+  "'margin.m_showMargin' returned FALSE. (':set colorcolumn' drew no
+  margin)".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     816 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test FakeVim        616 passed, 0 failed, 14 skipped, exit 0
+    -test ProjectExplorer 530 passed, 2 failed, 5 skipped, exit 2
+                           RunWorkerConflictTest::testConflict, the
+                           recorded one ("upstream and out of scope");
+                           ProjectTest::testSourceToBinaryMapping(cmake)
+
+TextEditor is 816: 814 plus the own-display test's two rows. FakeVim is
+616: 612 plus the `:set` test object's two rows and its init/cleanup.
+ProjectExplorer ran because `setMarginSettingsIn()` and its two-view
+settings test are its; the doc last recorded it at 531/1/5 with
+`testConflict` the one red. The second, `testSourceToBinaryMapping(cmake)`,
+"Actual (binariesForSource("multi-target-project-shared.h").size()): 1,
+Expected 2", is not a flake: the test alone, three times, the same. It
+maps a header of a CMake project to the targets that compile it, and
+nothing in this batch is near ProjectExplorer or CMake - but that is an
+argument. Measured instead: the batch's seven files put back to HEAD
+(the diff saved and checked to reverse cleanly first), built, the test
+run once, the diff applied again:
+
+    HEAD, without the batch:
+    -test ProjectExplorer,testSourceToBinaryMapping   2 passed, 1 failed, 2 skipped
+                           the cmake row, the same "1, Expected 2"
+
+So it is HEAD's, in this VM, and goes on the standing list beside the
+Debugger pair rather than into this batch.
+
+In this job's older ProjectExplorer logs the cmake row passed once,
+was skipped once for want of a kit, and soft-asserted once; the test
+depends on the VM's kits and CMake, and on ProjectExplorer's project
+code, which the rebase brought upstream changes to. No memory kill, no
+typing flake in the three TextEditor runs. No `.qbs` edited.
+
+### What is next
+
+FakeVim's `editorOpened()` has no widget-only callback left; the census
+of entry 329 is closed on FakeVim's side too, leaving no production
+"the widget editor or nothing" site outside TextEditor that the census
+found.
+
+1. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor): verifiable in the VM (entry 329), given a test object in
+   their plugins and a run without `-noload QmlDesigner`.
+2. The standing list (entry 298): the two-view tests' widget rows,
+   QmlJSEditor into the standing suites, ASan, the typing flake,
+   Windows, the two Debugger tests failing on HEAD, the PNG hang, the
+   widget editor's read-only hazard - and, from this entry,
+   ProjectExplorer's `testSourceToBinaryMapping(cmake)`, red on HEAD in
+   the VM: a header of a CMake project maps to one target where two are
+   expected.
+3. The whitespace override's clearing, above, if the toggle is to be
+   revisited.

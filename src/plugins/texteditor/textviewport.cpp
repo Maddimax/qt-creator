@@ -1229,6 +1229,16 @@ void TextViewport::setVisualizeWhitespace(bool on)
     emit visualizeWhitespaceChanged();
 }
 
+void TextViewport::setBreakIndent(const std::optional<bool> &on)
+{
+    if (m_breakIndent == on)
+        return;
+    m_breakIndent = on;
+    // Read while laying out, like the margin: the view has to look again.
+    polish();
+    update();
+}
+
 void TextViewport::increaseFontZoom()
 {
     globalFontSettings().increaseFontZoom();
@@ -6144,7 +6154,7 @@ void TextViewport::updatePolish()
     // Wrapped rows indented under the text they continue, vim's 'breakindent'.
     // The layout that counts rows is told the same, or it wraps somewhere else
     // and moving by rows lands between the rows on screen.
-    const bool breakIndentOn = m_wrapping && displaySettings().breakindent();
+    const bool breakIndentOn = m_wrapping && m_breakIndent.value_or(displaySettings().breakindent());
     const int breakIndentMin = displaySettings().breakindentMin();
     const int breakIndentShift = displaySettings().breakindentShift();
     // The marker drawn at the start of a wrapped row, vim's 'showbreak'. It

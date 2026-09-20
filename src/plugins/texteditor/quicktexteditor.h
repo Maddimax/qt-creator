@@ -40,6 +40,12 @@ Core::IEditor *editorForViewport(TextViewport *view);
 void addOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
 void setOptionalActionsIn(Core::IEditor *editor, uint optionalActions);
 uint optionalActionsIn(Core::IEditor *editor);
+// Display settings of the Quick editor's own, where \a editor is one - what
+// TextEditor::setDisplaySettingsIn() and displaySettingsOf() dispatch to.
+// The second answers nothing where \a editor is not a Quick editor.
+void setQuickDisplaySettings(Core::IEditor *editor,
+                             const std::optional<DisplaySettingsData> &settings);
+std::optional<DisplaySettingsData> quickDisplaySettings(Core::IEditor *editor);
 QRect globalRectForPositionIn(Core::IEditor *editor, int position);
 QRect globalRectForBlocksIn(Core::IEditor *editor, int firstBlock, int lastBlock);
 

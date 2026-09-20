@@ -785,6 +785,9 @@ public:
     bool m_lineNumbersAllowed = true;
     bool m_wrappingAllowed = true;
     bool m_marginAllowed = true;
+    // This widget's own display settings, where it has some: what a push of
+    // the globals applies instead of them.
+    std::optional<DisplaySettingsData> m_displaySettingsOverride;
     bool m_contentsChanged = false;
     bool m_lastCursorChangeWasInteresting = false;
     std::shared_ptr<void> m_suggestionBlocker;
@@ -1236,7 +1239,7 @@ TextEditorWidgetPrivate::TextEditorWidgetPrivate(TextEditorWidget *parent)
         q->setMarginSettings(TextEditor::marginSettings().data());
     });
     connect(&TextEditor::displaySettings(), &DisplaySettings::changed, this, [this](){
-        q->setDisplaySettings(TextEditor::displaySettings().data());
+        q->setDisplaySettings(m_displaySettingsOverride.value_or(TextEditor::displaySettings().data()));
     });
     connect(&globalCompletionSettings(), &AspectContainer::changed,
             q, &TextEditorWidget::updateCompletionSettings);
@@ -3645,6 +3648,12 @@ void TextEditorWidget::setMarginAllowed(bool allowed)
 {
     d->m_marginAllowed = allowed;
     setMarginSettings(marginSettings());
+}
+
+void TextEditorWidget::setDisplaySettingsOverride(const std::optional<DisplaySettingsData> &settings)
+{
+    d->m_displaySettingsOverride = settings;
+    setDisplaySettings(settings.value_or(TextEditor::displaySettings().data()));
 }
 
 void TextEditorWidget::setLineNumbersVisible(bool b)
@@ -10628,6 +10637,36 @@ void setMarginSettingsIn(Core::IEditor *editor,
     }
     if (TextViewport * const view = Internal::viewportForEditor(editor))
         view->setMarginSettings(settings);
+}
+
+void setDisplaySettingsIn(Core::IEditor *editor,
+                          const std::optional<DisplaySettingsData> &settings)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setDisplaySettingsOverride(settings);
+        return;
+    }
+    Internal::setQuickDisplaySettings(editor, settings);
+}
+
+DisplaySettingsData displaySettingsOf(Core::IEditor *editor)
+{
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->displaySettings();
+    if (const std::optional<DisplaySettingsData> own = Internal::quickDisplaySettings(editor))
+        return *own;
+    return TextEditor::displaySettings().data();
+}
+
+MarginSettingsData marginSettingsOf(Core::IEditor *editor)
+{
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+        return widget->marginSettings();
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        return view->marginSettings();
+    return TextEditor::marginSettings().data();
 }
 
 void autoIndentIn(Core::IEditor *editor)

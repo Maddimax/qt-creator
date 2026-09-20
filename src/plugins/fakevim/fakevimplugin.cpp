@@ -1446,6 +1446,69 @@ QObject *createFakeVimBlockSelectionTest()
     return new FakeVimBlockSelectionTest;
 }
 
+// Vim keeps 'number', 'wrap', 'list', 'cursorline', 'colorcolumn' and
+// 'foldcolumn' per window. Here that is per editor: the options read and
+// wrote the widget editor's own display and margin settings, so ":set" in a
+// Qt Quick editor changed nothing and ":set number?" answered nothing. They
+// go through the editor now, in either view.
+class FakeVimDisplayOptionsTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testSetShowsTheTextVimsWayInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testSetShowsTheTextVimsWayInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        const bool wasOn = settings().useFakeVim();
+        const QScopeGuard restoreSettings([wasOn] { settings().useFakeVim.setValue(wasOn); });
+        settings().useFakeVim.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-display-options");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("one\ntwo\nthree\n"));
+        const Id editorId = quick ? Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                  : Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        IEditor * const editor = EditorManager::openEditor(file, editorId);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        FakeVimHandler * const handler = dd->m_editorToHandler.value(editor).handler;
+        QVERIFY2(handler, "no handler was made, so this proves nothing");
+
+        // 'number', the other way round from the globals, and read back.
+        const bool numbered = TextEditor::displaySettingsOf(editor).m_displayLineNumbers;
+        handler->handleCommand(numbered ? QStringLiteral("set nonumber")
+                                        : QStringLiteral("set number"));
+        QCOMPARE(TextEditor::displaySettingsOf(editor).m_displayLineNumbers, !numbered);
+        bool answered = numbered;
+        handler->displayOptionRequested("number", &answered);
+        QCOMPARE(answered, !numbered);
+
+        // 'colorcolumn' is the editor's margin; 'foldcolumn' its fold markers.
+        handler->handleCommand("set colorcolumn=40");
+        const MarginSettingsData margin = TextEditor::marginSettingsOf(editor);
+        QVERIFY2(margin.m_showMargin, "':set colorcolumn' drew no margin");
+        QCOMPARE(margin.m_marginColumn, 40);
+        handler->handleCommand("set foldcolumn=0");
+        QVERIFY2(!TextEditor::displaySettingsOf(editor).m_displayFoldingMarkers,
+                 "':set foldcolumn=0' left the fold markers");
+    }
+};
+
+QObject *createFakeVimDisplayOptionsTest()
+{
+    return new FakeVimDisplayOptionsTest;
+}
+
 #endif // WITH_TESTS
 
 class FakeVimUserCommandsPage : public IOptionsPage
@@ -1740,6 +1803,7 @@ FakeVimPlugin::FakeVimPlugin()
     addTestCreator(createFakeVimTagStackTest);
     addTestCreator(createFakeVimDocumentAnswersTest);
     addTestCreator(createFakeVimBlockSelectionTest);
+    addTestCreator(createFakeVimDisplayOptionsTest);
 #endif
 
     m_defaultExCommandMap[CppEditor::Constants::SWITCH_HEADER_SOURCE] = "^A$";
@@ -3113,19 +3177,20 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
     // whole list, and a switch for the folding markers where Vim takes a
     // width, so the handler keeps what was asked for and hands over what can
     // be had.
-    handler->marginOptionChanged.set([tew](const QString &option, int column) {
-        if (!tew)
+    handler->marginOptionChanged.set([alive = QPointer<IEditor>(editor)](const QString &option,
+                                                                         int column) {
+        if (!alive)
             return;
         if (option == "colorcolumn") {
-            MarginSettingsData margin = tew->marginSettings();
+            MarginSettingsData margin = TextEditor::marginSettingsOf(alive);
             margin.m_showMargin = column > 0;
             if (column > 0)
                 margin.m_marginColumn = column;
-            tew->setMarginSettings(margin);
+            TextEditor::setMarginSettingsIn(alive, margin);
         } else if (option == "foldcolumn") {
-            DisplaySettingsData settings = tew->displaySettings();
+            DisplaySettingsData settings = TextEditor::displaySettingsOf(alive);
             settings.m_displayFoldingMarkers = column > 0;
-            tew->setDisplaySettings(settings);
+            TextEditor::setDisplaySettingsIn(alive, settings);
         }
     });
     handler->documentOptionChanged.set([document](const QString &option,
@@ -3152,22 +3217,22 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
                 *accepted = false;
         }
     });
-    handler->displayOptionRequested.set([tew, displayFlag](const QString &option,
-                                                           bool *on) {
-        if (!tew)
+    handler->displayOptionRequested.set([alive = QPointer<IEditor>(editor), displayFlag](
+                                            const QString &option, bool *on) {
+        if (!alive)
             return;
-        DisplaySettingsData settings = tew->displaySettings();
+        DisplaySettingsData settings = TextEditor::displaySettingsOf(alive);
         if (const bool *flag = displayFlag(settings, option))
             *on = *flag;
     });
-    handler->displayOptionChanged.set([tew, displayFlag](const QString &option,
-                                                          bool on) {
-        if (!tew)
+    handler->displayOptionChanged.set([alive = QPointer<IEditor>(editor), displayFlag](
+                                          const QString &option, bool on) {
+        if (!alive)
             return;
-        DisplaySettingsData settings = tew->displaySettings();
+        DisplaySettingsData settings = TextEditor::displaySettingsOf(alive);
         if (bool *flag = displayFlag(settings, option)) {
             *flag = on;
-            tew->setDisplaySettings(settings);
+            TextEditor::setDisplaySettingsIn(alive, settings);
         }
     });
 

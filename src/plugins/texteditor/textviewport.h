@@ -1069,6 +1069,9 @@ public:
     void setWrapping(bool wrapping);
     bool visualizesWhitespace() const;
     void setVisualizeWhitespace(bool on);
+    // Whether wrapped rows are indented under the text they continue, for
+    // this view alone; unset, the setting answers as it changes.
+    void setBreakIndent(const std::optional<bool> &on);
 
     // The font every editor shows, so these change it for all of them - which
     // is what the widget editor's zoom does too. Separate from zoomBy(), which
@@ -1436,6 +1439,7 @@ private:
     bool m_centerOnScroll = false;
     // Unset until the view is told: the setting answers until then.
     std::optional<bool> m_visualizeWhitespace;
+    std::optional<bool> m_breakIndent;
 
     // Every language driving this view, not just the first one found: a C++
     // file with a modal editing mode on has two, and findChild() would answer

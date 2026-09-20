@@ -400,25 +400,14 @@ public:
         applyWhitespaceVisualization();
 
         // Changing any of these in Preferences has to reach an editor that is
-        // already open, not only the next one to be built.
-        const auto pushDisplaySettings = [widget, self = this] {
-            QQuickItem * const form = widget->quickWidget()->rootObject();
-            if (!form)
-                return;
-            form->setProperty("wrapLines", self->wrapWanted());
-            form->setProperty("showLineNumbers", self->lineNumbersWanted());
-            form->setProperty("showFoldMarkers", self->foldMarkersWanted());
-            form->setProperty("highlightCurrentLine", displaySettings().highlightCurrentLine());
-            form->setProperty("showAnnotations", displaySettings().displayAnnotations());
-        };
-        // Once now: the form was created from the settings alone, and what the
-        // language withholds has to be gone before the first paint.
+        // already open, not only the next one to be built. Once now: the form
+        // was created from the settings alone, and what the language withholds
+        // has to be gone before the first paint.
         pushDisplaySettings();
-        connect(&displaySettings(), &Utils::AspectContainer::changed, this,
-                [this, pushDisplaySettings] {
-                    pushDisplaySettings();
-                    applyWhitespaceVisualization();
-                });
+        connect(&displaySettings(), &Utils::AspectContainer::changed, this, [this] {
+            pushDisplaySettings();
+            applyWhitespaceVisualization();
+        });
 
         // Which language to colour the file as comes from its mime type,
         // and the editor manager opens the document *after* building the
@@ -1200,13 +1189,38 @@ private:
     // whenever it runs, and does not consult this flag - which is also why
     // there is no rehighlight here. The widget editor does one; it cannot
     // change any format, and on a large file it is not cheap.
+    // What the form draws from the settings, and what the view reads for
+    // itself: pushed at creation, on every change of the globals, and when
+    // this editor is given settings of its own.
+    void pushDisplaySettings()
+    {
+        QQuickItem * const form = quickForm();
+        if (!form)
+            return;
+        const DisplaySettingsData settings = effectiveDisplaySettings();
+        form->setProperty("wrapLines", wrapWanted());
+        form->setProperty("showLineNumbers", lineNumbersWanted());
+        form->setProperty("showFoldMarkers", foldMarkersWanted());
+        form->setProperty("highlightCurrentLine", settings.m_highlightCurrentLine);
+        form->setProperty("showAnnotations", settings.m_displayAnnotations);
+        if (TextViewport * const view = viewport()) {
+            view->setBreakIndent(m_displaySettings ? std::optional<bool>(settings.m_breakindent)
+                                                   : std::nullopt);
+            // The view keeps its own answer once told; told only where this
+            // editor has settings of its own, and left to the globals otherwise.
+            if (m_displaySettings)
+                view->setVisualizeWhitespace(settings.m_visualizeWhitespace);
+        }
+    }
+
     void applyWhitespaceVisualization()
     {
         QTextDocument * const text = m_document->document();
         const QTextOption current = text->defaultTextOption();
         QTextOption::Flags flags = current.flags();
         flags.setFlag(QTextOption::AddSpaceForLineAndParagraphSeparators);
-        flags.setFlag(QTextOption::ShowTabsAndSpaces, displaySettings().visualizeWhitespace());
+        flags.setFlag(QTextOption::ShowTabsAndSpaces,
+                      effectiveDisplaySettings().m_visualizeWhitespace);
         if (flags == current.flags())
             return;
 
@@ -1244,7 +1258,7 @@ private:
     // widget editor shows no column for it.
     bool foldMarkersWanted() const
     {
-        return m_codeFoldingSupported && displaySettings().displayFoldingMarkers();
+        return m_codeFoldingSupported && effectiveDisplaySettings().m_displayFoldingMarkers;
     }
 
     // The settings, less what the language withholds: a pane of prose has
@@ -1252,12 +1266,13 @@ private:
     bool lineNumbersWanted() const
     {
         return (!m_factory || m_factory->lineNumbersVisible())
-               && displaySettings().displayLineNumbers();
+               && effectiveDisplaySettings().m_displayLineNumbers;
     }
 
     bool wrapWanted() const
     {
-        return (!m_factory || m_factory->wrapsLines()) && displaySettings().textWrapping();
+        return (!m_factory || m_factory->wrapsLines())
+               && effectiveDisplaySettings().m_textWrapping;
     }
 
     QQuickItem *quickForm() const
@@ -1413,6 +1428,22 @@ private:
     }
 
 public:
+    // The display settings this editor shows the text with: its own, where it
+    // has been given some (vim's per-window ':set number'), and the globals
+    // otherwise, as they change. What the language withholds is taken off in
+    // the wanted() helpers either way.
+    DisplaySettingsData effectiveDisplaySettings() const
+    {
+        return m_displaySettings.value_or(displaySettings().data());
+    }
+
+    void setDisplaySettingsOverride(const std::optional<DisplaySettingsData> &settings)
+    {
+        m_displaySettings = settings;
+        pushDisplaySettings();
+        applyWhitespaceVisualization();
+    }
+
     // The form's viewport. Found rather than held: the QML owns it, and it
     // does not exist until the component has been created. Public because
     // viewportForEditor() hands it to plugins that have to answer both this
@@ -1506,6 +1537,9 @@ private:
     // This editor alone, so that a per-editor action does not collide with
     // the same action on the next one.
     bool m_codeFoldingSupported = false;
+    // Settings of this editor's own, where it has been given some; see
+    // effectiveDisplaySettings().
+    std::optional<DisplaySettingsData> m_displaySettings;
     QByteArray m_stateBeforeReload;
     const Utils::Id m_editorContext = Utils::Id::generate();
     std::unique_ptr<AdoptedSource> m_source;
@@ -1623,6 +1657,20 @@ uint optionalActionsIn(Core::IEditor *editor)
     if (auto * const gate = editor->findChild<OptionalActionGate *>())
         return gate->optionalActions();
     return OptionalActions::None;
+}
+
+void setQuickDisplaySettings(Core::IEditor *editor,
+                             const std::optional<DisplaySettingsData> &settings)
+{
+    if (auto * const quick = qobject_cast<QuickTextEditor *>(editor))
+        quick->setDisplaySettingsOverride(settings);
+}
+
+std::optional<DisplaySettingsData> quickDisplaySettings(Core::IEditor *editor)
+{
+    if (auto * const quick = qobject_cast<QuickTextEditor *>(editor))
+        return quick->effectiveDisplaySettings();
+    return std::nullopt;
 }
 
 // Item coordinates from the viewport, turned global through the item itself -
@@ -15179,6 +15227,67 @@ private slots:
             QTest::mouseDClick(widget->viewport(), Qt::LeftButton, Qt::ShiftModifier, p);
             QCOMPARE(document->positions, QList<int>({at}));
         }
+    }
+
+    // One editor can show the text its own way - vim's per-window ':set
+    // number' - while the rest follow the globals. The widget editor took
+    // per-editor display settings but lost them at the next push of the
+    // globals; the Qt Quick editor had no way to be given any. Both keep them
+    // now, through every push, until told to follow the globals again.
+    void testAnEditorCanShowTheTextItsOwnWay_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAnEditorCanShowTheTextItsOwnWay()
+    {
+        QFETCH(bool, quick);
+
+        class PlainFactory final : public TextEditorFactory
+        {
+        public:
+            explicit PlainFactory(bool quick)
+            {
+                setId("QuickEditorOwnDisplayTest");
+                setDisplayName("Quick Editor Own Display Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorOwnDisplayTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+        const auto lineNumbersShown = [](Core::IEditor *editor) -> bool {
+            if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor))
+                return widget->lineNumbersVisible();
+            auto * const host = editor->widget()->findChild<QQuickWidget *>();
+            QQuickItem * const root = host ? host->rootObject() : nullptr;
+            return root && root->property("showLineNumbers").toBool();
+        };
+
+        PlainFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(editor.get()) != nullptr, quick);
+
+        const bool global = displaySettings().displayLineNumbers();
+        QCOMPARE(displaySettingsOf(editor.get()).m_displayLineNumbers, global);
+        QCOMPARE(lineNumbersShown(editor.get()), global);
+
+        DisplaySettingsData own = displaySettingsOf(editor.get());
+        own.m_displayLineNumbers = !global;
+        setDisplaySettingsIn(editor.get(), own);
+        QCOMPARE(displaySettingsOf(editor.get()).m_displayLineNumbers, !global);
+        QVERIFY2(lineNumbersShown(editor.get()) == !global, "the view did not take the editor's own settings");
+        // A push of the globals leaves the editor's own standing.
+        emit displaySettings().changed();
+        QVERIFY2(lineNumbersShown(editor.get()) == !global,
+                 "a push of the globals took the editor's own settings away");
+        QCOMPARE(displaySettingsOf(editor.get()).m_displayLineNumbers, !global);
+        // And told to follow the globals again, it does.
+        setDisplaySettingsIn(editor.get(), std::nullopt);
+        QCOMPARE(displaySettingsOf(editor.get()).m_displayLineNumbers, global);
+        QCOMPARE(lineNumbersShown(editor.get()), global);
     }
 
     // A document whose text is on its way - a VCS command's output - says so,
