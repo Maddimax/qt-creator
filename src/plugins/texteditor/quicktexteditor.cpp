@@ -14463,6 +14463,72 @@ private slots:
         QCOMPARE(readBack(12), 12); // the 'c' of charlie, on the next one
     }
 
+    // The fold a position sits in, lit up the way hovering the widget
+    // editor's folding column lights it. QmlDesigner's Code view shows what a
+    // drag is about to be dropped into this way, and asks the seam with a
+    // document position rather than with a row.
+    void testAScopeIsHighlightedFromAPositionInTheQuickView()
+    {
+        class FoldingFactory final : public TextEditorFactory
+        {
+        public:
+            FoldingFactory()
+            {
+                setId("QuickEditorScopeHighlightTest");
+                setDisplayName("Quick Editor Scope Highlight Test");
+                setDocumentCreator(
+                    [] { return new TextDocument("QuickEditorScopeHighlightTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setCodeFoldingSupported(true);
+                setUsesQuickEditor(true);
+            }
+        };
+
+        FoldingFactory factory;
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        //                         0123456789012345678901
+        document->setPlainText("one {\n    two\n    three\n}\n");
+        // A fold exists where the folding indent deepens, and the highlighter
+        // that would say so is the language's - this document is nobody's, so
+        // it says so itself.
+        QTextBlock block = document->document()->firstBlock();
+        for (int indent : {0, 1, 1, 0, 0}) {
+            TextBlockUserData::setFoldingIndent(block, indent);
+            block = block.next();
+        }
+
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([&editor] { editor->widget()->hide(); });
+        TextViewport * const view = viewportForEditor(editor.get());
+        QVERIFY(view);
+        QTRY_VERIFY(view->visibleLineCount() > 2);
+
+        // Every row carries the bands of the scope it is in, and the rows
+        // outside the innermost one carry level zero - so a highlight is rows
+        // with bands, and no highlight is none of them.
+        const auto banded = [view] {
+            int rows = 0;
+            for (int i = 0; i < view->visibleLineCount(); ++i) {
+                if (!view->visibleLine(i).value("scopeBands").toList().isEmpty())
+                    ++rows;
+            }
+            return rows;
+        };
+        QCOMPARE(banded(), 0);
+
+        // Position 10 is the 't' of "two", inside the fold "one {" opens.
+        TextEditor::highlightScopeAtIn(editor.get(), 10);
+        QTRY_VERIFY2(banded() > 0, "asked to light the scope, the view drew no band");
+        QCOMPARE(banded(), view->visibleLineCount());
+
+        TextEditor::clearScopeHighlightIn(editor.get());
+        QTRY_COMPARE(banded(), 0);
+    }
+
     // What a folded row stands in for its text is the document's answer - QML
     // labels a folded object with its id - and the row the view lays out has
     // to carry it. It carried a hard-coded "..." instead, so every language's

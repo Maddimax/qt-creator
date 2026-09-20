@@ -71770,3 +71770,132 @@ run. No `.qbs` edited: no file was added or removed.
    the model the test environment cannot build.
 2. The inline diff editor's own port (entry 341); the standing list
    (entry 340), which gains `AbstractView::isSelectedModelNode()` above.
+
+## 2026-09-20 — The Code view's keys and the scope highlight (batch 346)
+
+Entry 345 left three things ported but not shown to work, and entry
+342's step 4 - the designer factory's switch to the Qt Quick view -
+waits on them. Two are closed here; the third is measured and stays
+open, which is the reason this batch does not flip the switch.
+
+### The gap closed: the keys
+
+The Code view's event filter takes Delete, Backspace, Insert, Escape
+and five Ctrl chords away from the designer's shortcuts, so that they
+reach the text rather than firing an action. It is installed on the
+editor's widget - now whichever view that widget belongs to - and it
+answers a `ShortcutOverride` by accepting it.
+
+`testTheCodeViewStandsOnEitherView` gained a section for it: a
+`ShortcutOverride` for Delete, for Backspace and for Ctrl+Left, sent to
+the Code view editor's widget, comes back accepted in both views.
+
+Control A says the filter is what does it, and in *both* views: with
+Delete taken out of its list, both rows go red. So neither editor
+claims that key for itself. The widget editor's own rule is visible in
+`texteditor.cpp`'s `ShortcutOverride` case - no modifier or Shift, and
+a key *below* `Qt::Key_Escape` - and Delete, Backspace and Insert are
+all above it, Ctrl+Left has a modifier. The Qt Quick view declines them
+too. Worth knowing before the switch: the filter is load-bearing on
+both sides, not a widget-era leftover.
+
+### The gap closed: the scope highlight
+
+`highlightScopeAtIn()` (entry 345) turns a document position into the
+row the Qt Quick view highlights by, since `highlightScopeAt()` takes a
+y. Nothing exercised it.
+
+`testAScopeIsHighlightedFromAPositionInTheQuickView`: a document with
+folding indents set by hand - the highlighter that would say so is the
+language's, and this document is nobody's - shown at 400x300, then lit
+from position 10, inside the fold that "one {" opens. Every laid-out
+row carries `scopeBands` afterwards, which is how the view dims what
+the scope does not cover, and `clearScopeHighlightIn()` takes them all
+away again.
+
+Named for the Qt Quick view because only it can be asked what it drew:
+the widget's half of the seam sets
+`extraAreaHighlightFoldedBlockNumber`, a private member of a private
+class, and there is no accessor to read it back. Control B - the seam
+clears the scope instead of lighting it - goes red on "asked to light
+the scope, the view drew no band".
+
+### The gap still open: a dropped asset
+
+An asset dragged from the library into the Code view is QmlDesigner's
+to handle: the container around the editor has the `dragEnterEvent` and
+`dropEvent` for it. Whether the editor *inside* lets such a drag
+through is the question the switch needs answered, because the Qt Quick
+view has a `DropArea` of its own - `CodeViewport.qml`, which declines
+anything with URLs or without text.
+
+It cannot be answered with a synthetic event, which is what was tried:
+
+- A `QDragEnterEvent` carrying `MIME_TYPE_ITEM_LIBRARY_INFO`, sent to
+  where a real drag would land - the viewport of the widget editor, the
+  quick widget otherwise - comes back **accepted in both views**.
+- The apparatus is not at fault: the same event sent to a bare
+  `QWidget` comes back unaccepted, so something in each editor really
+  does accept it.
+- It is not the text view's own decision either, since the Qt Quick
+  view's drop area declines non-text in QML and the acceptance arrives
+  all the same.
+
+So the acceptance happens above the view, in routing this test does not
+reproduce: a real drag is delivered by `QWidgetWindow`, which finds the
+deepest widget that accepts and walks *up* when one ignores. Reaching
+that needs `QWindowSystemInterface::handleDrag()`, a QPA private
+header Creator does not include. The assertions were taken back out
+rather than pinned to a value that cannot be justified.
+
+What this does say: both views answer identically, so the switch
+changes nothing measurable here. What it does not say: whether either
+answer is the right one. Settling it wants a dropped asset in a running
+Creator, or a Qt-side test harness.
+
+### Negative controls
+
+Two, patched into the uncommitted tree by a script that restores by the
+reverse replacement and compares the diff's hash before and after
+(equal). Each is a build and both tests.
+
+- A, Delete out of the Code view's override list: the designer test
+  goes 2 passed, 2 failed - both rows - on "Delete would fire a
+  designer shortcut instead of reaching the text".
+- B, `highlightScopeAtIn()` clears the scope instead of lighting it:
+  the seam test goes 2 passed, 1 failed on "asked to light the scope,
+  the view drew no band".
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     827 passed, 0 failed, 3 skipped, exit 0   x3
+                         and one run exit 255 at 158 passed, the log
+                         ending in testTheCaretLandsWhereTheWidgetEditorsDoes
+                         again: entry 247's crash. Two runs in eight
+                         across batches 345 and 346, which is a rate
+                         worth writing down - it was "occasional" in
+                         247, 284 and 285.
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlJSEditor     49 passed, 0 failed, 0 skipped, exit 0
+    -test QmlDesigner     15 passed, 0 failed, 0 skipped, exit 0
+                     (loaded; four test objects, 4 + 4 + 3 + 4)
+
+TextEditor's 827 is 826 plus this batch's one test; QmlDesigner's 15 is
+unchanged, the keys going into a test that was already there. The soft
+asserts stay at nine per TextEditor run. No production code changed in
+this batch, and no `.qbs`: it is two tests and what they measured.
+
+### What is next
+
+1. Entry 342's step 4:
+   `QtQuickDesignerFactory::setUsesQuickEditor(true)`. What is left
+   before it is a judgement rather than a test - the dropped asset
+   above - and it should be taken with the QmlDesigner suite run with
+   the switch on, which is how the rest of Design mode gets exercised
+   against the Qt Quick view in one go.
+2. The inline diff editor's own port (entry 341); the standing list
+   (entry 340), which holds `AbstractView::isSelectedModelNode()`
+   dereferencing an unattached model (entry 345) and now entry 247's
+   crash at two in eight.

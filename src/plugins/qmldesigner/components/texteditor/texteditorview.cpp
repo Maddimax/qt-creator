@@ -616,6 +616,7 @@ void TextEditorView::createTextEditor()
 #include <qmljseditor/qmljseditorconstants.h>
 #include <utils/temporarydirectory.h>
 
+#include <QKeyEvent>
 #include <QScopeGuard>
 #include <QTest>
 
@@ -679,6 +680,24 @@ private slots:
         QCOMPARE(TextEditor::lineColumnOf(code).line, 4);
         view->gotoCursorPosition(2, 0);
         QCOMPARE(TextEditor::lineColumnOf(code).line, 2);
+
+        // The keys the Code view takes for the text rather than letting them
+        // fire a designer shortcut. Its event filter is on the editor's
+        // widget, whichever view that widget belongs to, and a
+        // ShortcutOverride accepted there is a key that reaches the text.
+        const auto claims = [code](int key, Qt::KeyboardModifiers modifiers) {
+            QKeyEvent ask(QEvent::ShortcutOverride, key, modifiers);
+            ask.setAccepted(false);
+            QCoreApplication::sendEvent(code->widget(), &ask);
+            return ask.isAccepted();
+        };
+        QVERIFY2(claims(Qt::Key_Delete, Qt::NoModifier),
+                 "Delete would fire a designer shortcut instead of reaching the text");
+        QVERIFY2(claims(Qt::Key_Backspace, Qt::NoModifier),
+                 "Backspace would fire a designer shortcut instead of reaching the text");
+        QVERIFY2(claims(Qt::Key_Left, Qt::ControlModifier),
+                 "Ctrl+Left would fire a designer shortcut instead of reaching the text");
+
     }
 };
 
