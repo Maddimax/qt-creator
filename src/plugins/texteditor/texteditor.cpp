@@ -10681,6 +10681,18 @@ void autoIndentIn(Core::IEditor *editor)
         view->autoIndent();
 }
 
+void autoFormatIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->autoFormat();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->autoFormat();
+}
+
 void replaceIn(Core::IEditor *editor, int length, const QString &text)
 {
     QTextCursor cursor = textCursorOf(editor);

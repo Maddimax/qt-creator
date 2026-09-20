@@ -76,6 +76,7 @@
 #include <QInputMethod>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QScopeGuard>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -788,6 +789,9 @@ int TextViewport::selectionStart() const
 
 void TextViewport::setSelectionStart(int position)
 {
+    // Before the early return: the tracker may have been moved by an edit of
+    // this view's own that then put the selection back where it was.
+    track(m_trackedSelectionStart, position);
     if (m_selectionStart == position)
         return;
     m_selectionStart = position;
@@ -802,11 +806,23 @@ int TextViewport::selectionEnd() const
 
 void TextViewport::setSelectionEnd(int position)
 {
+    track(m_trackedSelectionEnd, position);
     if (m_selectionEnd == position)
         return;
     m_selectionEnd = position;
     polish();
     emit selectionChanged();
+}
+
+void TextViewport::track(QTextCursor &tracker, int position) const
+{
+    if (!m_connectedDocument || position < 0) {
+        tracker = QTextCursor();
+        return;
+    }
+    if (tracker.isNull() || tracker.document() != m_connectedDocument)
+        tracker = QTextCursor(m_connectedDocument);
+    tracker.setPosition(qBound(0, position, m_connectedDocument->characterCount() - 1));
 }
 
 // What a row on screen says to the form drawing it. Only what QML reads: the
@@ -3022,6 +3038,7 @@ void TextViewport::setCursorPosition(int position)
     // it already is still says there is one of it. Whoever wants to keep them
     // says so with setMultiTextCursor() afterwards.
     m_extraCursors.clear();
+    track(m_trackedCaret, position);
     if (m_cursorPosition == position)
         return;
     // Put somewhere rather than moved there, so there is no column to keep.
@@ -4231,6 +4248,13 @@ void TextViewport::carryPositionsThroughEdit(int position, int charsRemoved, int
     // QWidgetTextControl puts its cursor back at 0 once the content is in.
     // characterCount() is what the document has now, an empty one being 1.
     const int countBefore = m_connectedDocument->characterCount() - charsAdded + charsRemoved;
+    // Either way out below leaves the positions as they are, so the trackers,
+    // which the document has already moved, are put back on them.
+    const QScopeGuard keepTrackersOnPositions([this] {
+        track(m_trackedSelectionStart, m_selectionStart);
+        track(m_trackedSelectionEnd, m_selectionEnd);
+        track(m_trackedCaret, m_cursorPosition);
+    });
     if (countBefore <= 1)
         return;
 
@@ -4239,13 +4263,22 @@ void TextViewport::carryPositionsThroughEdit(int position, int charsRemoved, int
     if (m_editingThroughItsOwnCarets)
         return;
 
+    // Where the document moved the cursor kept for it, operation by operation;
+    // the merged range only where there is no such cursor.
+    const auto carried = [this, position, charsRemoved, charsAdded](const QTextCursor &tracker,
+                                                                      int was) {
+        if (!tracker.isNull() && tracker.document() == m_connectedDocument)
+            return tracker.position();
+        return positionAfterEdit(was, position, charsRemoved, charsAdded);
+    };
+
     // The extra carets are cursors in the document and have moved themselves.
     if (m_selectionStart >= 0)
-        setSelectionStart(positionAfterEdit(m_selectionStart, position, charsRemoved, charsAdded));
+        setSelectionStart(carried(m_trackedSelectionStart, m_selectionStart));
     if (m_selectionEnd >= 0)
-        setSelectionEnd(positionAfterEdit(m_selectionEnd, position, charsRemoved, charsAdded));
+        setSelectionEnd(carried(m_trackedSelectionEnd, m_selectionEnd));
 
-    const int moved = positionAfterEdit(m_cursorPosition, position, charsRemoved, charsAdded);
+    const int moved = carried(m_trackedCaret, m_cursorPosition);
     if (moved == m_cursorPosition)
         return;
     // Not setCursorPosition(): the caret has not been put anywhere, so the
@@ -5856,6 +5889,11 @@ void TextViewport::documentChangedInternal()
         // so far means nothing any more.
         m_contentWidth = 0;
         m_connectedDocument = text;
+        // The positions are kept across a reopen; the cursors for them are
+        // in the document that went, so they are made anew in this one.
+        track(m_trackedSelectionStart, m_selectionStart);
+        track(m_trackedSelectionEnd, m_selectionEnd);
+        track(m_trackedCaret, m_cursorPosition);
         if (text) {
             connect(text, &QTextDocument::contentsChange, this,
                     &TextViewport::carryPositionsThroughEdit);

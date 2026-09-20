@@ -1377,6 +1377,10 @@ TEXTEDITOR_EXPORT void contextHelpItemIn(Core::IEditor *editor,
 // Lay out what is selected in \a editor, or the line the caret is on. Both
 // views already do this; only the way to ask either of them was missing.
 TEXTEDITOR_EXPORT void autoIndentIn(Core::IEditor *editor);
+// Hand what is selected in \a editor, or the caret's line, to the document's
+// formatter - a language server's, say. The same in both views; only the way
+// to ask either of them was missing.
+TEXTEDITOR_EXPORT void autoFormatIn(Core::IEditor *editor);
 
 // Replace \a length characters from the caret in \a editor with \a text.
 TEXTEDITOR_EXPORT void replaceIn(Core::IEditor *editor, int length, const QString &text);

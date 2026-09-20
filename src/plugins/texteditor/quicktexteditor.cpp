@@ -100,6 +100,8 @@
 #include <QTextEdit>
 
 #ifdef WITH_TESTS
+#include <utils/changeset.h>
+
 #include <QApplication>
 #include <QHBoxLayout>
 #include <QLineEdit>
@@ -6235,6 +6237,130 @@ private slots:
         // Four spaces went from in front of it, so it moved four to the left
         // and is still on the same character.
         QCOMPARE(textCursorOf(editor).positionInBlock(), 8);
+    }
+
+    // A language server formats through the document's Formatter, which the
+    // widget editor drove from autoFormat(). The Qt Quick view has the same
+    // call; what was missing was a way to ask either of them - which is what
+    // QmlJSEditor's Reformat File needs for qmlls.
+    void testAutoFormatReachesEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testAutoFormatReachesEitherView()
+    {
+        QFETCH(bool, quick);
+
+        // A formatter that shouts, so that the answer is unmistakably its.
+        class ShoutingFormatter final : public Formatter
+        {
+        public:
+            void format(const QTextCursor &cursor, const TabSettingsData &,
+                        const FormatCallback &callback) override
+            {
+                askedAt = cursor.position();
+                const QString text = cursor.document()->toPlainText();
+                Utils::ChangeSet change;
+                change.replace(0, text.size(), text.toUpper());
+                callback(change);
+            }
+            int askedAt = -1;
+        };
+
+        Utils::TemporaryDirectory dir("quick-editor-autoformat");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("quiet.cpp");
+        QVERIFY(file.writeFileContents("int a;\nint b;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        auto * const formatter = new ShoutingFormatter;
+        document->setFormatter(formatter); // the document owns it
+
+        editor->gotoLine(2, 4);
+        const int caret = textCursorOf(editor).position();
+        autoFormatIn(editor);
+
+        // Asked with the caret of the view, and the answer applied.
+        QCOMPARE(formatter->askedAt, caret);
+        QCOMPARE(document->plainText(), QString("INT A;\nINT B;\n"));
+    }
+
+    // An edit block made from outside the view - a reformat re-indenting every
+    // line, a refactoring's change set - reaches the view as one merged
+    // contentsChange for the whole block. The Qt Quick view carried its caret
+    // by that range, so a caret between the first and the last edit landed at
+    // the range's start even where the text under it had been put back
+    // unchanged; the widget editor's QTextCursor is moved by the document one
+    // operation at a time and never was.
+    void testACaretSurvivesAnEditBlockAroundItInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testACaretSurvivesAnEditBlockAroundItInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("quick-editor-edit-block");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("indented.cpp");
+        QVERIFY(file.writeFileContents("int a;\n    int b;\n    int c;\n"));
+
+        TextEditorFactory * const factory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY(factory);
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY(editor);
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Inside "b", with an edit to come before it on its line and another
+        // on the line after: the merged range spans the caret.
+        editor->gotoLine(2, 9);
+        const auto textBeforeCaret = [editor] {
+            const QTextCursor caret = textCursorOf(editor);
+            return caret.block().text().left(caret.positionInBlock());
+        };
+        QCOMPARE(textBeforeCaret(), QString("    int b"));
+
+        // What TabSettingsData::indentLine() does to each line, in one block.
+        QTextDocument * const text = document->document();
+        QTextCursor outer(text);
+        outer.beginEditBlock();
+        for (int line : {1, 2}) {
+            QTextCursor cursor(text->findBlockByNumber(line));
+            cursor.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor, 4);
+            cursor.removeSelectedText();
+            cursor.insertText("  ");
+        }
+        outer.endEditBlock();
+        QCOMPARE(document->plainText(), QString("int a;\n  int b;\n  int c;\n"));
+
+        QCOMPARE(textBeforeCaret(), QString("  int b"));
     }
 
     void testEveryCaretIsReachedInEitherView_data()

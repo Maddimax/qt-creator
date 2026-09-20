@@ -952,6 +952,9 @@ public:
     // Enter was pressed, or a key typed into this view.
     void carryPositionsThroughEdit(int position, int charsRemoved, int charsAdded);
     void carryHighlightsThroughEdit(int position, int charsRemoved, int charsAdded);
+    // Puts \a tracker on \a position in the connected document, or clears it
+    // where there is no document or no position.
+    void track(QTextCursor &tracker, int position) const;
     // What the completer put in and the reader has not typed over yet, drawn
     // until the caret goes somewhere else.
     void refreshAutoCompletedHighlight();
@@ -1488,6 +1491,15 @@ private:
     int m_selectionStart = -1;
     int m_selectionEnd = -1;
     int m_cursorPosition = 0;
+    // The same three, kept as cursors in the document as well, for an edit
+    // made from outside this view. The document moves a cursor through every
+    // operation one at a time; what contentsChange reports for a whole edit
+    // block is one merged range, and a caret inside that range would be
+    // carried to its start even where the operations around it had put the
+    // text under it back unchanged - a re-indent of its line, say.
+    QTextCursor m_trackedSelectionStart;
+    QTextCursor m_trackedSelectionEnd;
+    QTextCursor m_trackedCaret;
     // Set while the edit being made is one of this view's own carets
     // doing it. Those carets are written back afterwards and carry
     // themselves; moving them here as well would leave the write-back

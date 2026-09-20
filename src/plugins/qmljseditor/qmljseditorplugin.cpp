@@ -59,6 +59,13 @@
 #include <QMenu>
 #include <QAction>
 
+#ifdef WITH_TESTS
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
+#endif
+
 using namespace ProjectExplorer;
 using namespace Core;
 using namespace Utils;
@@ -97,6 +104,95 @@ private:
 };
 
 static QmlJSEditorPluginPrivate *dd = nullptr;
+
+#ifdef WITH_TESTS
+
+// Reformat File put the reformatted text back through the widget editor,
+// keeping the caret where the reader had it, and fell back to a plain replace
+// - caret to the top - where the current editor was not one, which a QML
+// file in the Qt Quick editor is. The language-server path gave up outright
+// without a widget. Both go through the editor now, in whichever view.
+class QmlJSReformatTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testReformatKeepsTheCaretInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testReformatKeepsTheCaretInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmljs-reformat-caret");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Crooked.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\n"
+                                       "Item {\n"
+                                       "        width: 100\n"
+                                       "    height: 200\n"
+                                       "}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a QML file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        // The builtin formatter, on the preference in effect (the global one
+        // delegates), and put back afterwards.
+        QmlJSCodeStylePreferences * const style = globalQmlJSCodeStyle();
+        QVERIFY(style);
+        TextEditor::ICodeStylePreferences * const inEffect = style->currentPreferences();
+        QVERIFY(inEffect);
+        const QVariant was = inEffect->value();
+        const QScopeGuard restoreStyle([inEffect, was] { inEffect->setValue(was); });
+        QmlJSCodeStyleSettings settings = style->currentCodeStyleSettings();
+        settings.formatter = QmlJSCodeStyleSettings::Builtin;
+        QVariant value;
+        value.setValue(settings);
+        inEffect->setValue(value);
+        QCOMPARE(style->currentCodeStyleSettings().formatter, QmlJSCodeStyleSettings::Builtin);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<QmlJSEditorDocument *>(editor->document());
+        QVERIFY(document);
+        // The plugin formats its current document, which follows the current
+        // editor.
+        QTRY_COMPARE(EditorManager::currentEditor(), editor);
+
+        // The caret inside "width", on the line the reformat changes: four of
+        // the eight spaces in front of it go.
+        editor->gotoLine(3, 11);
+        const auto textBeforeCaret = [editor] {
+            const QTextCursor caret = TextEditor::textCursorOf(editor);
+            return caret.block().text().left(caret.positionInBlock()).trimmed();
+        };
+        QCOMPARE(textBeforeCaret(), QString("wid"));
+
+        QCOMPARE(dd->reformatFile(), FormatResult::Success);
+        QVERIFY2(document->plainText().contains("\n    width: 100\n"),
+                 qPrintable("not reformatted:\n" + document->plainText()));
+        // And the caret is still on the same character of the same word.
+        QCOMPARE(textBeforeCaret(), QString("wid"));
+    }
+};
+
+QObject *createQmlJSReformatTest()
+{
+    return new QmlJSReformatTest;
+}
+
+#endif // WITH_TESTS
 
 QmlJSEditorPluginPrivate::QmlJSEditorPluginPrivate()
 {
@@ -244,6 +340,17 @@ static void overrideTabSettings(QPointer<QmlJSEditorDocument> document)
     document->setTabSettings(tabSettings);
 }
 
+// The editor to format through: the current one where it shows this document,
+// else any that does. Either view of it will do.
+static IEditor *editorShowing(QmlJSEditorDocument *document)
+{
+    const QList<IEditor *> editors = DocumentModel::editorsForDocument(document);
+    if (editors.isEmpty())
+        return nullptr;
+    IEditor * const current = EditorManager::currentEditor();
+    return editors.contains(current) ? current : editors.first();
+}
+
 static FormatResult reformatByQmlFormat(QPointer<QmlJSEditorDocument> document)
 {
     const FilePath &qmlformatPath = QmlFormatSettings::instance().latestQmlFormatPath();
@@ -261,11 +368,9 @@ static FormatResult reformatByQmlFormat(QPointer<QmlJSEditorDocument> document)
     command.addOption("%file");
     if (!command.isValid())
         return FormatResult::Failed;
-    const QList<Core::IEditor *> editors = Core::DocumentModel::editorsForDocument(document);
-    if (editors.isEmpty())
+    IEditor * const editor = editorShowing(document);
+    if (!editor)
         return FormatResult::Failed;
-    IEditor *currentEditor = EditorManager::currentEditor();
-    IEditor *editor = editors.contains(currentEditor) ? currentEditor : editors.first();
     overrideTabSettings(document);
     TextEditor::formatEditor(editor, command);
     return FormatResult::Success;
@@ -308,9 +413,10 @@ static FormatResult reformatByBuiltInFormatter(QPointer<QmlJSEditorDocument> doc
         codeStyle->currentCodeStyleSettings().lineLength);
 
     QTextCursor tc(document->document());
-    auto ed = qobject_cast<TextEditor::BaseTextEditor *>(EditorManager::currentEditor());
-    if (ed) {
-        TextEditor::updateEditorText(ed->editorWidget(), newText);
+    // Through the editor, in whichever view: the text is put back with the
+    // caret where the reader left it, which a plain replace does not do.
+    if (IEditor * const editor = editorShowing(document)) {
+        TextEditor::updateEditorText(editor, newText);
     } else {
         tc.movePosition(QTextCursor::Start);
         tc.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
@@ -338,18 +444,13 @@ static FormatResult reformatUsingLanguageServer(QPointer<QmlJSEditorDocument> do
     if (!document->formatter())
         return FormatResult::Failed;
 
-    TextEditor::BaseTextEditor *editor = qobject_cast<TextEditor::BaseTextEditor *>(
-        EditorManager::currentEditor());
+    IEditor * const editor = editorShowing(document);
     if (!editor)
-        return FormatResult::Failed;
-
-    TextEditor::TextEditorWidget *editorWidget = editor->editorWidget();
-    if (!editorWidget)
         return FormatResult::Failed;
 
     overrideTabSettings(document);
     document->setFormatterMode(TextEditor::Formatter::FormatMode::FullDocument);
-    editorWidget->autoFormat();
+    TextEditor::autoFormatIn(editor);
     return FormatResult::Success;
 }
 
@@ -371,11 +472,9 @@ static FormatResult reformatByCustomFormatter(
     command.addOption("%file");
     if (!command.isValid())
         return FormatResult::Failed;
-    const QList<Core::IEditor *> editors = Core::DocumentModel::editorsForDocument(document);
-    if (editors.isEmpty())
+    IEditor * const editor = editorShowing(document);
+    if (!editor)
         return FormatResult::Failed;
-    IEditor *currentEditor = EditorManager::currentEditor();
-    IEditor *editor = editors.contains(currentEditor) ? currentEditor : editors.first();
     TextEditor::formatEditor(editor, command);
     return FormatResult::Success;
 }
@@ -516,6 +615,7 @@ class QmlJSEditorPlugin final : public ExtensionSystem::IPlugin
         addTestCreator(createQmlJSQuickFixTest);
         addTestCreator(createQmlJSEditorDocumentTest);
         addTestCreator(createQmlJSOutlineTest);
+        addTestCreator(createQmlJSReformatTest);
 #endif
     }
 

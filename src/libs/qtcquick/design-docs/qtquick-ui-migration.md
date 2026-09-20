@@ -70666,3 +70666,157 @@ their runs, neither of which is in their build. No `.qbs` edited.
    clearing.
 3. The large ones (entry 335): the inline diff, Design mode's text
    editor, FakeVim's relative numbers.
+
+## 2026-09-20 — Reformat File goes through the editor, and a caret that an edit block moved (batch 337)
+
+Entry 336's first item: QmlJSEditor's Reformat File. And a defect of the
+Qt Quick view that the test for it found, which is the larger half.
+
+### The gap closed: Reformat File, in either view
+
+`QmlJSEditorPluginPrivate::reformatFile()` has four paths, by the code
+style's formatter setting. Two of them - qmlformat and a custom tool -
+already went through `TextEditor::formatEditor(IEditor *)` on an editor
+of the document. The other two did not:
+
+- The built-in formatter took `EditorManager::currentEditor()`, cast it
+  to `BaseTextEditor`, and put the new text back with
+  `updateEditorText(TextEditorWidget *)`, which keeps the caret and the
+  scroll where the reader had them; where the cast failed it selected
+  the whole document and inserted the text, which puts every caret at
+  the top. A QML file in the Qt Quick editor took the second branch.
+  (It also asked the *current* editor whether or not it showed this
+  document, where the other paths asked the document's editors. Now
+  all four do.)
+- The language-server path needed the widget for `autoFormat()` and
+  returned Failed without one - so with qmlls as the formatter,
+  Reformat File in the Qt Quick editor reported "Formatting failed
+  with the selected formatter" and did nothing.
+
+Now:
+
+- `editorShowing(document)`: the current editor where it shows this
+  document, else the first that does; the four paths share it.
+- The built-in path: `updateEditorText(editor, newText)`, the `IEditor`
+  overload, which this half of the plugin had not been moved to.
+- `TextEditor::autoFormatIn(IEditor *)`, beside `autoIndentIn()`: the
+  widget's `autoFormat()`, the view's `TextViewport::autoFormat()`,
+  which both hand the caret to `TextDocument::autoFormat()`. The
+  language-server path calls it.
+
+### The defect found: a caret inside an edit block's merged range
+
+The two-view test of the built-in path failed its quick row at the
+first run: the text was reformatted, the caret was at the start of its
+line. Not from theory - the carry-through code read right for every
+edit the reformat makes - but instrumented: the caret's position
+printed after `updateEditorText()` and after each line's re-indent was
+30 throughout, and 23 only after the outer `endEditBlock()`. 23 is
+where the first re-indent of the block began.
+
+`QTextDocument` reports a whole edit block as one `contentsChange`
+whose range runs from the first edit to the last. The Qt Quick view
+kept its caret as an `int` and carried it by that range in
+`carryPositionsThroughEdit()`: a caret inside the removed span went to
+the span's start - right for a deletion, wrong for a block that took
+the leading whitespace of the caret's line and the next and put the
+same amount back, which is what `TabSettingsData::indentLine()` does to
+every line, including the ones it does not change. A widget editor's
+`QTextCursor` is moved by the document per operation and never sees
+the merged range, which is why only the quick row failed. The same
+would have met any change set - a refactoring's, a quick fix's, a
+formatter's - with edits on both sides of the caret in one block.
+
+Fixed in the view: `m_trackedCaret`, `m_trackedSelectionStart` and
+`m_trackedSelectionEnd`, `QTextCursor`s in the document put on the
+three positions whenever they are set (before the setters' early
+returns, because an edit of the view's own may have moved a tracker and
+then put the position back where it was), remade when the document is
+replaced, and read by `carryPositionsThroughEdit()` in place of the
+merged-range arithmetic, which stays as the fallback for a view with no
+tracker. Both ways out of the carry - the "opening a file" case and
+the view's own edits - put the trackers back on the positions they
+leave alone.
+
+### The tests
+
+- `QmlJSEditor::Internal::QmlJSReformatTest::testReformatKeepsTheCaretInEitherView`,
+  two rows: the built-in formatter chosen on the preference in effect
+  and put back; a QML file with a line indented eight spaces; the caret
+  inside `width` on that line; `dd->reformatFile()` answers Success,
+  the line is four spaces in, and the text before the caret on its line
+  is still `wid`. Registered with `addTestCreator()` beside the plugin's
+  other tests.
+- `QuickTextEditorTest::testAutoFormatReachesEitherView`, two rows: a
+  `Formatter` that upper-cases the whole text is set on the document;
+  `autoFormatIn()` asks it with the caret of the view and the text
+  comes back shouted. The language-server path's seam, tested without
+  a language server: qmlls is not in the VM, so the path itself is
+  covered by the seam and by reading, not by a run.
+- `QuickTextEditorTest::testACaretSurvivesAnEditBlockAroundItInEitherView`,
+  two rows: three lines, the caret inside `b` on the second; one edit
+  block replaces the leading whitespace of the second and the third
+  line, as `indentLine()` would; the caret is still after `int b` on
+  its line.
+
+Order of events, since it is the point of the entry: the first build
+ran the seam test green in both rows and the QML test 3/1, its quick
+row red on the caret ("Actual (textBeforeCaret()): "", Expected
+"wid""). One instrumented build and run gave the measurement above
+(30, 30 x7, then 23 at `endEditBlock()`). The tracker fix and the
+edit-block test went in, the instrument came out, and the next build
+ran all three tests 4/0, exit 0, both rows each. The first build had
+also compiled without `<QScopeGuard>` in `textviewport.cpp` only
+because the view had not needed one yet; it does now, and includes it.
+
+### Negative controls
+
+Three, patched into the uncommitted tree by a script that restores by
+the reverse replacement and compares the diff's hash before and after
+(equal). Each is a build and the named tests in the VM; each fails the
+quick row alone, the widget row passing under each being what says the
+failure is the Qt Quick view's and not the test's.
+
+- A, the built-in path keeps the caret through the widget editor alone
+  and gives anything else the plain replace, as before: the QML test
+  3/1, "Actual (textBeforeCaret()): "", Expected "wid"".
+- B, `autoFormatIn()` does not reach the Qt Quick view: the seam test
+  3/1, "Actual (formatter->askedAt): -1, Expected (caret): 11" - the
+  formatter never asked.
+- C, `carryPositionsThroughEdit()` carries by the merged range alone,
+  the trackers ignored, as before: the edit-block test 3/1, "Actual
+  (textBeforeCaret()): "", Expected "  int b"", and the QML test 3/1
+  with A's message - so the QML test's quick row needs both the editor
+  path (A) and the tracker (C), and the edit-block test isolates the
+  second.
+
+The language-server path has no control: qmlls is not in the VM, and a
+control on code no test reaches would show nothing.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     822 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlJSEditor     48 passed, 0 failed, 0 skipped, exit 0
+
+TextEditor is 822: 818 plus the seam test's two rows and the edit-block
+test's two. QmlJSEditor is 48: the 44 last recorded plus the reformat
+test object's two rows and its init/cleanup. The soft asserts stay at
+nine per TextEditor run; no typing flake in the three runs, no memory
+kill. Nothing else in TextEditor moved with the trackers: every test
+that types, selects, undoes or applies a change set through the Qt
+Quick view ran on the tracked caret and answered as before. No `.qbs`
+edited.
+
+### What is next
+
+1. Entry 335's tool bar buttons (ClangTools "Analyze File",
+   QmlProjectManager, QmlPreview): measure first whether the Qt Quick
+   tool bar row draws a menu from an action given to
+   `insertExtraToolBarActionIn()`.
+2. The standing list (entries 298 and 332) and the whitespace override's
+   clearing.
+3. The large ones (entry 335): the inline diff, Design mode's text
+   editor, FakeVim's relative numbers.
