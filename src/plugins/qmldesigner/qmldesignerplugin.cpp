@@ -15,6 +15,7 @@
 #include "settingspage.h"
 #include "shortcutmanager.h"
 
+#include <bindingeditor/bindingeditorwidget.h>
 #include <colortool/colortool.h>
 #include <connectionview.h>
 #include <curveeditor/curveeditorview.h>
@@ -255,6 +256,10 @@ Utils::Result<> QmlDesignerPlugin::initialize(const QStringList &)
         const QString composedTitle = title.isEmpty() ? Tr::tr("Error") : title.toString();
         Utils::AsynchronousMessageBox::warning(composedTitle, description.toString());
     });
+
+#ifdef WITH_TESTS
+    addTestCreator(&createBindingEditorTest);
+#endif
 
     return Utils::ResultOk;
 }

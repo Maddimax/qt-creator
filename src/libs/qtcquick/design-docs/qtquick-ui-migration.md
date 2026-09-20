@@ -70100,3 +70100,153 @@ found.
    expected.
 3. The whitespace override's clearing, above, if the toggle is to be
    revisited.
+
+## 2026-09-20 — The binding editor is the Qt Quick editor (batch 333)
+
+Entry 332's first item, the binding editor half: the QmlDesigner dialog
+that edits a binding or a connection's statement showed it in a
+`TextEditorWidget` subclass. It shows it in the Qt Quick editor now.
+
+### The gap closed: a dialog's editor, in either view
+
+`BindingEditorWidget : QmlJSEditorWidget` did three things a widget
+subclass could and nothing else could: an `event()` override made
+Return "done" (Ctrl+Return once the dialog said multiline), a
+`createAssistInterface()` override completed against the *design
+document's* semantic info rather than the few lines being edited, and
+a `Ctrl+Space` action of its own, registered in the widget's context
+and unregistered by the dialogs on close. The dialog reached into the
+widget for the rest: `setTabChangesFocus(true)`, the gutter flags, the
+frame style, `textChanged`.
+
+- `BindingDocument : QmlJSEditorDocument` (still in
+  `bindingeditorwidget.h/.cpp`, the file names kept) answers all of it
+  from the document: `handleKeyPress()` (batch 328's hook) emits
+  `returnKeyClicked()` for Return, or Ctrl+Return when
+  `setMultiline(true)`, and returns true; `createAssistInterface()` for
+  Completion builds a `QmlJSCompletionAssistInterface` from the design
+  document it was told about with `setDesignDocument()` - the
+  `QmlJSEditorDocument` behind the design document's editor, no widget
+  cast; `setTextWithIndentation()` is the old widget method moved. The
+  widget class is gone.
+- `BindingEditorFactory`: `setUsesQuickEditor(true)`, and what a
+  dialog's few lines do not want, said once by the factory rather than
+  poked into each widget: `setLineNumbersVisible(false)`,
+  `setMarksVisible(false)`, `setCodeFoldingSupported(false)`,
+  `setToolBarVisible(false)`. The document brings the QML highlighter
+  and indenter; the hover handler, auto completer and completion
+  provider stay as they were. The `Ctrl+Space` action goes: the Qt Quick
+  editor registers `COMPLETE_THIS` in its own per-editor context, so
+  there is nothing to unregister on close either - `ActionEditor` and
+  `BindingEditor` just close the dialog.
+- `AbstractEditorDialog` holds a `Core::IEditor *` and the
+  `BindingDocument *`; `bindingDocument()` replaces
+  `bindingEditorWidget()`. `showWidget()` focuses through
+  `TextEditor::setFocusIn()`, the value is `plainText()`, `textChanged`
+  is the `QTextDocument`'s `contentsChanged`. `ActionEditorDialog`'s
+  `QSignalBlocker` on the widget while it rewrote the text is the
+  dialog's own `m_lock`, which is what `textChanged()` checks anyway.
+  `ActionEditor::prepareConnections()` takes the semantic info from the
+  document's design document.
+
+The seam the dialog needed: Tab is for the buttons there.
+`TextEditor::setTabMovesFocusIn(IEditor *, bool)`, beside `setFocusIn()`:
+the widget's `setTabChangesFocus()`; the Qt Quick view's new
+`TextViewport::setTabMovesFocus()`, which makes `keyPressEvent()` decline
+Tab and Backtab before snippets or indenting get them. Declined, the key
+goes back to `TabAwareQuickWidget::focusNextPrevChild()`, which had sent
+it into the scene and falls back to the widget chain when the scene does
+not take it - so the focus moves on to the next widget, with no change
+to the host.
+
+A note on the census: entry 329 counted the binding editor among the
+QmlDesigner-side two; the other, Effect Composer's code editor, is
+still a widget subclass with `setTabChangesFocus(true)` at two places,
+and this seam is what it will use.
+
+### The tests
+
+- `QuickTextEditorTest::testTabCanMoveFocusOutOfEitherView`, two rows: a
+  window with the editor and a `QLineEdit` after it; told Tab moves the
+  focus, focused, sent Tab: the line edit has focus, the editor has not,
+  and the text is what it was (no indent typed).
+- `QmlDesigner::BindingEditorTest::testTheBindingEditorIsTheQtQuickEditor`,
+  the plugin's first test object, registered with `addTestCreator()` in
+  `QmlDesignerPlugin::initialize()`: the factory says Quick and withholds
+  the gutter; its editor is no `TextEditorWidget`; the document is a
+  `BindingDocument` with a highlighter and an indenter; Return is "done"
+  once, then a line once multiline, then Ctrl+Return is; a completion
+  interface comes back with no design document set; text set with
+  indentation is indented as QML. Run with QmlDesigner loaded, which the
+  stock runner does not do: the plain `-load all -noload UpdateInfo`
+  command of entry 329's probe.
+
+One build failed to compile before a run: `actioneditor.h` had
+`QModelIndex` from the old widget header's includes and nowhere else -
+`<QModelIndex>` of its own now. Then, in the VM, at the first run: the
+Tab test 4/0 (both rows), exit 0; the binding editor's test 3/0, exit
+0, with QmlDesigner loaded; the runs' only warnings the usual
+`isLoaded()` one.
+
+### Negative controls
+
+Four, each the pre-fix shape of one piece, patched into the uncommitted
+tree by a script that restores by the reverse replacement and compares
+the diff's hash before and after (equal). Each is a build and a run in
+the VM; the binding editor's test is run with QmlDesigner loaded.
+
+- A, the factory says `setUsesQuickEditor(false)` - the widget editor,
+  as before: the binding editor's test 2/1, "'factory.usesQuickEditor()'
+  returned FALSE. (the binding editor is the widget editor)". The Tab
+  test 4/0, untouched.
+- B, `handleKeyPress()` never sees Return (`returnPressed = false`) -
+  the document knows nothing of it, as the widget's `event()` did it:
+  2/1, "'document->handleKeyPress(&plainReturn, cursor)' returned
+  FALSE". The Tab test 4/0.
+- C, `setTabMovesFocusIn()` returns at once - nobody told either view:
+  the Tab test 2/2, both rows "'field->hasFocus()' returned FALSE. (Tab
+  did not move the focus out of the editor)".
+- D, the view's `m_tabMovesFocus` check is `&& false` - the Qt Quick
+  view takes Tab for an indent, as before, while the seam still calls
+  it: 3/1, the quick row alone with the same message; the widget row
+  passes, so the row that fails is the view's and not the seam's.
+
+### Measurements
+
+Two lines over the width - the test's focus-widget check and
+`prepareConnections()`'s semantic-info line - were wrapped after the
+suites' build had started (the tree is bind-mounted into the
+container, so whether that build saw them depends on when the two
+files compiled); whitespace only, the same code either way. The
+duplicated destructor comment in `QuickTextEditor` went with it.
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     818 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlDesigner      3 passed, 0 failed, 0 skipped, exit 0
+                         (QmlDesigner loaded; its one test object)
+
+TextEditor is 818: 816 plus the Tab test's two rows. No typing flake in
+the three runs, no memory kill. No `.qbs` edited: no file was added or
+removed, `bindingeditorwidget.h/.cpp` keep their names with the
+document and the factory in them.
+
+The TextEditor runs' soft asserts are the same seventeen per run as
+entry 332's, at the same sites (`cmakeoutline.cpp:448`,
+`vcseditordocument.cpp:366`, `qtversionmanager.cpp:797`): none this
+batch's.
+
+### What is next
+
+1. Effect Composer's code editor, the other of entry 329's QmlDesigner
+   side two: `EffectCodeEditorWidget`, with `setTabChangesFocus(true)`
+   at two places and whatever else it configures on the widget.
+   Verifiable the same way, with a test object in EffectComposer and a
+   run with QmlDesigner loaded.
+2. The standing list (entry 298 and 332): the two-view tests' widget
+   rows, QmlJSEditor into the standing suites, ASan, the typing flake,
+   Windows, the two Debugger tests failing on HEAD, the PNG hang, the
+   widget editor's read-only hazard, ProjectExplorer's
+   `testSourceToBinaryMapping(cmake)`.
+3. The whitespace override's clearing (entry 332).

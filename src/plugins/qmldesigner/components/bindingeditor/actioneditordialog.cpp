@@ -51,7 +51,7 @@ ActionEditorDialog::~ActionEditorDialog()
 void ActionEditorDialog::adjustProperties()
 {
     // Analyze the current connection editor statement/expression
-    const auto qmlJSDocument = bindingEditorWidget()->qmlJsEditorDocument();
+    const auto qmlJSDocument = bindingDocument();
     auto doc = QmlJS::Document::create(Utils::FilePath::fromString("<expression>"),
                                        QmlJS::Dialect::JavaScript);
     doc->setSource(qmlJSDocument->plainText());
@@ -368,8 +368,11 @@ void ActionEditorDialog::updateComboBoxes([[maybe_unused]] int index, ComboBox t
     }
 
     {
-        const QSignalBlocker blocker(m_editorWidget);
+        // Not a change to analyse again: the lock is what textChanged() checks.
+        const bool wasLocked = m_lock;
+        m_lock = true;
         setEditorValue(value);
+        m_lock = wasLocked;
     }
 }
 
@@ -410,8 +413,8 @@ void ActionEditorDialog::showControls(bool show)
 
 void ActionEditorDialog::setMultiline(bool multiline)
 {
-    if (m_editorWidget)
-        m_editorWidget->m_isMultiline = multiline;
+    if (m_document)
+        m_document->setMultiline(multiline);
 }
 
 void ActionEditorDialog::setupUIComponents()

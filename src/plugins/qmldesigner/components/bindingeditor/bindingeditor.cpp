@@ -56,10 +56,8 @@ void BindingEditor::showWidget(int x, int y)
 
 void BindingEditor::hideWidget()
 {
-    if (m_dialog) {
-        m_dialog->unregisterAutoCompletion(); //we have to do it separately, otherwise we have an autocompletion action override
+    if (m_dialog)
         m_dialog->close();
-    }
 }
 
 QString BindingEditor::bindingValue() const

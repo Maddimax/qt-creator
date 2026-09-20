@@ -72,10 +72,8 @@ void ActionEditor::hideWidget()
     if (s_lastActionEditor == this)
         s_lastActionEditor = nullptr;
 
-    if (m_dialog) {
-        m_dialog->unregisterAutoCompletion(); // we have to do it separately, otherwise we have an autocompletion action override
+    if (m_dialog)
         m_dialog->close();
-    }
 }
 
 void ActionEditor::showControls(bool show)
@@ -196,20 +194,21 @@ void ActionEditor::prepareConnections()
     if (!m_modelNode.isValid())
         return;
 
-    BindingEditorWidget *bindingEditorWidget = m_dialog->bindingEditorWidget();
+    BindingDocument * const bindingDocument = m_dialog->bindingDocument();
 
-    if (!bindingEditorWidget) {
-        qCInfo(ceLog) << Q_FUNC_INFO << "BindingEditorWidget is missing!";
+    if (!bindingDocument) {
+        qCInfo(ceLog) << Q_FUNC_INFO << "BindingDocument is missing!";
         return;
     }
 
-    if (!bindingEditorWidget->qmlJsEditorDocument()) {
+    if (!bindingDocument->designDocument()) {
         qCInfo(ceLog) << Q_FUNC_INFO << "QmlJsEditorDocument is missing!";
         return;
     }
 
     // Prepare objects for analysing slots
-    const QmlJSTools::SemanticInfo &semanticInfo = bindingEditorWidget->qmljsdocument->semanticInfo();
+    const QmlJSTools::SemanticInfo &semanticInfo
+        = bindingDocument->designDocument()->semanticInfo();
     const QList<QmlJS::AST::Node *> path = semanticInfo.rangePath(0);
     const QmlJS::ContextPtr &context = semanticInfo.context;
     const QmlJS::ScopeChain &scopeChain = semanticInfo.scopeChain(path);

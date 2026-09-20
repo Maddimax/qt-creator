@@ -1239,6 +1239,11 @@ void TextViewport::setBreakIndent(const std::optional<bool> &on)
     update();
 }
 
+void TextViewport::setTabMovesFocus(bool on)
+{
+    m_tabMovesFocus = on;
+}
+
 void TextViewport::increaseFontZoom()
 {
     globalFontSettings().increaseFontZoom();
@@ -2623,6 +2628,13 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
         event->accept();
         return;
     case Qt::Key_Tab:
+        // Not this view's at all where Tab is for the next widget - the
+        // buttons of a dialog around it. Declined, the key goes back to the
+        // host, which moves the focus on as any widget would.
+        if (m_tabMovesFocus) {
+            event->ignore();
+            return;
+        }
         // A snippet's holes first, which is what Tab means while one is being
         // filled in. Falls through to indenting once there is none left.
         if (goToSnippetPlaceholder(true)) {
@@ -2679,6 +2691,10 @@ void TextViewport::processKeyNormally(QKeyEvent *event)
         event->accept();
         return;
     case Qt::Key_Backtab:
+        if (m_tabMovesFocus) {
+            event->ignore();
+            return;
+        }
         if (goToSnippetPlaceholder(false)) {
             event->accept();
             return;

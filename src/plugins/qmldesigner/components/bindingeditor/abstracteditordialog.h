@@ -35,13 +35,12 @@ public:
 
     virtual void adjustProperties()= 0;
 
-    void unregisterAutoCompletion();
-
     QString defaultTitle() const;
 
-    BindingEditorWidget *bindingEditorWidget() const
+    // The binding's own document, in whichever view shows it.
+    BindingDocument *bindingDocument() const
     {
-        return m_editorWidget;
+        return m_document;
     }
 
 protected:
@@ -56,8 +55,8 @@ public slots:
     void textChanged();
 
 protected:
-    TextEditor::BaseTextEditor *m_editor = nullptr;
-    BindingEditorWidget *m_editorWidget = nullptr;
+    Core::IEditor *m_editor = nullptr;
+    BindingDocument *m_document = nullptr;
     QVBoxLayout *m_verticalLayout = nullptr;
     QDialogButtonBox *m_buttonBox = nullptr;
     QHBoxLayout *m_comboBoxLayout = nullptr;

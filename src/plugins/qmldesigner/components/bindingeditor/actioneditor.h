@@ -10,6 +10,7 @@
 
 #include <utils/uniqueobjectptr.h>
 
+#include <QModelIndex>
 #include <QObject>
 #include <QPointer>
 #include <qqml.h>

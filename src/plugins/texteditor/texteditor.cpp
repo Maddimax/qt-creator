@@ -11066,6 +11066,18 @@ void setFocusIn(Core::IEditor *editor)
         view->forceActiveFocus();
 }
 
+void setTabMovesFocusIn(Core::IEditor *editor, bool on)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->setTabChangesFocus(on);
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->setTabMovesFocus(on);
+}
+
 bool isPositionVisibleIn(Core::IEditor *editor, int position)
 {
     if (!editor || position < 0)

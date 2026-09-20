@@ -102,9 +102,11 @@
 #ifdef WITH_TESTS
 #include <QApplication>
 #include <QHBoxLayout>
+#include <QLineEdit>
 #include <QTest>
 #include <QToolBar>
 #include <QToolButton>
+#include <QVBoxLayout>
 #endif
 
 #include <memory>
@@ -1492,9 +1494,6 @@ public:
     // same way and just as unowned.
     ~QuickTextEditor() override
     {
-        // The tool bar first: its scene is bound to the view inside the other
-        // widget, so the other order leaves it re-evaluating its bindings
-        // against an object that is already gone.
         // The tool bar first: its scene is bound to the view inside the other
         // widget, so the other order leaves it re-evaluating its bindings
         // against an object that is already gone.
@@ -15288,6 +15287,71 @@ private slots:
         setDisplaySettingsIn(editor.get(), std::nullopt);
         QCOMPARE(displaySettingsOf(editor.get()).m_displayLineNumbers, global);
         QCOMPARE(lineNumbersShown(editor.get()), global);
+    }
+
+    // An editor in a dialog wants Tab to move on to the buttons, not to
+    // indent: the widget editor's setTabChangesFocus(). The Qt Quick view took
+    // every Tab for an indent; told to leave it, it declines the key, and its
+    // host moves the focus on to the next widget as any widget would.
+    void testTabCanMoveFocusOutOfEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTabCanMoveFocusOutOfEitherView()
+    {
+        QFETCH(bool, quick);
+
+        class PlainFactory final : public TextEditorFactory
+        {
+        public:
+            explicit PlainFactory(bool quick)
+            {
+                setId("QuickEditorTabFocusTest");
+                setDisplayName("Quick Editor Tab Focus Test");
+                setDocumentCreator([] { return new TextDocument("QuickEditorTabFocusTest"); });
+                setEditorWidgetCreator([] { return new TextEditorWidget; });
+                setUsesQuickEditor(quick);
+            }
+        };
+
+        // The window before the editor, so that the editor takes its widget
+        // back out of the window before the window goes.
+        const std::unique_ptr<QWidget> window(new QWidget);
+        PlainFactory factory(quick);
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QCOMPARE(viewportForEditor(editor.get()) != nullptr, quick);
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+        document->setPlainText("x = 1\n");
+
+        // The editor and a field after it: somewhere for the focus to go.
+        auto * const layout = new QVBoxLayout(window.get());
+        layout->addWidget(editor->widget());
+        auto * const field = new QLineEdit(window.get());
+        layout->addWidget(field);
+        window->resize(600, 300);
+        window->show();
+        const QScopeGuard hideIt([&window] { window->hide(); });
+        QVERIFY(QTest::qWaitForWindowExposed(window.get()));
+        window->activateWindow();
+        QApplication::setActiveWindow(window.get());
+
+        setTabMovesFocusIn(editor.get(), true);
+        setFocusIn(editor.get());
+        QTRY_VERIFY2(hasFocusIn(editor.get()), "the editor did not take the focus");
+        QWidget * const focused = QApplication::focusWidget();
+        QVERIFY2(focused
+                     && (focused == editor->widget() || editor->widget()->isAncestorOf(focused)),
+                 "the focus widget is not the editor's");
+
+        QTest::keyClick(focused, Qt::Key_Tab);
+        QTRY_VERIFY2(field->hasFocus(), "Tab did not move the focus out of the editor");
+        QVERIFY2(!hasFocusIn(editor.get()), "the editor kept the focus too");
+        QCOMPARE(document->plainText(), QString("x = 1\n"));
     }
 
     // A document whose text is on its way - a VCS command's output - says so,

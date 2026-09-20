@@ -1072,6 +1072,10 @@ public:
     // Whether wrapped rows are indented under the text they continue, for
     // this view alone; unset, the setting answers as it changes.
     void setBreakIndent(const std::optional<bool> &on);
+    // Whether Tab and Shift+Tab are left to the host to move the focus with,
+    // rather than indenting: an editor in a dialog, where Tab is for the
+    // buttons.
+    void setTabMovesFocus(bool on);
 
     // The font every editor shows, so these change it for all of them - which
     // is what the widget editor's zoom does too. Separate from zoomBy(), which
@@ -1440,6 +1444,7 @@ private:
     // Unset until the view is told: the setting answers until then.
     std::optional<bool> m_visualizeWhitespace;
     std::optional<bool> m_breakIndent;
+    bool m_tabMovesFocus = false;
 
     // Every language driving this view, not just the first one found: a C++
     // file with a modal editing mode on has two, and findChild() would answer

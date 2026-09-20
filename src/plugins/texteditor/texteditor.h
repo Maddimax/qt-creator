@@ -1264,6 +1264,11 @@ TEXTEDITOR_EXPORT void setMultiTextCursorOf(Core::IEditor *editor,
 // question asked of a scene rather than of a window.
 TEXTEDITOR_EXPORT bool hasFocusIn(Core::IEditor *editor);
 TEXTEDITOR_EXPORT void setFocusIn(Core::IEditor *editor);
+// Whether Tab leaves \a editor's view for the next widget rather than
+// indenting: what an editor in a dialog wants, where Tab is for the buttons.
+// The widget editor's setTabChangesFocus(); the Qt Quick view takes part in
+// tab navigation, and its host moves the focus on.
+TEXTEDITOR_EXPORT void setTabMovesFocusIn(Core::IEditor *editor, bool on);
 
 // Put \a widget among the text of \a editor, above the line \a position is
 // on, in whichever view is showing the file. Room is made for it so it covers

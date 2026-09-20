@@ -3,15 +3,18 @@
 
 #include "abstracteditordialog.h"
 
-#include <texteditor/textdocument.h>
+#include <designdocument.h>
+#include <qmldesignerplugin.h>
+
+#include <coreplugin/editormanager/ieditor.h>
+#include <qmljseditor/qmljseditordocument.h>
 #include <texteditor/texteditor.h>
-#include <qmldesigner/qmldesignerplugin.h>
-#include <qmljseditor/qmljseditor.h>
+#include <utils/qtcassert.h>
 
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
-#include <QPlainTextEdit>
 #include <QPushButton>
+#include <QTextDocument>
 #include <QVBoxLayout>
 
 namespace QmlDesigner {
@@ -31,15 +34,15 @@ AbstractEditorDialog::AbstractEditorDialog(QWidget *parent, const QString &title
                      this, &AbstractEditorDialog::accepted);
     QObject::connect(m_buttonBox, &QDialogButtonBox::rejected,
                      this, &AbstractEditorDialog::rejected);
-    QObject::connect(m_editorWidget, &BindingEditorWidget::returnKeyClicked,
+    QObject::connect(m_document, &BindingDocument::returnKeyClicked,
                      this, &AbstractEditorDialog::accepted);
-    QObject::connect(m_editorWidget, &Utils::PlainTextEdit::textChanged,
+    QObject::connect(m_document->document(), &QTextDocument::contentsChanged,
                      this, &AbstractEditorDialog::textChanged);
 }
 
 AbstractEditorDialog::~AbstractEditorDialog()
 {
-    delete m_editor; // m_editorWidget is handled by basetexteditor destructor
+    delete m_editor; // the editor's widget goes with it
     delete m_buttonBox;
     delete m_comboBoxLayout;
     delete m_verticalLayout;
@@ -49,7 +52,7 @@ void AbstractEditorDialog::showWidget()
 {
     this->show();
     this->raise();
-    m_editorWidget->setFocus();
+    TextEditor::setFocusIn(m_editor);
 }
 
 void AbstractEditorDialog::showWidget(int x, int y)
@@ -60,22 +63,16 @@ void AbstractEditorDialog::showWidget(int x, int y)
 
 QString AbstractEditorDialog::editorValue() const
 {
-    if (!m_editorWidget)
+    if (!m_document)
         return {};
 
-    return m_editorWidget->document()->toPlainText();
+    return m_document->plainText();
 }
 
 void AbstractEditorDialog::setEditorValue(const QString &text)
 {
-    if (m_editorWidget)
-        m_editorWidget->setEditorTextWithIndentation(text);
-}
-
-void AbstractEditorDialog::unregisterAutoCompletion()
-{
-    if (m_editorWidget)
-        m_editorWidget->unregisterAutoCompletion();
+    if (m_document)
+        m_document->setTextWithIndentation(text);
 }
 
 QString AbstractEditorDialog::defaultTitle() const
@@ -86,21 +83,23 @@ QString AbstractEditorDialog::defaultTitle() const
 void AbstractEditorDialog::setupJSEditor()
 {
     static BindingEditorFactory f;
-    m_editor = qobject_cast<TextEditor::BaseTextEditor*>(f.createEditor());
-    Q_ASSERT(m_editor);
+    m_editor = f.createEditor();
+    QTC_ASSERT(m_editor, return);
+    m_document = qobject_cast<BindingDocument *>(m_editor->document());
+    QTC_ASSERT(m_document, return);
 
-    m_editorWidget = qobject_cast<BindingEditorWidget*>(m_editor->editorWidget());
-    Q_ASSERT(m_editorWidget);
+    // The design document's, for completion: asked of the document rather
+    // than of the widget showing it, so it does not matter which view does.
+    if (DesignDocument * const designDocument
+        = QmlDesignerPlugin::instance()->currentDesignDocument()) {
+        if (Core::IEditor * const designEditor = designDocument->editor()) {
+            m_document->setDesignDocument(
+                qobject_cast<QmlJSEditor::QmlJSEditorDocument *>(designEditor->document()));
+        }
+    }
 
-    auto qmlDesignerEditor = QmlDesignerPlugin::instance()->currentDesignDocument()->textEditor();
-
-    m_editorWidget->qmljsdocument = qobject_cast<QmlJSEditor::QmlJSEditorWidget *>(
-                qmlDesignerEditor->widget())->qmlJsEditorDocument();
-
-    m_editorWidget->setLineNumbersVisible(false);
-    m_editorWidget->setMarksVisible(false);
-    m_editorWidget->setCodeFoldingSupported(false);
-    m_editorWidget->setTabChangesFocus(true);
+    // In a dialog, Tab is for the buttons.
+    TextEditor::setTabMovesFocusIn(m_editor, true);
 }
 
 void AbstractEditorDialog::setupUIComponents()
@@ -109,9 +108,9 @@ void AbstractEditorDialog::setupUIComponents()
 
     m_comboBoxLayout = new QHBoxLayout;
 
-    m_editorWidget->setParent(this);
-    m_editorWidget->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
-    m_editorWidget->show();
+    QWidget * const editorWidget = m_editor->widget();
+    editorWidget->setParent(this);
+    editorWidget->show();
 
     m_buttonBox = new QDialogButtonBox(this);
     m_buttonBox->setOrientation(Qt::Horizontal);
@@ -120,7 +119,7 @@ void AbstractEditorDialog::setupUIComponents()
 
     m_verticalLayout->addLayout(m_comboBoxLayout);
     //editor widget has to stretch the most among the other siblings:
-    m_verticalLayout->addWidget(m_editorWidget, 10);
+    m_verticalLayout->addWidget(editorWidget, 10);
     m_verticalLayout->addWidget(m_buttonBox);
 
     this->resize(660, 240);
