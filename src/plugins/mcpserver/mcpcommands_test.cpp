@@ -3,6 +3,7 @@
 
 #include "mcpcommands_test.h"
 
+#include <coreplugin/coreconstants.h>
 #include <coreplugin/editormanager/editormanager.h>
 #include <coreplugin/editormanager/ieditor.h>
 
@@ -40,13 +41,14 @@ static QJsonObject callTool(const QString &name, const QJsonObject &arguments, Q
     return result->structuredContentAsObject();
 }
 
-static TextEditor::TextEditorWidget *openText(const TemporaryDirectory &dir, const QByteArray &text)
+// The editor, in whichever view a plain text file opens in today: what the
+// tests ask of it - the caret - either view answers.
+static Core::IEditor *openText(const TemporaryDirectory &dir, const QByteArray &text)
 {
     const FilePath filePath = dir.filePath("selection.txt");
     if (!filePath.writeFileContents(text))
         return nullptr;
-    Core::IEditor *editor = Core::EditorManager::openEditor(filePath);
-    return editor ? TextEditor::TextEditorWidget::fromEditor(editor) : nullptr;
+    return Core::EditorManager::openEditor(filePath);
 }
 
 class McpCommandsTest final : public QObject
@@ -93,6 +95,67 @@ private slots:
         QTRY_VERIFY2(document->plainText().contains("    return 0;"),
                      qPrintable("the body was not indented:\n" + document->plainText()));
     }
+
+    // editor_select_text and editor_get_folds cast the current editor's widget
+    // to a TextEditorWidget and answered "no_text_editor" without one - for
+    // every file in the Qt Quick editor, which is where a C++ file opens.
+    void testSelectTextAndFoldsReachEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testSelectTextAndFoldsReachEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("mcp-editor-any-view");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("folds.cpp");
+        QVERIFY(file.writeFileContents("int main()\n{\n    return 0;\n}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no editor factory claims a C++ file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+        const QScopeGuard closeAll([] { Core::EditorManager::closeAllEditors(false); });
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        QString error;
+        const QJsonObject selected
+            = callTool("editor_select_text", {{"start_line", 2}, {"end_line", 3}}, &error);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(selected.value("reason").toString(), QString("ok"));
+        QCOMPARE(selected.value("text").toString(), QString("{\n    return 0;"));
+        // The selection the tool exists for is the editor's own, in whichever
+        // view the file is in.
+        const QTextCursor cursor = TextEditor::textCursorOf(editor);
+        QVERIFY2(cursor.hasSelection(), "the editor has no selection after the tool made one");
+        QString own = cursor.selectedText();
+        own.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        QCOMPARE(own, QString("{\n    return 0;"));
+
+        // The folds, once the highlighter has said where they are: the body
+        // of main() is one level in, and the first line is not.
+        const auto foldIndentOfLine = [&error](int line) -> int {
+            const QJsonObject folds = callTool("editor_get_folds", {}, &error);
+            if (folds.value("reason").toString() != "ok")
+                return -1;
+            const QJsonArray lines = folds.value("lines").toArray();
+            if (lines.size() < line)
+                return -1;
+            return lines.at(line - 1).toObject().value("fold_indent").toInt(-1);
+        };
+        QTRY_COMPARE(foldIndentOfLine(3), 1);
+        QVERIFY2(error.isEmpty(), qPrintable(error));
+        QCOMPARE(foldIndentOfLine(1), 0);
+    }
 };
 
 void McpCommandsTest::testSelectTextSpansWholeLinesByDefault()
@@ -100,9 +163,8 @@ void McpCommandsTest::testSelectTextSpansWholeLinesByDefault()
     TemporaryDirectory dir("qtc-mcpcommands-XXXXXX");
     QVERIFY(dir.isValid());
     const QScopeGuard closeEditors([] { Core::EditorManager::closeAllEditors(false); });
-    TextEditor::TextEditorWidget *widget
-        = openText(dir, "alpha one\nbeta two\ngamma three\n");
-    QVERIFY(widget);
+    Core::IEditor * const editor = openText(dir, "alpha one\nbeta two\ngamma three\n");
+    QVERIFY(editor);
 
     QString error;
     const QJsonObject result
@@ -117,7 +179,7 @@ void McpCommandsTest::testSelectTextSpansWholeLinesByDefault()
     QVERIFY(!result.value("text").toString().contains(QChar::ParagraphSeparator));
 
     // The selection the tool exists for is the editor's own, not just the text.
-    const QTextCursor cursor = widget->textCursor();
+    const QTextCursor cursor = TextEditor::textCursorOf(editor);
     QCOMPARE(cursor.selectionStart(), 10); // Behind "alpha one\n".
     QCOMPARE(cursor.selectionEnd(), 30);   // Behind "gamma three", before its newline.
 }
@@ -170,11 +232,18 @@ void McpCommandsTest::testFindWidgetsReportsATextEditAsAnExcerpt()
     TemporaryDirectory dir("qtc-mcpcommands-XXXXXX");
     QVERIFY(dir.isValid());
     const QScopeGuard closeEditors([] { Core::EditorManager::closeAllEditors(false); });
+    // The tool finds QWidgets, so this needs the widget editor. A plain text
+    // file's default editor is the Qt Quick one - a factory of its own, ahead
+    // of the plain text editor's - so the widget editor is asked for by id.
     // The ampersands are content, not accelerator markers, and the document is
     // longer than the excerpt the tool answers with.
-    TextEditor::TextEditorWidget *widget
-        = openText(dir, "cmake --build . && ctest\n" + QByteArray(600, 'x'));
-    QVERIFY(widget);
+    const FilePath filePath = dir.filePath("selection.txt");
+    QVERIFY(filePath.writeFileContents("cmake --build . && ctest\n" + QByteArray(600, 'x')));
+    Core::IEditor * const editor
+        = Core::EditorManager::openEditor(filePath, Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+    QVERIFY(editor);
+    TextEditor::TextEditorWidget * const widget = TextEditor::TextEditorWidget::fromEditor(editor);
+    QVERIFY2(widget, "the plain text file did not open in the widget editor it was asked for");
     widget->setObjectName("mcpCommandsTestEdit");
 
     QString error;

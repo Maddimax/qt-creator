@@ -533,10 +533,6 @@ public:
         if (arguments.contains("-mcp-stdio"))
             startStdio();
 
-#ifdef WITH_TESTS
-        addTestCreator(createMcpCommandsTest);
-#endif
-
         return ResultOk;
     }
 

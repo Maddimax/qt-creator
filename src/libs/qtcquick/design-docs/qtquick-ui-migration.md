@@ -70546,3 +70546,123 @@ edited: no file was added or removed.
    clearing.
 3. The large ones, to be planned rather than done in a batch: the
    inline diff, Design mode's text editor, FakeVim's relative numbers.
+
+## 2026-09-20 — Two MCP commands reach the current editor in either view (batch 336)
+
+Entry 335's first item, the smallest of the census: the McpServer
+plugin's `editor_select_text` and `editor_get_folds`.
+
+### The gap closed
+
+Both commands took `Core::EditorManager::currentEditor()`, cast its
+`widget()` to `TextEditorWidget`, and answered `no_text_editor` without
+one - which is every file in the Qt Quick editor, where a C++ file
+opens. So a client of the MCP server asking Creator to select a range,
+or asking where the folds are, was told there was no text editor while
+one was plainly current. The plugin's `reformat_file` and
+`editor_get_completions` had already been moved to the document and
+the caret (their comments say why); these two had not.
+
+- `editor_get_folds` asks `qobject_cast<TextEditor::TextDocument *>(
+  editor->document())` and reads the blocks of its `QTextDocument`;
+  the fold indents are the document's blocks' either way.
+- `editor_select_text` asks the same for the document and gives the
+  selection to the editor with `TextEditor::setTextCursorOf()`, which
+  both views take.
+
+No new seam: the document accessor and `setTextCursorOf()` were there.
+
+### The test
+
+`McpCommandsTest::testSelectTextAndFoldsReachEitherView`, two rows, on a
+four-line C++ file opened through the C++ factory switched to the view
+of the row: `editor_select_text` from line 2 to 3 answers `ok` with the
+two lines, and the editor's own caret - `textCursorOf()`, either view -
+has that selection; `editor_get_folds` answers `ok` with the body of
+`main()` one level in and the first line at zero, asked again until the
+highlighter has run. The plugin's four older tests of the same command
+were changed too, for the reason under Measurements.
+
+Built and passed at the first run, in the VM: both rows, exit 0, no
+warning of this batch's. The runner's sum says 8 rather than 4: the
+McpServer plugin registers its one test object twice
+(`mcpserverplugin.cpp`, two `addTestCreator(createMcpCommandsTest)`
+calls), so every McpServer test runs twice per `-test` invocation. Not
+this batch's, said here so the doubled totals below read right.
+
+### Negative controls
+
+Three, patched into the uncommitted tree by a script that restores by
+the reverse replacement and compares the diff's hash before and after
+(equal). Each is a build and the two-view test in the VM; the counts
+are doubled by the twice-registered test object, so "2 failed" is one
+row failing in each of the two runs.
+
+- A, `editor_select_text` answers only for a widget editor (the
+  document is taken only where `fromEditor()` answers) - the widget
+  editor or nothing, as before: 6/2, the quick row alone, "Actual
+  (selected.value("reason").toString()): "no_text_editor", Expected
+  "ok"".
+- B, `editor_get_folds` the same way: 6/2, the quick row alone, "Actual
+  (foldIndentOfLine(3)): -1, Expected (1)" - the tool answering
+  `no_text_editor`, which the helper reports as -1.
+- C, the selection is worked out and never given to the editor
+  (`setTextCursorOf()` removed): 4/4, both rows, "'cursor.hasSelection()'
+  returned FALSE. (the editor has no selection after the tool made
+  one)" - so the assertion is on the editor's own caret and not on the
+  text the tool returns.
+
+The widget row passing under A and B is what says the two failures are
+the Qt Quick view's and not the test's.
+
+While reading the doubled totals: `McpServerPlugin::initialize()`
+called `addTestCreator(createMcpCommandsTest)` twice, once at its top
+and once before returning, so every McpServer test ran twice per
+invocation. The second call is removed in this batch - the one change
+outside the two commands - and the suite totals below are the halved
+ones.
+
+### Measurements
+
+On the restored tree, in the VM:
+
+    -test TextEditor      818 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi         228 passed, 0 failed, 0 skipped, exit 0
+    -test McpServer         5 passed, 4 failed, 0 skipped, exit 4   (first run)
+    -test McpServer         9 passed, 0 failed, 0 skipped, exit 0   (second, below)
+
+TextEditor's soft asserts stay at nine per run (entry 335). The
+McpServer suite's first run, with the test object registered once, had
+four of the plugin's five older tests red, every one at their shared
+`openText()` helper - `'widget' returned FALSE`, before any call into
+the commands this batch changed. The helper opened a `.txt` and asked
+`fromEditor()` for its widget, and a plain text file's default editor
+is the Qt Quick one: `QuickTextEditorFactory` claims `text/plain` ahead
+of the plain text editor's factory, and is not a `TextEditorFactory`,
+which is also why `preferredFactoryFor()` on a `.txt` names a factory
+the editor manager does not use. So the four were red on HEAD in this
+VM, hidden behind the suite not being in the standing list.
+
+Fixed in the same batch, since they test the command this batch
+changed: `openText()` returns the `Core::IEditor`, the selection tests
+ask `TextEditor::textCursorOf()` for the caret, and
+`testFindWidgetsReportsATextEditAsAnExcerpt`, which is about finding a
+`QWidget`, opens the file with `K_DEFAULT_TEXT_EDITOR_ID` - by id,
+because switching the preferred factory to the widget view does not
+reach a `.txt` (measured: that was the first attempt, and the test
+stayed red on "did not open in the widget editor it was asked for").
+Then 9/0, every test once. TextEditor and QuickUi were not rerun for
+this: only the test file and the duplicate registration changed after
+their runs, neither of which is in their build. No `.qbs` edited.
+
+### What is next
+
+1. Entry 335's remaining small items: QmlJSEditor's reformat (the
+   language-server path and the caret-keeping replace, both on the
+   editor), then the three tool bar buttons (ClangTools,
+   QmlProjectManager, QmlPreview) once whether the Qt Quick tool bar
+   row draws a menu from an action is measured.
+2. The standing list (entries 298 and 332) and the whitespace override's
+   clearing.
+3. The large ones (entry 335): the inline diff, Design mode's text
+   editor, FakeVim's relative numbers.

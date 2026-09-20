@@ -3953,12 +3953,14 @@ void McpCommands::registerCommands()
                               .addRequired("reason")),
         wrap([](const QJsonObject &) -> QJsonObject {
             Core::IEditor *editor = Core::EditorManager::currentEditor();
-            auto *textEditor = editor
-                ? qobject_cast<TextEditor::TextEditorWidget *>(editor->widget()) : nullptr;
-            if (!textEditor)
+            // The document, not a widget: the folds are the document's blocks',
+            // and a C++ file opens in the Qt Quick editor, which has no widget.
+            auto * const textDocument = editor
+                ? qobject_cast<TextEditor::TextDocument *>(editor->document()) : nullptr;
+            if (!textDocument)
                 return {{"reason", "no_text_editor"}, {"message", "No text editor is current."}};
             QJsonArray lines;
-            const QTextDocument *doc = textEditor->document();
+            const QTextDocument *doc = textDocument->document();
             for (QTextBlock block = doc->begin(); block.isValid(); block = block.next()) {
                 lines.append(QJsonObject{
                     {"line", block.blockNumber() + 1},
@@ -4009,12 +4011,14 @@ void McpCommands::registerCommands()
                               .addRequired("reason")),
         wrap([](const QJsonObject &p) -> QJsonObject {
             Core::IEditor *editor = Core::EditorManager::currentEditor();
-            auto *textEditor = editor
-                ? qobject_cast<TextEditor::TextEditorWidget *>(editor->widget()) : nullptr;
-            if (!textEditor)
+            // The document and, below, the editor's caret: either view has
+            // both, and a widget is what the Qt Quick editor has not got.
+            auto * const textDocument = editor
+                ? qobject_cast<TextEditor::TextDocument *>(editor->document()) : nullptr;
+            if (!textDocument)
                 return {{"reason", "no_text_editor"}, {"message", "No text editor is current."}};
 
-            QTextDocument *doc = textEditor->document();
+            QTextDocument *doc = textDocument->document();
             const QTextBlock first = doc->findBlockByNumber(p.value("start_line").toInt() - 1);
             const QTextBlock last = doc->findBlockByNumber(p.value("end_line").toInt() - 1);
             if (!first.isValid() || !last.isValid() || last < first) {
@@ -4030,7 +4034,7 @@ void McpCommands::registerCommands()
             QTextCursor cursor(doc);
             cursor.setPosition(first.position() + startColumn - 1);
             cursor.setPosition(last.position() + endColumn - 1, QTextCursor::KeepAnchor);
-            textEditor->setTextCursor(cursor);
+            TextEditor::setTextCursorOf(editor, cursor);
             QString text = cursor.selectedText();
             text.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
             return {{"reason", "ok"}, {"text", text}};
