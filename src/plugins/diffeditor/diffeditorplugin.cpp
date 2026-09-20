@@ -385,6 +385,8 @@ private slots:
     void testInlineDiffChangeNavigation();
     void testInlineDiffScrollBarMarkers();
     void testInlineDiffGoToSource();
+    void testDiffCurrentFileIsInlineInEitherView_data();
+    void testDiffCurrentFileIsInlineInEitherView();
 #endif // WITH_TESTS
 };
 
@@ -479,11 +481,15 @@ void DiffEditorPlugin::diffCurrentFile()
 
     // The inline diff editor requires a text editor for the document; custom
     // text based editors and too large documents get the classic diff view.
+    // The document rather than a widget: what the diff shows is the text, and
+    // demanding a widget to reach it is what made a file open in the Qt Quick
+    // editor - a C++ file - fall back to the classic diff.
     IEditor *inlineEditor = nullptr;
-    auto textEditor = qobject_cast<BaseTextEditor *>(EditorManager::currentEditor());
-    if (textEditor && textEditor->editorWidget()
-        && textEditor->document() == textDocument) {
-        const TextDocumentPtr document = textEditor->editorWidget()->textDocumentPtr();
+    IEditor * const currentEditor = EditorManager::currentEditor();
+    const TextDocumentPtr document = currentEditor && currentEditor->document() == textDocument
+                                         ? TextEditor::textDocumentPtr(currentEditor)
+                                         : TextDocumentPtr();
+    if (document) {
         InlineDiffBaseline baseline;
         baseline.id = "saved";
         baseline.displayName = Tr::tr("Saved");
@@ -544,6 +550,7 @@ void DiffEditorPlugin::diffExternalFiles()
 
 #include <QClipboard>
 #include <QSpinBox>
+#include <QScopeGuard>
 #include <QTest>
 #include <QToolBar>
 
@@ -3363,6 +3370,60 @@ void DiffEditor::Internal::DiffEditorPlugin::testInlineDiffGoToSource()
     const QPointer<QWidget> diffWidgetGuard = diffWidget;
     QVERIFY(EditorManager::closeDocuments({sourceDocument.data()}, false));
     QTRY_VERIFY(diffWidgetGuard.isNull());
+}
+
+// Diff Current File on a file outside version control compares the editor's
+// text with what is saved, inline. It asked the current editor for its widget
+// to reach the document's shared handle, and gave anything else the classic
+// diff view - which every C++ file got, opening in the Qt Quick editor.
+void DiffEditor::Internal::DiffEditorPlugin::testDiffCurrentFileIsInlineInEitherView_data()
+{
+    QTest::addColumn<bool>("quick");
+    QTest::newRow("widget") << false;
+    QTest::newRow("quick") << true;
+}
+
+void DiffEditor::Internal::DiffEditorPlugin::testDiffCurrentFileIsInlineInEitherView()
+{
+    QFETCH(bool, quick);
+
+    QTemporaryDir temporaryDir;
+    QVERIFY(temporaryDir.isValid());
+    // A C++ file: its factory is a text editor factory that can be told which
+    // view to build, where a plain text file's default editor cannot.
+    const FilePath sourceFile = FilePath::fromString(temporaryDir.path()) / "current.cpp";
+    QVERIFY(sourceFile.writeFileContents("int a;\nint b;\n"));
+
+    TextEditor::TextEditorFactory * const factory
+        = TextEditor::TextEditorFactory::preferredFactoryFor(sourceFile);
+    QVERIFY2(factory, "no text editor factory claims a C++ file");
+    const bool wasQuick = factory->usesQuickEditor();
+    const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+    factory->setUsesQuickEditor(quick);
+
+    IEditor * const sourceEditor = EditorManager::openEditor(sourceFile);
+    QVERIFY2(sourceEditor, "the editor manager opened nothing");
+    const QScopeGuard closeAll([] { EditorManager::closeAllEditors(false); });
+    QCOMPARE(TextEditorWidget::fromEditor(sourceEditor) == nullptr, quick);
+    QTRY_COMPARE(EditorManager::currentEditor(), sourceEditor);
+
+    // A change to show.
+    auto * const document = qobject_cast<TextDocument *>(sourceEditor->document());
+    QVERIFY(document);
+    QTextCursor cursor(document->document());
+    cursor.movePosition(QTextCursor::End);
+    cursor.insertText("int c;\n");
+    QVERIFY(document->isModified());
+
+    diffCurrentFile();
+
+    IEditor * const opened = EditorManager::currentEditor();
+    QVERIFY(opened);
+    QVERIFY2(opened != sourceEditor, "Diff Current File opened nothing");
+    QVERIFY2(inlineDiffEditorWidget(opened),
+             qPrintable("not the inline diff but " + opened->document()->displayName()));
+    QVERIFY2(opened->document()->displayName().contains("(Modified vs Saved)"),
+             qPrintable(opened->document()->displayName()));
 }
 
 #endif // WITH_TESTS

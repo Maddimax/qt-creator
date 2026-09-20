@@ -71143,3 +71143,106 @@ the PNG hang; the widget editor's own read-only hazard.
 Then the large ones (entry 335), each to be planned in an entry of its
 own before a batch touches it: the inline diff, and Design mode's text
 editor.
+
+## 2026-09-20 — The inline diff, measured, and Diff Current File for a Qt Quick source editor (batch 341)
+
+Entry 340 left two large items to be planned before a batch touches
+them. This is the inline diff's plan, and it turned out to have a small
+part that a batch could close now.
+
+### What the inline diff is, measured
+
+`src/plugins/diffeditor/inlinediff.cpp` is 2436 lines and nine classes.
+The exported model in `inlinediff.h` - `InlineDiffChunk`,
+`InlineDiffBaseline`, `InlineDiffRenderModel`, `mapChunkToRenderModel()`
+- is view-independent: chunks, ghost blocks, changed ranges, a baseline
+with callbacks to fetch text, stage a hunk and name the actionable
+lines. Everything that draws is a widget: `InlineDiffEditor` is a
+`Core::IEditor` of its own with its own `InlineDiffTextEditorWidget`,
+a `QSplitter` for the side-by-side mode, a `QToolBar` with the view
+switcher, the change navigation, the collapse toggle and the context
+spin box; `HunkRangeBar` and `CollapsedRow` are `QWidget`s,
+`HunkControls`, `CollapseController` and `SideBySideAligner` drive the
+widget's `TextDocumentLayout` with `LayoutItem`s (the ghost rows entry
+~12150 describes: layout items attached to a block, not rows), and
+`QTextBlock::setVisible()` for the collapsed lines.
+
+Two things follow. First, the inline diff editor does **not** reuse the
+source editor's view: it takes the source *document* - the shared
+`TextDocumentPtr` - and shows it in a widget of its own. So a Qt Quick
+source editor loses nothing by being one, as long as whoever opens the
+inline diff can reach the document's shared handle without asking the
+source editor for a widget. Second, porting the inline diff editor
+itself to the Qt Quick view is the large item: ghost rows (layout items
+the Qt Quick view has not got - entry ~12157 started the reading and
+`markDiffChangeSigns` is still unported for the same reason), the
+collapsed rows, the hunk controls, the side-by-side aligner. That is a
+view feature to design, not a caller to move, and it stays planned.
+
+### The small part, closed
+
+`DiffEditorPlugin::diffCurrentFile()`, Ctrl+H on a file outside version
+control, is the plugin's own entry to the inline diff, comparing the
+editor's text with what is saved. It cast `EditorManager::currentEditor()`
+to `BaseTextEditor` and asked its widget for `textDocumentPtr()`, and
+gave anything else the classic side-by-side diff - "custom text based
+editors and too large documents get the classic diff view", as the
+guard's comment reads. A C++ file opens in the Qt Quick editor, so every
+C++ file got the classic diff there. The same fallback in Git's inline
+diff was moved to `TextEditor::textDocumentPtr(IEditor *)` in an earlier
+batch (`gitclient.cpp`, with a comment naming the cause); this is the
+same move for the plugin's own entry. Nothing else changes: the inline
+diff editor that opens is the widget one it always was.
+
+### The test
+
+`DiffEditorPlugin::testDiffCurrentFileIsInlineInEitherView`, two rows,
+beside the plugin's thirteen inline diff tests: a C++ file (a text
+editor factory that can be told which view to build, where a plain text
+file's default editor cannot) in a temporary directory outside version
+control, opened in the view of the row and made current; a line
+inserted so there is a change; `diffCurrentFile()`; the current editor
+is then another one, `inlineDiffEditorWidget()` answers for it, and its
+title says "(Modified vs Saved)". The thirteen existing tests open their
+source in the widget editor by id on purpose - they test the diff
+editor, and say so - and are left as they are.
+
+Built and passed at the first run, in the VM: 4/0, both rows, exit 0,
+no warning of this batch's. The test's first name was two characters
+too long for the line its definition sits on and was shortened before
+the build; nothing else was changed after writing.
+
+### Negative controls
+
+One, the pre-fix shape: the shared handle is taken only where the
+current editor has a widget. Patched into the uncommitted tree by a
+script that restores by the reverse replacement and compares the diff's
+hash before and after (equal); a build and the test in the VM: 3/1, the
+quick row alone, "'inlineDiffEditorWidget(opened)' returned FALSE. (not
+the inline diff but Diff "/tmp/.../current.cpp")" - the classic diff,
+by its title. The widget row passing under it is what says the failure
+is the Qt Quick view's and not the test's.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     824 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test DiffEditor      64 passed, 0 failed, 0 skipped, exit 0   (was 62)
+
+DiffEditor is 64: the 62 last recorded plus the new test's two rows.
+TextEditor and QuickUi unchanged, nothing of theirs touched; the soft
+asserts stay at nine per TextEditor run, no typing flake in the three
+runs, no memory kill. No `.qbs` edited.
+
+### What is next
+
+1. Design mode's text editor, the other large item: a plan of its own,
+   starting from `DesignDocument::textEditor()`/`textEditorWidget()` and
+   who calls them, and from why QmlDesigner's factory keeps its widget
+   subclass.
+2. The inline diff editor's own port, as planned above: ghost rows
+   first, since `markDiffChangeSigns` and the collapsed rows both stand
+   on them.
+3. The standing list's process and platform items (entry 340).
