@@ -39,6 +39,7 @@
 
 #include <QtTaskTree/QSingleTaskTreeRunner>
 
+#include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
 #include <utils/async.h>
@@ -50,7 +51,6 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QTimer>
-#include <QToolBar>
 
 using namespace ProjectExplorer;
 using namespace QtTaskTree;
@@ -177,14 +177,10 @@ QmlPreviewPluginPrivate::QmlPreviewPluginPrivate(QmlPreviewPlugin *parent)
             return;
         }
 
-        auto *textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-        if (!textEditor)
-            return;
-        TextEditor::TextEditorWidget *widget = textEditor->editorWidget();
-        if (!widget)
-            return;
-        QToolBar *toolBar = widget->toolBar();
-        if (!toolBar)
+        // A text editor, in whichever view: the action goes on its tool bar
+        // through the editor, not through a widget the Qt Quick view has not
+        // got.
+        if (!qobject_cast<TextEditor::TextDocument *>(editor->document()))
             return;
 
         const QIcon icon = Utils::Icon({
@@ -193,7 +189,9 @@ QmlPreviewPluginPrivate::QmlPreviewPluginPrivate(QmlPreviewPlugin *parent)
         }).icon();
         Utils::ProxyAction *action = Utils::ProxyAction::proxyActionWithIcon(
                     Core::ActionManager::command("QmlPreview.RunPreview")->action(), icon);
-        toolBar->insertAction(nullptr, action);
+        // The editor's, so that it goes when the editor does.
+        action->setParent(editor);
+        TextEditor::insertExtraToolBarActionIn(editor, TextEditor::TextEditorWidget::Right, action);
     });
 
     connect(q, &QmlPreviewPlugin::previewedFileChanged, this, &QmlPreviewPluginPrivate::checkFile);

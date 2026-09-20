@@ -70820,3 +70820,117 @@ edited.
    clearing.
 3. The large ones (entry 335): the inline diff, Design mode's text
    editor, FakeVim's relative numbers.
+
+## 2026-09-20 — The tool bar buttons of a QML file, in either view (batch 338)
+
+Entry 337's first item: the tool bar buttons from entry 335's census,
+after the measurement it asked for.
+
+### The measurement, answered by reading
+
+Entry 335 listed three widget-only tool bar buttons and asked whether
+the Qt Quick tool bar row draws a menu from an action. It does, and
+one of the three already relied on it: ClangTools' "Analyze File..."
+site has a branch for a view that is not a widget, which hands the
+document a `QAction` carrying a `QMenu` (`clangtoolsplugin.cpp`, the
+comment says why the widget half keeps its `QToolButton`), and
+`QtcQuick::ActionModel` has a `MenuRole` that `EditorToolBar.qml`
+draws as a button opening a menu (`languageButton`, `actionMenu`). The
+census counted ClangTools by its widget branch alone; corrected here.
+So there was nothing to measure and two sites to move.
+
+### The gap closed
+
+- **QmlProjectManager**, the "QDS" action of a `.ui.qml` file's tool
+  bar (open in Qt Design Studio): added to `widget->toolBar()` of a
+  `BaseTextEditor`, so a `.ui.qml` file in the Qt Quick editor - where
+  it opens - had none. Now `TextEditor::insertExtraToolBarActionIn(
+  editor, Right, action)`, which the widget answers with its extra
+  tool bar slot (before the line-ending chooser rather than after
+  everything, the one visible difference on the widget side) and the
+  Qt Quick editor with `TextDocument::addToolBarAction()`. The action
+  is the editor's rather than the plugin's, so it goes when the editor
+  does; it was one per opened editor, kept until shutdown.
+- **QmlPreview**, the run-preview action of a QML file's tool bar: the
+  same, through the same seam; the `ProxyAction` is reparented from the
+  command's action to the editor for the same reason.
+
+Both sites keep their mime check and add a check that the document is
+a `TextDocument` - a text editor of either view - in place of the
+`BaseTextEditor` cast.
+
+### The tests
+
+- `QmlProjectManager::Internal::QdsToolBarActionTest::testTheDesignStudioActionIsOnEitherViewsToolBar`,
+  two rows: a `.ui.qml` file opened by the text editor factory's id -
+  the file's default editor may be Design Studio itself - in the view of
+  the row; the tool bar's actions (the widget's `QToolBar`, or the
+  document's list) hold one whose icon text is `QDS`, and it belongs to
+  the editor. Registered beside `createQmlMainFileTest`.
+- `QmlPreview::QmlPreviewPluginTest::testTheRunPreviewActionIsOnEitherViewsToolBar`,
+  two rows, in the plugin's existing test object: a QML file, the same
+  way; the tool bar holds a `ProxyAction` of the `QmlPreview.RunPreview`
+  command's action, and it belongs to the editor.
+
+One build failed to compile before a run: the test reads the widget's
+`QToolBar`, whose include had gone with the production code that used
+it, so it is included for the tests. Then, in the VM, at the first run:
+both tests 4/0, both rows each, exit 0, no warning of this batch's.
+
+### Negative controls
+
+Two, one per site, patched into the uncommitted tree by a script that
+restores by the reverse replacement and compares the diff's hash
+before and after (equal). Each puts the action on the widget editor's
+tool bar where there is one and nowhere otherwise - the site as it
+was, through the extra tool bar slot - and is a build and the site's
+test in the VM:
+
+- A, QmlProjectManager: 3/1, the quick row alone, "'qds' returned
+  FALSE. (the Design Studio action is not on the tool bar in this
+  view)".
+- B, QmlPreview: 3/1, the quick row alone, "'proxy' returned FALSE.
+  (the run-preview action is not on the tool bar in this view)".
+
+The widget row passing under each is what says the failure is the Qt
+Quick view's and not the test's.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor         822 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi            228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlProjectManager    9 passed, 0 failed, 0 skipped, exit 0
+    -test QmlPreview          13 passed, 1 failed, 0 skipped, exit 1
+                             QmlPreviewClientTest::testHandleInput
+
+TextEditor's soft asserts stay at nine per run; no typing flake in the
+three runs, no memory kill. QmlProjectManager is 9 with the new test's
+rows. QmlPreview's one red is the preview *client* test - debug
+connection packets and event replay, "Actual (rig.messageCount()): 1,
+Expected (5)" - and nothing in this batch is near it; but that is an
+argument, so measured instead: the test alone, three times, on the
+batch's binary, 1 failed each; the batch's three files put back to
+HEAD (the diff saved and checked to reverse cleanly first), built, the
+QmlPreview suite 11/1 with the same failure and the test alone three
+times 1 failed each; the diff applied again and counted. So it is
+HEAD's, in this VM, deterministic, and goes on the standing list beside
+the Debugger pair and ProjectExplorer's cmake mapping test: the
+preview client expects five packets after a load and gets one. No
+`.qbs` edited: no file was added or removed.
+
+### What is next
+
+Entry 335's census is worked off except for the large items. What
+remains:
+
+1. The standing list (entries 298 and 332) and the whitespace override's
+   clearing.
+2. The large ones (entry 335): the inline diff, Design mode's text
+   editor, FakeVim's relative numbers - each to be planned in an entry
+   of its own before a batch touches it.
+3. A last look, now that no small item is left, at what the tests'
+   widget rows still cover that the quick rows do not - the first item
+   of the standing list - which is the honest measure of how far the
+   two views still differ.

@@ -45,6 +45,10 @@
 #include <qtsupport/qtkitaspect.h>
 #include <qtsupport/qtsupportconstants.h>
 
+#include <texteditor/textdocument.h>
+#include <texteditor/texteditor.h>
+
+#include <utils/algorithm.h>
 #include <utils/fsengine/fileiconprovider.h>
 #include <utils/mimeconstants.h>
 #include <utils/qtcprocess.h>
@@ -57,7 +61,14 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QTimer>
+
+#ifdef WITH_TESTS
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
 #include <QToolBar>
+#endif
 
 using namespace Core;
 using namespace Debugger;
@@ -288,23 +299,20 @@ void QmlProjectPlugin::setupEditorToolButton()
             openInQds(editor->document()->filePath());
         });
     // extend tool bar for .ui.qml file text editor
-    connect(EditorManager::instance(), &EditorManager::editorOpened, this, [this, cmd](IEditor *editor) {
+    connect(EditorManager::instance(), &EditorManager::editorOpened, this, [cmd](IEditor *editor) {
         if (!editor)
             return;
         if (!editor->document())
             return;
         if (editor->document()->mimeType() != Utils::Constants::QMLUI_MIMETYPE)
             return;
-        auto *textEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-        if (!textEditor)
+        // A text editor, in whichever view: the action goes on its tool bar
+        // through the editor, not through a widget the Qt Quick view has
+        // not got.
+        if (!qobject_cast<TextEditor::TextDocument *>(editor->document()))
             return;
-        TextEditor::TextEditorWidget *widget = textEditor->editorWidget();
-        if (!widget)
-            return;
-        QToolBar *toolBar = widget->toolBar();
-        if (!toolBar)
-            return;
-        auto action = new QAction(this);
+        // The editor's, so that it goes when the editor does.
+        auto action = new QAction(editor);
         action->setIconText("QDS");
         const auto updateQdsAction = [action] {
             if (!qdsInstallationExists()) {
@@ -320,12 +328,74 @@ void QmlProjectPlugin::setupEditorToolButton()
         updateQdsAction();
         connect(&qdsSettings(), &QdsSettings::changed, action, updateQdsAction);
         cmd->augmentActionWithShortcutToolTip(action);
-        toolBar->addAction(action);
         connect(action, &QAction::triggered, editor, [editor] {
             openInQds(editor->document()->filePath());
         });
+        TextEditor::insertExtraToolBarActionIn(editor, TextEditor::TextEditorWidget::Right, action);
     });
 }
+
+#ifdef WITH_TESTS
+
+// The "QDS" button of a .ui.qml file's tool bar was put on the widget
+// editor's QToolBar, so a .ui.qml file in the Qt Quick editor - which is
+// where it opens - had no way to Qt Design Studio from its tool bar.
+class QdsToolBarActionTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheDesignStudioActionIsOnEitherViewsToolBar_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheDesignStudioActionIsOnEitherViewsToolBar()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qds-tool-bar-action");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Form.ui.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem {}\n"));
+
+        TextEditor::TextEditorFactory * const factory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(factory, "no text editor factory claims a .ui.qml file");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        // By the factory's id: the file's default editor may be Qt Design
+        // Studio itself, and this is about the text editor's tool bar.
+        IEditor * const editor = EditorManager::openEditor(file, factory->id());
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        const QList<QAction *> actions = [editor]() -> QList<QAction *> {
+            if (auto * const widget = TextEditor::TextEditorWidget::fromEditor(editor))
+                return widget->toolBar()->actions();
+            auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+            return document ? document->toolBarActions() : QList<QAction *>();
+        }();
+        QAction * const qds = Utils::findOrDefault(actions, [](QAction *action) {
+            return action->iconText() == "QDS";
+        });
+        QVERIFY2(qds, "the Design Studio action is not on the tool bar in this view");
+        // Whose it is: it goes with the editor, not with the plugin.
+        QCOMPARE(qds->parent(), editor);
+    }
+};
+
+QObject *createQdsToolBarActionTest()
+{
+    return new QdsToolBarActionTest;
+}
+
+#endif // WITH_TESTS
 
 void QmlProjectPlugin::initialize()
 {
@@ -334,6 +404,7 @@ void QmlProjectPlugin::initialize()
 
 #ifdef WITH_TESTS
     addTestCreator(createQmlMainFileTest);
+    addTestCreator(createQdsToolBarActionTest);
 #endif
 
     if (!qmlDesignerEnabled()) {
