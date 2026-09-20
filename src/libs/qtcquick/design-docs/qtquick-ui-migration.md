@@ -71246,3 +71246,139 @@ runs, no memory kill. No `.qbs` edited.
    first, since `markDiffChangeSigns` and the collapsed rows both stand
    on them.
 3. The standing list's process and platform items (entry 340).
+
+## 2026-09-20 — Design mode's text editor: the plan, measured (batch 342)
+
+Entry 341's first item: the other large one, planned before any batch
+touches it. No code in this batch; the measurements are the deliverable,
+and the order they give.
+
+### What it is
+
+`QtQuickDesignerFactory` (`qmldesignerplugin.cpp`) derives from
+`QmlJSEditorFactory` with the id `C_QTQUICKDESIGNEREDITOR_ID`, claims
+`.ui.qml`, and sets a document creator whose `QmlJSEditorDocument` says
+it prefers Design mode. It inherits the widget creator - a
+`QmlJSEditorWidget` - and says nothing about the view, so a `.ui.qml`
+file opened through it lands in the widget editor while a `.qml` file
+lands in the Qt Quick one. `setUsesQuickEditor(true)` on this factory
+is the switch, and it is last in the order below.
+
+Behind it, four pieces reach for the widget, counted by `grep` over
+`src/plugins/qmldesigner`, tests excluded:
+
+| Piece | File | Lines | Widget uses |
+| --- | --- | --- | --- |
+| The design document | `components/integration/designdocument.cpp` | 998 | 11 |
+| The text modifier | `textmodifier/basetexteditmodifier.cpp` | 130 | 8 |
+| The Code view | `components/texteditor/texteditorview.cpp` | 592 | ~20 |
+| The plugin | `qmldesignerplugin.cpp`, `designmodewidget.cpp`, `crumblebar.cpp` | - | 8 |
+
+### What each needs, use by use
+
+**The text modifier.** `BaseTextEditModifier(TextEditorWidget *)` is
+the rewriter's way into the text. Its base, `PlainTextEditModifier`, is
+already built on a `QTextDocument` - the constructor takes one, and
+`replace()`, `move()`, the edit groups and `textCursor()` all work on
+it. What the derived class takes from the widget: the tab settings
+(`textDocument()->tabSettings()`, a document fact), the
+`QmlJSEditorDocument` behind it for `renameId()`, `autoComplete()` and
+`moveToComponent()` (a document cast), `convertPosition()`
+(`Utils::Text::convertPosition(document, ...)`, arithmetic on the
+`QTextDocument`), and one call into QmlJSEditor,
+`performComponentFromObjectDef(QmlJSEditorWidget *, ...)`, which itself
+reads the widget for three things it could be handed - its document,
+its caret and the semantic info. So the modifier can take a
+`TextEditor::TextDocument *`, and the widget factory keeps working by
+handing it `edit->textDocument()`.
+
+**The design document.** `loadDocument(TextEditorWidget *)` connects
+`undoAvailable`, `redoAvailable` and `modificationChanged` - three
+signals `QTextDocument` has under the same names - and builds the
+modifier. `isUndoAvailable()`, `isRedoAvailable()`,
+`clearUndoRedoStacks()` and the three model switches read the widget's
+`document()`, a `QTextDocument` either view has. `undo()` and `redo()`
+call the widget's; `QTextDocument::undo()`/`redo()` are the same
+operations, and whether the caret follows is the view's business
+(the widget's `undo()` moves it; the Qt Quick view will have to be
+asked whether it listens to the document's undo, which is a
+measurement for that batch). `textEditor()` answers a
+`BaseTextEditor *` for five callers; every one of them wants something
+`Core::IEditor` has - `gotoLine()`, `duplicate()`, `document()`,
+`ShortCutManager::updateActions(IEditor *)` already takes one - or
+`convertPosition()`, which is the arithmetic above.
+
+**The plugin.** Two reads of the caret position through
+`textEditorWidget()->textCursor()` (`textCursorOf()`), one
+`convertPosition()`, one `gotoLine()`, one `loadDocument(widget)`, the
+navigator history and the crumble bar handed the editor.
+
+**The Code view.** `TextEditorView` shows the design document's editor
+*duplicated* - `designDocument->textEditor()->duplicate()`, a
+`UniqueObjectLatePtr<BaseTextEditor>` - inside its own
+`QmlDesigner::TextEditorWidget`, and that host is the widget-heavy
+piece: it lays out `editorWidget()`, makes it its focus proxy, follows
+`PlainTextEdit::cursorPositionChanged` to select the model node under
+the caret and blocks that while the rewriter applies, jumps with
+`convertPosition()`/`gotoLine()`, asks `hasFocus()`/`setFocus()`,
+reads and sets `textCursor()`, calls `updateFoldingHighlight()` after a
+jump and after drops, and turns a drag or drop point into a caret with
+`cursorForPosition(point)` (an asset dropped onto the code). Of these,
+the caret, focus, jump and duplicate have `IEditor`-level answers
+already (`IEditor::cursorPositionChanged`, `hasFocusIn()`,
+`setFocusIn()`, `textCursorOf()`, `setTextCursorOf()`,
+`IEditor::duplicate()`); the point-to-caret has none - the viewport
+has `positionAt(x, y)`, so a `positionAtIn(editor, QPoint)` is a small
+seam - and the fold highlight has no equivalent in the Qt Quick view
+(`setScopeBlock()` is the "highlight blocks" scope, not the same
+thing), which is a decision for that batch: draw it, or let it go there.
+`reformatFile()` in the same view re-implements what entry 337 moved
+onto `updateEditorText(IEditor *)`, and can use it.
+
+### The order
+
+Each a batch, each with a test that runs with QmlDesigner loaded (the
+stock runner unloads it; entry 333's command), and each leaving the
+widget factory working:
+
+1. `BaseTextEditModifier(TextEditor::TextDocument *)`, and
+   `performComponentFromObjectDef()` taking the document and a caret.
+   Test: the modifier over a Qt Quick QML editor's document - indent,
+   `renameId()`, `convertPosition()` - against the same over the widget's.
+2. `DesignDocument` off the widget: `loadDocument(Core::IEditor *)`,
+   the undo/redo state from the `QTextDocument`, `textEditor()` retired
+   for `editor()`; the plugin's eight uses with it. Test: a design
+   document loaded from a Qt Quick editor reports undo availability and
+   the caret's node the way the widget's does.
+3. The Code view: the host takes a `Core::IEditor` duplicate, with the
+   two seams above (`positionAtIn`, and the fold highlight decided).
+   Test: the host over a Qt Quick duplicate follows the caret to the
+   model node and back.
+4. `setUsesQuickEditor(true)` on `QtQuickDesignerFactory`. Test: a
+   `.ui.qml` opened through it is a Qt Quick editor, Design mode
+   attaches its model to it, and a node selected in the form moves the
+   caret.
+
+What stays a widget after the four: the binding editor and the Effect
+Composer's editor are done (entries 333, 334); the rest of Design mode
+is Qt Quick already. The `QmlJSEditorWidget` class itself remains for
+the plain `.qml` widget factory - the control - and nothing in
+QmlDesigner would name it any more.
+
+### Measurements
+
+No code changed. The standing suites ran on the tree as committed by
+entry 341, which the build found up to date:
+
+    -test TextEditor     824 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+
+Zero objects compiled; the soft asserts stay at nine per TextEditor
+run, no typing flake, no memory kill. No negative control, there being
+no change to control. No `.qbs` edited.
+
+### What is next
+
+1. Step 1 above, the text modifier on the document.
+2. The inline diff editor's own port (entry 341), ghost rows first.
+3. The standing list's process and platform items (entry 340).
