@@ -25,6 +25,9 @@
 #include <utils/aspects.h>
 #include <utils/temporarydirectory.h>
 
+#include <QCoreApplication>
+#include <QKeyEvent>
+#include <QScopeGuard>
 #include <QTest>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -42,6 +45,7 @@ private slots:
     void test_qmlReindent_data();
     void test_qmlReindent();
     void test_qmlAutoIndentOnNewLine();
+    void test_qmlAutoIndentWhileTyping_data();
     void test_qmlAutoIndentWhileTyping();
     void test_qmlSyntaxErrorDiagnostic();
     void test_codeStyleAspectsReadThePreferences();
@@ -202,48 +206,80 @@ void QmlJSToolsTest::test_qmlAutoIndentOnNewLine()
     QCOMPARE(doc.document()->findBlockByNumber(1).text(), QString("    "));
 }
 
+void QmlJSToolsTest::test_qmlAutoIndentWhileTyping_data()
+{
+    QTest::addColumn<bool>("quick");
+    QTest::newRow("widget") << false;
+    QTest::newRow("quick") << true;
+}
+
 void QmlJSToolsTest::test_qmlAutoIndentWhileTyping()
 {
+    QFETCH(bool, quick);
+
     // The former tst_QMLS08 typed the lines out (without leading indentation)
     // and checked the indentation applied *while typing*. Reproduce that by
-    // posting key events to a real editor, exercising the indent-on-typing path
-    // in TextEditorWidget::keyPressEvent.
+    // posting key events to a real editor, in either view: the indent-on-typing
+    // path of TextEditorWidget::keyPressEvent and the Qt Quick view's own. A
+    // QML file opens in the Qt Quick view, and this used to cast the editor to
+    // a widget and stop there.
     Utils::TemporaryDirectory tempDir("qtc-qmljs-typing-XXXXXX");
     QVERIFY(tempDir.isValid());
     const Utils::FilePath filePath = tempDir.filePath("Typed.qml");
     QVERIFY(filePath.writeFileContents("import QtQuick\nItem {\n}\n"));
 
+    TextEditor::TextEditorFactory * const factory
+        = TextEditor::TextEditorFactory::preferredFactoryFor(filePath);
+    QVERIFY(factory);
+    const bool wasQuick = factory->usesQuickEditor();
+    const QScopeGuard restoreView([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+    factory->setUsesQuickEditor(quick);
+
     Core::IEditor *editor = Core::EditorManager::openEditor(filePath);
     QVERIFY(editor);
-    auto baseEditor = qobject_cast<TextEditor::BaseTextEditor *>(editor);
-    QVERIFY(baseEditor);
-    TextEditor::TextEditorWidget *widget = baseEditor->editorWidget();
-    QVERIFY(widget);
-    widget->textDocument()->setIndenter(QmlJSEditor::createQmlJsIndenter(widget->document()));
-    widget->textDocument()->setTabSettings(fourSpaceTabSettings());
+    const QScopeGuard closeIt([] { Core::EditorManager::closeAllEditors(false); });
+    QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+    auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+    QVERIFY(document);
+    document->setIndenter(QmlJSEditor::createQmlJsIndenter(document->document()));
+    document->setTabSettings(fourSpaceTabSettings());
 
     // Put the cursor at the end of the "Item {" line.
-    QTextCursor cursor(widget->document());
+    QTextCursor cursor(document->document());
     cursor.movePosition(QTextCursor::Start);
     cursor.movePosition(QTextCursor::Down);
     cursor.movePosition(QTextCursor::EndOfLine);
-    widget->setTextCursor(cursor);
+    TextEditor::setTextCursorOf(editor, cursor);
+
+    // Keys to whatever takes them for this editor - the widget, or the Quick
+    // item, which QTest's key helpers cannot address - one event per key, the
+    // way a keyboard delivers them.
+    QObject * const target = TextEditor::keyTargetOf(editor);
+    QVERIFY2(target, "nothing takes keys for this editor");
+    const auto type = [target](Qt::Key key, const QString &text) {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+        QCoreApplication::sendEvent(target, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, text);
+        QCoreApplication::sendEvent(target, &release);
+    };
+    const auto typeText = [&type](const QString &text) {
+        for (const QChar c : text)
+            type(Qt::Key(c.toUpper().unicode()), QString(c));
+    };
 
     // Type two properties without any leading indentation; the editor must
     // indent each new line to its enclosing level while typing.
-    QTest::keyClick(widget, Qt::Key_Return);
-    QTest::keyClicks(widget, "property int x: 10");
-    QTest::keyClick(widget, Qt::Key_Return);
-    QTest::keyClicks(widget, "property int y: 20");
+    type(Qt::Key_Return, "\r");
+    typeText("property int x: 10");
+    type(Qt::Key_Return, "\r");
+    typeText("property int y: 20");
 
-    QCOMPARE(widget->textDocument()->plainText(), QString(
+    QCOMPARE(document->plainText(), QString(
         "import QtQuick\n"
         "Item {\n"
         "    property int x: 10\n"
         "    property int y: 20\n"
         "}\n"));
-
-    Core::EditorManager::closeAllEditors(false);
 }
 
 void QmlJSToolsTest::test_qmlSyntaxErrorDiagnostic()

@@ -71023,3 +71023,123 @@ TextEditor run; no typing flake in the three runs, no memory kill. No
    editor, FakeVim's relative numbers - each to be planned in an entry
    of its own before a batch touches it.
 3. What the tests' widget rows still cover that the quick rows do not.
+
+## 2026-09-20 — What the widget rows still cover: a census, and QML typed in either view (batch 340)
+
+Entry 339's third item, and the standing list's first, read as what it
+says: which tests still pin the widget text editor, and what each of
+them would find in the Qt Quick view.
+
+### The census
+
+Two greps over `src/plugins`, tests only. First, where a two-view test
+branches on its row (`if (quick)`, `if (!quick)`): 96 places in the Qt
+Quick editor's own tests and a dozen elsewhere, every one a different
+way of asking each view the same question, with two rows that stop
+early - a profiler form test that skips its widget row for want of a
+form factory, and the CMake outline test's widget row returning before
+the tool bar outline that the widget does not have. None of them is a
+Qt Quick gap.
+
+Second, a test that asserts a widget editor and has no quick row - a
+`QVERIFY(widget)` or `QVERIFY2(widget, ...)` in a file with no
+`newRow("quick")`. Sixteen files; all but three are `QWidget` forms,
+settings pages or panes that happen to name their variable `widget`.
+The three that pin the widget *text editor*:
+
+- `texteditor_test.cpp`,
+  `testTheWidgetDrawsWhatWasPublishedOnTheDocument`: the widget half of
+  a two-view feature, by name. Stays.
+- `qmljstools_test.cpp`, `test_qmlAutoIndentWhileTyping`: types QML
+  into an editor and expects it indented while typing; cast the editor
+  to `BaseTextEditor`. **Red on HEAD in the VM**, measured before
+  anything was changed: `-test QmlJSTools` 11/1, "'baseEditor' returned
+  FALSE" - a QML file opens in the Qt Quick editor, and nothing had run
+  the suite since. Entry 336's shape again.
+- `qmljseditor/qmljsindenter_test.cpp`, `testAutoIndentWhileTyping`:
+  the same typing, with the electric `{` the QmlJS auto-completer
+  closes and the block a Return between the braces expands; pinned to
+  the widget view on purpose, "this exercises the widget's typing
+  pipeline".
+
+Two corrections to entry 335's census while looking: FakeVim's
+relative line numbers already reach the Qt Quick view
+(`createRelativeNumberWidget()` has a branch that tells the view to
+count from the caret, `TextViewport::setRelativeLineNumbers()`), and
+the language client's settings box no longer touches the widget
+editor. Both were listed as open; neither is.
+
+### The gap closed: the typing-time indentation tests, in either view
+
+Both tests run over both views now. What changed in them: the factory
+switched per row and put back; the editor asked for its document rather
+than cast to a widget; the caret set with `setTextCursorOf()`; the keys
+sent to `keyTargetOf(editor)` - the widget, or the Quick item, which
+QTest's key helpers cannot address, so each key is a press and a
+release sent as events, the way a keyboard delivers them. The
+expectations are the old ones, character for character.
+
+And the Qt Quick view meets them at the first run, both tests. Its
+typing path has the same three pieces the widget's has, in
+`TextViewport::keyPressEvent()` and `insertTypedText()`: the new line
+laid out after Return (`doc->autoIndent(caret)`), the block a Return
+between braces expands (`paragraphSeparatorAboutToBeInserted()` and the
+closing brace laid out below), and the electric character re-indent.
+So there is no production change in this batch; what it closes is that
+nothing had asked the Qt Quick view these two questions, and one of
+them had been red for the widget for want of a widget.
+
+Built and run at the first attempt, in the VM: QmlJSTools'
+`test_qmlAutoIndentWhileTyping` 4/0 and QmlJSEditor's
+`testAutoIndentWhileTyping` 4/0, both rows each, exit 0, no warning of
+this batch's.
+
+### Negative controls
+
+Two, each one step of the Qt Quick view's typing-time indentation
+switched off in `TextViewport::keyPressEvent()`'s Return handling,
+patched into the uncommitted tree by a script that restores by the
+reverse replacement and compares the diff's hash before and after
+(equal). Each is a build and the tests in the VM; each fails the quick
+row alone, and the text it produces names what was switched off:
+
+- A, the line Return opens is not laid out (`doc->autoIndent(caret)`
+  removed): QmlJSTools' test 3/1, the two properties at column 0;
+  QmlJSEditor's test 3/1, `Rectangle {`, `width: 10` and the closing
+  brace all at column 0.
+- B, the closing brace Return pushes down is not laid out (the
+  `extraBlocks` `autoIndent` removed): QmlJSEditor's test 3/1, the body
+  right and the closing brace alone at column 0 -
+  `"        width: 10\n}\n}\n"`.
+
+The widget rows pass under both, which is what says the quick rows
+measure the Qt Quick view's typing path and nothing shared.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     824 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlJSTools      13 passed, 0 failed, 0 skipped, exit 0   (was 11 / 1)
+    -test QmlJSEditor     49 passed, 0 failed, 0 skipped, exit 0   (was 48)
+
+QmlJSTools is 13: the 11 that passed before, plus the typing test's
+two rows in place of its one red. QmlJSEditor is 49: 48 plus the
+indenter test's second row. TextEditor unchanged at 824, nothing of its
+having been touched; the soft asserts stay at nine per run, no typing
+flake in the three runs, no memory kill. No `.qbs` edited.
+
+### What is next
+
+The standing list has no widget-pinned text editor test left to turn
+over. What remains of it: QmlJSEditor and QmlJSTools into the standing
+suites - both have now been green only because a batch happened to run
+them; ASan; the typing flake, which has not shown in the last thirty or
+so TextEditor runs; Windows; the four tests red on HEAD in this VM (the
+Debugger pair, ProjectExplorer's cmake mapping, QmlPreview's client);
+the PNG hang; the widget editor's own read-only hazard.
+
+Then the large ones (entry 335), each to be planned in an entry of its
+own before a batch touches it: the inline diff, and Design mode's text
+editor.
