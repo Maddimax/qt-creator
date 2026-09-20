@@ -8,9 +8,14 @@
 
 #include <QTimer>
 
+namespace Core {
+class IEditor;
+}
+
 namespace TextEditor {
 class TextDocument;
 class TextEditorWidget;
+class ToolBarOutline;
 } // namespace TextEditor
 
 namespace CMakeProjectManager::Internal {
@@ -50,10 +55,19 @@ private:
     QTimer m_updateTimer;
 };
 
-// The outline combo box of the editor tool bar.
+// The outline combo box of the widget editor's tool bar.
 QWidget *createCMakeOutlineComboBox(TextEditor::TextEditorWidget *editorWidget,
                                     CMakeOutlineModel *model);
 
+// The same for a view that draws its own tool bar: parented to \a editor,
+// where the view finds it, and following its caret.
+TextEditor::ToolBarOutline *createCMakeToolBarOutline(Core::IEditor *editor,
+                                                      CMakeOutlineModel *model);
+
 void setupCMakeOutline();
+
+#ifdef WITH_TESTS
+QObject *createCMakeOutlineTest();
+#endif
 
 } // CMakeProjectManager::Internal

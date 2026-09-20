@@ -562,12 +562,17 @@ void setupCMakeEditor()
         &EditorManager::editorOpened,
         EditorManager::instance(),
         [](IEditor *editor) {
-            if (!editor || !qobject_cast<CMakeTextDocument *>(editor->document()))
+            auto * const document
+                = editor ? qobject_cast<CMakeTextDocument *>(editor->document()) : nullptr;
+            if (!document)
                 return;
             TextEditor::SymbolRequests * const requests
                 = TextEditor::symbolRequestsForEditor(editor);
             if (!requests)
                 return;
+            // Which command the caret is in, for the tool bar row. The widget
+            // editor fills a combo of its own in finalizeInitialization().
+            createCMakeToolBarOutline(editor, document->outlineModel());
             QObject::connect(
                 requests,
                 &TextEditor::SymbolRequests::requestUsages,

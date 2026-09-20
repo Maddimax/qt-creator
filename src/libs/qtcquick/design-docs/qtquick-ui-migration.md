@@ -70380,3 +70380,169 @@ remains is TextEditor's own default and the standing list.
    for `TextEditorWidget::fromEditor()` or `BaseTextEditor` in
    production code, by plugin, to see what a C++ file would lose if the
    CppEditor factory said Quick today.
+
+## 2026-09-20 — A census of what still reaches for the widget editor, and the CMake outline (batch 335)
+
+Entry 334's third item, done first: with the two QmlDesigner-side
+editors converted, what production code still reaches for
+`TextEditorWidget::fromEditor()`, `BaseTextEditor` or `editorWidget()`.
+Then the one item of the census with a measurement already on file.
+
+### The census
+
+Every `.cpp`/`.h` under `src/plugins`, outside TextEditor and CppEditor
+and outside test code, grouped by what a Qt Quick editor loses at the
+site. The tests' own `fromEditor()` calls (the "opened as a widget"
+guards of the two-view tests) are left out; so are sites with a Quick
+branch beside the widget one.
+
+Widget or nothing - a feature the Qt Quick view silently has not got:
+
+- **CMakeProjectManager, `cmakeoutline.cpp`**: the outline pane's
+  factory took `BaseTextEditor` and its widget, so `createWidget()`
+  soft-asserted ("textEditor", line 448) for every CMakeLists.txt in
+  the Qt Quick view - eight times per TextEditor run in this job's
+  logs, from the language census tests - and the pane stayed empty. The
+  tool bar's outline combo was the widget's alone. **This batch.**
+- **QmlJSEditor, `qmljseditorplugin.cpp`**: Reformat File through the
+  language server needs `editorWidget()` and answers Failed without
+  one; the built-in reformat falls back to a plain replace of the text
+  where the widget's `updateEditorText()` would keep the caret.
+- **ClangTools, `clangtoolsplugin.cpp:288`**: the "Analyze File..."
+  tool bar button is a `QToolButton` with a menu on the widget's tool
+  bar. A C++ file in the Qt Quick editor has no such button.
+- **QmlProjectManager, `qmlprojectplugin.cpp:298`** and **QmlPreview,
+  `qmlpreviewplugin.cpp:180`**: tool bar buttons for a `.ui.qml` file
+  and for the QML preview, on the widget's `toolBar()`.
+- **McpServer, `mcpcommands.cpp:3957` and `:4013`**: two commands that
+  read the current editor's lines cast `editor->widget()` to
+  `TextEditorWidget` and answer "no_text_editor" for a Qt Quick editor.
+  Small: the document and `textCursorOf()` have both.
+- **FakeVim, `fakevimplugin.cpp:2032`**: the relative line number
+  column is a `QWidget` laid over the widget editor; no Quick
+  equivalent.
+- **DiffEditor, `diffeditorplugin.cpp:483`** and `inlinediff.cpp`: the
+  inline diff needs a `BaseTextEditor` with a widget and falls back to
+  the classic diff view; the inline diff editor is itself a widget.
+  Large.
+- **QmlDesigner, `designdocument.cpp:897`** (`textEditor()`,
+  `textEditorWidget()`) and `modelnodeoperations.cpp:667`
+  (`BaseTextEditModifier` on the current editor's widget): Design mode
+  assumes the widget QML editor behind the design document. Large, and
+  QmlDesigner's own factory keeps its widget subclass on purpose (entry
+  on `QmlJSEditorFactory`).
+
+Both ways, or widget-only with a reason on file:
+
+- Debugger `sourceagent.cpp:93` (`setRequestMarkEnabled`; the Quick
+  gutter's mark column is always live), Lua
+  `bindings/texteditor.cpp:470` (`insertExtraToolBarWidget` refused with
+  a message), LanguageClient `languageclientutils.cpp:311` (the tool bar
+  outline, either view), `languageclientmanager.cpp:555` (the widget's
+  request signals; the Quick view's relay is `SymbolRequests`, wired
+  elsewhere), FakeVim's mini buffer (a `m_miniBufferView` branch), Emacs
+  keys and ProjectExplorer's editor configuration (two-view tests on
+  file), QmlJSEditor's own widget class.
+
+Test-only: the VCS plugins, Git, Lua, LanguageClient, GLSL, Valgrind,
+ClassView, Beautifier, Qbs, Scxml, ACP, Debugger's watch handler,
+QmlJSEditor's document tests, and the Effect Composer and binding
+editor tests of entries 333 and 334.
+
+CppEditor itself (fifteen files) is either the widget class, the
+`CursorInEditor` two-way carrier, or test code; entry 195 measured that
+a C++ file opens in the Qt Quick editor with everything the factory
+configures, and nothing in this census changes that.
+
+### The gap closed: the CMake outline, in either view
+
+- `CMakeOutlineWidget(Core::IEditor *, CMakeOutlineModel *)`, the way
+  the C++ and QML panes were done: `IEditor::cursorPositionChanged` to
+  follow, `TextEditor::lineColumnOf()` to ask where the caret is,
+  `IEditor::gotoLine()` and `TextEditor::setFocusIn()` to move it. The
+  factory's `createWidget()` asks for the document alone.
+- `CMakeToolBarOutline : ToolBarOutline`, built by
+  `createCMakeToolBarOutline(editor, model)` from the same `editorOpened`
+  hook in `cmakeeditor.cpp` that wires the Qt Quick view's symbol
+  requests (the hook already tells the two views apart by whether there
+  is a relay). Its model is the combo's own `OutlineComboFilterModel`,
+  so the drop-down leaves the variables out as the combo does; the
+  current row follows the caret with `MatchWithoutVariables`, is
+  recomputed when the model is rebuilt (the indexes are new then), and
+  `activate()` goes to the row and focuses the editor. Parented to the
+  editor, which is where the view finds it, after the tool bar row
+  exists - the row's `childEvent()` takes a late one.
+- The widget editor keeps its combo from `finalizeInitialization()`,
+  unchanged.
+
+### The test
+
+`CMakeProjectManager::Internal::CMakeOutlineTest::testTheOutlineFollowsTheCaretInAnyView`,
+two rows, on a six-line CMakeLists.txt with a project, a variable, a
+function and a target: the factory offers the pane in either view and
+builds it; the pane lists the variable; the caret into the function
+selects `helper()`, into the target selects `app`; the tree's
+`activated` on the function row puts the caret on line 4. Then the tool
+bar outline: found on the editor for the Qt Quick row only (the widget
+fills a combo), it lists the target and not the variable, says
+`helper()` and then `project(Outline)` as the caret moves, and
+`activate()` on the target row puts the caret on line 6. Registered with
+`addTestCreator()` beside the plugin's other tests.
+
+Built and passed at the first run, in the VM: 4/0 (both rows), exit 0,
+in 1.2 s. The run's only warnings are the syntax-definition ones the
+CMake highlighter always prints (an unresolved reStructuredText include
+in the CMake definition), the same in either row; no soft assert - the
+`textEditor` one at `cmakeoutline.cpp:448` is gone with the cast that
+made it.
+
+### Negative controls
+
+Three, patched into the uncommitted tree by a script that restores by
+the reverse replacement and compares the diff's hash before and after
+(equal). Each is a build and the two-view test in the VM; each fails
+the quick row alone, and the widget row passing under each is what
+says the failure is the Qt Quick view's and not the test's.
+
+- A, `createWidget()` returns null unless the editor is a
+  `BaseTextEditor` - the pane wants the widget editor or nothing, as
+  before: 3/1, "'outline.get()' returned FALSE. (the outline built
+  nothing)".
+- B, the `editorOpened` hook builds no `CMakeToolBarOutline` - a view
+  that is not a widget gets no tool bar outline, as before: 3/1,
+  "Actual (toolBarOutline != nullptr): 0, Expected (quick): 1".
+- C, `CMakeToolBarOutline::activate()` returns before moving - picking
+  a row in the tool bar goes nowhere: 3/1, "Actual
+  (editor->currentLine()): 2, Expected (6): 6" - the caret still on the
+  `project(` line the test had put it on.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor           818 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi              228 passed, 0 failed, 0 skipped, exit 0
+    -test CMakeProjectManager  167 passed, 0 failed, 0 skipped, exit 0
+
+The TextEditor runs' soft asserts went from seventeen per run (entries
+332 to 334) to nine: the eight `cmakeoutline.cpp:448` ones are gone, and
+the remaining nine are the `vcseditordocument.cpp:366` and
+`qtversionmanager.cpp:797` ones as before. No typing flake in the three
+runs, no memory kill. CMakeProjectManager is 167 with the new test's
+rows, every other test object of the plugin green in this VM. No `.qbs`
+edited: no file was added or removed.
+
+### What is next
+
+1. The census's small items, each a batch or less: the McpServer
+   commands (document and `textCursorOf()`), QmlJSEditor's reformat
+   (the language-server path and the caret-keeping replace, both on the
+   editor), and the three tool bar buttons (ClangTools, QmlProjectManager,
+   QmlPreview) once there is a way to put an action with a menu on the
+   Qt Quick tool bar - `insertExtraToolBarActionIn()` takes an action;
+   whether the row draws a menu from it is the question to measure
+   first.
+2. The standing list (entries 298 and 332) and the whitespace override's
+   clearing.
+3. The large ones, to be planned rather than done in a batch: the
+   inline diff, Design mode's text editor, FakeVim's relative numbers.

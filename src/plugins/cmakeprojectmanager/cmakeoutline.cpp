@@ -27,6 +27,14 @@
 #include <QSortFilterProxyModel>
 #include <QVBoxLayout>
 
+#ifdef WITH_TESTS
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QTest>
+#include <QTreeView>
+#endif
+
 using namespace CMakeLang;
 using namespace TextEditor;
 using namespace Utils;
@@ -243,10 +251,12 @@ void CMakeOutlineModel::rebuild()
 // CMakeOutlineWidget
 //
 
+// The editor, not the widget: what the pane needs from the view is where the
+// caret is and how to move it, and both views answer that.
 class CMakeOutlineWidget final : public IOutlineWidget
 {
 public:
-    CMakeOutlineWidget(BaseTextEditor *editor, CMakeOutlineModel *model);
+    CMakeOutlineWidget(Core::IEditor *editor, CMakeOutlineModel *model);
 
 private:
     QList<QAction *> filterMenuActions() const final { return {}; }
@@ -259,7 +269,7 @@ private:
     void updateIndex();
     void gotoItem(const QModelIndex &proxyIndex);
 
-    TextEditorWidget * const m_editorWidget;
+    Core::IEditor * const m_editor;
     CMakeOutlineModel * const m_model;
     QSortFilterProxyModel * const m_proxyModel;
     NavigationTreeView * const m_treeView;
@@ -268,8 +278,8 @@ private:
     bool m_sorted = false;
 };
 
-CMakeOutlineWidget::CMakeOutlineWidget(BaseTextEditor *editor, CMakeOutlineModel *model)
-    : m_editorWidget(editor->editorWidget())
+CMakeOutlineWidget::CMakeOutlineWidget(Core::IEditor *editor, CMakeOutlineModel *model)
+    : m_editor(editor)
     , m_model(model)
     , m_proxyModel(new QSortFilterProxyModel(this))
     , m_treeView(new NavigationTreeView(this))
@@ -294,10 +304,7 @@ CMakeOutlineWidget::CMakeOutlineWidget(BaseTextEditor *editor, CMakeOutlineModel
         updateIndex();
     });
     connect(m_treeView, &QAbstractItemView::activated, this, &CMakeOutlineWidget::gotoItem);
-    connect(m_editorWidget,
-            &PlainTextEdit::cursorPositionChanged,
-            this,
-            &CMakeOutlineWidget::updateIndex);
+    connect(editor, &Core::IEditor::cursorPositionChanged, this, &CMakeOutlineWidget::updateIndex);
 
     updateIndex();
 }
@@ -329,7 +336,7 @@ void CMakeOutlineWidget::updateIndex()
     if (!m_syncWithCursor || m_blockCursorSync)
         return;
 
-    const QModelIndex index = m_model->indexForPosition(m_editorWidget->lineColumn());
+    const QModelIndex index = m_model->indexForPosition(TextEditor::lineColumnOf(m_editor));
     if (!index.isValid())
         return;
 
@@ -349,10 +356,10 @@ void CMakeOutlineWidget::gotoItem(const QModelIndex &proxyIndex)
     m_blockCursorSync = true;
     Core::EditorManager::cutForwardNavigationHistory();
     Core::EditorManager::addCurrentPositionToNavigationHistory();
-    m_editorWidget->gotoLine(position.line, position.column, true, true);
+    m_editor->gotoLine(position.line, position.column, true);
     m_blockCursorSync = false;
 
-    m_editorWidget->setFocus();
+    TextEditor::setFocusIn(m_editor);
 }
 
 //
@@ -428,6 +435,68 @@ QWidget *createCMakeOutlineComboBox(TextEditorWidget *editorWidget, CMakeOutline
     return combo;
 }
 
+// The same for a view that draws its own tool bar: which command the caret is
+// in, from the same model, with the variables left out the way the combo
+// leaves them out. Parented to the editor, which is where the view finds it.
+class CMakeToolBarOutline final : public ToolBarOutline
+{
+public:
+    CMakeToolBarOutline(Core::IEditor *editor, CMakeOutlineModel *model)
+        : ToolBarOutline(editor)
+        , m_editor(editor)
+        , m_model(model)
+        , m_proxyModel(new OutlineComboFilterModel(model, this))
+    {
+        connect(editor, &Core::IEditor::cursorPositionChanged, this,
+                [this] { updateIndex(false); });
+        // A rebuilt model has new indexes for the same rows.
+        connect(model, &QAbstractItemModel::modelReset, this, [this] { updateIndex(true); });
+        updateIndex(true);
+    }
+
+    QAbstractItemModel *model() const final { return m_proxyModel; }
+    QModelIndex currentIndex() const final { return m_current; }
+
+    QString currentText() const final
+    {
+        return m_current.isValid() ? m_current.data().toString() : QString();
+    }
+
+    void activate(const QModelIndex &index) final
+    {
+        const Position position = m_model->positionFromIndex(m_proxyModel->mapToSource(index));
+        if (!position.isValid())
+            return;
+
+        Core::EditorManager::cutForwardNavigationHistory();
+        Core::EditorManager::addCurrentPositionToNavigationHistory();
+        m_editor->gotoLine(position.line, position.column, true);
+        TextEditor::setFocusIn(m_editor);
+    }
+
+private:
+    void updateIndex(bool force)
+    {
+        const QModelIndex index = m_proxyModel->mapFromSource(
+            m_model->indexForPosition(TextEditor::lineColumnOf(m_editor),
+                                      CMakeOutlineModel::MatchWithoutVariables));
+        if (!force && index == m_current)
+            return;
+        m_current = index;
+        emit currentIndexChanged();
+    }
+
+    Core::IEditor * const m_editor;
+    CMakeOutlineModel * const m_model;
+    OutlineComboFilterModel * const m_proxyModel;
+    QModelIndex m_current;
+};
+
+ToolBarOutline *createCMakeToolBarOutline(Core::IEditor *editor, CMakeOutlineModel *model)
+{
+    return new CMakeToolBarOutline(editor, model);
+}
+
 //
 // CMakeOutlineWidgetFactory
 //
@@ -444,12 +513,9 @@ public:
 
     IOutlineWidget *createWidget(Core::IEditor *editor) final
     {
-        const auto textEditor = qobject_cast<BaseTextEditor *>(editor);
-        QTC_ASSERT(textEditor, return nullptr);
         const auto document = qobject_cast<CMakeTextDocument *>(editor->document());
         QTC_ASSERT(document, return nullptr);
-
-        return new CMakeOutlineWidget(textEditor, document->outlineModel());
+        return new CMakeOutlineWidget(editor, document->outlineModel());
     }
 };
 
@@ -458,4 +524,148 @@ void setupCMakeOutline()
     static CMakeOutlineWidgetFactory theCMakeOutlineWidgetFactory;
 }
 
+#ifdef WITH_TESTS
+
+// The outline pane follows the caret and moves it, and the tool bar row says
+// which command the caret is in; both are things any view of a document can
+// do. Both asked for the widget editor, so a CMakeLists.txt in the Qt Quick
+// view got no outline pane - createWidget() soft-asserted instead - and no
+// outline in its tool bar.
+class CMakeOutlineTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheOutlineFollowsTheCaretInAnyView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testTheOutlineFollowsTheCaretInAnyView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("cmake-outline");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("CMakeLists.txt");
+        QVERIFY(file.writeFileContents("cmake_minimum_required(VERSION 3.16)\n"
+                                       "project(Outline)\n"
+                                       "set(SOURCES main.cpp)\n"
+                                       "function(helper)\n"
+                                       "endfunction()\n"
+                                       "add_executable(app ${SOURCES})\n"));
+
+        TextEditorFactory * const editorFactory = TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a CMakeLists.txt");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<CMakeTextDocument *>(editor->document());
+        QVERIFY(document);
+
+        editor->widget()->resize(400, 300);
+        editor->widget()->show();
+        const QScopeGuard hideIt([editor] { editor->widget()->hide(); });
+
+        // A row by what it says, wherever it is nested: which row it is is not
+        // what this is about.
+        const auto rowNamed = [](const QAbstractItemModel *model, const QString &name) {
+            const auto walk = [model, &name](const QModelIndex &parent,
+                                             const auto &self) -> QModelIndex {
+                for (int row = 0; row < model->rowCount(parent); ++row) {
+                    const QModelIndex candidate = model->index(row, 0, parent);
+                    if (candidate.data().toString() == name)
+                        return candidate;
+                    if (const QModelIndex inner = self(candidate, self); inner.isValid())
+                        return inner;
+                }
+                return QModelIndex();
+            };
+            return walk(QModelIndex(), walk);
+        };
+        const QString text = document->plainText();
+        const auto caretAt = [editor, document, &text](const char *needle) {
+            const int offset = text.indexOf(QLatin1String(needle));
+            const Utils::Text::Position at
+                = Utils::Text::Position::fromPositionInDocument(document->document(), offset);
+            editor->gotoLine(at.line, at.column);
+        };
+
+        // The pane.
+        CMakeOutlineWidgetFactory factory;
+        QVERIFY2(factory.supportsEditor(editor),
+                 "the outline does not offer itself for a CMakeLists.txt in this view");
+        const std::unique_ptr<IOutlineWidget> outline(factory.createWidget(editor));
+        QVERIFY2(outline.get(), "the outline built nothing");
+        outline->setCursorSynchronization(true);
+
+        auto * const tree = outline->findChild<QTreeView *>();
+        QVERIFY(tree && tree->model());
+        QTRY_VERIFY2(tree->model()->rowCount() > 0,
+                     "the outline never listed anything in the file");
+        QVERIFY2(rowNamed(tree->model(), "SOURCES").isValid(),
+                 "the pane does not list the variable");
+
+        // Into the function, and the pane has to say so; then out again, so
+        // that what is asserted is the pane following rather than one row
+        // happening to be current.
+        caretAt("helper");
+        QTRY_COMPARE(tree->currentIndex().data().toString(), QString("helper()"));
+        caretAt("app ");
+        QTRY_COMPARE(tree->currentIndex().data().toString(), QString("app"));
+
+        // The other direction: choosing a row moves the caret. What a double
+        // click or Return sends.
+        const QModelIndex helperRow = rowNamed(tree->model(), "helper()");
+        QVERIFY2(helperRow.isValid(), "the pane lists no helper()");
+        QVERIFY2(editor->currentLine() != 4,
+                 "the caret was already there, so nothing below asserts anything");
+        emit tree->activated(helperRow);
+        QTRY_COMPARE(editor->currentLine(), 4);
+
+        // The tool bar row's outline. The widget editor fills a combo of its
+        // own; a view that is not one is handed a ToolBarOutline and draws it.
+        auto * const toolBarOutline = editor->findChild<ToolBarOutline *>();
+        QCOMPARE(toolBarOutline != nullptr, quick);
+        if (!quick)
+            return;
+
+        QTRY_VERIFY2(toolBarOutline->model()->rowCount() > 0, "the tool bar outline lists nothing");
+        QVERIFY2(rowNamed(toolBarOutline->model(), "app").isValid(),
+                 "the tool bar outline does not list the target");
+        QVERIFY2(!rowNamed(toolBarOutline->model(), "SOURCES").isValid(),
+                 "the tool bar outline lists a variable, which is the pane's to list");
+
+        caretAt("helper");
+        QTRY_COMPARE(toolBarOutline->currentText(), QString("helper()"));
+        caretAt("project(");
+        QTRY_COMPARE(toolBarOutline->currentText(), QString("project(Outline)"));
+
+        const QModelIndex appRow = rowNamed(toolBarOutline->model(), "app");
+        QVERIFY(appRow.isValid());
+        toolBarOutline->activate(appRow);
+        QTRY_COMPARE(editor->currentLine(), 6);
+    }
+};
+
+QObject *createCMakeOutlineTest()
+{
+    return new CMakeOutlineTest;
+}
+
+#endif // WITH_TESTS
+
 } // CMakeProjectManager::Internal
+
+#ifdef WITH_TESTS
+#include "cmakeoutline.moc"
+#endif
