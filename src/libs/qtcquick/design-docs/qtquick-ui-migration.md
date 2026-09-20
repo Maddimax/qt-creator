@@ -71494,3 +71494,140 @@ runs, no memory kill. No `.qbs` edited: no file was added or removed.
    factory's switch.
 3. The inline diff editor's own port (entry 341); the standing list
    (entry 340).
+
+## 2026-09-20 — The design document on the editor (batch 344)
+
+Entry 342's step 2, the second of the four that take Design mode's text
+editor off the widget.
+
+### The gap closed
+
+`DesignDocument` holds the editor of the file being designed and is the
+rewriter's owner. It kept a `Core::IEditor *` already, but everything it
+did with it went through `textEditorWidget()` - a cast down to
+`TextEditorWidget`, null for a Qt Quick editor:
+
+- `loadDocument(TextEditor::TextEditorWidget *)` built the text modifier
+  on the widget and connected the widget's `undoAvailable`,
+  `redoAvailable` and `modificationChanged`. Those three are the
+  `QTextDocument`'s own signals, which `TextEditorWidget` re-emits; the
+  document is the same object in either view, so `loadDocument(Core::IEditor *)`
+  connects the text itself and hands the modifier the `TextDocument`
+  (entry 343's constructor).
+- `isUndoAvailable()`, `isRedoAvailable()` and `clearUndoRedoStacks()`
+  read `widget->document()`, which is that same `QTextDocument`. They go
+  through a new private `textDocument()`, and the three open-coded
+  copies of the clear in `resetToDocumentModel()`,
+  `changeToDocumentModel()` and `changeToInFileComponentModel()` call
+  `clearUndoRedoStacks()` instead of repeating it.
+- `undo()` and `redo()` called `textEditorWidget()->undo()/redo()` and
+  then amended the rewriter. A new seam, `TextEditor::undoIn(editor)` /
+  `redoIn(editor)`, is the widget's `undo()` or the viewport's - the
+  view's own Ctrl+Z either way, so the caret lands where that view puts
+  it rather than where a document-level undo would leave it.
+- The plugin's uses: `editorsClosed` compared against `textEditor()`,
+  `setupDesigner()` and the navigator history were handed `textEditor()`,
+  the crumble bar and the design mode widget the same. All of them only
+  wanted a `Core::IEditor`, and ask `editor()` now.
+- The two caret reads, `textEditorWidget()->textCursor().position()`,
+  are `TextEditor::textCursorOf(editor)`.
+
+`textEditorWidget()` is gone. `textEditor()` stays, with one caller
+left: the Code view's duplicate, which is step 3.
+
+One bug fell out of the jump. `jumpTextCursorToSelectedModelNode()`
+converted a node offset with `BaseTextEditor::convertPosition()` and
+then called `gotoLine(line, column - 1)` under a comment saying "line
+has to be 1 based, column 0 based!". The comment is right about what
+`gotoLine()` wants, and 343 measured that `convertPosition()` already
+answers a zero-based column - so the subtraction put the caret one
+character to the left of the node, and at the end of the previous line
+for a node in column 0. The conversion is `Utils::Text::convertPosition()`
+on the caret's document now, with no adjustment, which is what
+`texteditorview.cpp` does for the same jump.
+
+### The test
+
+`QmlDesigner::DesignDocumentTest::testADesignDocumentStandsOnEitherView`,
+two rows, run with QmlDesigner loaded. It opens a `Form.ui.qml` by the
+designer's own editor id with that factory's view flipped per row (the
+file's default editor is a question of preferences; this is about the
+editor behind a design document), checks the flip took by asking
+`TextEditorWidget::fromEditor()`, makes the design document the way the
+plugin does, and calls `loadDocument(editor)`. Then: undo and redo are
+unavailable; an insert through the document's `QTextCursor` makes undo
+available, and the design document says so on both `undoAvailable` and
+`dirtyStateChanged`; `undoIn()` takes the text back and flips the two
+availabilities; `redoIn()` brings it back.
+
+It drives `undoIn()`/`redoIn()` rather than `DesignDocument::undo()`,
+because that one amends the rewriter afterwards and `RewriterView::forceAmend()`
+dereferences a model the test has not attached.
+
+### A crash the test found
+
+The quick row died with SIGSEGV at the first run, before any of the
+above. Under gdb in the VM: `EditorManager::openEditor()` with the
+designer id activates Design mode, which attaches the views, and
+`TextEditorView::createTextEditor()` does
+
+    designDocument->textEditor()->duplicate()
+
+- null for a Qt Quick editor. That is step 3's line, and it is now
+`QTC_ASSERT(source, return)`: the Code view stays empty (a state the
+widget already has, `setTextEditor(nullptr)` is what a detach does)
+instead of taking the process down. The quick row logs that soft assert
+and is otherwise green.
+
+Not a regression: `QtQuickDesignerFactory` uses the id-taking
+`QmlJSEditorFactory` constructor, which does not call
+`setUsesQuickEditor()`, so nothing outside a test can open a designer
+editor in the Quick view until step 4. What it does say is that step 3
+is not optional before step 4 - a Quick designer editor without it is a
+Design mode with no Code view.
+
+### Negative controls
+
+Two, patched into the uncommitted tree by a script that restores by the
+reverse replacement and compares the diff's hash before and after
+(equal). Each is a build, the stock runner's sync test, and the design
+document's test with QmlDesigner loaded.
+
+- A, `loadDocument()` does not connect `QTextDocument::undoAvailable`:
+  2 passed, 2 failed - both rows, "'!undoTold.isEmpty() &&
+  undoTold.last().first().toBool()' returned FALSE. (the design document
+  did not say undo became available)". Both, because the connection is
+  one path for either view; `isUndoAvailable()` still answers correctly
+  from the document, which is why the spy is asserted separately from
+  it.
+- B, `undoIn()` does not reach the viewport: 3 passed, 1 failed - the
+  quick row only, "'!document->plainText().contains("edited")' returned
+  FALSE." The widget row goes down the `TextEditorWidget` branch and is
+  untouched, which is the asymmetry this seam is for.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     824 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test QmlJSEditor     49 passed, 0 failed, 0 skipped, exit 0
+    -test QmlDesigner     11 passed, 0 failed, 0 skipped, exit 0
+                     (loaded; three test objects, 4 + 3 + 4)
+
+QmlDesigner is 343's seven plus this test's four. The soft asserts stay
+at nine per TextEditor run, no flake in the three runs. No `.qbs`
+edited: no file was added or removed.
+
+### What is next
+
+1. Entry 342's step 3, now with a crash behind it: the Code view over
+   an editor duplicate. `QmlDesigner::TextEditorWidget` holds a
+   `UniqueObjectLatePtr<BaseTextEditor>` and reaches through it for the
+   focus, the context, `updateFoldingHighlight()` and the jump; it needs
+   a `Core::IEditor` duplicate, a `positionAtIn()` seam, and a decision
+   on the fold highlight, which has no Quick side yet.
+2. Then step 4, the factory's switch, which is one line and the
+   `QTC_ASSERT` above going away.
+3. The inline diff editor's own port (entry 341); the standing list
+   (entry 340).

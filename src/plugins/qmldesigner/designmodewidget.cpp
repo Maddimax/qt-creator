@@ -445,7 +445,7 @@ void DesignModeWidget::setup()
     }
 
     if (currentDesignDocument())
-        setupNavigatorHistory(currentDesignDocument()->textEditor());
+        setupNavigatorHistory(currentDesignDocument()->editor());
 
     m_dockManager->initialize();
 

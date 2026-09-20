@@ -10693,6 +10693,30 @@ void autoFormatIn(Core::IEditor *editor)
         view->autoFormat();
 }
 
+void undoIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->undo();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->undo();
+}
+
+void redoIn(Core::IEditor *editor)
+{
+    if (!editor)
+        return;
+    if (TextEditorWidget * const widget = TextEditorWidget::fromEditor(editor)) {
+        widget->redo();
+        return;
+    }
+    if (TextViewport * const view = Internal::viewportForEditor(editor))
+        view->redo();
+}
+
 void replaceIn(Core::IEditor *editor, int length, const QString &text)
 {
     QTextCursor cursor = textCursorOf(editor);

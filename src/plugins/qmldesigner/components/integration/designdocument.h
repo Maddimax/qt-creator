@@ -56,7 +56,8 @@ public:
     QString displayName() const;
     QString simplfiedDisplayName() const;
 
-    void loadDocument(TextEditor::TextEditorWidget *edit);
+    // Stands on the text of the editor showing the document, in either view.
+    void loadDocument(Core::IEditor *editor);
     void attachRewriterToModel();
     void close();
 #ifndef QDS_USE_PROJECTSTORAGE
@@ -82,8 +83,8 @@ public:
     void setEditor(Core::IEditor *editor);
     Core::IEditor *editor() const;
 
+    // Null unless the editor is a widget one; only the Code view still asks.
     TextEditor::BaseTextEditor *textEditor() const;
-    TextEditor::TextEditorWidget *textEditorWidget() const;
     Utils::FilePath fileName() const;
     ProjectExplorer::Target *currentTarget() const;
     bool isDocumentLoaded() const;
@@ -130,6 +131,8 @@ private: // functions
 
     void updateQrcFiles();
 
+    TextEditor::TextDocument *textDocument() const;
+
     QWidget *centralWidget() const;
     QString pathToQt() const;
 
@@ -163,5 +166,9 @@ private: // variables
     ExternalDependenciesInterface &m_externalDependencies;
     ModulesStorage &m_modulesStorage;
 };
+
+#ifdef WITH_TESTS
+QObject *createDesignDocumentTest();
+#endif
 
 } // namespace QmlDesigner

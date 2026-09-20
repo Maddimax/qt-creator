@@ -40,6 +40,7 @@
 #include <utils/qtcassert.h>
 
 #include <QFileInfo>
+#include <QTextDocument>
 #include <QUrl>
 #include <QDebug>
 
@@ -421,27 +422,25 @@ void DesignDocument::resetToDocumentModel()
 {
     NanotraceHR::Tracer tracer{"design document reset to document model", category()};
 
-    const Utils::PlainTextEdit *edit = textEditorWidget();
-    if (edit)
-        edit->document()->clearUndoRedoStacks();
+    clearUndoRedoStacks();
 
     m_inFileComponentModel.reset();
 }
 
-void DesignDocument::loadDocument(TextEditor::TextEditorWidget *edit)
+void DesignDocument::loadDocument(Core::IEditor *editor)
 {
     NanotraceHR::Tracer tracer{"design document load document", category()};
 
-    Q_CHECK_PTR(edit);
+    TextEditor::TextDocument * const document
+        = editor ? qobject_cast<TextEditor::TextDocument *>(editor->document()) : nullptr;
+    QTC_ASSERT(document, return);
 
-    connect(edit, &TextEditor::TextEditorWidget::undoAvailable, this, &DesignDocument::undoAvailable);
-    connect(edit, &TextEditor::TextEditorWidget::redoAvailable, this, &DesignDocument::redoAvailable);
-    connect(edit,
-            &TextEditor::TextEditorWidget::modificationChanged,
-            this,
-            &DesignDocument::dirtyStateChanged);
+    QTextDocument * const text = document->document();
+    connect(text, &QTextDocument::undoAvailable, this, &DesignDocument::undoAvailable);
+    connect(text, &QTextDocument::redoAvailable, this, &DesignDocument::redoAvailable);
+    connect(text, &QTextDocument::modificationChanged, this, &DesignDocument::dirtyStateChanged);
 
-    m_documentTextModifier.reset(new BaseTextEditModifier(edit->textDocument()));
+    m_documentTextModifier.reset(new BaseTextEditModifier(document));
 
     connect(m_documentTextModifier.get(),
             &TextModifier::textChanged,
@@ -466,9 +465,7 @@ void DesignDocument::changeToDocumentModel()
     viewManager().detachRewriterView();
     viewManager().detachViewsExceptRewriterAndComponetView();
 
-    const TextEditor::TextEditorWidget *edit = textEditorWidget();
-    if (edit)
-        edit->document()->clearUndoRedoStacks();
+    clearUndoRedoStacks();
 
     m_rewriterView->setTextModifier(m_documentTextModifier.get());
 
@@ -536,9 +533,7 @@ void DesignDocument::changeToInFileComponentModel(ComponentTextModifier *textMod
     viewManager().detachRewriterView();
     viewManager().detachViewsExceptRewriterAndComponetView();
 
-    const TextEditor::TextEditorWidget *edit = textEditorWidget();
-    if (edit)
-        edit->document()->clearUndoRedoStacks();
+    clearUndoRedoStacks();
 
     m_inFileComponentModel = createInFileComponentModel();
 
@@ -614,8 +609,8 @@ bool DesignDocument::isUndoAvailable() const
 {
     NanotraceHR::Tracer tracer{"design document is undo available", category()};
 
-    if (textEditorWidget())
-        return textEditorWidget()->document()->isUndoAvailable();
+    if (TextEditor::TextDocument * const document = textDocument())
+        return document->document()->isUndoAvailable();
 
     return false;
 }
@@ -624,8 +619,8 @@ bool DesignDocument::isRedoAvailable() const
 {
     NanotraceHR::Tracer tracer{"design document is redo available", category()};
 
-    if (textEditorWidget())
-        return textEditorWidget()->document()->isRedoAvailable();
+    if (TextEditor::TextDocument * const document = textDocument())
+        return document->document()->isRedoAvailable();
 
     return false;
 }
@@ -634,9 +629,8 @@ void DesignDocument::clearUndoRedoStacks() const
 {
     NanotraceHR::Tracer tracer{"design document clear undo redo stacks", category()};
 
-    const TextEditor::TextEditorWidget *edit = textEditorWidget();
-    if (edit)
-        edit->document()->clearUndoRedoStacks();
+    if (TextEditor::TextDocument * const document = textDocument())
+        document->document()->clearUndoRedoStacks();
 }
 
 void DesignDocument::close()
@@ -901,13 +895,10 @@ TextEditor::BaseTextEditor *DesignDocument::textEditor() const
     return qobject_cast<TextEditor::BaseTextEditor *>(editor());
 }
 
-TextEditor::TextEditorWidget *DesignDocument::textEditorWidget() const
+TextEditor::TextDocument *DesignDocument::textDocument() const
 {
-    NanotraceHR::Tracer tracer{"design document plain text edit", category()};
-
-    if (TextEditor::BaseTextEditor *editor = textEditor())
-        return editor->editorWidget();
-    return nullptr;
+    return m_textEditor ? qobject_cast<TextEditor::TextDocument *>(m_textEditor->document())
+                        : nullptr;
 }
 
 ModelNode DesignDocument::rootModelNode() const
@@ -922,7 +913,7 @@ void DesignDocument::undo()
     NanotraceHR::Tracer tracer{"design document undo", category()};
 
     if (rewriterView() && !rewriterView()->modificationGroupActive()) {
-        textEditorWidget()->undo();
+        TextEditor::undoIn(editor());
         rewriterView()->forceAmend();
     }
 
@@ -934,7 +925,7 @@ void DesignDocument::redo()
     NanotraceHR::Tracer tracer{"design document redo", category()};
 
     if (rewriterView() && !rewriterView()->modificationGroupActive()) {
-        textEditorWidget()->redo();
+        TextEditor::redoIn(editor());
         rewriterView()->forceAmend();
     }
 
@@ -996,3 +987,115 @@ void DesignDocument::contextHelp(const Core::IContext::HelpCallback &callback) c
 }
 
 } // namespace QmlDesigner
+
+#ifdef WITH_TESTS
+
+#include <coreplugin/editormanager/ieditorfactory.h>
+#include <qmljseditor/qmljseditorconstants.h>
+#include <texteditor/texteditor.h>
+#include <utils/temporarydirectory.h>
+
+#include <QScopeGuard>
+#include <QSignalSpy>
+#include <QTest>
+
+namespace QmlDesigner {
+
+// The design document reached the text through the widget editor: it built
+// its modifier on it, followed its undo and modification signals, and read
+// undo availability from it. Everything it needs is the document's, so a
+// design document stands on whichever view shows the file.
+class DesignDocumentTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testADesignDocumentStandsOnEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testADesignDocumentStandsOnEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("qmldesigner-design-document");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("Form.ui.qml");
+        QVERIFY(file.writeFileContents("import QtQuick\nItem {\n    width: 10\n}\n"));
+
+        // The designer's own factory, by id: the file's default editor is a
+        // question of preferences, and this is about the editor behind a
+        // design document.
+        const Utils::Id designerId(QmlJSEditor::Constants::C_QTQUICKDESIGNEREDITOR_ID);
+        auto * const factory = dynamic_cast<TextEditor::TextEditorFactory *>(
+            Core::IEditorFactory::editorFactoryForId(designerId));
+        QVERIFY2(factory, "the designer's editor factory is not a text editor factory");
+        const bool wasQuick = factory->usesQuickEditor();
+        const QScopeGuard restore([factory, wasQuick] { factory->setUsesQuickEditor(wasQuick); });
+        factory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file, designerId);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        auto * const document = qobject_cast<TextEditor::TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // A design document for it, the way the plugin makes one when Design
+        // mode is entered; taken back before the editor closes.
+        DocumentManager &manager = QmlDesignerPlugin::instance()->documentManager();
+        manager.setCurrentDesignDocument(editor);
+        const QScopeGuard forget([&manager, editor] {
+            manager.setCurrentDesignDocument(nullptr);
+            manager.removeEditors({editor});
+        });
+        DesignDocument * const designDocument = manager.currentDesignDocument();
+        QVERIFY2(designDocument, "the document manager made no design document");
+        QCOMPARE(designDocument->editor(), editor);
+
+        QSignalSpy undoTold(designDocument, &DesignDocument::undoAvailable);
+        QSignalSpy dirtyTold(designDocument, &DesignDocument::dirtyStateChanged);
+        designDocument->loadDocument(editor);
+        QVERIFY2(designDocument->isDocumentLoaded(), "loading from this editor did not take");
+        QVERIFY(!designDocument->isUndoAvailable());
+        QVERIFY(!designDocument->isRedoAvailable());
+
+        // An edit to the text, and the design document knows about it: undo
+        // is available and it says so, and the document is dirty and it says
+        // so.
+        QTextCursor cursor(document->document());
+        cursor.movePosition(QTextCursor::End);
+        cursor.insertText("// edited\n");
+        QVERIFY(designDocument->isUndoAvailable());
+        QVERIFY2(!undoTold.isEmpty() && undoTold.last().first().toBool(),
+                 "the design document did not say undo became available");
+        QVERIFY2(!dirtyTold.isEmpty() && dirtyTold.last().first().toBool(),
+                 "the design document did not say the text became dirty");
+
+        // Undo and redo through the editor, which is what DesignDocument::undo()
+        // does before it tells the rewriter - the rewriter is not attached
+        // here, so its half is not driven.
+        TextEditor::undoIn(editor);
+        QVERIFY(!document->plainText().contains("edited"));
+        QVERIFY(!designDocument->isUndoAvailable());
+        QVERIFY(designDocument->isRedoAvailable());
+        TextEditor::redoIn(editor);
+        QVERIFY(document->plainText().contains("edited"));
+        QVERIFY(designDocument->isUndoAvailable());
+    }
+};
+
+QObject *createDesignDocumentTest()
+{
+    return new DesignDocumentTest;
+}
+
+} // namespace QmlDesigner
+
+#include "designdocument.moc"
+
+#endif // WITH_TESTS

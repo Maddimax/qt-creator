@@ -20,6 +20,7 @@
 #include <colortool/colortool.h>
 #include <connectionview.h>
 #include <curveeditor/curveeditorview.h>
+#include <designdocument.h>
 #include <designeractionmanager.h>
 #include <eventlist/eventlistpluginview.h>
 #include <formeditor/view3dtool.h>
@@ -60,6 +61,7 @@
 #include <qmldesigner/qmldesignerplugin.h>
 #include <qmljs/qmljsmodelmanagerinterface.h>
 #include <sqlite/sqlitelibraryinitializer.h>
+#include <texteditor/texteditor.h>
 
 #include <utils/algorithm.h>
 #include <utils/guard.h>
@@ -67,6 +69,7 @@
 #include <utils/mimeconstants.h>
 #include <utils/qtcassert.h>
 #include <utils/qtcsettings.h>
+#include <utils/textutils.h>
 #include <utils/uniqueobjectptr.h>
 #include <utils/widgets.h>
 
@@ -261,6 +264,7 @@ Utils::Result<> QmlDesignerPlugin::initialize(const QStringList &)
 #ifdef WITH_TESTS
     addTestCreator(&createBindingEditorTest);
     addTestCreator(&createBaseTextEditModifierTest);
+    addTestCreator(&createDesignDocumentTest);
 #endif
 
     return Utils::ResultOk;
@@ -365,7 +369,7 @@ void QmlDesignerPlugin::integrateIntoQtCreator(DesignModeWidget *modeWidget)
     connect(Core::EditorManager::instance(), &Core::EditorManager::editorsClosed, [this] (QList<Core::IEditor*> editors) {
         if (d) {
             if (d->documentManager.hasCurrentDesignDocument()
-                    && editors.contains(currentDesignDocument()->textEditor()))
+                    && editors.contains(currentDesignDocument()->editor()))
                 hideDesigner();
 
             d->documentManager.removeEditors(editors);
@@ -416,7 +420,7 @@ void QmlDesignerPlugin::setupDesigner()
 
     if (d->documentManager.hasCurrentDesignDocument()) {
         activateAutoSynchronization();
-        d->shortCutManager.updateActions(currentDesignDocument()->textEditor());
+        d->shortCutManager.updateActions(currentDesignDocument()->editor());
         d->viewManager.pushFileOnCrumbleBar(currentDesignDocument()->fileName());
         d->viewManager.setComponentViewToMaster();
     }
@@ -496,13 +500,17 @@ void QmlDesignerPlugin::jumpTextCursorToSelectedModelNode()
     if (selectedNode.isValid()) {
         const int nodeOffset = rewriterView()->nodeOffset(selectedNode);
         if (nodeOffset > 0) {
-            const ModelNode currentSelectedNode = rewriterView()->nodeAtTextCursorPosition(
-                currentDesignDocument()->textEditorWidget()->textCursor().position());
+            Core::IEditor * const editor = currentDesignDocument()->editor();
+            const QTextCursor caret = TextEditor::textCursorOf(editor);
+            const ModelNode currentSelectedNode
+                = rewriterView()->nodeAtTextCursorPosition(caret.position());
             if (currentSelectedNode != selectedNode) {
-                int line, column;
-                currentDesignDocument()->textEditor()->convertPosition(nodeOffset, &line, &column);
-                // line has to be 1 based, column 0 based!
-                currentDesignDocument()->textEditor()->gotoLine(line, column - 1);
+                // gotoLine() wants a one-based line and a zero-based
+                // column, which is what convertPosition() answers.
+                int line = 0;
+                int column = 0;
+                Utils::Text::convertPosition(caret.document(), nodeOffset, &line, &column);
+                editor->gotoLine(line, column);
             }
         }
     }
@@ -512,7 +520,8 @@ void QmlDesignerPlugin::selectModelNodeUnderTextCursor()
 {
     NanotraceHR::Tracer tracer{"qml designer plugin select model node under text cursor", category()};
 
-    const int cursorPosition = currentDesignDocument()->textEditorWidget()->textCursor().position();
+    const int cursorPosition
+        = TextEditor::textCursorOf(currentDesignDocument()->editor()).position();
     ModelNode modelNode = rewriterView()->nodeAtTextCursorPosition(cursorPosition);
     if (modelNode.isValid())
         rewriterView()->setSelectedModelNode(modelNode);
@@ -527,7 +536,7 @@ void QmlDesignerPlugin::activateAutoSynchronization()
 
     // text editor -> visual editor
     if (!currentDesignDocument()->isDocumentLoaded())
-        currentDesignDocument()->loadDocument(currentDesignDocument()->textEditorWidget());
+        currentDesignDocument()->loadDocument(currentDesignDocument()->editor());
 
     currentDesignDocument()->updateActiveTarget();
     d->mainWidget.enableWidgets();
@@ -540,7 +549,7 @@ void QmlDesignerPlugin::activateAutoSynchronization()
 
     selectModelNodeUnderTextCursor();
 
-    d->mainWidget.setupNavigatorHistory(currentDesignDocument()->textEditor());
+    d->mainWidget.setupNavigatorHistory(currentDesignDocument()->editor());
 
 #ifndef QDS_USE_PROJECTSTORAGE
     currentDesignDocument()->updateSubcomponentManager();

@@ -42,7 +42,7 @@ static CrumbleBarInfo createCrumbleBarInfoFromModelNode(const ModelNode &modelNo
 {
     CrumbleBarInfo crumbleBarInfo;
     crumbleBarInfo.displayName = componentIdForModelNode(modelNode);
-    crumbleBarInfo.fileName = currentDesignDocument()->textEditor()->document()->filePath();
+    crumbleBarInfo.fileName = currentDesignDocument()->editor()->document()->filePath();
     crumbleBarInfo.modelNode = modelNode;
 
     return crumbleBarInfo;

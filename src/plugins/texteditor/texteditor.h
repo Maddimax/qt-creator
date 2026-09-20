@@ -1381,6 +1381,11 @@ TEXTEDITOR_EXPORT void autoIndentIn(Core::IEditor *editor);
 // formatter - a language server's, say. The same in both views; only the way
 // to ask either of them was missing.
 TEXTEDITOR_EXPORT void autoFormatIn(Core::IEditor *editor);
+// Take back, or do again, the last edit in \a editor's document, the way
+// Ctrl+Z and Ctrl+Shift+Z in that view do: through the view, so that the
+// caret ends up where that view puts it after an undo.
+TEXTEDITOR_EXPORT void undoIn(Core::IEditor *editor);
+TEXTEDITOR_EXPORT void redoIn(Core::IEditor *editor);
 
 // Replace \a length characters from the caret in \a editor with \a text.
 TEXTEDITOR_EXPORT void replaceIn(Core::IEditor *editor, int length, const QString &text);

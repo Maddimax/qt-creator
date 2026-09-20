@@ -572,8 +572,9 @@ void TextEditorView::jumpToModelNode(const ModelNode &modelNode)
 void TextEditorView::createTextEditor()
 {
     DesignDocument *designDocument = QmlDesignerPlugin::instance()->currentDesignDocument();
-    auto textEditor = Utils::UniqueObjectLatePtr<TextEditor::BaseTextEditor>(
-        designDocument->textEditor()->duplicate());
+    TextEditor::BaseTextEditor * const source = designDocument->textEditor();
+    QTC_ASSERT(source, return);
+    auto textEditor = Utils::UniqueObjectLatePtr<TextEditor::BaseTextEditor>(source->duplicate());
     static constexpr char qmlTextEditorContextId[] = "QmlDesigner::TextEditor";
     IContext::attach(textEditor->widget(),
                      Context(qmlTextEditorContextId, Constants::qtQuickToolsMenuContextId),
