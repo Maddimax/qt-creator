@@ -13,6 +13,7 @@
 #include <texteditor/textdocument.h>
 #include <texteditor/texteditor.h>
 
+#include <coreplugin/editormanager/ieditor.h>
 #include <coreplugin/icore.h>
 
 #include <componentcore/theme.h>
@@ -20,15 +21,13 @@
 #include <qmldesigner/qmldesignerplugin.h>
 #include <qmldesigner/studio/studioquickwidget.h>
 
-#include <qmljseditor/qmljseditor.h>
-#include <qmljseditor/qmljseditordocument.h>
+#include <utils/qtcassert.h>
 
 #include <QApplication>
 #include <QClipboard>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
-#include <QPlainTextEdit>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QSettings>
@@ -97,6 +96,12 @@ void resetDocumentRevisions(TextEditor::TextDocumentPtr textDoc)
         QTextBlock block = doc->findBlockByNumber(i);
         block.setRevision(docRevision);
     }
+}
+
+// The widget of an editor that may already be gone with its parent.
+QWidget *widgetOf(const Utils::UniqueObjectLatePtr<Core::IEditor> &editor)
+{
+    return editor ? editor->widget() : nullptr;
 }
 
 } // namespace
@@ -181,8 +186,8 @@ void EffectShadersCodeEditor::setupShader(ShaderEditorData *data)
     m_currentEditorData = data;
 
     if (data) {
-        m_stackedWidget->addWidget(data->fragmentEditor.get());
-        m_stackedWidget->addWidget(data->vertexEditor.get());
+        m_stackedWidget->addWidget(::widgetOf(data->fragmentEditor));
+        m_stackedWidget->addWidget(::widgetOf(data->vertexEditor));
 
         setUniformCallbacksOnEditors(data);
         selectNonEmptyShader(data);
@@ -193,8 +198,8 @@ void EffectShadersCodeEditor::setupShader(ShaderEditorData *data)
     }
 
     if (oldEditorData) {
-        m_stackedWidget->removeWidget(oldEditorData->fragmentEditor.get());
-        m_stackedWidget->removeWidget(oldEditorData->vertexEditor.get());
+        m_stackedWidget->removeWidget(::widgetOf(oldEditorData->fragmentEditor));
+        m_stackedWidget->removeWidget(::widgetOf(oldEditorData->vertexEditor));
         oldEditorData->exitEditorCallback = nullptr;
     }
 }
@@ -210,13 +215,14 @@ void EffectShadersCodeEditor::selectShader(const QString &shaderName)
     using namespace Qt::StringLiterals;
     if (!m_currentEditorData)
         return;
-    EffectCodeEditorWidget *editor = nullptr;
+    QWidget *editorWidget = nullptr;
     if (shaderName == EFFECTCOMPOSER_FRAGMENT_ID)
-        editor = m_currentEditorData->fragmentEditor.get();
+        editorWidget = ::widgetOf(m_currentEditorData->fragmentEditor);
     else if (shaderName == EFFECTCOMPOSER_VERTEX_ID)
-        editor = m_currentEditorData->vertexEditor.get();
+        editorWidget = ::widgetOf(m_currentEditorData->vertexEditor);
 
-    m_stackedWidget->setCurrentWidget(editor);
+    if (editorWidget)
+        m_stackedWidget->setCurrentWidget(editorWidget);
 }
 
 const ShaderEditorData *EffectShadersCodeEditor::currentEditorData() const
@@ -231,11 +237,11 @@ ShaderEditorData *EffectShadersCodeEditor::createEditorData(
     result->fragmentEditor.reset(createJSEditor());
     result->vertexEditor.reset(createJSEditor());
 
-    result->fragmentEditor->setPlainText(fragmentDocument);
-    result->vertexEditor->setPlainText(vertexDocument);
+    result->fragmentDocument = TextEditor::textDocumentPtr(result->fragmentEditor.get());
+    result->vertexDocument = TextEditor::textDocumentPtr(result->vertexEditor.get());
 
-    result->fragmentDocument = result->fragmentEditor->textDocumentPtr();
-    result->vertexDocument = result->vertexEditor->textDocumentPtr();
+    result->fragmentDocument->setPlainText(fragmentDocument);
+    result->vertexDocument->setPlainText(vertexDocument);
 
     ::resetDocumentRevisions(result->fragmentDocument);
     ::resetDocumentRevisions(result->vertexDocument);
@@ -250,12 +256,14 @@ void EffectShadersCodeEditor::copyText(const QString &text)
 
 void EffectShadersCodeEditor::insertTextToCursorPosition(const QString &text)
 {
-    auto editor = currentEditor();
+    Core::IEditor * const editor = currentEditor();
     if (!editor)
         return;
 
-    editor->textCursor().insertText(text);
-    editor->setFocus();
+    QTextCursor cursor = TextEditor::textCursorOf(editor);
+    cursor.insertText(text);
+    TextEditor::setTextCursorOf(editor, cursor);
+    TextEditor::setFocusIn(editor);
 }
 
 void EffectShadersCodeEditor::switchToNodeIndex(int index)
@@ -263,25 +271,17 @@ void EffectShadersCodeEditor::switchToNodeIndex(int index)
     emit requestToOpenNode(index);
 }
 
-EffectCodeEditorWidget *EffectShadersCodeEditor::createJSEditor()
+Core::IEditor *EffectShadersCodeEditor::createJSEditor()
 {
     static EffectCodeEditorFactory f;
-    TextEditor::BaseTextEditor *editor = qobject_cast<TextEditor::BaseTextEditor *>(
-        f.createEditor());
-    Q_ASSERT(editor);
+    Core::IEditor * const editor = f.createEditor();
+    QTC_ASSERT(editor, return nullptr);
 
     editor->setParent(this);
+    // Tab is for the rest of the window, as it was for the widget.
+    TextEditor::setTabMovesFocusIn(editor, true);
 
-    EffectCodeEditorWidget *editorWidget = qobject_cast<EffectCodeEditorWidget *>(
-        editor->editorWidget());
-    Q_ASSERT(editorWidget);
-
-    f.decorateEditor(editorWidget);
-    editorWidget->unregisterAutoCompletion();
-    editorWidget->setParent(this);
-    editorWidget->setFrameStyle(QFrame::StyledPanel | QFrame::Raised);
-
-    return editorWidget;
+    return editor;
 }
 
 void EffectShadersCodeEditor::setupUIComponents()
@@ -445,18 +445,22 @@ void EffectShadersCodeEditor::selectNonEmptyShader(ShaderEditorData *data)
     auto vertexDoc = data->vertexDocument->document();
     auto fragmentDoc = data->fragmentDocument->document();
 
-    QWidget *widgetToSelect = (fragmentDoc->isEmpty() && !vertexDoc->isEmpty())
-                                  ? data->vertexEditor.get()
-                                  : data->fragmentEditor.get();
+    Core::IEditor * const editorToSelect = (fragmentDoc->isEmpty() && !vertexDoc->isEmpty())
+                                               ? data->vertexEditor.get()
+                                               : data->fragmentEditor.get();
+    QTC_ASSERT(editorToSelect, return);
 
-    m_stackedWidget->setCurrentWidget(widgetToSelect);
-    widgetToSelect->setFocus();
+    m_stackedWidget->setCurrentWidget(editorToSelect->widget());
+    TextEditor::setFocusIn(editorToSelect);
 }
 
 void EffectShadersCodeEditor::setUniformCallbacksOnEditors(ShaderEditorData *data)
 {
-    data->fragmentEditor->setUniformsCallback(data->uniformsCallback);
-    data->vertexEditor->setUniformsCallback(data->uniformsCallback);
+    const TextEditor::TextDocumentPtr documents[] = {data->fragmentDocument, data->vertexDocument};
+    for (const TextEditor::TextDocumentPtr &document : documents) {
+        if (auto * const effectDocument = qobject_cast<EffectDocument *>(document.get()))
+            effectDocument->setUniformsCallback(data->uniformsCallback);
+    }
 }
 
 void EffectShadersCodeEditor::setSelectedShaderName(const QString &shaderName)
@@ -475,9 +479,9 @@ void EffectShadersCodeEditor::onEditorWidgetChanged()
         return;
     }
 
-    if (currentWidget == m_currentEditorData->fragmentEditor.get())
+    if (currentWidget == ::widgetOf(m_currentEditorData->fragmentEditor))
         setSelectedShaderName(EFFECTCOMPOSER_FRAGMENT_ID);
-    else if (currentWidget == m_currentEditorData->vertexEditor.get())
+    else if (currentWidget == ::widgetOf(m_currentEditorData->vertexEditor))
         setSelectedShaderName(EFFECTCOMPOSER_VERTEX_ID);
     else
         setSelectedShaderName({});
@@ -491,15 +495,15 @@ void EffectShadersCodeEditor::onOpenStateChanged()
         writeGeometrySettings();
 }
 
-EffectCodeEditorWidget *EffectShadersCodeEditor::currentEditor() const
+Core::IEditor *EffectShadersCodeEditor::currentEditor() const
 {
     QWidget *currentTab = m_stackedWidget->currentWidget();
     if (!m_currentEditorData || !currentTab)
         return nullptr;
 
-    if (currentTab == m_currentEditorData->fragmentEditor.get())
+    if (currentTab == ::widgetOf(m_currentEditorData->fragmentEditor))
         return m_currentEditorData->fragmentEditor.get();
-    if (currentTab == m_currentEditorData->vertexEditor.get())
+    if (currentTab == ::widgetOf(m_currentEditorData->vertexEditor))
         return m_currentEditorData->vertexEditor.get();
 
     return nullptr;

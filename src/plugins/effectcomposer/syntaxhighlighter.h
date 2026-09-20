@@ -13,6 +13,8 @@ namespace EffectComposer {
 
 class SyntaxHighlighter : public TextEditor::SyntaxHighlighter
 {
+    Q_OBJECT
+
     using Super = TextEditor::SyntaxHighlighter;
 
 public:

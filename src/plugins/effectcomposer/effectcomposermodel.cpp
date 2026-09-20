@@ -29,6 +29,7 @@
 
 #include <QByteArrayView>
 #include <QFileDialog>
+#include <QJsonArray>
 #include <QLibraryInfo>
 #include <QStandardPaths>
 #include <QVector2D>

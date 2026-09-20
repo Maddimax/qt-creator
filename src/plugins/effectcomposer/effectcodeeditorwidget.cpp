@@ -7,114 +7,15 @@
 #include "effectsautocomplete.h"
 #include "syntaxhighlighter.h"
 
-#include <qmldesigner/textmodifier/indentingtexteditormodifier.h>
-
-#include <coreplugin/actionmanager/actionmanager.h>
-#include <coreplugin/icore.h>
-
-#include <projectexplorer/projectexplorerconstants.h>
-
 #include <qmljseditor/qmljsautocompleter.h>
-#include <qmljseditor/qmljscompletionassist.h>
-#include <qmljseditor/qmljshighlighter.h>
 #include <qmljseditor/qmljshoverhandler.h>
 #include <qmljseditor/qmljssemantichighlighter.h>
 
-#include <qmljstools/qmljsindenter.h>
-
-#include <utils/fileutils.h>
 #include <utils/mimeconstants.h>
-#include <utils/temporaryfile.h>
-
-#include <QAction>
-#include <QTemporaryFile>
 
 namespace EffectComposer {
 
 constexpr char EFFECTEDITOR_CONTEXT_ID[] = "EffectEditor.EffectEditorContext";
-
-EffectCodeEditorWidget::EffectCodeEditorWidget()
-    : m_context(new Core::IContext(this))
-{
-    Core::Context context(EFFECTEDITOR_CONTEXT_ID, ProjectExplorer::Constants::QMLJS_LANGUAGE_ID);
-
-    m_context->setWidget(this);
-    m_context->setContext(context);
-    Core::ICore::addContextObject(m_context);
-
-    /*
-     * We have to register our own active auto completion shortcut, because the original shortcut will
-     * use the cursor position of the original editor in the editor manager.
-     */
-    m_completionAction = new QAction(Tr::tr("Trigger Completion"), this);
-
-    Core::Command *command = Core::ActionManager::registerAction(
-                m_completionAction, TextEditor::Constants::COMPLETE_THIS, context);
-    command->setDefaultKeySequence(
-        QKeySequence(Core::useMacShortcuts ? Tr::tr("Meta+Space") : Tr::tr("Ctrl+Space")));
-
-    connect(m_completionAction, &QAction::triggered, this, [this] {
-        invokeAssist(TextEditor::Completion);
-    });
-
-    setLineNumbersVisible(true);
-    setMarksVisible(false);
-    setCodeFoldingSupported(false);
-    setTabChangesFocus(true);
-}
-
-EffectCodeEditorWidget::~EffectCodeEditorWidget()
-{
-    unregisterAutoCompletion();
-}
-
-void EffectCodeEditorWidget::unregisterAutoCompletion()
-{
-    if (m_completionAction) {
-        Core::ActionManager::unregisterAction(m_completionAction, TextEditor::Constants::COMPLETE_THIS);
-        delete m_completionAction;
-        m_completionAction = nullptr;
-    }
-}
-
-void EffectCodeEditorWidget::setEditorTextWithIndentation(const QString &text)
-{
-    auto *doc = document();
-    doc->setPlainText(text);
-
-    if (Utils::Result<> result = textDocument()->save(); !result)
-        qWarning() << __FUNCTION__ << result.error();
-
-    // We don't need to indent an empty text but is also needed for safer text.length()-1 below
-    if (text.isEmpty())
-        return;
-
-    auto modifier = std::make_unique<QmlDesigner::IndentingTextEditModifier>(doc);
-    modifier->indent(0, text.size()-1);
-}
-
-std::unique_ptr<TextEditor::AssistInterface> EffectCodeEditorWidget::createAssistInterface(
-    [[maybe_unused]] TextEditor::AssistKind assistKind, TextEditor::AssistReason assistReason) const
-{
-    return std::make_unique<EffectsCompletionAssistInterface>(
-        textCursor(),
-        Utils::FilePath(),
-        assistReason,
-        qmlJsEditorDocument()->semanticInfo(),
-        getUniforms());
-}
-
-void EffectCodeEditorWidget::setUniformsCallback(const std::function<QStringList()> &callback)
-{
-    m_getUniforms = callback;
-}
-
-QStringList EffectCodeEditorWidget::getUniforms() const
-{
-    if (m_getUniforms)
-        return m_getUniforms();
-    return {};
-}
 
 EffectDocument::EffectDocument()
     : QmlJSEditor::QmlJSEditorDocument(EFFECTEDITOR_CONTEXT_ID)
@@ -124,6 +25,28 @@ EffectDocument::EffectDocument()
 EffectDocument::~EffectDocument()
 {
     delete m_semanticHighlighter;
+}
+
+void EffectDocument::setUniformsCallback(const std::function<QStringList()> &callback)
+{
+    m_getUniforms = callback;
+}
+
+QStringList EffectDocument::uniforms() const
+{
+    if (m_getUniforms)
+        return m_getUniforms();
+    return {};
+}
+
+std::unique_ptr<TextEditor::AssistInterface> EffectDocument::createAssistInterface(
+    const QTextCursor &cursor, [[maybe_unused]] TextEditor::AssistKind kind,
+    TextEditor::AssistReason reason, [[maybe_unused]] Core::IEditor *editor) const
+{
+    // Whatever is asked for, the Effect Composer's completion: this document's
+    // own scope and the effect's uniforms on top.
+    return std::make_unique<EffectsCompletionAssistInterface>(
+        cursor, Utils::FilePath(), reason, semanticInfo(), uniforms());
 }
 
 void EffectDocument::applyFontSettings()
@@ -151,27 +74,88 @@ EffectCodeEditorFactory::EffectCodeEditorFactory()
     addMimeType(Utils::Constants::JS_MIMETYPE);
 
     setDocumentCreator([]() { return new EffectDocument; });
-    setEditorWidgetCreator([]() { return new EffectCodeEditorWidget; });
     setAutoCompleterCreator([]() { return new QmlJSEditor::AutoCompleter; });
     setCommentDefinition(Utils::CommentDefinition::CppStyle);
     setParenthesesMatchingEnabled(true);
-    setCodeFoldingSupported(true);
     setSyntaxHighlighterCreator([] { return new SyntaxHighlighter; });
 
     addHoverHandler(&QmlJSEditor::qmlJSHoverHandler());
     setCompletionAssistProvider(new EffectsCompeletionAssistProvider);
-}
 
-void EffectCodeEditorFactory::decorateEditor(TextEditor::TextEditorWidget *editor)
-{
-    editor->textDocument()->setIndenter(QmlJSEditor::createQmlJsIndenter(
-                                            editor->textDocument()->document()));
-
-    editor->setLineNumbersVisible(true);
-    editor->setMarksVisible(false);
-    editor->setCodeFoldingSupported(false);
-    editor->setTabChangesFocus(true);
-    editor->setRevisionsVisible(true);
+    // The Qt Quick editor, in a window of the Effect Composer's own: line
+    // numbers and revisions, no marks, nothing to fold, no tool bar. The
+    // document brings the QML indenter, and completion is the editor's own
+    // Ctrl+Space, in its own context.
+    setUsesQuickEditor(true);
+    setMarksVisible(false);
+    setCodeFoldingSupported(false);
+    setRevisionsVisible(true);
+    setToolBarVisible(false);
 }
 
 } // namespace EffectComposer
+
+#ifdef WITH_TESTS
+
+#include <coreplugin/editormanager/ieditor.h>
+
+#include <QTest>
+
+namespace EffectComposer {
+
+// The code window's editor was a TextEditorWidget subclass: completion with
+// the effect's uniforms in a createAssistInterface() override, a Ctrl+Space
+// action of its own, the gutter and Tab set on the widget by hand. It is the
+// Qt Quick editor over a document that completes the same way.
+class EffectCodeEditorTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testTheEffectCodeEditorIsTheQtQuickEditor()
+    {
+        EffectCodeEditorFactory factory;
+        QVERIFY2(factory.usesQuickEditor(), "the effect code editor is the widget editor");
+        QVERIFY2(factory.lineNumbersVisible() && !factory.marksVisible(),
+                 "a shader has no line numbers, or has marks");
+
+        const std::unique_ptr<Core::IEditor> editor(factory.createEditor());
+        QVERIFY2(editor.get(), "the factory built nothing");
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor.get()),
+                 "the effect code editor opened as a widget");
+        auto * const document = qobject_cast<EffectDocument *>(editor->document());
+        QVERIFY2(document, "the effect code editor's document is not an EffectDocument");
+        QVERIFY2(document->indenter(), "the shader has no indenter");
+        // The shared handle the shader data keeps and connects to.
+        QCOMPARE(TextEditor::textDocumentPtr(editor.get()).get(), document);
+
+        // The factory's GLSL highlighter: not the QML one the document's base
+        // class builds, and not the generic one the Qt Quick editor gives a
+        // document that has none of its own.
+        QVERIFY2(qobject_cast<SyntaxHighlighter *>(document->syntaxHighlighter()),
+                 "the shader is not highlighted as GLSL");
+
+        // Completion is asked the Effect Composer's way, with the uniforms
+        // from the callback the shader data sets.
+        document->setUniformsCallback([] { return QStringList{"iTime", "iResolution"}; });
+        QTextCursor cursor(document->document());
+        const std::unique_ptr<TextEditor::AssistInterface> interface
+            = document->createAssistInterface(cursor, TextEditor::Completion,
+                                              TextEditor::ExplicitlyInvoked);
+        // Not a QObject, and asked only here.
+        auto * const effects = dynamic_cast<EffectsCompletionAssistInterface *>(interface.get());
+        QVERIFY2(effects, "completion is not asked the Effect Composer's way");
+        QCOMPARE(effects->uniformNames(), QStringList({"iTime", "iResolution"}));
+    }
+};
+
+QObject *createEffectCodeEditorTest()
+{
+    return new EffectCodeEditorTest;
+}
+
+} // namespace EffectComposer
+
+#include "effectcodeeditorwidget.moc"
+
+#endif // WITH_TESTS

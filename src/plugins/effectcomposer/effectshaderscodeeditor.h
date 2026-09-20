@@ -67,7 +67,7 @@ signals:
 
 protected:
     using QWidget::show;
-    EffectCodeEditorWidget *createJSEditor();
+    Core::IEditor *createJSEditor();
     void setupUIComponents();
     void setOpened(bool value);
 
@@ -89,7 +89,7 @@ private:
     void onEditorWidgetChanged();
     void onOpenStateChanged();
 
-    EffectCodeEditorWidget *currentEditor() const;
+    Core::IEditor *currentEditor() const;
 
     QSettings *m_settings = nullptr;
     QPointer<StudioQuickWidget> m_headerWidget;

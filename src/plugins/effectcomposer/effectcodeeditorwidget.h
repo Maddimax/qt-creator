@@ -3,56 +3,36 @@
 
 #pragma once
 
-#include <qmljseditor/qmljseditor.h>
+#include <texteditor/texteditor.h>
 #include <qmljseditor/qmljseditordocument.h>
 
-QT_FORWARD_DECLARE_CLASS(QAction)
+#include <functional>
 
 namespace QmlJSEditor {
 class SemanticHighlighter;
 }
 
-namespace Core {
-class IContext;
-}
-
 namespace EffectComposer {
 
-class EffectCodeEditorWidget : public QmlJSEditor::QmlJSEditorWidget
+// A shader being edited in the Effect Composer's code window: a QML/JS
+// document of its own whose completion offers the effect's uniforms too.
+// The window shows it in the Qt Quick editor; what a widget subclass used to
+// answer for completion is the document's now, so either view has it.
+class EffectDocument : public QmlJSEditor::QmlJSEditorDocument
 {
     Q_OBJECT
 
 public:
-    EffectCodeEditorWidget();
-    ~EffectCodeEditorWidget() override;
-
-    void unregisterAutoCompletion();
-    void setEditorTextWithIndentation(const QString &text);
-
-    std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
-        TextEditor::AssistKind assistKind, TextEditor::AssistReason assistReason) const override;
-
-    void setUniformsCallback(const std::function<QStringList()> &callback);
-
-signals:
-    void returnKeyClicked();
-
-public:
-    Core::IContext *m_context = nullptr;
-    QAction *m_completionAction = nullptr;
-    bool m_isMultiline = true;
-
-private:
-    QStringList getUniforms() const;
-
-    std::function<QStringList()> m_getUniforms;
-};
-
-class EffectDocument : public QmlJSEditor::QmlJSEditorDocument
-{
-public:
     EffectDocument();
     ~EffectDocument();
+
+    // The uniforms of the effect, for completion; asked when completing.
+    void setUniformsCallback(const std::function<QStringList()> &callback);
+    QStringList uniforms() const;
+
+    std::unique_ptr<TextEditor::AssistInterface> createAssistInterface(
+        const QTextCursor &cursor, TextEditor::AssistKind kind, TextEditor::AssistReason reason,
+        Core::IEditor *editor = nullptr) const override;
 
 protected:
     void applyFontSettings() final;
@@ -60,14 +40,17 @@ protected:
 
 private:
     QmlJSEditor::SemanticHighlighter *m_semanticHighlighter = nullptr;
+    std::function<QStringList()> m_getUniforms;
 };
 
 class EffectCodeEditorFactory : public TextEditor::TextEditorFactory
 {
 public:
     EffectCodeEditorFactory();
-
-    static void decorateEditor(TextEditor::TextEditorWidget *editor);
 };
+
+#ifdef WITH_TESTS
+QObject *createEffectCodeEditorTest();
+#endif
 
 } // namespace EffectComposer

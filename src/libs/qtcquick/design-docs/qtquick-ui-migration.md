@@ -70250,3 +70250,133 @@ batch's.
    widget editor's read-only hazard, ProjectExplorer's
    `testSourceToBinaryMapping(cmake)`.
 3. The whitespace override's clearing (entry 332).
+
+## 2026-09-20 — The Effect Composer's code editor is the Qt Quick editor (batch 334)
+
+Entry 333's first item, and the other of entry 329's QmlDesigner-side
+two: the Effect Composer's code window showed each shader in a
+`TextEditorWidget` subclass. It shows them in the Qt Quick editor now,
+so no production site outside TextEditor that the census found opens
+a widget editor any more.
+
+### The gap closed: a stacked window's editors, in either view
+
+`EffectCodeEditorWidget : QmlJSEditorWidget` did what the binding
+editor's widget did, minus Return: a `createAssistInterface()` override
+that completed with the effect's uniforms (from a callback the shader
+data sets) on top of the document's own scope, a `Ctrl+Space` action of
+its own in the widget's context, unregistered by the window after
+creation, and the gutter, folding, revisions and `setTabChangesFocus()`
+set on the widget by hand - twice, once in the constructor and once in
+a static `decorateEditor()`. The window kept two of them per shader
+data, fragment and vertex, in a `QStackedWidget`, and asked the widget
+for its cursor and its focus.
+
+- `EffectDocument` (still in `effectcodeeditorwidget.h/.cpp`, the file
+  names kept) answers completion itself: `setUniformsCallback()` and
+  `uniforms()`, and `createAssistInterface()` builds the
+  `EffectsCompletionAssistInterface` from this document's semantic info
+  and the uniforms - for any kind asked, as the widget did. `Q_OBJECT`
+  now, so the window can cast to it. The widget class is gone, and
+  `setEditorTextWithIndentation()`, `returnKeyClicked` and
+  `m_isMultiline` with it: nothing called them.
+- `EffectCodeEditorFactory`: `setUsesQuickEditor(true)`,
+  `setMarksVisible(false)`, `setCodeFoldingSupported(false)` (it said
+  true and the widget was then told false), `setRevisionsVisible(true)`,
+  `setToolBarVisible(false)`. The document brings the QML indenter the
+  old `decorateEditor()` set again. The factory's `SyntaxHighlighter`
+  - the Effect Composer's GLSL one - stays: `TextEditorFactory`'s
+  creator resets the document's highlighter before either view is
+  built, and the Qt Quick editor's `configureHighlighter()` keeps a
+  document's own. `SyntaxHighlighter` gained `Q_OBJECT` so the test
+  can ask for it by type.
+- `ShaderEditorData` holds `Utils::UniqueObjectLatePtr<Core::IEditor>`
+  per shader instead of the widget; the widget goes with the editor.
+  `EffectShadersCodeEditor` stacks `editor->widget()`, gets the shared
+  document handle with `TextEditor::textDocumentPtr(editor)`, sets the
+  text on the document, and asks the editor through `textCursorOf()`,
+  `setTextCursorOf()`, `setFocusIn()` and batch 333's
+  `setTabMovesFocusIn()`. A `widgetOf()` helper answers null for an
+  editor already gone with its parent, where the old code compared
+  against the smart pointer. The uniforms callback goes to the
+  documents. No `decorateEditor()`, no `unregisterAutoCompletion()`, no
+  frame style.
+
+### The tests
+
+- `EffectComposer::EffectCodeEditorTest::testTheEffectCodeEditorIsTheQtQuickEditor`,
+  the plugin's first test object, registered with `addTestCreator()` in
+  the plugin's `initialize()`: the factory says Quick with line numbers
+  and no marks; its editor is no `TextEditorWidget`; the document is an
+  `EffectDocument` with an indenter, reachable through
+  `textDocumentPtr()` as the shader data reaches it; its highlighter is
+  the Effect Composer's `SyntaxHighlighter`; a completion interface
+  built with a uniforms callback set is an
+  `EffectsCompletionAssistInterface` (a `dynamic_cast`, as three other
+  places in the Qt Quick editor's tests do for non-QObjects) carrying
+  those uniforms. Run with everything loaded, as entry 333's was.
+- Batch 333's Tab test ran as the seam's cover: unchanged.
+
+One build failed to compile before a run, entry 333's shape again:
+`effectcomposermodel.cpp` had `QJsonArray` through the old widget
+header's includes and nowhere else - `<QJsonArray>` of its own now.
+Then, in the VM, at the first run: the Effect Composer's test 3/0, exit
+0, with everything loaded; the Tab test 4/0, exit 0; no warning of this
+batch's in either log.
+
+### Negative controls
+
+Three, patched into the uncommitted tree by a script that restores by
+the reverse replacement and compares the diff's hash before and after
+(equal). Each is a build, the Tab test through the stock runner (which
+syncs the VM) and the Effect Composer's test with everything loaded.
+
+- A, the factory says `setUsesQuickEditor(false)` - the widget editor,
+  as before: 2/1, "'factory.usesQuickEditor()' returned FALSE. (the
+  effect code editor is the widget editor)".
+- B, the factory's `setSyntaxHighlighterCreator()` line removed - not a
+  pre-fix shape but the risk named above, a Qt Quick editor showing the
+  document with the QML highlighter its base class builds: 2/1,
+  "'qobject_cast<SyntaxHighlighter *>(document->syntaxHighlighter())'
+  returned FALSE. (the shader is not highlighted as GLSL)". So the
+  assertion tells the GLSL highlighter from the QML one, and the batch's
+  factory is what puts it there.
+- C, `createAssistInterface()` answers with the base class's - the
+  document knows nothing of uniforms, as before, when the widget did it:
+  2/1, "'effects' returned FALSE. (completion is not asked the Effect
+  Composer's way)".
+
+The Tab test 4/0 under each, untouched by the patches.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor       818 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi          228 passed, 0 failed, 0 skipped, exit 0
+    -test EffectComposer     3 passed, 0 failed, 0 skipped, exit 0
+    -test QmlDesigner        3 passed, 0 failed, 0 skipped, exit 0
+                           (both with everything loaded; one test object each)
+
+TextEditor is 818 as in entry 333: nothing of TextEditor's changed in
+this batch. The soft asserts are the same seventeen per run, at the
+same sites; no typing flake in the three runs, no memory kill. No
+`.qbs` edited: the plugin's `.qbs` takes every file in the directory,
+and no file was added or removed.
+
+### What is next
+
+Entry 329's census is closed: no production site outside TextEditor
+opens a `TextEditorWidget` where a Qt Quick editor could stand. What
+remains is TextEditor's own default and the standing list.
+
+1. The standing list (entries 298 and 332): the two-view tests' widget
+   rows, QmlJSEditor into the standing suites, ASan, the typing flake,
+   Windows, the two Debugger tests failing on HEAD, the PNG hang, the
+   widget editor's read-only hazard, ProjectExplorer's
+   `testSourceToBinaryMapping(cmake)`.
+2. The whitespace override's clearing (entry 332).
+3. A fresh census, now that the callers are done: what still reaches
+   for `TextEditorWidget::fromEditor()` or `BaseTextEditor` in
+   production code, by plugin, to see what a C++ file would lose if the
+   CppEditor factory said Quick today.

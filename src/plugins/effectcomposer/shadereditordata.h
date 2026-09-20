@@ -3,8 +3,7 @@
 
 #pragma once
 
-#include "effectcodeeditorwidget.h"
-
+#include <coreplugin/editormanager/ieditor.h>
 #include <texteditor/textdocument.h>
 #include <utils/uniqueobjectptr.h>
 
@@ -32,8 +31,10 @@ struct ShaderEditorData
 
 private:
     friend class EffectShadersCodeEditor;
-    Utils::UniqueObjectLatePtr<EffectCodeEditorWidget> fragmentEditor;
-    Utils::UniqueObjectLatePtr<EffectCodeEditorWidget> vertexEditor;
+    // An editor each, whose widget the code window stacks; the widget goes
+    // with the editor.
+    Utils::UniqueObjectLatePtr<Core::IEditor> fragmentEditor;
+    Utils::UniqueObjectLatePtr<Core::IEditor> vertexEditor;
 
     ShaderEditorData() = default;
 };
