@@ -1383,6 +1383,69 @@ QObject *createFakeVimDocumentAnswersTest()
     return new FakeVimDocumentAnswersTest;
 }
 
+// Blockwise visual mode: Ctrl-V and a motion select a column across lines,
+// which both views keep as one cursor per line, and an operator works on all
+// of them. Setting, reading and clearing that went to the widget editor
+// alone, so Ctrl-V in a Qt Quick editor selected nothing.
+class FakeVimBlockSelectionTest final : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void testCtrlVSelectsABlockInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    void testCtrlVSelectsABlockInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        const bool wasOn = settings().useFakeVim();
+        const QScopeGuard restoreSettings([wasOn] { settings().useFakeVim.setValue(wasOn); });
+        settings().useFakeVim.setValue(true);
+
+        Utils::TemporaryDirectory dir("fakevim-block-selection");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("plain.txt");
+        QVERIFY(file.writeFileContents("abcd\nefgh\nijkl\n"));
+        const Id editorId = quick ? Id(Core::Constants::K_QUICK_TEXT_EDITOR_ID)
+                                  : Id(Core::Constants::K_DEFAULT_TEXT_EDITOR_ID);
+        IEditor * const editor = EditorManager::openEditor(file, editorId);
+        QVERIFY(editor);
+        const QScopeGuard closeIt([editor] { EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditorWidget::fromEditor(editor) == nullptr, quick);
+        FakeVimHandler * const handler = dd->m_editorToHandler.value(editor).handler;
+        QVERIFY2(handler, "no handler was made, so this proves nothing");
+        auto * const document = qobject_cast<TextDocument *>(editor->document());
+        QVERIFY(document);
+
+        // Ctrl-V, down, right: a two-by-two block from the top left corner,
+        // one cursor per line in the view.
+        handler->handleInput("<c-v>jl");
+        const MultiTextCursor block = TextEditor::multiTextCursorOf(editor);
+        QCOMPARE(block.cursorCount(), 2);
+        QVERIFY2(block.hasMultipleCursors(), "Ctrl-V and a motion selected no block");
+        bool hasBlock = false;
+        handler->requestHasBlockSelection(&hasBlock);
+        QVERIFY2(hasBlock, "vim was told there is no block selection");
+
+        // And an operator works on the block: "d" takes the two columns from
+        // both lines, after which there is one cursor again.
+        handler->handleInput("d");
+        QCOMPARE(document->plainText(), QString("cd\ngh\nijkl\n"));
+        QVERIFY2(!TextEditor::multiTextCursorOf(editor).hasMultipleCursors(),
+                 "the block selection outlived the operator");
+    }
+};
+
+QObject *createFakeVimBlockSelectionTest()
+{
+    return new FakeVimBlockSelectionTest;
+}
+
 #endif // WITH_TESTS
 
 class FakeVimUserCommandsPage : public IOptionsPage
@@ -1676,6 +1739,7 @@ FakeVimPlugin::FakeVimPlugin()
     addTestCreator(createFakeVimSuggestionsTest);
     addTestCreator(createFakeVimTagStackTest);
     addTestCreator(createFakeVimDocumentAnswersTest);
+    addTestCreator(createFakeVimBlockSelectionTest);
 #endif
 
     m_defaultExCommandMap[CppEditor::Constants::SWITCH_HEADER_SOURCE] = "^A$";
@@ -2902,7 +2966,7 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
         return true;
     });
 
-    handler->modeChanged.set([tew, this, editor](bool insertMode) {
+    handler->modeChanged.set([this, editor](bool insertMode) {
         HandlerAndData &handlerAndData = m_editorToHandler[editor];
         if (!handlerAndData.handler || !handlerAndData.handler->inFakeVimMode())
             return;
@@ -3112,14 +3176,17 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
             *result = document->indenter()->isElectricCharacter(c);
     });
 
-    handler->requestDisableBlockSelection.set([tew] {
-        if (tew)
-            tew->setTextCursor(tew->textCursor());
+    // Blockwise visual mode (Ctrl-V) is a cursor per line, which both views
+    // keep as a MultiTextCursor; asked and set through the editor.
+    handler->requestDisableBlockSelection.set([alive = QPointer<IEditor>(editor)] {
+        if (alive)
+            TextEditor::setTextCursorOf(alive, TextEditor::textCursorOf(alive));
     });
 
-    handler->requestSetBlockSelection.set([tew](const QTextCursor &cursor, bool toEndOfLine) {
-        if (tew) {
-            const TabSettingsData &tabs = tew->textDocument()->tabSettings();
+    handler->requestSetBlockSelection.set([alive = QPointer<IEditor>(editor), document](
+                                              const QTextCursor &cursor, bool toEndOfLine) {
+        if (alive && document) {
+            const TabSettingsData &tabs = document->tabSettings();
             MultiTextCursor mtc;
             const bool forwardSelection = cursor.anchor() < cursor.position();
             QTextBlock block = cursor.document()->findBlock(cursor.anchor());
@@ -3141,21 +3208,23 @@ void FakeVimPlugin::editorOpened(IEditor *editor)
                 }
                 block = forwardSelection ? block.next() : block.previous();
             }
-            tew->setMultiTextCursor(mtc);
+            TextEditor::setMultiTextCursorOf(alive, mtc);
         }
     });
 
-    handler->requestBlockSelection.set([tew](QTextCursor *cursor) {
-        if (tew && cursor) {
-            MultiTextCursor mtc = tew->multiTextCursor();
+    handler->requestBlockSelection.set([alive = QPointer<IEditor>(editor)](QTextCursor *cursor) {
+        if (alive && cursor) {
+            const MultiTextCursor mtc = TextEditor::multiTextCursorOf(alive);
+            if (mtc.cursorCount() == 0)
+                return;
             *cursor = mtc.cursors().first();
             cursor->setPosition(mtc.mainCursor().position(), QTextCursor::KeepAnchor);
         }
     });
 
-    handler->requestHasBlockSelection.set([tew](bool *on) {
-        if (tew && on)
-            *on = tew->multiTextCursor().hasMultipleCursors();
+    handler->requestHasBlockSelection.set([alive = QPointer<IEditor>(editor)](bool *on) {
+        if (alive && on)
+            *on = TextEditor::multiTextCursorOf(alive).hasMultipleCursors();
     });
 
     handler->simpleCompletionRequested.set([handler](const QString &needle, bool forward) {
@@ -3606,9 +3675,9 @@ void FakeVimPlugin::enterBuffer(IEditor *editor, FakeVimHandler *handler)
         // script may still replace it.
         handler->handleCommand("if &ft == '' | setf FALLBACK " + fileType + " | endif");
     }
-    // Highlighting is always on here, and scripts check this before asking what
-    // is under the cursor.
-    if (TextEditorWidget::fromEditor(editor))
+    // Highlighting is always on here, in either view, and scripts check this
+    // before asking what is under the cursor.
+    if (qobject_cast<TextDocument *>(editor->document()))
         handler->handleCommand("let g:syntax_on = 1");
     // Last, so that what the file says about itself wins over both.
     handler->processModelines();

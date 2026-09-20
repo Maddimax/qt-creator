@@ -69852,3 +69852,99 @@ edited; `fakevimplugin.cpp` already has its `.moc` include.
    editor): verifiable in the VM (entry 329), given a test object in
    their plugins and a run without `-noload QmlDesigner`.
 3. The standing list (entry 298).
+
+## 2026-09-20 — FakeVim's block selection, in either view (batch 331)
+
+Entry 330's group two, the part that needs no new seam. The four
+block-selection callbacks in `editorOpened()` worked on the widget's
+`MultiTextCursor` - `requestSetBlockSelection` built one cursor per
+line from vim's anchor and cursor at the tab settings' columns,
+`requestBlockSelection` read it back as one cursor, `requestHasBlockSelection`
+said whether there were several, `requestDisableBlockSelection` collapsed
+them - and each began `if (tew)`. Ctrl-V in a Qt Quick editor selected
+nothing, and an operator after it did nothing.
+
+### The gap closed: Ctrl-V selects a block in the Qt Quick editor
+
+`multiTextCursorOf()`, `setMultiTextCursorOf()`, `textCursorOf()` and
+`setTextCursorOf()` answer for either view, so the four ask the editor
+(a `QPointer<IEditor>`) and the tab settings the document; the block
+arithmetic is as it was. `requestBlockSelection` guards an empty cursor
+set now, which `cursors().first()` did not.
+
+Two stragglers of the same kind went with it: `modeChanged` still
+captured `tew` from before it moved to `blockSuggestionsIn()`/
+`clearSuggestionIn()` and never used it; and `enterBuffer()` set
+`g:syntax_on` - what a script checks before asking what is under the
+cursor - only for a widget editor, though highlighting is on in either
+view for any text document. It asks for a `TextDocument` now.
+
+What is left widget-only in `editorOpened()`, and why: `displayOptionRequested`,
+`displayOptionChanged` and `marginOptionChanged` - `:set number`,
+`wrap`, `list`, `cursorline`, `breakindent`, `colorcolumn`, `foldcolumn`
+- read and write the *widget's* per-editor display settings. The Qt
+Quick editor pushes the global display settings into its form (line
+numbers, wrapping, current line, annotations, fold markers, through the
+factory's knobs), the view reads the rest of them from the globals
+directly, and only whitespace has a per-view override
+(`TextViewport::setVisualizeWhitespace()`); the margin has one through
+`setMarginSettingsIn()`. So `number`, `wrap`, `cursorline`, `foldcolumn`
+want an override on the Qt Quick editor that its push reads,
+`breakindent` wants one on the view, and `list` and `colorcolumn` have
+theirs. A `setDisplaySettingsIn()`/`displaySettingsIn()` pair beside
+`setMarginSettingsIn()` is the seam; that is the next FakeVim batch,
+and a TextEditor one first.
+
+### The tests
+
+- `FakeVimBlockSelectionTest::testCtrlVSelectsABlockInEitherView`, two
+  rows: a three-line file opened by editor id, FakeVim on; `<c-v>jl`
+  leaves two cursors in the view and `requestHasBlockSelection` says so;
+  `d` takes the two columns from both lines and one cursor is left.
+- `testTheDocumentAnswersVimInEitherView` (entry 330) ran as the
+  neighbouring cover: unchanged.
+- `g:syntax_on` has no test: reading a vim variable back needs an ex
+  command with an effect the test can see, and none is worth adding for
+  a one-line condition. Said here rather than left unsaid.
+
+First build, in the VM: the new test 4/0 (both rows), entry 330's
+test 4/0, exit 0 each, at the first attempt; the runs' only warnings
+are the usual `raise()` and `isLoaded()` ones.
+
+Controls, each the pre-fix shape of one assertion, capture list and
+guard together (entry 330's lesson; `set -e`, locals, distinct names,
+the tree checked clean at the end). Two, for the two answers the test
+can tell apart:
+
+- **A** - `requestSetBlockSelection` sets the block on the widget editor
+  alone, as before: the quick row, "Actual (block.cursorCount()): 1,
+  Expected 2" - Ctrl-V and a motion left one cursor; the widget row
+  passes.
+- **B** - `requestHasBlockSelection` answers for the widget editor alone:
+  the quick row, "'hasBlock' returned FALSE. (vim was told there is no
+  block selection)" - the block is there, vim is told it is not.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     814 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test FakeVim        612 passed, 0 failed, 14 skipped, exit 0
+
+FakeVim is 612: 608 plus the new test object's two rows and its
+init/cleanup. TextEditor and QuickUi are what entry 330 recorded. No
+memory kill, no typing flake in the three TextEditor runs this time. No
+`.qbs` edited.
+
+### What is next
+
+1. TextEditor: a per-editor display settings override for the Qt Quick
+   editor - `setDisplaySettingsIn(IEditor *, std::optional<DisplaySettingsData>)`
+   and a getter beside `setMarginSettingsIn()` - read by the form push
+   and, for `breakindent`, by the view; then FakeVim's display and margin
+   options, the last widget-only callbacks in `editorOpened()`.
+2. The QmlDesigner-side two (Effect Composer's code editor, the binding
+   editor): verifiable in the VM (entry 329), given a test object in
+   their plugins and a run without `-noload QmlDesigner`.
+3. The standing list (entry 298).
