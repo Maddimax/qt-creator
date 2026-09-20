@@ -422,7 +422,7 @@ public:
     QToolButton *m_preprocessorButton = nullptr;
 
     CppLocalRenaming m_localRenaming;
-    CppFunctionParamRenamingHandler m_paramRenamingHandler;
+    CppFunctionParamRenamingHandler * const m_paramRenamingHandler;
     CppUseSelectionsUpdater m_useSelectionsUpdater;
     CppSelectionChanger m_cppSelectionChanger;
 };
@@ -431,7 +431,7 @@ CppEditorWidgetPrivate::CppEditorWidgetPrivate(CppEditorWidget *q)
     : m_cppEditorDocument(qobject_cast<CppEditorDocument *>(q->textDocument()))
     , m_declDefLinkController(q)
     , m_localRenaming(q)
-    , m_paramRenamingHandler(*q, m_localRenaming)
+    , m_paramRenamingHandler(new CppFunctionParamRenamingHandler(m_localRenaming, q))
     , m_useSelectionsUpdater(q)
     , m_cppSelectionChanger()
 {}

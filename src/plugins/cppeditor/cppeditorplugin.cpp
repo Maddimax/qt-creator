@@ -14,6 +14,7 @@
 #include "cppeditoroutline.h"
 #include "cppeditortr.h"
 #include "cppeditorwidget.h"
+#include "cppfunctionparamrenaminghandler.h"
 #include "cppfunctiondecldeflink.h"
 #include "cppfilesettingspage.h"
 #include "cppheadersource.h"
@@ -598,6 +599,11 @@ void CppEditorPlugin::addPerSymbolActions()
                         &CppLocalRenaming::onContentsChangeOfEditorWidgetDocument);
                 connect(renaming, &CppLocalRenaming::finished, document,
                         [document] { document->recalculateSemanticInfoDetached(); });
+
+                // A parameter renamed in a definition has to reach the
+                // declaration as well. The handler asks the renaming where it
+                // is, so it needs nothing of the view.
+                new CppFunctionParamRenamingHandler(*renaming, editor);
                 connect(editor, &IEditor::cursorPositionChanged, updater,
                         [updater] { updater->scheduleUpdate(); });
                 // And when the file has been read again: the ranges are

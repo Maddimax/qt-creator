@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only WITH Qt-GPL-exception-1.0
 
 #include "cpplocalrenaming.h"
+#include "cppfunctionparamrenaminghandler.h"
 
 #include "cppeditordocument.h"
 #include "cppmodelmanager.h"
@@ -473,6 +474,19 @@ void CppLocalRenaming::stop()
 // Reachable because a rename ends on a content change outside its selection
 // and not on a caret move, so the caret can be walked out of the name while
 // the rename lasts.
+// The parameter-renaming handler for \a editor: parented to the editor where
+// the plugin made it, and to the widget where the widget did.
+static CppFunctionParamRenamingHandler *paramHandlerFor(Core::IEditor *editor)
+{
+    if (auto * const own = editor->findChild<CppFunctionParamRenamingHandler *>())
+        return own;
+    if (TextEditor::TextEditorWidget * const widget
+        = TextEditor::TextEditorWidget::fromEditor(editor)) {
+        return widget->findChild<CppFunctionParamRenamingHandler *>();
+    }
+    return nullptr;
+}
+
 class LocalRenamingTest final : public QObject
 {
     Q_OBJECT
@@ -554,6 +568,104 @@ private slots:
         QVERIFY2(document->document()->toPlainText() == before,
                  "Enter continued the comment instead of ending the rename");
         QVERIFY2(!renaming->isActive(), "Enter did not end the rename");
+    }
+
+    void testRenamingAParameterReachesTheDeclarationInEitherView_data()
+    {
+        QTest::addColumn<bool>("quick");
+        QTest::newRow("widget") << false;
+        QTest::newRow("quick") << true;
+    }
+
+    // Renaming a parameter in a definition renames it in the declaration too.
+    // The handler that does it was built from CppEditorWidget and made only
+    // for that view, so the Qt Quick one renamed the definition alone.
+    void testRenamingAParameterReachesTheDeclarationInEitherView()
+    {
+        QFETCH(bool, quick);
+
+        Utils::TemporaryDirectory dir("cpp-rename-a-parameter");
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.filePath("p.cpp");
+        //                         0123456789012345678
+        const QByteArray source = "void f(int alpha);\n"
+                                  "\n"
+                                  "void f(int alpha)\n"
+                                  "{\n"
+                                  "    (void) alpha;\n"
+                                  "}\n";
+        QVERIFY(file.writeFileContents(source));
+
+        // The built-in model does local renaming; clangd answers it itself.
+        const bool wasClangd = ClangdSettings::instance().useClangd();
+        const QScopeGuard restoreClangd(
+            [wasClangd] { ClangdSettings::setUseClangd(wasClangd); });
+        ClangdSettings::setUseClangd(false);
+
+        TextEditor::TextEditorFactory * const editorFactory
+            = TextEditor::TextEditorFactory::preferredFactoryFor(file);
+        QVERIFY2(editorFactory, "no editor factory claims a C++ file");
+        const bool wasQuick = editorFactory->usesQuickEditor();
+        const QScopeGuard restore(
+            [editorFactory, wasQuick] { editorFactory->setUsesQuickEditor(wasQuick); });
+        editorFactory->setUsesQuickEditor(quick);
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+        QCOMPARE(TextEditor::TextEditorWidget::fromEditor(editor) == nullptr, quick);
+
+        QObject * const keys = TextEditor::keyTargetOf(editor);
+        QVERIFY2(keys, "nothing takes keys for this editor");
+
+        auto * const document = qobject_cast<CppEditorDocument *>(editor->document());
+        QVERIFY(document);
+        document->recalculateSemanticInfo();
+        QTRY_VERIFY2(document->isSemanticInfoValid(),
+                     "the document never worked out what the file says");
+
+        // On alpha in the *definition*, which is line 3. gotoLine() counts
+        // columns from zero, and alpha starts at column 11. Asked for through
+        // the seam, so that each view starts the rename its own way.
+        editor->gotoLine(3, 12);
+        TextEditor::renameSymbolUnderCursorIn(editor);
+
+        // The declaration is looked up while the rename runs, and ending the
+        // rename before that answer arrives takes the declaration nowhere.
+        // A reader types for longer than this test does.
+        CppFunctionParamRenamingHandler * const handler = paramHandlerFor(editor);
+        QVERIFY2(handler, "no parameter-renaming handler was made for this editor");
+        QTRY_VERIFY2(handler->waitingForDeclaration(),
+                     "the declaration of the renamed parameter was never found");
+
+        // Over the old name, because typing goes in at the caret: a reader
+        // selects what they are replacing, and a rename follows an edit
+        // inside its own selection.
+        QTextCursor overTheName = TextEditor::textCursorOf(editor);
+        overTheName.select(QTextCursor::WordUnderCursor);
+        TextEditor::setTextCursorOf(editor, overTheName);
+
+        // Type the new name over the selected one. Both uses inside the
+        // function change together, which is what says an in-place rename is
+        // running rather than plain typing.
+        for (const QChar c : QString("beta")) {
+            QKeyEvent key(QEvent::KeyPress, 0, Qt::NoModifier, QString(c));
+            QCoreApplication::sendEvent(keys, &key);
+        }
+                QTRY_VERIFY2(document->document()->toPlainText().contains("void f(int beta)\n"),
+                     "the parameter was not renamed in the definition");
+        QVERIFY2(document->document()->toPlainText().contains("(void) beta;"),
+                 "the use in the body did not follow, so no rename was running");
+
+        // Ending the rename is when the declaration is brought along.
+        QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QCoreApplication::sendEvent(keys, &escape);
+
+        // And the declaration follows, which is the handler's whole job. It
+        // applies the decl/def link after a parse, so this is waited for.
+        QTRY_VERIFY2(document->document()->toPlainText().contains("void f(int beta);"),
+                     "the declaration kept the old parameter name");
     }
 };
 

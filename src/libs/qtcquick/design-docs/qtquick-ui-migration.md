@@ -72164,3 +72164,143 @@ three TextEditor runs. No `.qbs` edited.
    lines and wants a test that can see a tooltip.
 4. Still open from before: the dropped asset (346), the inline diff
    editor (341), and the standing list (340).
+
+## 2026-09-20 — A renamed parameter reaches its declaration (batch 349)
+
+Entry 348 left four questions to answer before the C++ clusters could
+be taken apart, and named function-parameter renaming as the one C++
+feature the Qt Quick view did not have at all. The first question turns
+out not to need answering, and that is what let the second be done in
+the same batch.
+
+### The question that answered itself
+
+348 asked whether to write `SemanticInfo semanticInfoOf(Core::IEditor *)`,
+because nine sites prefer a view's parse over the document's, and a
+comment at `cpprefactoringchanges.cpp:91` says why: "its semantic info
+carries the local uses". Read rather than assumed, twice:
+
+- The only production reader of `SemanticInfo::localUses` is the
+  Extract Function quick fix (`quickfixes/extractfunction.cpp:569`),
+  and what it reads is `CppQuickFixInterface`'s copy - which calls
+  `findLocalUses(cursor)` in its own constructor
+  (`quickfixes/cppquickfixassistant.cpp:83`) rather than taking a
+  view's. So the patched-in copy has no reader left.
+- A view's copy cannot be fresher than the document's. It is fed from
+  `CppEditorDocument::semanticInfoUpdated` (`cppeditorwidget.cpp:467`)
+  and from `recalculateSemanticInfo()`, which is the document's own
+  method. It can only be equal or staler - and `semanticDocumentOf()`
+  (`cpptoolsreuse.cpp:317`) prefers it, which is the wrong way round.
+
+So there is no seam to write: those nine sites should ask the document,
+and the per-view copy is a cache with nothing left to cache. Written
+down here rather than acted on, because deleting it touches six
+clusters and belongs in its own batch.
+
+### The gap closed
+
+`CppFunctionParamRenamingHandler` renames a parameter in the
+declaration when the reader renames it in the definition. It took a
+`CppEditorWidget &`, was constructed only by that widget
+(`cppeditorwidget.cpp:434`), and reached through it for four things.
+Each had somewhere else to come from:
+
+- `editorWidget.declDefLink()` - whether the ordinary decl/def link is
+  already on this signature - is `declDefLinkControllerFor(editor)->link()`,
+  which either view has (the plugin makes the controller for a view
+  that is not a widget at `cppeditorplugin.cpp:655`).
+- `editorWidget.semanticInfo()` is the document's, per the question
+  above.
+- `editorWidget.textCursor()` is `TextEditor::textCursorOf(editor)`.
+- `editorFor(&editorWidget)` and `editorWidget.textDocument()` are the
+  editor and its document.
+
+It asks the renaming it watches for all of them, since `CppLocalRenaming`
+already resolves its editor lazily - the widget is built before the
+editor that wraps it - so the handler needs no view and no editor at
+construction. `editor()` and `textDocument()` become public for it.
+
+It is a `QObject` now, parented to the editor where the plugin makes
+one and to the widget where the widget makes its own, so both views own
+it the same way and either can be found again.
+
+### The test
+
+`LocalRenamingTest::testRenamingAParameterReachesTheDeclarationInEitherView`,
+two rows. A file whose `f(int alpha)` is declared once and defined once:
+the caret goes on the parameter in the *definition*, the rename is
+asked for through `renameSymbolUnderCursorIn()` so that each view
+starts it its own way, the name is selected and typed over, and Escape
+ends it. Then the definition says `beta`, the use in the body says
+`beta` - which is what says an in-place rename was running rather than
+plain typing - and the declaration says `beta` too.
+
+Three things the writing of it turned up:
+
+1. Typing during an in-place rename goes in **at the caret**; it does
+   not replace the name. Typed at the caret the first attempt produced
+   `abetalpha` in both views - and in both places at once, which is how
+   it was clear the rename itself was working. The test selects the
+   word first, the way a reader would.
+2. The declaration is found *while* the rename runs, asynchronously,
+   and `handleLinkFound()` drops the answer if the rename has already
+   finished. A test is fast enough to lose that race and did, in both
+   rows. The handler can now say whether a declaration is lined up
+   (`waitingForDeclaration()`, `WITH_TESTS` only) and the test waits
+   for it. A reader types for longer than a test, so this is a test
+   problem - but it is also a real edge: end a rename within a few
+   milliseconds of starting it and the declaration stays behind.
+3. `findChild` needs `Q_OBJECT`, so the handler has one. The widget's
+   own renaming object has no parent at all
+   (`CppLocalRenaming(TextEditorWidget *)` sets none), which is why the
+   test drives the rename through the seam rather than by finding that
+   object.
+
+One build failure worth remembering: the two accessors were made public
+by moving them **into the `signals:` block**, which compiles. moc then
+generates bodies for them, and the link fails with "multiple definition
+of `CppLocalRenaming::editor() const`" against the real ones. The
+section a declaration lands in is not cosmetic.
+
+### Negative controls
+
+Two, patched into the uncommitted tree by a script that restores by the
+reverse replacement and compares the diff's hash before and after
+(equal). Each is a build and the new test.
+
+- A, the plugin does not make a handler for a view that is not a
+  widget: 3 passed, 1 failed, the quick row only - "no
+  parameter-renaming handler was made for this editor". That is the
+  state this batch found, and the widget row is untouched by it.
+- B, the handler drops the declaration it found instead of applying it:
+  2 passed, 2 failed, both rows - "the declaration kept the old
+  parameter name". Both, because applying is one path for either view.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     827 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test CppEditor     1661 passed, 0 failed, 58 skipped, exit 0
+    -test QmlDesigner     16 passed, 0 failed, 0 skipped, exit 0
+
+CppEditor's 1661 is 348's 1659 plus this batch's two rows. No entry 247
+crash in these three TextEditor runs. No `.qbs` edited: no file was
+added or removed, and a header gaining `Q_OBJECT` is moc's business
+either way.
+
+### What is next
+
+1. Retire the per-view `SemanticInfo` copy, per the question answered
+   above: nine sites ask the document instead, `semanticDocumentOf()`
+   stops preferring a staler parse, and `isSemanticInfoValidExceptLocalUses()`
+   and `updateSemanticInfo()` go with it. Six clusters of entry 348's
+   census fall out.
+2. `CursorInEditor` carrying a `CppEditorWidget *` - the field becomes
+   `Core::IEditor *` and nine more sites fall out. Nothing outside
+   cppeditor reads it (entry 348).
+3. The decl/def "could not apply" tooltip through `toolTipPositionIn()`
+   (entry 348), which wants a test that can see a tooltip.
+4. Still open: the dropped asset (346), the inline diff editor (341),
+   the standing list (340).

@@ -65,11 +65,16 @@ signals:
     void started();
     void finished();
 
+public:
+    // Which editor this renaming is in, and the text behind it. Public
+    // because the parameter-renaming handler works off the renaming rather
+    // than off a view, and these are how it finds either.
+    Core::IEditor *editor() const;
+    TextEditor::TextDocument *textDocument() const;
+
 private:
     CppLocalRenaming();
 
-    Core::IEditor *editor() const;
-    TextEditor::TextDocument *textDocument() const;
     Selections selectionsForUses(const Utils::Links &uses, uint nameLength) const;
 
     // The "rename selection" is the local use selection on which the user started the renaming
