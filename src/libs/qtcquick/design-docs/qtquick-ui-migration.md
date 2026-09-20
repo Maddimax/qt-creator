@@ -71998,3 +71998,169 @@ Entry 342's plan is finished. What is left of this migration:
    is the same shape as the one entry 329 took for QmlDesigner: find
    every production site that reaches for a widget, close them one at a
    time, then flip.
+
+## 2026-09-20 — What is left of C++ (batch 348)
+
+Entry 347 ended with "C++ is the next census to take", and said it as
+though the switch had still to be thrown. It does not: `CppEditorFactory`
+has asked for the Qt Quick view since the batch that put completion,
+quick fixes, follow symbol, refactoring and the rest within reach of an
+editor rather than a widget (`cppeditorplugin.cpp:236`). A C++ file
+opens in `TextViewport` today. This batch pins that, takes the census
+the plan asked for, and corrects two things the plan said.
+
+### The gap closed
+
+Nothing said the switch was on. Every C++ test in the tree flips the
+factory to the view it wants and puts it back, which is right for a
+test about behaviour and useless as a guard: the line could be deleted
+and the whole CppEditor suite would stay green. Measured, not assumed -
+that is what control A below is.
+
+`CppContextMenuTest::testACppFileOpensInTheQuickView`: a `.cpp` opened
+through the editor manager with nothing flipped is not a widget editor,
+and its document carries `CPPEDITOR_ID`. The second half matters as
+much as the first: C++ claims its own mime types, so the question of
+which factory answers is settled before the view is, and a test that
+only asked "is it Quick" would also pass if the generic text factory
+had taken the file.
+
+Four stale includes of `cppeditorwidget.h` went with it, in
+`clangdclient.cpp`, `clangdfindreferences.cpp`,
+`clangdsemantichighlighting.cpp` and `clangmodelmanagersupport.cpp`,
+plus dead forward declarations of `CppEditor::CppEditorWidget` in
+`clangdclient.h` and `TextEditor::TextEditorWidget` in
+`clangmodelmanagersupport.h`. None of those files names anything the
+header declares.
+
+### The census: outside cppeditor
+
+Nothing would break. Every C++-shaped reach for a widget outside
+`src/plugins/cppeditor/` is already dual-path, and each has its
+non-widget branch in place today:
+
+- `debugger/sourceagent.cpp:93` - `setRequestMarkEnabled()` on the
+  widget, null-guarded; the Quick gutter's mark column is always live.
+- `clangtools/clangtoolsplugin.cpp:288` - the "Analyze File" button on
+  the widget's tool bar, with `TextDocument::addToolBarAction()` in the
+  `else` at :304.
+- `languageclient/languageclientmanager.cpp:555` - the five language
+  questions (link, type, usages, rename, call hierarchy) connected from
+  the widget, and the same five from `symbolRequestsForEditor()` at
+  :609.
+- `languageclient/languageclientutils.cpp:311`, `client.cpp:1399`,
+  `projectexplorer/editorconfiguration.cpp:221` and `:342` - each
+  guarded, each with a document-level fallback.
+- `CursorInEditor` still names a `CppEditorWidget *`, and the two
+  plugins that pass one across the boundary do not use it:
+  clangcodemodel goes through `editorFor()`, and
+  `designer/qtcreatorintegration.cpp:966` passes `nullptr` on purpose.
+
+### The census: inside cppeditor
+
+62 production sites in 12 clusters still reach for a widget. Most are
+the widget-side half of a pair whose editor-side half already exists
+(use selections, local renaming, decl/def link, the outline, and
+`CppRefactoringFile` all have both constructors), and those go when the
+widget does. What is *not* reachable from the Qt Quick view today:
+
+1. **Function-parameter renaming** (10 sites,
+   `cppfunctionparamrenaminghandler.*`). The handler is built only from
+   `cppeditorwidget.cpp:425` and takes a `CppEditorWidget &`. So
+   renaming a parameter in a definition does not follow through to the
+   declaration in the Qt Quick view. The largest single hole.
+2. **The decl/def "could not apply" tooltip**
+   (`cppfunctiondecldeflink.cpp:474`). It casts to `CppEditorWidget` to
+   place the tooltip and says nothing when the cast fails - with a
+   comment saying a view that is not a widget "says nothing rather than
+   saying it in the wrong place". `toolTipPositionIn()` exists now, so
+   that reason has expired.
+3. **Signal/slot completion's parse source**
+   (`cppmodelmanager.cpp:706`) walks `editorWidgetsForDocument()`; with
+   no widget it falls back to a fresh preprocess, which is slower and
+   can differ.
+
+Four questions account for fourteen of those sites, and they are the
+seams to write:
+
+- `SemanticInfo semanticInfoOf(Core::IEditor *)` - the widget keeps its
+  own parse with local uses patched in as the caret moves, and the
+  document's copy has no local uses. Wanted at
+  `cppuseselectionsupdater.cpp:84`, `cppfunctiondecldeflink.cpp:365`
+  and `:442`, `cppfunctionparamrenaminghandler.cpp:68`,
+  `cpprefactoringchanges.cpp:51` and `:91`, `cpptoolsreuse.cpp:321`,
+  `cppbuiltinmodelmanagersupport.cpp:110`, `cppmodelmanager.cpp:706`.
+  The alternative is better and deletes all nine: make local uses a
+  fact of the document rather than of the view. Worth deciding before
+  writing the seam.
+- "Is this view's parse current apart from local uses"
+  (`cppfunctiondecldeflink.cpp:375`, `cpptoolsreuse.cpp:208`).
+- "Bring this view's parse up to date now"
+  (`cppbuiltinmodelmanagersupport.cpp:172`).
+- "Is an `EditHandler` mid-edit here" (`cppuseselectionsupdater.cpp:77`,
+  today `isRenaming()`). `EditHandler::isActive()` exists; the lookup
+  from an editor does not.
+
+Two API signatures outside cppeditor block sites inside it:
+`IAssistProposal::isCorrective()/makeCorrection()` take a
+`TextEditorWidget *` (`codeassist/iassistproposal.h:26`), which is what
+holds `cppcompletionassist.cpp:415`; and `RefactoringFile::editor()`
+returns one (`refactoringchanges.h:52`), which holds
+`synchronizememberfunctionorder.cpp:107`.
+
+### A claim the census got wrong, measured
+
+The census said `cppoutline.cpp:262` was a live bug: picking an outline
+row does `m_editor->widget()->setFocus()`, and on a Qt Quick editor
+that widget is the `QQuickWidget` host rather than the view inside it,
+so the focus would land in the wrong place. It reads that way and it is
+wrong.
+
+Changed to `TextEditor::setFocusIn()` with an assertion added to
+`testTheOutlineFollowsTheCaretInAnyView` that the text has the focus
+after a row is picked, then controlled three ways:
+
+- the old `widget()->setFocus()` put back: still green,
+- no focus call at all: **still green**.
+
+So the assertion cannot fail, the host forwards focus into the scene by
+itself, and the change was a tidy-up dressed as a fix. Both the change
+and the assertion were taken back out. What would make a real test of
+this is an editor whose focus starts somewhere else, and that is worth
+building only if something turns out to depend on it.
+
+### Negative controls
+
+One that bit, on the one thing this batch asserts.
+
+- A, `setUsesQuickEditor(true)` taken out of `CppEditorFactory`: 2
+  passed, 1 failed - "a C++ file still opens in the widget editor". The
+  rest of the CppEditor suite stays green, which is the point of the
+  new test.
+- B and C are the two above, on the outline's focus: neither bit, and
+  the change they were controlling is not in this batch.
+
+### Measurements
+
+On the restored tree, one build, in the VM:
+
+    -test TextEditor     827 passed, 0 failed, 3 skipped, exit 0   x3
+    -test QuickUi        228 passed, 0 failed, 0 skipped, exit 0
+    -test CppEditor     1659 passed, 0 failed, 58 skipped, exit 0
+    -test QmlDesigner     16 passed, 0 failed, 0 skipped, exit 0
+
+CppEditor is the suite that matters here and it is the same 1659 before
+and after the include removal. Its 58 skips are its own (clangd and
+project-dependent cases), not this batch's. No entry 247 crash in these
+three TextEditor runs. No `.qbs` edited.
+
+### What is next
+
+1. Decide the local-uses question above, then write whichever seam it
+   calls for. It unblocks six of the twelve clusters.
+2. Function-parameter renaming over a `Core::IEditor` - the one C++
+   feature the Qt Quick view does not have at all.
+3. The decl/def tooltip through `toolTipPositionIn()`, which is three
+   lines and wants a test that can see a tooltip.
+4. Still open from before: the dropped asset (346), the inline diff
+   editor (341), and the standing list (340).

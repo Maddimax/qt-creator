@@ -21,7 +21,6 @@
 
 #include <cppeditor/clangdsettings.h>
 #include <cppeditor/cppeditorconstants.h>
-#include <cppeditor/cppeditorwidget.h>
 #include <cppeditor/cppmodelmanager.h>
 #include <cppeditor/cppprojectfile.h>
 #include <cppeditor/cpptoolsreuse.h>

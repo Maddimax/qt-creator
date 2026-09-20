@@ -1135,6 +1135,28 @@ private slots:
         QVERIFY2(!container->menu()->actions().isEmpty(),
                  "the container the factory names has nothing in it");
     }
+
+    // The switch itself. Every other C++ test sets the view it wants and puts
+    // it back, so without this one the factory could go back to the widget
+    // editor with the whole suite staying green.
+    void testACppFileOpensInTheQuickView()
+    {
+        CppEditor::Tests::TemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const Utils::FilePath file = dir.createFile("plain.cpp", "int alpha = 1;\n");
+        QVERIFY(!file.isEmpty());
+
+        Core::IEditor * const editor = Core::EditorManager::openEditor(file);
+        QVERIFY2(editor, "the editor manager opened nothing");
+        const QScopeGuard closeIt(
+            [editor] { Core::EditorManager::closeEditors({editor}, false); });
+
+        // This language's own factory, not the one that claims text/plain:
+        // C++ names its mime types itself and beats a claim on their parent.
+        QCOMPARE(editor->document()->id(), Utils::Id(Constants::CPPEDITOR_ID));
+        QVERIFY2(!TextEditor::TextEditorWidget::fromEditor(editor),
+                 "a C++ file still opens in the widget editor");
+    }
 };
 
 QObject *createCppContextMenuTest()

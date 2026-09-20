@@ -13,7 +13,6 @@
 
 #include <cplusplus/FindUsages.h>
 
-#include <cppeditor/cppeditorwidget.h>
 #include <cppeditor/cppfindreferences.h>
 #include <cppeditor/cppeditordocument.h>
 #include <cppeditor/cpptoolsreuse.h>

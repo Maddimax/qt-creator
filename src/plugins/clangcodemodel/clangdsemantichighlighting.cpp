@@ -10,7 +10,6 @@
 #include "tasktimers.h"
 
 #include <cppeditor/cppeditordocument.h>
-#include <cppeditor/cppeditorwidget.h>
 #include <cppeditor/semantichighlighter.h>
 #include <languageclient/languageclientmanager.h>
 #include <languageclient/semantichighlightsupport.h>

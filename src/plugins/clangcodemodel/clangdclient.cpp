@@ -25,7 +25,6 @@
 
 #include <cppeditor/compilationdb.h>
 #include <cppeditor/cppcodemodelsettings.h>
-#include <cppeditor/cppeditorwidget.h>
 #include <cppeditor/cppmodelmanager.h>
 #include <cppeditor/cpprefactoringchanges.h>
 #include <cppeditor/cppsemanticinfo.h>

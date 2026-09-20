@@ -24,7 +24,6 @@ QT_END_NAMESPACE
 namespace Core { class IEditor; }
 namespace CppEditor { class RefactoringEngineInterface; }
 namespace LanguageClient { class Client; }
-namespace TextEditor { class TextEditorWidget; }
 
 namespace ClangCodeModel::Internal {
 
