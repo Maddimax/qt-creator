@@ -78,11 +78,21 @@ if (MSVC)
   endif()
 endif()
 
+# The WebAssembly build of qtprofiler links neither Qt Qml nor Qt Sql (Core leaves
+# the JavaScript engine out there, and Utils keeps its settings in memory), so a
+# Qt for WebAssembly built without them has to do.
+set(IDE_QT_REQUIRED_COMPONENTS Concurrent Core Gui Network PrintSupport Widgets Xml)
+if (NOT EMSCRIPTEN)
+  list(APPEND IDE_QT_REQUIRED_COMPONENTS Qml Sql)
+endif()
 find_package(Qt6
   ${IDE_QT_VERSION_MIN}
-  COMPONENTS Concurrent Core Gui Network PrintSupport Qml Sql Widgets Xml
+  COMPONENTS ${IDE_QT_REQUIRED_COMPONENTS}
   REQUIRED
 )
+if (EMSCRIPTEN)
+  find_package(Qt6 OPTIONAL_COMPONENTS Qml Sql QUIET)
+endif()
 
 # Always look for Qt::Test since we always optionally want it for ExtensionSystem
 # but only required if WITH_TESTS=ON

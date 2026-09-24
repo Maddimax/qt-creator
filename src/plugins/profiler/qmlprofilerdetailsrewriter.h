@@ -5,7 +5,9 @@
 
 #include <qmldebug/qmleventlocation.h>
 #include <projectexplorer/runconfiguration.h>
+#ifndef Q_OS_WASM
 #include <qmljs/qmljsdocument.h>
+#endif
 #include <utils/fileinprojectfinder.h>
 
 #include <QObject>
@@ -38,11 +40,15 @@ private:
     QMultiHash<Utils::FilePath, PendingEvent> m_pendingEvents;
     Utils::FileInProjectFinder m_projectFinder;
 
+#ifndef Q_OS_WASM
+    // Resolving an event to its place in the source needs the QML parser, which
+    // the WebAssembly build leaves out; see qmlprofilerdetailsrewriter_wasm.cpp.
     void rewriteDetailsForLocation(const QString &source, QmlJS::Document::Ptr doc, int typeId,
                                    const QmlDebug::QmlEventLocation &location);
     void connectQmlModel();
     void disconnectQmlModel();
     void documentReady(QmlJS::Document::Ptr doc);
+#endif
 
     friend class QTypeInfo<PendingEvent>;
 };

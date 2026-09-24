@@ -143,7 +143,9 @@ QmlProfilerTraceBackend::QmlProfilerTraceBackend(Timeline::RangeDetailsWidget *d
         [setButtonsEnabled] { setButtonsEnabled(false); },
         [this, setButtonsEnabled] {
             updateTimeDisplay();
+#ifndef Q_OS_WASM
             createTextMarks();
+#endif
             setButtonsEnabled(true);
             d->recordButton.setEnabled(true);
         },
@@ -185,6 +187,7 @@ QWidgetList QmlProfilerTraceBackend::views(QWidget *parent)
     // (after the dashboard), see QmlProfilerPlainViewManager::views().
     d->traceView = views.value(1);
 
+#ifndef Q_OS_WASM
     // Annotate the source with this trace's timings, in the editors that are
     // open now and in any opened later.
     createTextMarks();
@@ -193,9 +196,11 @@ QWidgetList QmlProfilerTraceBackend::views(QWidget *parent)
         if (d->statisticsView)
             d->statisticsView->createMarks(filePath.toUrlishString());
     });
+#endif
     return views;
 }
 
+#ifndef Q_OS_WASM
 void QmlProfilerTraceBackend::createTextMarks()
 {
     if (!d->statisticsView)
@@ -204,6 +209,7 @@ void QmlProfilerTraceBackend::createTextMarks()
     for (Core::IDocument *document : documents)
         d->statisticsView->createMarks(document->filePath().toUrlishString());
 }
+#endif
 
 QList<QWidget *> QmlProfilerTraceBackend::toolBarWidgets()
 {

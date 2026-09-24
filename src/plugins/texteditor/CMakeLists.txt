@@ -141,6 +141,12 @@ qtc_add_resources(TextEditor "images"
     images/snippet.png
 )
 
+# Nothing to link the support library into when the plugin was not built, which
+# a build that lists only some plugins (see BUILD_PLUGINS) can ask for.
+if(NOT TARGET TextEditor)
+  return()
+endif()
+
 # from cmake 3.24 $<LINK_LIBRARY:WHOLE_ARCHIVE,TextEditorSupport> is supported which can be added to DEPENDS
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0" AND NOT CMAKE_GENERATOR STREQUAL "FASTBuild")
   target_link_libraries(TextEditor PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,TextEditorSupport>)
