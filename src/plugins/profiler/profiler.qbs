@@ -6,7 +6,12 @@ QtcPlugin {
     Depends { name: "Qt"; submodules: ["widgets", "network"] }
 
     Depends { name: "CommonTraceFormat" }
-    Depends { name: "QmlJS" }
+    // Only the details rewriter parses QML, and it cannot resolve a source
+    // file on WebAssembly (see the CMakeLists.txt).
+    Depends {
+        name: "QmlJS"
+        condition: !qbs.toolchain.contains("emscripten")
+    }
     Depends { name: "QmlDebug" }
     Depends { name: "Utils" }
     Depends { name: "Tracing"; required: false }
@@ -14,9 +19,22 @@ QtcPlugin {
     Depends { name: "McpServerLib" }
 
     Depends { name: "Core" }
-    Depends { name: "ProjectExplorer" }
-    Depends { name: "QtSupport" }
-    Depends { name: "TextEditor" }
+    // ProjectExplorer and QtSupport are only needed by the Qt Creator
+    // integration, which a WebAssembly build leaves out (see CMakeLists.txt).
+    Depends {
+        name: "ProjectExplorer"
+        condition: !qbs.toolchain.contains("emscripten")
+    }
+    Depends {
+        name: "QtSupport"
+        condition: !qbs.toolchain.contains("emscripten")
+    }
+    // TextEditor is only used for the text marks that annotate source in Qt
+    // Creator's editors, which a WebAssembly build has none of.
+    Depends {
+        name: "TextEditor"
+        condition: !qbs.toolchain.contains("emscripten")
+    }
 
     // The Perf Sampler backend shells out to perfparser at runtime (see
     // perfsampler.cpp); building Profiler should build it too. Not required:
@@ -36,6 +54,39 @@ QtcPlugin {
     Properties {
         condition: qbs.targetOS.contains("macos")
         cpp.frameworks: ["Security"]
+    }
+
+    Group {
+        name: "details rewriter"
+        condition: !qbs.toolchain.contains("emscripten")
+        files: ["qmlprofilerdetailsrewriter.cpp"]
+    }
+
+    Group {
+        name: "details rewriter (WebAssembly)"
+        condition: qbs.toolchain.contains("emscripten")
+        files: ["qmlprofilerdetailsrewriter_wasm.cpp"]
+    }
+
+    Group {
+        name: "Qt Creator integration"
+        condition: !qbs.toolchain.contains("emscripten")
+        files: [
+            "mcpsupport.cpp", "mcpsupport.h",
+            "profilerplugin.cpp",
+            "qmlprofilertool.cpp", "qmlprofilertool.h",
+            "perfprofilertool.cpp", "perfprofilertool.h",
+            "profilermode.cpp", "profilermode.h",
+            "profilersamplerruncontrol.cpp", "profilersamplerruncontrol.h",
+            "profilerstarteditor.cpp", "profilerstarteditor.h",
+            "qmlprofilerattachdialog.cpp", "qmlprofilerattachdialog.h",
+            "qmlprofilerrunconfigurationaspect.cpp", "qmlprofilerrunconfigurationaspect.h",
+            "qmlprofilerruncontrol.cpp", "qmlprofilerruncontrol.h",
+            "perfloaddialog.cpp", "perfloaddialog.h",
+            "perfprofilerruncontrol.cpp", "perfprofilerruncontrol.h",
+            "perfrunconfigurationaspect.cpp", "perfrunconfigurationaspect.h",
+            "perftracepointdialog.cpp", "perftracepointdialog.h",
+        ]
     }
 
     // Only part of the build on Windows: the sources use Windows APIs without
@@ -61,7 +112,6 @@ QtcPlugin {
             "calltreeview.cpp", "calltreeview.h",
             "cpuusagemodel.cpp", "cpuusagemodel.h",
             "macsampler.cpp", "macsampler.h",
-            "mcpsupport.cpp", "mcpsupport.h",
             "processpickerdialog.cpp", "processpickerdialog.h",
             "qmlprofilersampler.cpp", "qmlprofilersampler.h",
             "qttracesampler.cpp", "qttracesampler.h",
@@ -87,11 +137,7 @@ QtcPlugin {
             "memoryusagemodel.cpp", "memoryusagemodel.h",
             "pixmapcachemodel.cpp", "pixmapcachemodel.h",
             "qmlnote.cpp", "qmlnote.h",
-            "profilermode.cpp", "profilermode.h",
-            "profilerplugin.cpp",
             "profilerrecorder.cpp", "profilerrecorder.h",
-            "profilersamplerruncontrol.cpp", "profilersamplerruncontrol.h",
-            "profilerstarteditor.cpp", "profilerstarteditor.h",
             "profilertracebackend.cpp", "profilertracebackend.h",
             "profilertracedocument.cpp", "profilertracedocument.h",
             "profilertraceeditor.cpp", "profilertraceeditor.h",
@@ -101,12 +147,11 @@ QtcPlugin {
             "traceformat.cpp", "traceformat.h",
             "welcomepage.cpp", "welcomepage.h",
             "qmlprofileranimationsmodel.h", "qmlprofileranimationsmodel.cpp",
-            "qmlprofilerattachdialog.cpp", "qmlprofilerattachdialog.h",
             "qmlprofilerclientmanager.cpp", "qmlprofilerclientmanager.h",
             "qmlprofilerconstants.h",
             "qmlprofilerdashboardstats.cpp", "qmlprofilerdashboardstats.h",
             "qmlprofilerdashboardview.cpp", "qmlprofilerdashboardview.h",
-            "qmlprofilerdetailsrewriter.cpp", "qmlprofilerdetailsrewriter.h",
+            "qmlprofilerdetailsrewriter.h",
             "qmlprofilerfindings.cpp", "qmlprofilerfindings.h",
             "qmlprofilerfindingsmodel.cpp", "qmlprofilerfindingsmodel.h",
             "qmlprofilerfindingsview.cpp", "qmlprofilerfindingsview.h",
@@ -114,9 +159,7 @@ QtcPlugin {
             "qmlprofilermodelmanager.cpp", "qmlprofilermodelmanager.h",
             "qmlprofilernotesmodel.cpp", "qmlprofilernotesmodel.h",
             "qmlprofilerplainviewmanager.cpp", "qmlprofilerplainviewmanager.h",
-            "qmlprofilerrunconfigurationaspect.cpp", "qmlprofilerrunconfigurationaspect.h",
             "qmlprofilerrangemodel.cpp", "qmlprofilerrangemodel.h",
-            "qmlprofilerruncontrol.cpp", "qmlprofilerruncontrol.h",
             "qmlprofilersettings.cpp", "qmlprofilersettings.h",
             "qmlprofilerstatemanager.cpp", "qmlprofilerstatemanager.h",
             "qmlprofilerstatewidget.cpp", "qmlprofilerstatewidget.h",
@@ -124,7 +167,6 @@ QtcPlugin {
             "qmlprofilerstatisticsview.cpp", "qmlprofilerstatisticsview.h",
             "qmlprofilertimelinemodel.cpp", "qmlprofilertimelinemodel.h",
             "qmlprofilertracebackend.cpp", "qmlprofilertracebackend.h",
-            "qmlprofilertool.cpp", "qmlprofilertool.h",
             "qmlprofilertracefile.cpp", "qmlprofilertracefile.h",
             "qmlprofilertraceview.cpp", "qmlprofilertraceview.h",
             "quick3dmodel.cpp", "quick3dmodel.h",
@@ -143,26 +185,21 @@ QtcPlugin {
             "perfdatareader.cpp", "perfdatareader.h",
             "perfevent.h",
             "perfeventtype.h",
-            "perfloaddialog.cpp", "perfloaddialog.h",
             "perfnativemixed.cpp", "perfnativemixed.h",
             "perfprofilertr.h",
             "perfprofilerconstants.h",
             "perfprofilerflamegraphmodel.cpp", "perfprofilerflamegraphmodel.h",
             "perfprofilertracebackend.cpp", "perfprofilertracebackend.h",
             "perfprofilerflamegraphview.cpp", "perfprofilerflamegraphview.h",
-            "perfprofilerruncontrol.cpp", "perfprofilerruncontrol.h",
             "perfprofilerstatisticsmodel.cpp", "perfprofilerstatisticsmodel.h",
             "perfprofilerstatisticsview.cpp", "perfprofilerstatisticsview.h",
-            "perfprofilertool.cpp", "perfprofilertool.h",
             "perfprofilertracefile.cpp", "perfprofilertracefile.h",
             "perfprofilertracemanager.cpp", "perfprofilertracemanager.h",
             "perfresourcecounter.h",
-            "perfrunconfigurationaspect.cpp", "perfrunconfigurationaspect.h",
             "perfsampler.cpp", "perfsampler.h",
             "perfsettings.cpp", "perfsettings.h",
             "perftimelinemodel.cpp", "perftimelinemodel.h",
             "perftimelinemodelmanager.cpp", "perftimelinemodelmanager.h",
-            "perftracepointdialog.cpp", "perftracepointdialog.h",
             "perfprofiler.qrc",
             "profiler.qrc",
         ]

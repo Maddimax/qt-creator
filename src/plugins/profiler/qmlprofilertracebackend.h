@@ -72,7 +72,9 @@ private:
     // Whether the trace may be discarded: nothing is unsaved, or the user
     // confirmed losing it.
     bool checkForUnsavedNotes();
+#ifndef Q_OS_WASM
     void createTextMarks();
+#endif
     void clearEvents();
     void updateTimeDisplay();
     void showTimelineSearch();
